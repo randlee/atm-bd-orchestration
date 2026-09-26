@@ -1,0 +1,9 @@
+{
+  "id": "{{ bead_prefix }}-d-4-sanity",
+  "parent": "{{ bead_prefix }}-phase-d",
+  "dev_bead": "{{ bead_prefix }}-d-4",
+  "phase": "d",
+  "sprint": "d-4",
+  "stack": "phase-d",
+  "assignee": "{{ dev_sanity_member }}"
+}

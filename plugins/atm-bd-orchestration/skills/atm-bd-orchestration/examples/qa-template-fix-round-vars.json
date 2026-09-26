@@ -1,0 +1,18 @@
+{
+  "task_id": "{{ bead_prefix }}-d-4-qa1-f1-qa1",
+  "checked_bead": "{{ bead_prefix }}-d-4-qa1-f1",
+  "phase": "d",
+  "phase_feature": "{{ bead_prefix }}-phase-d",
+  "sprint": "d-4",
+  "stack": "phase-d",
+  "layer": 6,
+  "round": 2,
+  "branch": "fix/d-4-qa1-f1-retry-jitter",
+  "commit": "9a8b7c6d5e4f30211a2b3c4d5e6f708192a3b4c5",
+  "base": "sprint/d-5-otlp-logs",
+  "worktree_path": "{{ worktree_base }}/fix/d-4-qa1-f1-retry-jitter",
+  "carry_forward": "{{ bead_prefix }}-d-4-qa1-f1",
+  "lead": "{{ bead_prefix }}-lead",
+  "cc": "",
+  "sprint_bead": "{{ bead_prefix }}-d-4"
+}

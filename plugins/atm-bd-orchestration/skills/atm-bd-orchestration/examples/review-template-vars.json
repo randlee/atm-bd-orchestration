@@ -1,0 +1,12 @@
+{
+  "task_id": "{{ bead_prefix }}-phase-d-review",
+  "phase": "d",
+  "branch": "fix/d-4-qa1-f1-retry-jitter",
+  "commit": "9a8b7c6d5e4f30211a2b3c4d5e6f708192a3b4c5",
+  "worktree_path": "{{ worktree_base }}/fix/d-4-qa1-f1-retry-jitter",
+  "review_focus": "- OTLP exporter boundaries (SDK vs sync path)",
+  "review_questions": "- Is example-otlp extractable without the workspace's other crates?",
+  "references": "- bd show {{ bead_prefix }}-phase-d\n- docs/architecture.md",
+  "lead": "{{ bead_prefix }}-lead",
+  "cc": ""
+}

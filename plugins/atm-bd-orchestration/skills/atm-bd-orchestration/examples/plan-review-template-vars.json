@@ -1,0 +1,8 @@
+{
+  "task_id": "{{ bead_prefix }}-phase-d-plan-qa",
+  "root": "{{ bead_prefix }}-phase-d",
+  "phase": "d",
+  "round": 1,
+  "lead": "team-lead",
+  "cc": "team-lead"
+}
