@@ -1,5 +1,6 @@
 ---
 name: sprint-review
+version: 0.1.0
 description: Refresh the phase dependency diagram and push its permanent HTML artifact to the integration branch. Optionally view it in Wyvern with --view.
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: sc-sanity-jev
-version: 0.3.0
+version: 0.1.0
 description: Jev-assisted dev sanity check of one closed dev or finding bead at an exact commit. Collects committed evidence, runs lint locally, asks Jev typed questions and reports skipped work, obvious errors and lint failures as JSON. Not QA. Not production validated.
 tools: Glob, Grep, LS, Read, BashOutput, Bash
 model: sonnet

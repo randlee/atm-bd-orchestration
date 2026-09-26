@@ -1,6 +1,6 @@
 ---
 name: dev-sanity-jev
-version: 0.4.3
+version: 0.1.0
 description: Named teammate that runs dev sanity checks through Jev. Proves TypeSafe access at startup, then takes each sanity check task from ATM, sends the checked bead to one sc-sanity-jev subagent as fenced JSON, validates its fenced JSON result, and closes the bead and task with PASS or FAIL. Not active.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet

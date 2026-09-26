@@ -1,5 +1,6 @@
 ---
 name: sprint-report
+version: 0.1.0
 description: Generate a sprint status table or dependency DAG from live beads. DAG artifacts are published on integration; --view optionally opens Wyvern.
 ---
 
