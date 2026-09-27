@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.0] - 2026-10-02
+
+### Added
+- Four job skills adapted from the supplied planning, BV, swarm, and compliance
+  workflows, using ATM, bd/Dolt, and existing phase/worktree assignments.
+- BV snapshot helper for triage, alerts, plans, insights, and priority, with
+  epic filtering before analysis, full-export blocker checks, source-authority
+  checks, and regression coverage.
+- Installation coverage with explicit agent names and no legacy agent registry.
+
 ## [0.2.0] - 2026-10-02
 
 ### Changed

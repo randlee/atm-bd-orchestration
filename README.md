@@ -15,6 +15,7 @@ plugins/
     skills/{atm-beads,atm-bd-orchestration,sprint-report,sprint-review}/
     agents/{dev-sanity,dev-sanity-llm,sc-sanity-llm,dev-sanity-jev,sc-sanity-jev}.md
     assets/scripts/jev_client.py         Jev transport, placed at <repo>/scripts/jev_client.py
+    skills/{beads-workflow,beads-bv,multi-agent-swarm-workflow,beads-compliance-and-completion-verification}/  four job skills
     tests/                               package consistency and install tests
 ```
 
@@ -35,9 +36,15 @@ python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude
 python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.codex
 ```
 
-`install.py` reads the repository's `.atm.toml` and `.claude/agents/registry.yaml`
-(team, lead, dev-sanity member, bead prefix, workflow-issues root) and its git
-origin (repo slug) and renders them into the installed copy with `sc-compose`.
+The four job skills cover planning (`beads-workflow`), prioritization
+(`beads-bv`), execution (`multi-agent-swarm-workflow`), and evidence verification
+(`beads-compliance-and-completion-verification`). They use `atm`, `bd`/Dolt,
+`.atm.toml` agent configuration, and the assigned phase/worktree context.
+
+`install.py` reads the team from `.atm.toml` and the repo slug from git origin.
+Pass lead/sanity member names with `--set` when using `.atm.toml` agent
+configuration; the installer also supports legacy agent-registry defaults.
+Repository values are rendered into the installed copy with `sc-compose`.
 Details, variables and overrides: [plugins/atm-bd-orchestration/README.md](plugins/atm-bd-orchestration/README.md).
 
 synaptic-canvas will reference this repository's package with a `git-subdir`
