@@ -32,7 +32,7 @@ def test_generated_blocks_are_current():
 def test_manifest_lists_every_skill_and_agent_file():
     artifacts = install.load_manifest_artifacts(PKG)
     assert artifacts == gen_manifest.tree_artifacts()
-    flat = [rel for cat in ("skills", "agents") for rel in artifacts[cat]]
+    flat = [rel for cat in ("skills", "agents", "assets") for rel in artifacts[cat]]
     assert flat == install.INVENTORY
 
 
@@ -46,7 +46,7 @@ def test_render_list_covers_exactly_the_placeholder_files():
 
 def test_no_repo_or_team_specific_strings_in_sources():
     hits = []
-    for cat in ("skills", "agents"):
+    for cat in ("skills", "agents", "assets"):
         for path in (PKG / cat).rglob("*"):
             if not path.is_file() or "node_modules" in path.parts or "__pycache__" in path.parts:
                 continue
@@ -143,6 +143,8 @@ def test_standalone_install_renders_every_placeholder(tmp_path):
     assert "| Setting | Where | my-repo |" in role and "`my-sanity`" in role
     example = (dest / "skills/atm-bd-orchestration/examples/dev-sanity-template-vars.json").read_text()
     assert "https://github.com/owner/my-repo/pull/" in example and str(repo.resolve().parent / "my-repo-worktrees") in example
+    # the sprint index schema also lands in the repository's docs/plans/
+    assert (repo / "docs/plans/sprints.schema.json").read_bytes() == (PKG / "assets/docs/plans/sprints.schema.json").read_bytes()
     # scripts stay executable
     assert (dest / "skills/atm-beads/scripts/validate-plan").stat().st_mode & 0o111
     # unrendered files are byte-identical to the package copy

@@ -20,10 +20,12 @@ class SprintReportTests(unittest.TestCase):
             path = Path(directory) / 'sprints.json'
             path.write_text(json.dumps(index))
             self.assertEqual(report.load_index(Path(directory), path, None)[1], index)
-            for field in ('phase_id', 'integration_branch'):
-                path.write_text(json.dumps({**index, field: 'copied'}))
-                with self.assertRaisesRegex(RuntimeError, 'only root_bead_id and sprints'):
-                    report.load_index(Path(directory), path, None)
+            path.write_text(json.dumps({**index, 'phase_id': 'copied'}))
+            with self.assertRaisesRegex(RuntimeError, 'only root_bead_id and sprints'):
+                report.load_index(Path(directory), path, None)
+            # declared phase facts (demo-bo-10 D1) are accepted and ignored by the report
+            path.write_text(json.dumps({**index, 'integration_branch': 'integrate/phase-x', 'policy': {'human_gates': []}}))
+            self.assertEqual(report.load_index(Path(directory), path, None)[1]['sprints'], index['sprints'])
             index['sprints'][0]['title'] = 'copied'
             path.write_text(json.dumps(index))
             with self.assertRaisesRegex(RuntimeError, 'only dev_bead_id and sanity_bead_id'):
@@ -168,6 +170,23 @@ class SprintReportTests(unittest.TestCase):
         self.assertEqual(rows[0]['agents'], 'astra')
         self.assertEqual(rows[1]['agents'], 'UNCLASSIFIED')
         self.assertIn('UNCLASSIFIED', report.render_dispatch(rows))
+
+    def test_dispatch_fixture_matches_three_model_classes_and_waits(self):
+        members = [
+            {'identity': 'luna', 'model': 'gpt-6-luna'},
+            {'identity': 'terra', 'model': 'gpt-6-terra'},
+            {'identity': 'astra', 'model': 'gpt-6-astra'},
+        ]
+        ready = [
+            {'id': 'normal', 'priority': 2, 'metadata': {'layer': 2, 'difficulty': 'normal'}},
+            {'id': 'fast', 'priority': 2, 'metadata': {'layer': 3, 'difficulty': 'fast'}},
+            {'id': 'hard', 'priority': 1, 'metadata': {'layer': 4, 'difficulty': 'hard'}},
+        ]
+        rows = report.dispatch_rows(ready, members, set())
+        self.assertEqual([row['id'] for row in rows], ['hard', 'normal', 'fast'])
+        self.assertEqual([row['agents'] for row in rows], ['astra', 'terra', 'luna'])
+        hard_wait = report.dispatch_rows([ready[2]], members[:1], set())
+        self.assertEqual(hard_wait[0]['agents'], 'WAIT')
 
 
 if __name__ == '__main__':

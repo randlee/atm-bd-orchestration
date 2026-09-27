@@ -56,8 +56,10 @@ with `sc-compose render --strict` from the consuming repository's own config:
 | `repo_slug`, `repo_name` | `git remote get-url origin` |
 | `repo_root`, `worktree_base` | the repository path and `../<repo_name>-worktrees` |
 
-Everything else, including every `*.j2` dispatch template, is copied byte for
-byte; the dispatch templates take their values at dispatch time from the lead's
+The sprint index schema (`assets/docs/plans/sprints.schema.json`) is also
+placed at `<repo>/docs/plans/sprints.schema.json` unless one exists (`--force`
+replaces it); the repository owns it from then on. Everything else, including
+every `*.j2` dispatch template, is copied byte for byte; the dispatch templates take their values at dispatch time from the lead's
 vars files as before. `templates/workflow-issue-bead.json.j2` takes the
 workflow-issues root bead as its required `parent` variable.
 
@@ -74,7 +76,6 @@ are skipped, with a message, when it is not on PATH.
 
 ## Provenance
 
-Sources: sc-observability `fix/blocking-finding-gates` at 88741f937 (the top of
-the stack that adds the assignment and blocking-finding gates), with every
-repository- and team-specific string replaced by an install-time value. See
-`CHANGELOG.md`.
+Sources: sc-observability `develop` at 9ac5cd4 (PRs #263, #262, #266 and #267
+merged 2026-09-27), with every repository- and team-specific string replaced by
+an install-time value. See `CHANGELOG.md`.

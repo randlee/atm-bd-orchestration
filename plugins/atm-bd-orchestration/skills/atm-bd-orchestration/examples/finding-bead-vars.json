@@ -1,8 +1,6 @@
 {
   "id": "{{ bead_prefix }}-d-4-qa1-f1",
-  "parent": "{{ bead_prefix }}-phase-d",
   "qa_bead": "{{ bead_prefix }}-d-4-qa1",
-  "caused_by": "{{ bead_prefix }}-d-4",
   "phase": "d",
   "sprint": "d-4",
   "stack": "phase-d",

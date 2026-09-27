@@ -14,6 +14,7 @@ plugins/
     install.py                           sc-install hook (prepare/complete/cleanup) and standalone installer
     skills/{atm-beads,atm-bd-orchestration,sprint-report,sprint-review}/
     agents/{dev-sanity-llm,sc-sanity-llm,dev-sanity-jev,sc-sanity-jev}.md
+    assets/docs/plans/sprints.schema.json  sprint index schema, placed in <repo>/docs/plans/
     tests/                               package consistency and install tests
 ```
 

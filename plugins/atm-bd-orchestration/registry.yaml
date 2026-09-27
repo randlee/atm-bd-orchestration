@@ -44,6 +44,7 @@ render:
   - skills/atm-bd-orchestration/examples/arch-qa-assignment-vars.json
   - skills/atm-bd-orchestration/examples/dev-complete-vars.json
   - skills/atm-bd-orchestration/examples/dev-fix-vars.json
+  - skills/atm-bd-orchestration/examples/dev-sanity-assignment-vars.json
   - skills/atm-bd-orchestration/examples/dev-sanity-complete-vars.json
   - skills/atm-bd-orchestration/examples/dev-sanity-template-vars.json
   - skills/atm-bd-orchestration/examples/dev-template-vars.json
@@ -65,6 +66,7 @@ render:
   - skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json
   - skills/atm-bd-orchestration/examples/schema-reviewer-assignment-vars.json
   - skills/atm-bd-orchestration/examples/task-refused-vars.json
+  - skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json
   - skills/atm-bd-orchestration/roles/dev-sanity.md
   - skills/atm-beads/SKILL.md
   - skills/atm-beads/examples/dev-sanity-bead-vars-d-4.json
@@ -76,4 +78,6 @@ render:
   - skills/atm-beads/resources/planning.md
   - skills/atm-beads/resources/troubleshooting.md
   - skills/atm-beads/scripts/check-plan.jq
+  - skills/atm-beads/scripts/migrate-phase-contract
+  - skills/atm-beads/scripts/phase_contract_check.py
 # RENDER-END
