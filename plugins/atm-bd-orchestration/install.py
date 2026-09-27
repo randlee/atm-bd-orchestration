@@ -238,7 +238,6 @@ INVENTORY = [
     "agents/dev-sanity-llm.md",
     "agents/sc-sanity-jev.md",
     "agents/sc-sanity-llm.md",
-    "assets/docs/plans/sprints.schema.json",
     # INVENTORY-END
 ]
 

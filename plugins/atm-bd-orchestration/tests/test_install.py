@@ -32,7 +32,7 @@ def test_generated_blocks_are_current():
 def test_manifest_lists_every_skill_and_agent_file():
     artifacts = install.load_manifest_artifacts(PKG)
     assert artifacts == gen_manifest.tree_artifacts()
-    flat = [rel for cat in ("skills", "agents", "assets") for rel in artifacts[cat]]
+    flat = [rel for cat in ("skills", "agents") for rel in artifacts[cat]]
     assert flat == install.INVENTORY
 
 
