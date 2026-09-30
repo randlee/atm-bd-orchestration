@@ -14,5 +14,6 @@
   "carry_forward": "{{ bead_prefix }}-d-4-qa1-f1",
   "lead": "{{ bead_prefix }}-lead",
   "cc": "",
-  "sprint_bead": "{{ bead_prefix }}-d-4"
+  "sprint_bead": "{{ bead_prefix }}-d-4",
+  "primary_checkout": "{{ repo_root }}"
 }

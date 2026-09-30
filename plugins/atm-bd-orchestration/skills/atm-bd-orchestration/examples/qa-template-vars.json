@@ -13,5 +13,6 @@
   "worktree_path": "{{ worktree_base }}/sprint/d-4-otlp-sync-exporter",
   "pr_number": 231,
   "lead": "{{ bead_prefix }}-lead",
-  "cc": ""
+  "cc": "",
+  "primary_checkout": "{{ repo_root }}"
 }

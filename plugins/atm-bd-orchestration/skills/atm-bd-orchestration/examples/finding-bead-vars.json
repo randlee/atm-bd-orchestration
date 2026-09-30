@@ -1,8 +1,6 @@
 {
   "id": "{{ bead_prefix }}-d-4-qa1-f1",
-  "parent": "{{ bead_prefix }}-phase-d",
   "qa_bead": "{{ bead_prefix }}-d-4-qa1",
-  "caused_by": "{{ bead_prefix }}-d-4",
   "phase": "d",
   "sprint": "d-4",
   "stack": "phase-d",
@@ -18,6 +16,9 @@
   "remedy": "Add full jitter to the retry delay in crates/example-otlp/src/sync.rs and a test for it.",
   "evidence": "crates/example-otlp/src/sync.rs:97 `sleep(self.retry_delay)`",
   "sprint_bead": "{{ bead_prefix }}-d-4",
+  "phase_root": "{{ bead_prefix }}-phase-d",
+  "pr_number": 412,
+  "wave": 2,
   "requirements": [
     "NONE"
   ],

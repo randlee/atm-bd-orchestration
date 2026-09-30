@@ -28,6 +28,20 @@ verdict. The open finding beads carry the remaining work.
 Run every open QA task at once. Each has its own background reviewers; close
 each as soon as its verdict is ready, in any order.
 
+## Pre-claim refusals
+
+Before claim, run `gh pr view "$PR_NUMBER" --json baseRefName,headRefOid`,
+read the pinned PASS commit with `bd show "$CHECKED_BEAD" --json | jq -r
+'.[0].metadata.sanity_pass_commit'`, and run `git rev-parse HEAD`. The PR base
+must equal `metadata.stack_parent` (`metadata.pr_target` when unset), its head must equal the sanity PASS commit,
+and the QA worktree HEAD must equal that PR head. Otherwise refuse
+`SANITY_STALE`; no layer or quick fix lacking QA PASS at that pinned head is
+mergeable. Before the refusal message or task close, strictly render
+`templates/workflow-issue-bead.json.j2` with id `$TASK_ID-wf-SANITY_STALE`,
+`bd import <scratch>/$TASK_ID-wf-SANITY_STALE.json`, and include the created id
+in the refusal. The same render/import-before-refusal rule applies to any
+other QA cannot-run path.
+
 ## Plan Review
 
 A plan-review task (`plan-review-template.xml.j2`) reviews the beads under a
@@ -108,22 +122,57 @@ screen said. What happens next depends on the verdict:
 - Render each finding to a file and gate it with `jq -e` before appending it
   to the import JSONL, so a finding the template rejects stops you instead of
   disappearing.
+- File a blocking finding under its sprint (`sprint_bead`) and an important
+  or minor one under the phase root (`phase_root`), with its provenance.
+  Only you close important findings.
 - A round with only minor findings is PASS; its open finding beads remain
-  backlog. Any blocking or important finding is FAIL and receives exactly one
+  in the phase pool. Any blocking or important finding is FAIL and receives exactly one
   fix round. A second FAIL is `ROUND_CAP`: stop dispatch and record the root
   cause rather than creating another fix round.
 - `difficulty` is required when rendering a finding. Copy it from the
   checked sprint/finding; never select a default. The dispatch report prints
   `UNCLASSIFIED` and no agent for a live bead missing it.
-- After filing a blocking finding, run `blocking-finding-gates.py --finding
-  <id>` before dispatch. Its sanity gate blocks only open downstream dev and
-  unclaimed finding/fix work; important and minor findings do not add gates.
-- Findings are `parallel_safe` by default. Set `blocked_by` only when one fix
-  needs another finding's fix first.
+- A blocking finding never adds a dependency to another planned sprint. The
+  canonical `sprints.jsonl` plan is the sole source of those edges; file and
+  dispatch the finding's own remediation through its normal finding/fix flow.
+- Findings are `parallel_safe` by default. Set `blocked_by` only to another finding
+  of this round, when its fix needs that one's fix first.
 - Ids are `<qa bead>-f<n>`, numbered in report order.
 - Every finding closes with a close reason. You close ceremony findings. The
-  fixer closes the rest, as fixed or not reproducible. In a fix round you
-  note each confirmed fix and reopen each carried finding that regressed or
-  is still open (`bd reopen`).
+  fixer closes blocking and minor findings, as fixed or not reproducible; an
+  important one stays open with its `fixed_at_commit` until you confirm it.
+  In a fix round you close each confirmed important fix, note each other
+  confirmed fix, and reopen each carried finding that regressed or is still
+  open (`bd reopen`).
 
 Do not assign findings. The lead picks the member for each one.
+
+## QA Metrics Log
+
+`qa-template.xml.j2` step j runs `scripts/qa-run-history append`, which
+appends one row to each of two JSONL logs at `.sc/qa-log/` in the primary
+checkout, on every task close in step i (never on the step-i1 refusal path).
+The script computes both rows; never write, compute or carry a row by hand.
+
+- `phase-<p>.jsonl` — one row per round, this round's own results:
+  `completed_at` (UTC), `completed_local` (24h HH:MM local), `duration`,
+  `phase`, `sprint`, `task`, `pr_number`, `iteration` (the round number),
+  `verdict`, `tested` (the carried finding_ref(s) for a fix round, else the
+  checked bead), and this round's own filed findings — `fnd`, `blk`, `imp`,
+  `min` — counting only findings whose screen verdict was not `ceremony`.
+- `phase-<p>-stats.jsonl` — one row per round, a phase-wide snapshot queried
+  live from `bd` at that same moment: `snapshot_at`, `snapshot_local`,
+  `phase`, `trigger_task` (the round that produced this snapshot), `tot`
+  (every bead with `metadata.phase` = p that carries the `stage:finding`
+  label or an `-f<n>` id), `open` (status not `closed`), and
+  `blk`/`imp`/`min` (open findings by severity). This is the same query used to answer "how
+  many findings are open" ad hoc; it gives velocity and a closure estimate
+  across rounds, and ties out against `phase-<p>.jsonl` at phase end (sum of
+  its `fnd` across all rounds reconciles with this log's final `tot`).
+
+When you display either log's timestamps to the operator, convert to 24h
+local; the logs themselves keep both the UTC and local strings.
+
+Never edit either file by hand outside step j's append; a wrong row is
+fixed by filing a workflow-issue bead and appending a correcting row, not by
+rewriting history in place.

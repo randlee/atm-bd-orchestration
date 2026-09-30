@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Create one child finding bead for every merged sanity finding.
+"""Create one finding bead for every unfinished deliverable of the checked bead.
 
 Usage:
   sanity-create-findings --task <sanity-bead> --bead <checked-bead> \
     --vars <sanity-vars.json> --reviewer <sc-sanity-llm|sc-sanity-jev> \
-    [--actor <identity>]
+    [--root <phase-root>] [--pr-number <n>] [--actor <identity>]
 
-The vars file is the JSON emitted by sanity-merge. On success, stdout is a
-JSON object containing every child bead id and its finding reference. It also
-adds `finding_bead_ids` to the supplied report vars so the final ATM report
-links directly to the created child beads. The script is idempotent for a
-task/commit/finding_ref tuple: a retry reuses the existing child instead of
-creating a duplicate.
+The vars file is the JSON emitted by sanity-merge. A blocking finding is a
+child of the checked bead; an important or minor finding is a child of the
+phase root (`--root`, required for them) and carries its provenance
+(sprint_bead, sanity_bead, found_at_commit, pr_number, wave, found_on_layer)
+in metadata. On success, stdout is a JSON object containing every finding bead
+id and its finding reference. It also adds `finding_bead_ids` to the supplied
+report vars so the final ATM report links directly to the created beads. The
+only edges it adds are `blocks` edges between the beads it creates, where a
+finding's `depends_on` names another finding of the same report and both
+share a parent; an edge across parents is reported in `skipped_edges`. The
+script is idempotent for a task/commit/finding_ref tuple: a retry reuses the
+existing finding instead of creating a duplicate.
 """
 from __future__ import annotations
 
@@ -19,25 +25,13 @@ import argparse
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
-from plan_contract import priority_for_severity
+from bd_commands import BLOCKS_RELATION, FINDING_LABEL, BdCommandError, command, priority_for_severity
 
 
 class HandoffError(RuntimeError):
     pass
-
-
-def command(argv: list[str], actor: str, *, capture: bool = False) -> str:
-    if actor:
-        argv.extend(["--actor", actor])
-    proc = subprocess.run(argv, text=True, capture_output=capture)
-    if proc.returncode:
-        detail = (proc.stderr or "").strip() or (proc.stdout or "").strip()
-        raise HandoffError(f"{' '.join(argv[:3])} failed: {detail}")
-    return proc.stdout.strip() if capture else ""
 
 
 def load_vars(path: Path, task: str, bead: str) -> dict:
@@ -51,7 +45,7 @@ def load_vars(path: Path, task: str, bead: str) -> dict:
         raise HandoffError("finding children may be created only for a FAIL report")
     if not isinstance(report.get("commit"), str) or not report["commit"]:
         raise HandoffError("sanity vars lacks pinned commit")
-    if not isinstance(report.get("findings"), list) or not report["findings"]:
+    if not isinstance(report.get("findings"), list):
         raise HandoffError("FAIL report lacks structured findings")
     return report
 
@@ -68,12 +62,34 @@ def finding_key(finding: dict) -> tuple[int, str, int]:
     return deliverable, file, line
 
 
-def existing_children(bead: str, actor: str, task: str, commit: str) -> dict[str, str]:
-    text = command(["bd", "list", "--all", "--parent", bead, "--json"], actor, capture=True)
-    try:
-        rows = json.loads(text)
-    except ValueError as exc:
-        raise HandoffError(f"cannot parse existing child beads: {exc}") from exc
+def undone_findings(findings: list[dict]) -> list[dict]:
+    undone = []
+    numbers = set()
+    for finding in findings:
+        if not isinstance(finding, dict):
+            raise HandoffError(f"invalid finding: {finding!r}")
+        if finding.get("kind") != "skipped":
+            continue
+        deliverable = finding.get("deliverable")
+        text = finding.get("deliverable_text")
+        if (not isinstance(deliverable, int) or isinstance(deliverable, bool) or deliverable < 1
+                or not isinstance(text, str) or not text.strip()):
+            raise HandoffError(f"invalid undone deliverable finding: {finding!r}")
+        if deliverable in numbers:
+            raise HandoffError(f"more than one skipped finding for deliverable {deliverable}")
+        numbers.add(deliverable)
+        undone.append(finding)
+    return undone
+
+
+def existing_children(parents: list[str], actor: str, task: str, commit: str) -> dict[str, str]:
+    rows = []
+    for parent in parents:
+        text = command(["bd", "list", "--all", "--parent", parent, "--json"], actor, capture=True)
+        try:
+            rows.extend(json.loads(text))
+        except ValueError as exc:
+            raise HandoffError(f"cannot parse existing child beads: {exc}") from exc
     found = {}
     for row in rows:
         metadata = row.get("metadata") or {}
@@ -85,36 +101,97 @@ def existing_children(bead: str, actor: str, task: str, commit: str) -> dict[str
     return found
 
 
-def main() -> int:
+def parent_layer(metadata: dict):
+    """A dev bead records `layer`; a finding bead records only `found_on_layer` (finding-bead.json.j2)."""
+    for key in ("layer", "found_on_layer"):
+        if metadata.get(key) not in (None, ""):
+            return metadata[key]
+    raise HandoffError("checked bead metadata lacks layer")
+
+
+def child_priority(severity: str, parent_priority: int) -> int:
+    """A blocking child ranks one above its parent, ahead of the parent's peers, within P1..P4;
+    other severities use the severity map."""
+    if severity == "blocking":
+        return max(1, min(parent_priority - 1, 4))
+    return priority_for_severity(severity)
+
+
+def sprint_bead_of(bead: str, show) -> str:
+    """The stage:sprint bead that owns `bead`, following metadata.sprint_bead through findings."""
+    seen = set()
+    while bead not in seen:
+        seen.add(bead)
+        row = show(bead)
+        if "stage:sprint" in (row.get("labels") or []):
+            return bead
+        bead = (row.get("metadata") or {}).get("sprint_bead") or ""
+        if not bead:
+            break
+    raise HandoffError("checked bead has no stage:sprint bead through metadata.sprint_bead")
+
+
+def finding_parent(severity: str, bead: str, root: str) -> str:
+    """A blocking finding holds the checked bead (and so its sprint) open; the others hold only the phase."""
+    return bead if severity == "blocking" else root
+
+
+def severity_of(finding: dict) -> str:
+    return str(finding.get("severity") or "blocking").lower()  # a sanity finding blocks unless the report says otherwise
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", required=True)
     parser.add_argument("--bead", required=True)
     parser.add_argument("--vars", required=True, type=Path)
     parser.add_argument("--reviewer", required=True, choices=("sc-sanity-llm", "sc-sanity-jev"))
+    parser.add_argument("--root", default="")
+    parser.add_argument("--pr-number", type=int, default=None)
     parser.add_argument("--actor", default=os.environ.get("ATM_IDENTITY", ""))
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         report = load_vars(args.vars, args.task, args.bead)
-        findings = report["findings"]
+        findings = undone_findings(report["findings"])
         selectors = {finding_key(finding): finding for finding in findings}
         if len(selectors) != len(findings):
             raise HandoffError("two findings share a deliverable/file/line selector")
-        parent = json.loads(command(["bd", "show", args.bead, "--json"], args.actor, capture=True))[0]
+        shown: dict[str, dict] = {}
+
+        def show(bead: str) -> dict:
+            if bead not in shown:
+                shown[bead] = json.loads(command(["bd", "show", bead, "--json"], args.actor, capture=True))[0]
+            return shown[bead]
+
+        parent = show(args.bead)
         parent_metadata = parent.get("metadata")
         if not isinstance(parent_metadata, dict):
             raise HandoffError("checked bead has no metadata")
-        required_parent_fields = ("phase", "sprint", "stack", "layer")
+        required_parent_fields = ("phase", "sprint", "stack")  # baked into chain steps; layer is checked by parent_layer
         missing_parent_fields = [key for key in required_parent_fields if key not in parent_metadata]
         if missing_parent_fields:
             raise HandoffError("checked bead metadata lacks " + ", ".join(missing_parent_fields))
+        layer = parent_layer(parent_metadata)
         phase, sprint, stack = (parent_metadata["phase"], parent_metadata["sprint"], parent_metadata["stack"])
         if not all(isinstance(value, str) and value for value in (phase, sprint, stack)):
             raise HandoffError("checked bead phase, sprint, and stack metadata must be non-empty strings")
         difficulty = parent_metadata.get("difficulty")
         if difficulty not in ("hard", "normal", "fast"):
             raise HandoffError("checked bead has no valid difficulty")
-        labels = [f"phase-{phase}", "stage:finding", f"stack:{stack}"]
-        children = existing_children(args.bead, args.actor, args.task, report["commit"])
+        if not isinstance(parent.get("priority"), int) or isinstance(parent.get("priority"), bool):
+            raise HandoffError("checked bead has no integer priority")
+        labels = [f"phase-{phase}", FINDING_LABEL, f"stack:{stack}"]
+        sprint_bead = sprint_bead_of(args.bead, show)
+        root = args.root
+        if not root and any(severity_of(finding) != "blocking" for finding in findings):
+            raise HandoffError("an important or minor finding needs --root <phase-root>")
+        wave = parent_metadata.get("wave")
+        if wave is None:
+            wave = (show(sprint_bead).get("metadata") or {}).get("wave")
+        pr_number = args.pr_number if args.pr_number is not None else report.get("pr_number")
+        parents = {finding["finding_ref"]: finding_parent(severity_of(finding), args.bead, root)
+                   for finding in findings if isinstance(finding.get("finding_ref"), str)}
+        children = existing_children(sorted(set(parents.values())) or [args.bead], args.actor, args.task, report["commit"])
         created = []
         for finding in findings:
             ref = finding.get("finding_ref")
@@ -122,32 +199,40 @@ def main() -> int:
                 raise HandoffError(f"finding has no finding_ref: {finding!r}")
             if ref in children:
                 continue
+            deliverable_text = finding["deliverable_text"].strip()
             payload = {
                 "sanity_bead": args.task, "checked_bead": args.bead,
                 "commit_checked": report["commit"], "finding_ref": ref,
                 "deliverable": finding["deliverable"], "kind": finding["kind"],
                 "file": finding["file"], "line": finding["line"],
                 "issue": finding["issue"], "depends_on": finding.get("depends_on", []),
+                "deliverable_text": deliverable_text,
             }
-            severity = str(finding.get("severity") or "").lower()
+            severity = severity_of(finding)
             try:
-                priority = priority_for_severity(severity)
+                priority = child_priority(severity, parent["priority"])
             except KeyError as exc:
                 raise HandoffError(f"invalid finding severity: {severity}") from exc
             provenance = {
                 "phase": phase, "sprint": sprint, "stack": stack,
-                "found_on_layer": parent_metadata["layer"],
+                "found_on_layer": layer,
                 "found_at_commit": report["commit"], "reviewer": args.reviewer,
-                "finding_ref": ref, "sprint_bead": args.bead, "severity": severity,
-                "difficulty": difficulty,
+                "finding_ref": ref, "sprint_bead": sprint_bead, "sanity_bead": args.task,
+                "severity": severity, "difficulty": difficulty,
             }
+            if wave is not None:
+                provenance["wave"] = wave
+            if pr_number is not None:
+                provenance["pr_number"] = pr_number
             metadata = {**provenance, "sanity_finding": payload}
-            description = "Sanity finding; the JSON below is the source report data.\n\n```json\n" + json.dumps(payload, indent=2, sort_keys=True) + "\n```"
-            acceptance = "- [ ] this finding is fixed at every occurrence in scope\n- [ ] a targeted reproducer or check passes\n- [ ] repository validation passes"
-            title = f"{args.bead} {ref}: {finding['file']}:{finding['line']}"
+            description = (f"Undone deliverable D{finding['deliverable']}:\n\n{deliverable_text}\n\n## Deliverables\n1. "
+                           f"{finding['issue']} ({finding['file']}:{finding['line']})"
+                           "\n\n## Checker evidence\n\n```json\n" + json.dumps(payload, indent=2, sort_keys=True) + "\n```")
+            acceptance = "- [ ] #1: this finding is fixed at every occurrence in scope\n- [ ] #1: a targeted reproducer or check passes\n- [ ] #1: repository validation passes"
+            title = f"{args.bead} D{finding['deliverable']} not done: {deliverable_text[:80]}"
             child = command([
                 "bd", "create", title, "--type", "bug", "--status", "open",
-                "--parent", args.bead, "--description", description,
+                "--parent", parents[ref], "--description", description,
                 "--acceptance", acceptance,
                 "--priority", str(priority),
                 "--labels", ",".join(labels), "--no-inherit-labels",
@@ -158,8 +243,8 @@ def main() -> int:
             children[ref] = child
             created.append(child)
         for finding in findings:
-            severity = str(finding.get("severity") or "").lower()
-            command(["bd", "update", children[finding["finding_ref"]], "--priority", str(priority_for_severity(severity))], args.actor)
+            command(["bd", "update", children[finding["finding_ref"]], "--priority", str(child_priority(severity_of(finding), parent["priority"]))], args.actor)
+        skipped_edges = []
         for finding in findings:
             child = children[finding["finding_ref"]]
             dependencies = finding.get("depends_on", [])
@@ -172,16 +257,20 @@ def main() -> int:
                 if prerequisite is None:
                     raise HandoffError(f"{finding['finding_ref']}: prerequisite is not a reported finding")
                 prerequisite_id = children[prerequisite["finding_ref"]]
-                if prerequisite_id != child:
-                    command(["bd", "dep", "add", child, prerequisite_id, "--type", "blocks"], args.actor)
+                if prerequisite_id == child:
+                    continue
+                if parents[finding["finding_ref"]] != parents[prerequisite["finding_ref"]]:
+                    skipped_edges.append({"from": child, "to": prerequisite_id})  # a blocks edge never crosses parents
+                    continue
+                command(["bd", "dep", "add", child, prerequisite_id, "--type", BLOCKS_RELATION], args.actor)
         child_rows = [{"finding_ref": finding["finding_ref"], "id": children[finding["finding_ref"]]} for finding in findings]
         finding_bead_ids = [row["id"] for row in child_rows]
         report["finding_bead_ids"] = finding_bead_ids
         args.vars.write_text(json.dumps(report, indent=2) + "\n")
-        json.dump({"task_id": args.task, "checked_bead": args.bead, "commit": report["commit"], "finding_bead_ids": finding_bead_ids, "children": child_rows, "created": created}, sys.stdout)
+        json.dump({"task_id": args.task, "checked_bead": args.bead, "commit": report["commit"], "finding_bead_ids": finding_bead_ids, "children": child_rows, "created": created, "skipped_edges": skipped_edges}, sys.stdout)
         print()
         return 0
-    except (HandoffError, KeyError, IndexError, OSError, ValueError) as exc:
+    except (BdCommandError, HandoffError, KeyError, IndexError, OSError, ValueError) as exc:
         print(f"SANITY.FINDING_HANDOFF_FAILED: {exc}", file=sys.stderr)
         return 2
 

@@ -1,0 +1,151 @@
+{
+  "$defs": {
+    "Dependency": {
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "depends_on_id": {
+          "title": "Depends On Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "depends_on_id"
+      ],
+      "title": "Dependency",
+      "type": "object"
+    },
+    "SprintMetadata": {
+      "additionalProperties": true,
+      "properties": {
+        "phase": {
+          "minLength": 1,
+          "title": "Phase",
+          "type": "string"
+        },
+        "sprint": {
+          "minLength": 1,
+          "title": "Sprint",
+          "type": "string"
+        },
+        "wave": {
+          "minimum": 0,
+          "title": "Wave",
+          "type": "integer"
+        },
+        "stack": {
+          "minLength": 1,
+          "title": "Stack",
+          "type": "string"
+        },
+        "layer": {
+          "minimum": 1,
+          "title": "Layer",
+          "type": "integer"
+        },
+        "pr_target": {
+          "minLength": 1,
+          "title": "Pr Target",
+          "type": "string"
+        },
+        "difficulty": {
+          "enum": [
+            "hard",
+            "normal",
+            "fast"
+          ],
+          "title": "Difficulty",
+          "type": "string"
+        },
+        "requirements": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requirements",
+          "type": "array"
+        },
+        "adrs": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Adrs",
+          "type": "array"
+        },
+        "owned_paths": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Owned Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "phase",
+        "sprint",
+        "wave",
+        "stack",
+        "layer",
+        "pr_target",
+        "difficulty",
+        "requirements",
+        "adrs",
+        "owned_paths"
+      ],
+      "title": "SprintMetadata",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "A stage:sprint container: carries the sprint doc and its wave, and is never dispatched.",
+  "properties": {
+    "id": {
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "dependencies": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Dependency"
+      },
+      "title": "Dependencies",
+      "type": "array"
+    },
+    "labels": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Labels",
+      "type": "array"
+    },
+    "description": {
+      "pattern": "(?m)^## Deliverables\\s*\\n(?:\\s*\\n)*\\s*1[.)]\\s+\\S",
+      "title": "Description",
+      "type": "string"
+    },
+    "acceptance_criteria": {
+      "minLength": 1,
+      "title": "Acceptance Criteria",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/SprintMetadata"
+    }
+  },
+  "required": [
+    "id",
+    "labels",
+    "description",
+    "acceptance_criteria",
+    "metadata"
+  ],
+  "title": "SprintBead",
+  "type": "object"
+}
