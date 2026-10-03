@@ -6,5 +6,7 @@
   "worktree_path": "{{ worktree_base }}/sprint/d-4-otlp-sync-exporter",
   "branch": "sprint/d-4-otlp-sync-exporter",
   "lead": "{{ bead_prefix }}-lead",
-  "cc": ""
+  "cc": "",
+  "primary_checkout": "{{ repo_root }}",
+  "phase_root": "{{ bead_prefix }}-phase-d"
 }

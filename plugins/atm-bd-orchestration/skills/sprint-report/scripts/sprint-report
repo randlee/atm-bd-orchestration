@@ -15,7 +15,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
-from sprint_index_common import run_json, index_bead_pairs, phase_id, validate_index
+from sprint_index_common import load_phase_plan, run_json, index_bead_pairs, phase_id
 from sprint_qa import metadata, choose_round, qa_verdict, qa_icon, findings_summary
 from plan_contract import DIFFICULTY_MODELS
 
@@ -28,7 +28,7 @@ def edge_type(edge: dict[str, Any]) -> str:
     return str(edge.get("type") or edge.get("dependency_type") or "")
 
 
-def sanity_iterations(log_path: Path) -> dict[str, int]:
+def sanity_iterations(log_path: Path, phase: str | None = None) -> dict[str, int]:
     if not log_path.exists():
         return {}
     iterations: dict[str, int] = {}
@@ -45,11 +45,31 @@ def sanity_iterations(log_path: Path) -> dict[str, int]:
             raise RuntimeError(f"invalid sanity history {log_path}:{line_number}: {exc}") from exc
         if not isinstance(run, dict):
             raise RuntimeError(f"invalid sanity history record {log_path}:{line_number}")
+        if phase is not None:
+            record_phase = str(run.get("phase") or "").removeprefix("phase-")
+            if not record_phase:
+                match = re.fullmatch(r"(?:phase-)?([a-z]+)(?:[-_]?\d+)?", str(run.get("sprint", "")).lower())
+                record_phase = match.group(1) if match else ""
+            if record_phase != phase.removeprefix("phase-"):
+                continue
         if run.get("verdict") not in {"PASS", "FAIL"} or not run.get("completed_at"):
             continue
         task, iteration = run.get("task"), run.get("iteration")
         if not isinstance(task, str) or type(iteration) is not int or iteration < 1:
             raise RuntimeError(f"invalid sanity iteration {log_path}:{line_number}")
+        iterations[task] = max(iterations.get(task, 0), iteration)
+    return iterations
+
+
+def phase_sanity_iterations(log_dir: Path, phase: str) -> dict[str, int]:
+    """Merge the renamed LLM history and current phase log without counting rows.
+
+    The historical filename carries no phase, so filter its records explicitly.
+    Both reviewer rows share an iteration; the maximum counts that run once.
+    """
+    phase = phase.removeprefix("phase-")
+    iterations = sanity_iterations(log_dir / "sanity-llm.jsonl", phase)
+    for task, iteration in sanity_iterations(log_dir / f"phase-{phase}.jsonl").items():
         iterations[task] = max(iterations.get(task, 0), iteration)
     return iterations
 
@@ -70,6 +90,18 @@ def historical_sanity_iterations(repo: Path, task: str) -> tuple[str, int | None
 def related_bead(bead: dict[str, Any], target: str, relation: str) -> bool:
     return any(edge_id(edge) == target and edge_type(edge) == relation
                for edge in bead.get("dependencies") or [])
+
+
+def is_qa_of(bead: dict[str, Any], dev_id: str) -> bool:
+    """A QA round of dev_id: a stage:qa child of it (phase contract: QA lives under the bead it checks, and bd
+    keeps one edge type per pair) or, for rounds created before the contract, a bead that `validates` it."""
+    if related_bead(bead, dev_id, "validates"):
+        return True
+    if "stage:qa" not in (bead.get("labels") or []):
+        return False
+    metadata = bead.get("metadata") if isinstance(bead.get("metadata"), dict) else {}
+    return related_bead(bead, dev_id, "parent-child") or bead.get("parent") == dev_id \
+        or metadata.get("checked_bead") == dev_id
 
 
 def status_icon(dev: dict[str, Any], sanity: dict[str, Any] | None,
@@ -163,18 +195,16 @@ def load_index(repo: Path, explicit: Path | None, root: str | None) -> tuple[Pat
     elif root:
         path = index_path(repo, root)
     else:
-        candidates = sorted((repo / "docs" / "plans").glob("phase-*/sprints.json"))
+        candidates = sorted((repo / "docs" / "plans").glob("phase-*/sprints.jsonl"))
         if len(candidates) != 1:
-            raise RuntimeError("pass --root or --index; no unique phase sprint index found")
+            raise RuntimeError("pass --root or --index; no unique canonical phase plan found")
         path = candidates[0]
     if not path.exists():
-        raise RuntimeError(f"sprint index not found: {path}")
+        raise RuntimeError(f"canonical phase plan not found: {path}")
     try:
-        index = json.loads(path.read_text(encoding="utf-8"))
-        validate_index(index)
-        return path, index
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"invalid sprint index {path}: {exc}") from exc
+        return path, load_phase_plan(path, root)
+    except (OSError, RuntimeError) as exc:
+        raise RuntimeError(f"invalid canonical phase plan {path}: {exc}") from exc
 
 
 def live_sprint_rows(index: dict[str, Any], beads: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -208,8 +238,8 @@ def dispatch_rows(ready: list[dict[str, Any]], members: list[dict[str, Any]], ac
         if difficulty not in DIFFICULTY_MODELS:
             fitting = "UNCLASSIFIED"
         else:
-            names = [str(member.get("identity") or member.get("id") or "") for member in members
-                     if str(member.get("identity") or member.get("id") or "") not in active
+            names = [str(member.get("name") or member.get("identity") or member.get("id") or "") for member in members
+                     if str(member.get("name") or member.get("identity") or member.get("id") or "") not in active
                      and any(model in str(member.get("model") or "").lower() for model in DIFFICULTY_MODELS[difficulty])]
             fitting = ",".join(filter(None, names)) or "WAIT"
         try:
@@ -224,9 +254,13 @@ def dispatch_rows(ready: list[dict[str, Any]], members: list[dict[str, Any]], ac
     return sorted(rows, key=lambda row: (int(row["priority"]), int(row["layer"]), row["id"]))
 
 
-def render_dispatch(rows: list[dict[str, str]]) -> str:
-    return "\n".join("{priority} {layer} {id} {stage} {severity} {sprint} {difficulty} {agents}".format(**row)
-                     for row in rows)
+def render_dispatch(rows: list[dict[str, str]], members: list[dict[str, Any]] = ()) -> str:
+    unknown = sorted(str(m.get("name") or m.get("identity") or m.get("id") or "") for m in members
+                     if str(m.get("model") or "").lower() in ("", "unknown", "none"))
+    head = ["prerequisite: every roster member has `model` set"
+            + (f"; unknown: {', '.join(unknown)}" if unknown else "")]
+    return "\n".join(head + ["{priority} {layer} {id} {stage} {severity} {sprint} {difficulty} {agents}".format(**row)
+                             for row in rows])
 
 
 def main() -> int:
@@ -240,7 +274,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, help="local DAG export prefix; skips default integration-branch publication")
     parser.add_argument("--open", action="store_true", help="open DAG PNG in Preview on macOS, default viewer elsewhere")
     parser.add_argument("--root", help="phase root bead id")
-    parser.add_argument("--index", type=Path, help="committed sprints.json path")
+    parser.add_argument("--index", type=Path, help="committed sprints.jsonl path")
     args = parser.parse_args()
     if args.output and not (args.dag or args.view):
         parser.error("--output requires --dag or --view")
@@ -259,7 +293,7 @@ def main() -> int:
             ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
             cwd=repo, text=True,
         ).strip())
-        sanity_runs = sanity_iterations(common_dir.parent / ".sc" / "sanity-log" / f"phase-{phase}.jsonl")
+        sanity_runs = phase_sanity_iterations(common_dir.parent / ".sc" / "sanity-log", phase)
         rows = index.get("sprints")
         if not isinstance(rows, list) or not rows:
             raise RuntimeError("sprint index contains no sprints")
@@ -279,7 +313,7 @@ def main() -> int:
             if not isinstance(tasks, list):
                 tasks = tasks.get("tasks", [])
             active = {str(task.get("assignee") or task.get("owner") or "") for task in tasks
-                      if str(task.get("state") or task.get("status") or "") in {"active", "queued", "assigned"}}
+                      if str(task.get("state") or task.get("status") or "") not in {"completed", "cancelled", "refused", "closed", "failed"}}
             descendants = {index["root_bead_id"]}
             changed = True
             while changed:
@@ -288,7 +322,7 @@ def main() -> int:
                     if any(edge_type(edge) == "parent-child" and edge_id(edge) in descendants
                            for edge in bead.get("dependencies") or []) and bead.get("id") not in descendants:
                         descendants.add(str(bead["id"])); changed = True
-            print(render_dispatch(dispatch_rows([bead for bead in ready if str(bead.get("id")) in descendants], members, active)))
+            print(render_dispatch(dispatch_rows([bead for bead in ready if str(bead.get("id")) in descendants], members, active), members))
             return 0
         blocked_ids = {bead["id"] for bead in run_json(repo, "bd", "blocked", "--json")}
         dev_ids = set(row_ids)
@@ -298,7 +332,7 @@ def main() -> int:
             for dev_id in dev_ids:
                 if "stage:dev-sanity" in (bead.get("labels") or []) and related_bead(bead, dev_id, "blocks"):
                     sanity_by_dev[dev_id] = bead
-                if related_bead(bead, dev_id, "validates"):
+                if is_qa_of(bead, dev_id):
                     qa_by_dev.setdefault(dev_id, []).append(bead)
         selected_qa = {dev_id: choose_round(candidates) for dev_id, candidates in qa_by_dev.items()}
         for dev_id, gate_id in index_bead_pairs(index).items():

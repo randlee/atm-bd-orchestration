@@ -46,7 +46,7 @@ def test_render_list_covers_exactly_the_placeholder_files():
 
 def test_no_repo_or_team_specific_strings_in_sources():
     hits = []
-    for cat in ("skills", "agents"):
+    for cat in ("skills", "agents", "assets"):
         for path in (PKG / cat).rglob("*"):
             if not path.is_file() or "node_modules" in path.parts or "__pycache__" in path.parts:
                 continue
@@ -137,12 +137,14 @@ def test_standalone_install_renders_every_placeholder(tmp_path):
     assert installed == sorted(install.INVENTORY)
     leftovers = [rel for rel in install.INVENTORY if install.PLACEHOLDER_RE.search((dest / rel).read_text())]
     assert leftovers == []
-    skill = (dest / "skills/atm-bd-orchestration/SKILL.md").read_text()
-    assert "myp-workflow-issues" in skill
+    wf_example = (dest / "skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json").read_text()
+    assert '"parent": "myp-workflow-issues"' in wf_example
     role = (dest / "skills/atm-bd-orchestration/roles/dev-sanity.md").read_text()
     assert "| Setting | Where | my-repo |" in role and "`my-sanity`" in role
     example = (dest / "skills/atm-bd-orchestration/examples/dev-sanity-template-vars.json").read_text()
     assert "https://github.com/owner/my-repo/pull/" in example and str(repo.resolve().parent / "my-repo-worktrees") in example
+    # the Jev transport lands at the repository path its callers use
+    assert (repo / "scripts/jev_client.py").read_bytes() == (PKG / "assets/scripts/jev_client.py").read_bytes()
     # scripts stay executable
     assert (dest / "skills/atm-beads/scripts/validate-plan").stat().st_mode & 0o111
     # unrendered files are byte-identical to the package copy

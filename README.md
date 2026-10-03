@@ -13,7 +13,8 @@ plugins/
     registry.yaml                        repository values rendered at install time
     install.py                           sc-install hook (prepare/complete/cleanup) and standalone installer
     skills/{atm-beads,atm-bd-orchestration,sprint-report,sprint-review}/
-    agents/{dev-sanity-llm,sc-sanity-llm,dev-sanity-jev,sc-sanity-jev}.md
+    agents/{dev-sanity,dev-sanity-llm,sc-sanity-llm,dev-sanity-jev,sc-sanity-jev}.md
+    assets/scripts/jev_client.py         Jev transport, placed at <repo>/scripts/jev_client.py
     tests/                               package consistency and install tests
 ```
 
@@ -47,7 +48,7 @@ nothing is copied.
 
 ```bash
 cd plugins/atm-bd-orchestration
-python3 -m pytest -q tests skills/atm-bd-orchestration/scripts/tests skills/atm-beads/tests skills/sprint-report/tests
+python3 -m pytest -q tests assets/scripts/tests
 python3 tests/gen_manifest.py   # after adding or removing a skill or agent file
 ```
 
