@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.2] - 2026-10-02
+
+### Fixed
+- `atm-beads/templates/sprint-bead.json.j2` renders the `difficulty` that
+  `SprintBead` requires and the `stage:sprint` label, so a strict render passes
+  `validate-plan` check 2 (#8). Takes upstream PR #936 at d566149d verbatim ahead
+  of its merge; listed under "Package-only changes pending upstream" in README.md.
+- `tests/test_skill_suites.py` renders the template with both example vars in an
+  installed copy and validates the metadata against `SprintMetadata`.
+
 ## [0.2.1] - 2026-10-02
 
 ### Changed

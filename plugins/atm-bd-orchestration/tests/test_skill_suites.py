@@ -67,3 +67,20 @@ def test_dev_bead_ids_take_the_installed_prefix(installed):
     index = json.loads(out)
     assert index["root_bead_id"] == "myp-phase-x"
     assert [row["dev_bead_id"] for row in index["sprints"]] == ["myp-x-1", "myp-x-2"]
+
+
+@pytest.mark.parametrize("example", ("sprint-bead-vars-d-4.json", "sprint-bead-vars-d-5.json"))
+def test_sprint_bead_template_renders_a_valid_sprint_bead(installed, example):
+    """A strict render of the sprint-bead template carries the SprintBead metadata (difficulty) and stage:sprint.
+
+    Metadata only: the example descriptions are not numbered Deliverables lists."""
+    skill = installed / ".claude/skills/atm-beads"
+    out = subprocess.run(["sc-compose", "render", "--file", str(skill / "templates/sprint-bead.json.j2"),
+                          "--var-file", str(skill / "examples" / example), "--strict"],
+                         cwd=installed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    assert out.returncode == 0, out.stderr[-4000:]
+    bead = json.loads(out.stdout)
+    sys.path.insert(0, str(skill / "scripts"))
+    import bead_schema
+    bead_schema.SprintMetadata.model_validate(bead["metadata"])
+    assert "stage:sprint" in bead["labels"]
