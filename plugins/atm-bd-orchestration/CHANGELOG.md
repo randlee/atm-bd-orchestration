@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1] - 2026-10-02
+
+### Changed
+- `references/post-mortem-context-preparation.md` follows sc-observability PR #933
+  head 07ad4d26 (supersedes b1ffa1ad): an oversized compound obligation may be
+  decomposed into parent-mapped subpredicates. Upstream delta applied verbatim.
+
 ## [0.2.0] - 2026-10-02
 
 ### Changed
