@@ -36,8 +36,9 @@ the bytes this version ships or bytes some 0.x version shipped
 
 Checks before anything is written: sc-compose, pydantic and PyYAML present;
 `.beads/metadata.json` shows `dolt_mode: server`; every agent named in
-`qa_member`, `dev_sanity_member` and `reviewers_round1` has
-`.claude/agents/<name>.md` (in the repository or shipped by this install).
+`qa_member` and `reviewers_round1` has `.claude/agents/<name>.md` (in the
+repository or shipped by this install). `dev_sanity_member` is not checked: it
+names a team member, which may have no agent file.
 """
 from __future__ import annotations
 
@@ -73,8 +74,9 @@ LIST_VARIABLES = frozenset({
 })
 # Variables read from registry.yaml `roles:` and written back there.
 ROLE_KEYS = {"lead": "lead", "dev_sanity_member": "dev-sanity", "qa_member": "quality-mgr"}
-# Variables naming agents that must have .claude/agents/<name>.md.
-AGENT_VARIABLES = ("qa_member", "dev_sanity_member", "reviewers_round1")
+# Variables naming agents that must have .claude/agents/<name>.md. dev_sanity_member
+# is a team member running the dev-sanity directive and may have no agent file.
+AGENT_VARIABLES = ("qa_member", "reviewers_round1")
 
 # Install-time placeholders in installed skill/agent files (the files listed under
 # `render:` in registry.yaml). repo_slug, repo_name, repo_root and

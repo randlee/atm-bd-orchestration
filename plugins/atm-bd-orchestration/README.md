@@ -26,9 +26,9 @@ Requirements in the consuming repository:
 - `.claude/agents/registry.yaml` with every configuration variable (below);
 - `.beads/metadata.json` showing `"dolt_mode": "server"` (validate-plan needs
   `bd doctor --json`, which only server mode provides);
-- `.claude/agents/<name>.md` for every agent named in `qa_member`,
-  `dev_sanity_member` and `reviewers_round1` (agents this package ships
-  count);
+- `.claude/agents/<name>.md` for every agent named in `qa_member` and
+  `reviewers_round1` (agents this package ships count). `dev_sanity_member`
+  names a team member and is not checked: it may have no agent file;
 - a git `origin` remote (`owner/name`);
 - `sc-compose`, `atm`, `bd`, `jq`, `gh`, and `python3` with PyYAML and pydantic
   on PATH.
