@@ -1,0 +1,69 @@
+"""Run the skills' own test suites against an installed, rendered copy.
+
+The upstream suites resolve paths from the repository layout (`.claude/skills/...`,
+`scripts/jev_client.py`) and some scripts carry install-time values, so they run
+inside a throwaway repository installed with a non-default bead prefix (`myp`).
+Needs `sc-compose`; skipped (and says so) without it.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+PKG = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PKG))
+sys.path.insert(0, str(PKG / "tests"))
+import install  # noqa: E402
+from test_install import make_repo  # noqa: E402
+
+pytestmark = pytest.mark.skipif(shutil.which("sc-compose") is None, reason="sc-compose not on PATH; skill suites not run")
+
+SUITES = (
+    ".claude/skills/atm-bd-orchestration/scripts/tests",
+    ".claude/skills/atm-beads/tests",
+    ".claude/skills/sprint-report/tests",
+)
+# Reads the source repository's own docs/plans/phase-d/sprints.jsonl, which no consuming repository has.
+REPO_DATA_TESTS = (
+    ".claude/skills/sprint-report/tests/test_sprint_report.py::SprintReportTests::test_phase_d_index_excludes_folded_d11",
+)
+
+
+@pytest.fixture(scope="module")
+def installed(tmp_path_factory):
+    repo = make_repo(tmp_path_factory.mktemp("suites"))
+    assert install.main(["--dest", str(repo / ".claude")]) == 0
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "install"], check=True)
+    return repo
+
+
+@pytest.mark.parametrize("suite", SUITES)
+def test_installed_suite_passes(installed, suite):
+    skill_dir = installed / suite
+    scripts = skill_dir.parent if skill_dir.parent.name == "scripts" else skill_dir.parent / "scripts"
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(scripts), str(scripts.parent)])}
+    deselect = [arg for t in REPO_DATA_TESTS if t.startswith(suite) for arg in ("--deselect", t)]
+    proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", suite, *deselect],
+                          cwd=installed, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert proc.returncode == 0, proc.stdout[-4000:]
+
+
+def test_dev_bead_ids_take_the_installed_prefix(installed):
+    """The sprint index derives dev bead ids with the repository's bead prefix, not the source repository's."""
+    plan = installed / "docs/plans/phase-x/sprints.jsonl"
+    plan.parent.mkdir(parents=True)
+    plan.write_text('["x-1", "myp-x-1-sanity", []]\n["x-2", "myp-x-2-sanity", ["x-1"]]\n')
+    code = ("import json, sys; from pathlib import Path; sys.path.insert(0, '.claude/skills/atm-beads/scripts');"
+            "import sprint_index_common as c; print(json.dumps(c.load_phase_plan(Path(sys.argv[1]))))")
+    out = subprocess.run([sys.executable, "-c", code, str(plan)], cwd=installed, check=True,
+                         stdout=subprocess.PIPE, text=True).stdout
+    index = json.loads(out)
+    assert index["root_bead_id"] == "myp-phase-x"
+    assert [row["dev_bead_id"] for row in index["sprints"]] == ["myp-x-1", "myp-x-2"]

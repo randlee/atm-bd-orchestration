@@ -56,123 +56,21 @@ VARIABLE_NAMES = (
     "repo_root",
     "worktree_base",
 )
-SCHEMA_ASSET = "assets/docs/plans/sprints.schema.json"
+# Repository files placed outside the target directory: assets/<path> lands at <repo>/<path>.
+# scripts/jev_client.py is the Jev transport that dev-sanity-jev and post_mortem_jev.py call by
+# that repository-relative path (`--client` default).
+REPO_ASSETS = ("assets/scripts/jev_client.py",)
 PLACEHOLDER_RE = re.compile(r"\{\{ (" + "|".join(VARIABLE_NAMES) + r") \}\}")
 
-# Every path this package has ever installed, across all versions.
-# Only append - never remove an entry. If a version stops shipping a
-# path listed here, add a matching `if (Path(destination_path) / path
-# ).exists(): ...unlink()` line to complete() before removing that
-# artifact from manifest.yaml, or CI will fail.
-INVENTORY = [
-    # INVENTORY-BEGIN (generated from manifest.yaml by tests/gen_manifest.py)
-    "skills/atm-bd-orchestration/SKILL.md",
-    "skills/atm-bd-orchestration/examples/arch-qa-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-fix-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-sanity-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-sanity-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-sanity-template-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-template-vars.json",
-    "skills/atm-bd-orchestration/examples/finding-bead-vars.json",
-    "skills/atm-bd-orchestration/examples/fix-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/fix-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/flaky-test-qa-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/plan-review-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/plan-review-template-fix-round-vars.json",
-    "skills/atm-bd-orchestration/examples/plan-review-template-vars.json",
-    "skills/atm-bd-orchestration/examples/plan-scope-reviewer-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/qa-bead-vars.json",
-    "skills/atm-bd-orchestration/examples/qa-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/qa-template-fix-round-vars.json",
-    "skills/atm-bd-orchestration/examples/qa-template-vars.json",
-    "skills/atm-bd-orchestration/examples/req-qa-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/review-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/review-template-vars.json",
-    "skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/schema-reviewer-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/task-refused-vars.json",
-    "skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json",
-    "skills/atm-bd-orchestration/roles/dev-sanity.md",
-    "skills/atm-bd-orchestration/roles/quality-mgr.md",
-    "skills/atm-bd-orchestration/scripts/assignment-gates.py",
-    "skills/atm-bd-orchestration/scripts/bd_commands.py",
+# INVENTORY entries a later version stopped shipping; complete() removes them when present.
+DROPPED = (
+    "skills/atm-beads/scripts/export-sprint-index",
+    "skills/atm-beads/tests/test_sprint_index.py",
     "skills/atm-bd-orchestration/scripts/blocking-finding-gates.py",
-    "skills/atm-bd-orchestration/scripts/sanity-create-findings",
-    "skills/atm-bd-orchestration/scripts/sanity-merge",
-    "skills/atm-bd-orchestration/scripts/sanity-split",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/dev-ready.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/difficulty-mismatch.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/dirty-tree.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/not-ready.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/plan-invalid.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/pr-required.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/qa-head-mismatch.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/qa-ready.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/sanity-frozen.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/sanity-ready.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/stale-base.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/stale-sanity.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-first-fail.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-minor-pass.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-round-cap.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-sanity-pass.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/unclaimable.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/wrong-base.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/zero-delta.json",
-    "skills/atm-bd-orchestration/scripts/tests/test_assignment_gates.py",
     "skills/atm-bd-orchestration/scripts/tests/test_blocking_finding_gates.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_templates.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_transitions.py",
-    "skills/atm-bd-orchestration/scripts/transitions.py",
-    "skills/atm-bd-orchestration/templates/arch-qa-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/dev-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/dev-fix.xml.j2",
-    "skills/atm-bd-orchestration/templates/dev-sanity-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/dev-sanity-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/dev-sanity-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/dev-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/finding-bead.json.j2",
-    "skills/atm-bd-orchestration/templates/fix-assignment.xml.j2",
-    "skills/atm-bd-orchestration/templates/fix-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/flaky-test-qa-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/plan-review-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/plan-review-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/plan-scope-reviewer-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/qa-bead.json.j2",
-    "skills/atm-bd-orchestration/templates/qa-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/qa-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/req-qa-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/review-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/review-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/ruthless-boundary-qa-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/schema-reviewer-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/task-refused.md.j2",
-    "skills/atm-bd-orchestration/templates/workflow-issue-bead.json.j2",
-    "skills/atm-beads/SKILL.md",
-    "skills/atm-beads/examples/dev-sanity-bead-vars-d-4.json",
-    "skills/atm-beads/examples/plan-root-vars.json",
-    "skills/atm-beads/examples/sprint-bead-vars-d-4.json",
-    "skills/atm-beads/examples/sprint-bead-vars-d-5.json",
-    "skills/atm-beads/references/installation-and-troubleshooting.md",
-    "skills/atm-beads/resources/atm-beads-plan-guidelines.md",
-    "skills/atm-beads/resources/dev-sanity.md",
-    "skills/atm-beads/resources/importing-md-plan.md",
-    "skills/atm-beads/resources/orchestrating.md",
-    "skills/atm-beads/resources/planning.md",
-    "skills/atm-beads/resources/troubleshooting.md",
-    "skills/atm-beads/scripts/check-phase-artifact",
     "skills/atm-beads/scripts/check-plan.jq",
     "skills/atm-beads/scripts/migrate-phase-contract",
-    "skills/atm-beads/scripts/phase-index-path",
     "skills/atm-beads/scripts/phase_contract_check.py",
-    "skills/atm-beads/scripts/plan_contract.py",
-    "skills/atm-beads/scripts/resolve-role",
-    "skills/atm-beads/scripts/sprint_index_common.py",
-    "skills/atm-beads/scripts/validate-plan",
-    "skills/atm-beads/templates/dev-sanity-bead.json.j2",
-    "skills/atm-beads/templates/plan-root.json.j2",
-    "skills/atm-beads/templates/sprint-bead.json.j2",
     "skills/atm-beads/tests/fixtures/acceptance_key_5_of_3.json",
     "skills/atm-beads/tests/fixtures/deliverables_1_2_4.json",
     "skills/atm-beads/tests/fixtures/dev_without_sprint_label.json",
@@ -217,13 +115,145 @@ INVENTORY = [
     "skills/atm-beads/tests/fixtures/valid_root_feature_under_epic.json",
     "skills/atm-beads/tests/fixtures/valid_waived_reopen.json",
     "skills/atm-beads/tests/test_phase_contract_check.py",
+    "skills/sprint-report/report-detailed.md.j2",
+)
+
+# Every path this package has ever installed, across all versions.
+# Only append - never remove an entry. If a version stops shipping a
+# path listed here, add a matching `if (Path(destination_path) / path
+# ).exists(): ...unlink()` line to complete() before removing that
+# artifact from manifest.yaml, or CI will fail.
+INVENTORY = [
+    # INVENTORY-BEGIN (generated from manifest.yaml by tests/gen_manifest.py)
+    "skills/atm-bd-orchestration/SKILL.md",
+    "skills/atm-bd-orchestration/blocking-findings-guidelines.md",
+    "skills/atm-bd-orchestration/examples/arch-qa-assignment-vars.json",
+    "skills/atm-bd-orchestration/examples/dev-complete-vars.json",
+    "skills/atm-bd-orchestration/examples/dev-fix-vars.json",
+    "skills/atm-bd-orchestration/examples/dev-sanity-assignment-vars.json",
+    "skills/atm-bd-orchestration/examples/dev-sanity-complete-vars.json",
+    "skills/atm-bd-orchestration/examples/dev-sanity-template-vars.json",
+    "skills/atm-bd-orchestration/examples/dev-template-vars.json",
+    "skills/atm-bd-orchestration/examples/finding-bead-vars.json",
+    "skills/atm-bd-orchestration/examples/fix-assignment-vars.json",
+    "skills/atm-bd-orchestration/examples/fix-complete-vars.json",
+    "skills/atm-bd-orchestration/examples/flaky-test-qa-assignment-vars.json",
+    "skills/atm-bd-orchestration/examples/plan-review-complete-vars.json",
+    "skills/atm-bd-orchestration/examples/plan-review-template-fix-round-vars.json",
+    "skills/atm-bd-orchestration/examples/plan-review-template-vars.json",
+    "skills/atm-bd-orchestration/examples/plan-scope-reviewer-assignment-vars.json",
+    "skills/atm-bd-orchestration/examples/qa-bead-vars.json",
+    "skills/atm-bd-orchestration/examples/qa-complete-vars.json",
+    "skills/atm-bd-orchestration/examples/qa-template-fix-round-vars.json",
+    "skills/atm-bd-orchestration/examples/qa-template-vars.json",
+    "skills/atm-bd-orchestration/examples/req-qa-assignment-vars.json",
+    "skills/atm-bd-orchestration/examples/review-complete-vars.json",
+    "skills/atm-bd-orchestration/examples/review-template-vars.json",
+    "skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json",
+    "skills/atm-bd-orchestration/examples/sanity-run-record-vars.json",
+    "skills/atm-bd-orchestration/examples/sanity-run-table-vars.json",
+    "skills/atm-bd-orchestration/examples/schema-reviewer-assignment-vars.json",
+    "skills/atm-bd-orchestration/examples/task-refused-vars.json",
+    "skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json",
+    "skills/atm-bd-orchestration/references/post-mortem-context-preparation.md",
+    "skills/atm-bd-orchestration/references/post-mortem-jev.md",
+    "skills/atm-bd-orchestration/references/post-mortem.md",
+    "skills/atm-bd-orchestration/roles/dev-sanity.md",
+    "skills/atm-bd-orchestration/roles/quality-mgr.md",
+    "skills/atm-bd-orchestration/scripts/assignment-gates.py",
+    "skills/atm-bd-orchestration/scripts/bd_commands.py",
+    "skills/atm-bd-orchestration/scripts/check-review-completion.py",
+    "skills/atm-bd-orchestration/scripts/post_mortem_context.py",
+    "skills/atm-bd-orchestration/scripts/post_mortem_jev.py",
+    "skills/atm-bd-orchestration/scripts/sanity-create-findings",
+    "skills/atm-bd-orchestration/scripts/sanity-merge",
+    "skills/atm-bd-orchestration/scripts/sanity-run-history",
+    "skills/atm-bd-orchestration/scripts/sanity-split",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/dev-ready.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/difficulty-mismatch.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/dirty-tree.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/not-ready.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/plan-invalid.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/pr-required.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/qa-head-mismatch.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/qa-ready.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/sanity-frozen.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/sanity-ready.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/stale-base.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/stale-sanity.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-first-fail.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-minor-pass.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-round-cap.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-sanity-pass.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/unclaimable.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/wrong-base.json",
+    "skills/atm-bd-orchestration/scripts/tests/fixtures/zero-delta.json",
+    "skills/atm-bd-orchestration/scripts/tests/test_assignment_gates.py",
+    "skills/atm-bd-orchestration/scripts/tests/test_atomic.py",
+    "skills/atm-bd-orchestration/scripts/tests/test_post_mortem_context.py",
+    "skills/atm-bd-orchestration/scripts/tests/test_post_mortem_jev.py",
+    "skills/atm-bd-orchestration/scripts/tests/test_sanity_create_findings.py",
+    "skills/atm-bd-orchestration/scripts/tests/test_templates.py",
+    "skills/atm-bd-orchestration/scripts/tests/test_transitions.py",
+    "skills/atm-bd-orchestration/scripts/transitions.py",
+    "skills/atm-bd-orchestration/templates/arch-qa-assignment.json.j2",
+    "skills/atm-bd-orchestration/templates/dev-complete.md.j2",
+    "skills/atm-bd-orchestration/templates/dev-fix.xml.j2",
+    "skills/atm-bd-orchestration/templates/dev-sanity-assignment.json.j2",
+    "skills/atm-bd-orchestration/templates/dev-sanity-complete.md.j2",
+    "skills/atm-bd-orchestration/templates/dev-sanity-template.xml.j2",
+    "skills/atm-bd-orchestration/templates/dev-template.xml.j2",
+    "skills/atm-bd-orchestration/templates/finding-bead.json.j2",
+    "skills/atm-bd-orchestration/templates/fix-assignment.xml.j2",
+    "skills/atm-bd-orchestration/templates/fix-complete.md.j2",
+    "skills/atm-bd-orchestration/templates/flaky-test-qa-assignment.json.j2",
+    "skills/atm-bd-orchestration/templates/plan-review-complete.md.j2",
+    "skills/atm-bd-orchestration/templates/plan-review-template.xml.j2",
+    "skills/atm-bd-orchestration/templates/plan-scope-reviewer-assignment.json.j2",
+    "skills/atm-bd-orchestration/templates/qa-bead.json.j2",
+    "skills/atm-bd-orchestration/templates/qa-complete.md.j2",
+    "skills/atm-bd-orchestration/templates/qa-template.xml.j2",
+    "skills/atm-bd-orchestration/templates/req-qa-assignment.json.j2",
+    "skills/atm-bd-orchestration/templates/review-complete.md.j2",
+    "skills/atm-bd-orchestration/templates/review-template.xml.j2",
+    "skills/atm-bd-orchestration/templates/ruthless-boundary-qa-assignment.json.j2",
+    "skills/atm-bd-orchestration/templates/sanity-run-record.json.j2",
+    "skills/atm-bd-orchestration/templates/sanity-run-table.md.j2",
+    "skills/atm-bd-orchestration/templates/schema-reviewer-assignment.json.j2",
+    "skills/atm-bd-orchestration/templates/task-refused.md.j2",
+    "skills/atm-bd-orchestration/templates/workflow-issue-bead.json.j2",
+    "skills/atm-beads/SKILL.md",
+    "skills/atm-beads/examples/dev-sanity-bead-vars-d-4.json",
+    "skills/atm-beads/examples/plan-root-vars.json",
+    "skills/atm-beads/examples/sprint-bead-vars-d-4.json",
+    "skills/atm-beads/examples/sprint-bead-vars-d-5.json",
+    "skills/atm-beads/references/installation-and-troubleshooting.md",
+    "skills/atm-beads/resources/atm-beads-plan-guidelines.md",
+    "skills/atm-beads/resources/dev-sanity.md",
+    "skills/atm-beads/resources/importing-md-plan.md",
+    "skills/atm-beads/resources/orchestrating.md",
+    "skills/atm-beads/resources/planning.md",
+    "skills/atm-beads/resources/troubleshooting.md",
+    "skills/atm-beads/schemas/sanity-bead.schema.json",
+    "skills/atm-beads/schemas/sprint-bead.schema.json",
+    "skills/atm-beads/scripts/bead_schema.py",
+    "skills/atm-beads/scripts/check-phase-artifact",
+    "skills/atm-beads/scripts/phase-index-path",
+    "skills/atm-beads/scripts/plan_contract.py",
+    "skills/atm-beads/scripts/resolve-role",
+    "skills/atm-beads/scripts/sprint_index_common.py",
+    "skills/atm-beads/scripts/validate-plan",
+    "skills/atm-beads/templates/dev-sanity-bead.json.j2",
+    "skills/atm-beads/templates/plan-root.json.j2",
+    "skills/atm-beads/templates/sprint-bead.json.j2",
+    "skills/atm-beads/tests/test_importing_docs.py",
+    "skills/atm-beads/tests/test_validate_plan.py",
     "skills/sprint-report/SKILL.md",
     "skills/sprint-report/dag-view.html",
     "skills/sprint-report/renderer/.gitignore",
     "skills/sprint-report/renderer/package-lock.json",
     "skills/sprint-report/renderer/package.json",
     "skills/sprint-report/renderer/render.cjs",
-    "skills/sprint-report/report-detailed.md.j2",
     "skills/sprint-report/report.md.j2",
     "skills/sprint-report/scripts/phase_artifact.py",
     "skills/sprint-report/scripts/sprint-report",
@@ -236,6 +266,7 @@ INVENTORY = [
     "skills/sprint-review/scripts/sprint-review",
     "agents/dev-sanity-jev.md",
     "agents/dev-sanity-llm.md",
+    "agents/dev-sanity.md",
     "agents/sc-sanity-jev.md",
     "agents/sc-sanity-llm.md",
     # INVENTORY-END
@@ -470,6 +501,11 @@ def prepare(source_path: str, destination_path: str, options: dict) -> dict:
     """Check the tools and repository values before anything is copied. Writes nothing."""
     if shutil.which("sc-compose") is None:
         return _fail("sc-compose is not on PATH; install it (brew install randlee/tap/sc-compose) and rerun")
+    # validate-plan runs scripts/bead_schema.py (pydantic) with the python3 on PATH.
+    probe = subprocess.run(["python3", "-c", "import pydantic, yaml"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if probe.returncode != 0:
+        return _fail("python3 on PATH cannot import pydantic and PyYAML, which validate-plan needs; "
+                     "install them (python3 -m pip install pydantic pyyaml) and rerun")
     try:
         _, problems = resolve_variables(repo_root_for(Path(destination_path)), options.get("args") or {})
     except RuntimeError as exc:
@@ -490,22 +526,24 @@ def complete(source_path: str, destination_path: str, options: dict) -> dict:
         rendered = render_into(src, dst, variables, force=bool(options.get("force")))
     except RuntimeError as exc:
         return _fail(f"{exc}; fix the named file or value and rerun the install with --force")
-    # The sprint index schema is a repository document (docs/plans/sprints.json instances point at it),
-    # so the asset is also placed at <repo>/docs/plans/; the repository owns it from then on.
-    schema_src = src / SCHEMA_ASSET
-    schema_dst = repo_root_for(dst) / "docs" / "plans" / schema_src.name
-    if schema_src.is_file() and (bool(options.get("force")) or not schema_dst.exists()):
-        schema_dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(schema_src, schema_dst)
-    # Conditional delete-if-present lines for INVENTORY entries this version dropped go here.
+    repo = repo_root_for(dst)
+    for rel in REPO_ASSETS:
+        asset_src = src / rel
+        asset_dst = repo / Path(rel).relative_to("assets")
+        if asset_src.is_file() and (bool(options.get("force")) or not asset_dst.exists()):
+            asset_dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(asset_src, asset_dst)
+    for rel in DROPPED:
+        if (dst / rel).is_file():
+            (dst / rel).unlink()
     print(f"atm-bd-orchestration: rendered {len(rendered)} file(s) for {variables['repo_slug']} "
           f"(team {variables['team']}, prefix {variables['bead_prefix']}, dev-sanity {variables['dev_sanity_member']})")
     return _ok()
 
 
 def cleanup(source_path: str, destination_path: str, options: dict) -> dict:
-    """The only file created beyond the manifest artifacts is <repo>/docs/plans/sprints.schema.json,
-    which the repository owns once installed (its sprints.json files reference it), so it stays."""
+    """The only files created beyond the manifest artifacts are the REPO_ASSETS (<repo>/scripts/jev_client.py),
+    which the repository owns once installed, so they stay."""
     return _ok()
 
 

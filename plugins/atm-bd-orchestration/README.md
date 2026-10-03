@@ -4,11 +4,13 @@ Bead-driven phase orchestration for ATM agent teams, as one installable package:
 
 | Skill / agent | What it is |
 | --- | --- |
-| `skills/atm-beads` | the phase plan as a beads graph: plan templates, `validate-plan`, `check-plan.jq`, `resolve-role`, the plan contract, the sprint index scripts |
-| `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment and blocking-finding gates, dispatch and close templates, the `dev-sanity` and `quality-mgr` role sheets |
+| `skills/atm-beads` | the phase plan as a beads graph: plan templates, `validate-plan`, the pydantic bead schemas, `resolve-role`, the plan contract, the sprint index scripts |
+| `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment gates, dispatch and close templates, the `dev-sanity` and `quality-mgr` role sheets, sanity run history, the phase-end post-mortem (with JEV screening) |
 | `skills/sprint-report`, `skills/sprint-review` | sprint status tables and dependency DAGs from live beads; the sprint review command |
+| `agents/dev-sanity.md` | the dev-sanity coordinator the two directives below share |
 | `agents/dev-sanity-llm.md`, `agents/sc-sanity-llm.md` | the LLM dev-sanity teammate and its per-deliverable subagent |
-| `agents/dev-sanity-jev.md`, `agents/sc-sanity-jev.md` | the same pair for a jev (Codex) sanity check |
+| `agents/dev-sanity-jev.md`, `agents/sc-sanity-jev.md` | the same pair for a Jev (typesafe.ai) sanity check |
+| `assets/scripts/jev_client.py` | the Jev transport, placed at `<repo>/scripts/jev_client.py` |
 
 The skills run repository-relative scripts (`.claude/skills/<skill>/scripts/...`)
 and dispatch templates that ATM agents execute inside the consuming repository,
@@ -21,7 +23,11 @@ manifests exist so Claude Code can discover it; `install.py` puts it to work.
 Requirements in the consuming repository: `.atm.toml` with `[atm] default_team`,
 `.claude/agents/registry.yaml` with `roles.dev-sanity` (and a `bead_prefix`, or
 `issue-prefix` in `.beads/config.yaml`), a git `origin` remote, and `sc-compose`,
-`atm`, `bd`, `jq`, `python3` with PyYAML on PATH.
+`atm`, `bd`, `jq`, `gh`, `python3` with PyYAML and pydantic on PATH (`prepare()` checks
+sc-compose, PyYAML and pydantic). Jev sanity checks and post-mortem screening also
+need `TYPESAFE_API_KEY` in the agent's environment at run time; without it
+`scripts/jev_client.py --startup` reports `SANITY.JEV_UNAVAILABLE` and the LLM
+directive stays in use.
 
 Standalone, from a checkout of this repository:
 
@@ -56,9 +62,10 @@ with `sc-compose render --strict` from the consuming repository's own config:
 | `repo_slug`, `repo_name` | `git remote get-url origin` |
 | `repo_root`, `worktree_base` | the repository path and `../<repo_name>-worktrees` |
 
-The sprint index schema (`assets/docs/plans/sprints.schema.json`) is also
-placed at `<repo>/docs/plans/sprints.schema.json` unless one exists (`--force`
-replaces it); the repository owns it from then on. Everything else, including
+`assets/scripts/jev_client.py` is also placed at `<repo>/scripts/jev_client.py`
+(the path `dev-sanity-jev` and `post_mortem_jev.py` call) unless one exists (`--force`
+replaces it); the repository owns it from then on. Files a newer version stops
+shipping are removed from the target (`DROPPED` in `install.py`). Everything else, including
 every `*.j2` dispatch template, is copied byte for byte; the dispatch templates take their values at dispatch time from the lead's
 vars files as before. `templates/workflow-issue-bead.json.j2` takes the
 workflow-issues root bead as its required `parent` variable.
@@ -67,15 +74,21 @@ workflow-issues root bead as its required `parent` variable.
 
 ```bash
 cd plugins/atm-bd-orchestration
-python3 -m pytest -q tests skills/atm-bd-orchestration/scripts/tests skills/atm-beads/tests skills/sprint-report/tests
+python3 -m pytest -q tests assets/scripts/tests
 python3 tests/gen_manifest.py --check   # manifest.yaml, INVENTORY and registry.yaml render list are generated
 ```
 
-The install tests render into a throwaway git repository with `sc-compose` and
-are skipped, with a message, when it is not on PATH.
+`tests/test_skill_suites.py` installs the package into a throwaway repository
+(bead prefix `myp`) and runs the skills' own suites there, because they resolve
+paths from the repository layout and some scripts carry install-time values.
+One upstream test that reads the source repository's own phase-d plan is
+deselected. The install tests need `sc-compose` and are skipped, with a
+message, when it is not on PATH.
 
 ## Provenance
 
-Sources: sc-observability `develop` at 9ac5cd4 (PRs #263, #262, #266 and #267
-merged 2026-09-27), with every repository- and team-specific string replaced by
-an install-time value. See `CHANGELOG.md`.
+Sources: sc-observability `develop` at f2ebe1bc plus open PR #933 at b1ffa1ad
+(`fix/jev-post-mortem-workflow`, the JEV post-mortem role and context workflow),
+with every repository- and team-specific string replaced by an install-time value
+or a neutral example. Recheck the JEV files if #933 changes before it merges.
+See `CHANGELOG.md`.

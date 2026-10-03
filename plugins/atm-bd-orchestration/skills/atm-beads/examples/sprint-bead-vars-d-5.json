@@ -3,7 +3,7 @@
   "phase": "d",
   "sprint": "d-5",
   "title": "OTLP 2.0 signal model",
-  "assignee": "aobs",
+  "assignee": "my-dev",
   "stack": "phase-d",
   "layer": 2,
   "branch": "sprint/d-5-otlp-signal-model",

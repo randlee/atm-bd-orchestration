@@ -1,5 +1,5 @@
 name: atm-bd-orchestration
-version: 0.1.0
+version: 0.2.0
 description: >
   Bead-driven phase orchestration for ATM agent teams: the phase plan as a
   beads graph (atm-beads), dispatch, dev-sanity, QA and stack landing driven
@@ -20,6 +20,7 @@ tags:
 artifacts:
   skills:
     - skills/atm-bd-orchestration/SKILL.md
+    - skills/atm-bd-orchestration/blocking-findings-guidelines.md
     - skills/atm-bd-orchestration/examples/arch-qa-assignment-vars.json
     - skills/atm-bd-orchestration/examples/dev-complete-vars.json
     - skills/atm-bd-orchestration/examples/dev-fix-vars.json
@@ -43,16 +44,24 @@ artifacts:
     - skills/atm-bd-orchestration/examples/review-complete-vars.json
     - skills/atm-bd-orchestration/examples/review-template-vars.json
     - skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json
+    - skills/atm-bd-orchestration/examples/sanity-run-record-vars.json
+    - skills/atm-bd-orchestration/examples/sanity-run-table-vars.json
     - skills/atm-bd-orchestration/examples/schema-reviewer-assignment-vars.json
     - skills/atm-bd-orchestration/examples/task-refused-vars.json
     - skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json
+    - skills/atm-bd-orchestration/references/post-mortem-context-preparation.md
+    - skills/atm-bd-orchestration/references/post-mortem-jev.md
+    - skills/atm-bd-orchestration/references/post-mortem.md
     - skills/atm-bd-orchestration/roles/dev-sanity.md
     - skills/atm-bd-orchestration/roles/quality-mgr.md
     - skills/atm-bd-orchestration/scripts/assignment-gates.py
     - skills/atm-bd-orchestration/scripts/bd_commands.py
-    - skills/atm-bd-orchestration/scripts/blocking-finding-gates.py
+    - skills/atm-bd-orchestration/scripts/check-review-completion.py
+    - skills/atm-bd-orchestration/scripts/post_mortem_context.py
+    - skills/atm-bd-orchestration/scripts/post_mortem_jev.py
     - skills/atm-bd-orchestration/scripts/sanity-create-findings
     - skills/atm-bd-orchestration/scripts/sanity-merge
+    - skills/atm-bd-orchestration/scripts/sanity-run-history
     - skills/atm-bd-orchestration/scripts/sanity-split
     - skills/atm-bd-orchestration/scripts/tests/fixtures/dev-ready.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/difficulty-mismatch.json
@@ -74,7 +83,10 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/fixtures/wrong-base.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/zero-delta.json
     - skills/atm-bd-orchestration/scripts/tests/test_assignment_gates.py
-    - skills/atm-bd-orchestration/scripts/tests/test_blocking_finding_gates.py
+    - skills/atm-bd-orchestration/scripts/tests/test_atomic.py
+    - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_context.py
+    - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_jev.py
+    - skills/atm-bd-orchestration/scripts/tests/test_sanity_create_findings.py
     - skills/atm-bd-orchestration/scripts/tests/test_templates.py
     - skills/atm-bd-orchestration/scripts/tests/test_transitions.py
     - skills/atm-bd-orchestration/scripts/transitions.py
@@ -99,6 +111,8 @@ artifacts:
     - skills/atm-bd-orchestration/templates/review-complete.md.j2
     - skills/atm-bd-orchestration/templates/review-template.xml.j2
     - skills/atm-bd-orchestration/templates/ruthless-boundary-qa-assignment.json.j2
+    - skills/atm-bd-orchestration/templates/sanity-run-record.json.j2
+    - skills/atm-bd-orchestration/templates/sanity-run-table.md.j2
     - skills/atm-bd-orchestration/templates/schema-reviewer-assignment.json.j2
     - skills/atm-bd-orchestration/templates/task-refused.md.j2
     - skills/atm-bd-orchestration/templates/workflow-issue-bead.json.j2
@@ -114,11 +128,11 @@ artifacts:
     - skills/atm-beads/resources/orchestrating.md
     - skills/atm-beads/resources/planning.md
     - skills/atm-beads/resources/troubleshooting.md
+    - skills/atm-beads/schemas/sanity-bead.schema.json
+    - skills/atm-beads/schemas/sprint-bead.schema.json
+    - skills/atm-beads/scripts/bead_schema.py
     - skills/atm-beads/scripts/check-phase-artifact
-    - skills/atm-beads/scripts/check-plan.jq
-    - skills/atm-beads/scripts/migrate-phase-contract
     - skills/atm-beads/scripts/phase-index-path
-    - skills/atm-beads/scripts/phase_contract_check.py
     - skills/atm-beads/scripts/plan_contract.py
     - skills/atm-beads/scripts/resolve-role
     - skills/atm-beads/scripts/sprint_index_common.py
@@ -126,57 +140,14 @@ artifacts:
     - skills/atm-beads/templates/dev-sanity-bead.json.j2
     - skills/atm-beads/templates/plan-root.json.j2
     - skills/atm-beads/templates/sprint-bead.json.j2
-    - skills/atm-beads/tests/fixtures/acceptance_key_5_of_3.json
-    - skills/atm-beads/tests/fixtures/deliverables_1_2_4.json
-    - skills/atm-beads/tests/fixtures/dev_without_sprint_label.json
-    - skills/atm-beads/tests/fixtures/difficulty_medium.json
-    - skills/atm-beads/tests/fixtures/finding_parented_on_root.json
-    - skills/atm-beads/tests/fixtures/finding_under_root_caused_by.json
-    - skills/atm-beads/tests/fixtures/finding_without_severity.json
-    - skills/atm-beads/tests/fixtures/handoff_outside_consumer_fence.json
-    - skills/atm-beads/tests/fixtures/important_finding_p3.json
-    - skills/atm-beads/tests/fixtures/in_progress_with_open_blocker.json
-    - skills/atm-beads/tests/fixtures/index_undeclared_key.json
-    - skills/atm-beads/tests/fixtures/index_waiver_bad_check.json
-    - skills/atm-beads/tests/fixtures/listed_pair_missing_from_beads.json
-    - skills/atm-beads/tests/fixtures/live_pair_missing_from_index.json
-    - skills/atm-beads/tests/fixtures/open_finding_without_difficulty.json
-    - skills/atm-beads/tests/fixtures/owned_path_overlap.json
-    - skills/atm-beads/tests/fixtures/pass_without_qa.json
-    - skills/atm-beads/tests/fixtures/pr_base_mismatch.json
-    - skills/atm-beads/tests/fixtures/pr_target_sanity_outside_closure.json
-    - skills/atm-beads/tests/fixtures/qa_under_root_validates.json
-    - skills/atm-beads/tests/fixtures/r16_blocking_finding_without_sanity.json
-    - skills/atm-beads/tests/fixtures/r16_deferred_finding_exempts_upstream.json
-    - skills/atm-beads/tests/fixtures/r16_downstream_not_gated.json
-    - skills/atm-beads/tests/fixtures/r16_gate_not_blocked_by_finding.json
-    - skills/atm-beads/tests/fixtures/r16_in_progress_exempt_warns.json
-    - skills/atm-beads/tests/fixtures/reopened_pass_sanity.json
-    - skills/atm-beads/tests/fixtures/root_feature_under_task.json
-    - skills/atm-beads/tests/fixtures/root_task_at_top_level.json
-    - skills/atm-beads/tests/fixtures/sanity_base_sha_commit_short.json
-    - skills/atm-beads/tests/fixtures/second_fix_round.json
-    - skills/atm-beads/tests/fixtures/sprint_bead_p3.json
-    - skills/atm-beads/tests/fixtures/sprint_without_difficulty.json
-    - skills/atm-beads/tests/fixtures/started_before_blocker_closed.json
-    - skills/atm-beads/tests/fixtures/unlisted_human_gate.json
-    - skills/atm-beads/tests/fixtures/valid_closed_finding_p3.json
-    - skills/atm-beads/tests/fixtures/valid_closed_finding_without_difficulty.json
-    - skills/atm-beads/tests/fixtures/valid_index_with_policy.json
-    - skills/atm-beads/tests/fixtures/valid_ordered_overlap.json
-    - skills/atm-beads/tests/fixtures/valid_pass_with_qa.json
-    - skills/atm-beads/tests/fixtures/valid_phase.json
-    - skills/atm-beads/tests/fixtures/valid_r16_gated.json
-    - skills/atm-beads/tests/fixtures/valid_root_feature_under_epic.json
-    - skills/atm-beads/tests/fixtures/valid_waived_reopen.json
-    - skills/atm-beads/tests/test_phase_contract_check.py
+    - skills/atm-beads/tests/test_importing_docs.py
+    - skills/atm-beads/tests/test_validate_plan.py
     - skills/sprint-report/SKILL.md
     - skills/sprint-report/dag-view.html
     - skills/sprint-report/renderer/.gitignore
     - skills/sprint-report/renderer/package-lock.json
     - skills/sprint-report/renderer/package.json
     - skills/sprint-report/renderer/render.cjs
-    - skills/sprint-report/report-detailed.md.j2
     - skills/sprint-report/report.md.j2
     - skills/sprint-report/scripts/phase_artifact.py
     - skills/sprint-report/scripts/sprint-report
@@ -190,6 +161,7 @@ artifacts:
   agents:
     - agents/dev-sanity-jev.md
     - agents/dev-sanity-llm.md
+    - agents/dev-sanity.md
     - agents/sc-sanity-jev.md
     - agents/sc-sanity-llm.md
 # ARTIFACTS-END
