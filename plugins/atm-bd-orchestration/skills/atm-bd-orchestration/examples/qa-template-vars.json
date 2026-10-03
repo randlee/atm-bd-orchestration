@@ -22,15 +22,5 @@
     "ruthless-boundary-qa",
     "rust-best-practices-agent",
     "rust-service-hardening-agent"
-  ],
-  "reviewers_fix_round": [
-    "req-qa",
-    "arch-qa",
-    "rust-qa-agent"
-  ],
-  "reviewers_scope_locked": [
-    "ruthless-boundary-qa",
-    "rust-best-practices-agent",
-    "rust-service-hardening-agent"
   ]
 }

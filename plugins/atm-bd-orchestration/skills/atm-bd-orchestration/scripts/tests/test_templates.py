@@ -166,7 +166,7 @@ def _example(name: str) -> dict:
 
 
 class FixRoundReviewerScopeTests(unittest.TestCase):
-    """A fix round runs req-qa, arch-qa and rust-qa-agent; the adversarial reviewers only re-check their own ids."""
+    """A fix is verified only by its filing reviewer, locked to the original finding; sprint rounds keep the full set."""
 
     RBQA = "ruthless-boundary-qa-assignment.json.j2"
     QA = "qa-template.xml.j2"
@@ -183,11 +183,19 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertIs(json.loads(result.stdout)["findings_scope_locked"], False)
         qa = _render(self.QA, _example("qa-template-vars.json"))
         self.assertEqual(qa.returncode, 0, qa.stderr)
-        self.assertIn("This is round 1: run the full reviewer set", qa.stdout)
+        self.assertIn("This is a sprint review: run the full reviewer set", qa.stdout)
         self.assertIn("`qa_round` = 1", qa.stdout)
         self.assertNotIn("fix-round-scope", qa.stdout)
+        self.assertIn("<fix-verification-precedence>", qa.stdout)  # always present, as upstream
 
-    def test_fix_round_with_ids_is_locked(self):
+    def test_sprint_round_two_is_a_sprint_review(self):
+        qa = _render(self.QA, {**_example("qa-template-vars.json"), "round": 2})
+        self.assertEqual(qa.returncode, 0, qa.stderr)
+        self.assertIn("This is a sprint review: run the full reviewer set", qa.stdout)
+        self.assertIn("`qa_round` = 2", qa.stdout)
+        self.assertIn("`bd import <scratch>/", qa.stdout)
+
+    def test_fix_verification_dispatches_only_the_filing_reviewer(self):
         import json
         result = self.rbqa(qa_round=2, carry_forward_findings_json='["RBQA-004"]')
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -196,19 +204,26 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertEqual(data["carry_forward_findings"], ["RBQA-004"])
         qa = _render(self.QA, _example("qa-template-fix-round-vars.json"))
         self.assertEqual(qa.returncode, 0, qa.stderr)
-        self.assertIn("Reviewers, exactly: `req-qa`, `arch-qa` and `rust-qa-agent`", qa.stdout)
-        self.assertIn("scripts/fix-round-scope owned --carried", qa.stdout)
-        self.assertIn("`qa_round` = 2", qa.stdout)
-        self.assertNotIn("full reviewer set", qa.stdout)
-        self.assertLess(qa.stdout.index("scripts/fix-round-scope check --findings"), qa.stdout.index("&& bd import"))
+        out = qa.stdout
+        self.assertIn("This is fix verification of finding beads", out)
+        self.assertIn("scripts/fix-round-scope owned --carried", out)
+        self.assertIn("scripts/fix-round-scope check --carried", out)
+        self.assertIn("Dispatch exactly those reviewers and no other", out)
+        self.assertIn("`qa_round` = 2", out)
+        self.assertNotIn("full reviewer set", out)
+        for reviewer in ("req-qa", "arch-qa", "rust-qa-agent"):  # no automatic panel
+            self.assertNotIn(f"`{reviewer}`", out)
+        step_g = out[out.index('<step id="g">'):out.index('<step id="g1">')]
+        self.assertIn("File no finding bead", step_g)
+        self.assertNotIn("bd import", step_g)
+        self.assertIn("reconcile the original finding's closure", step_g)
+        self.assertIn("PASS requires every carried finding verified fixed.", out)
 
     def test_fix_round_with_empty_scope_fails(self):
         for scope in (None, "[]", "[ ]", "", "  ", "null"):
             with self.subTest(scope=scope):
                 values = {"qa_round": 2} if scope is None else {"qa_round": 2, "carry_forward_findings_json": scope}
                 self.assertNotEqual(self.rbqa(**values).returncode, 0)
-        values = {k: v for k, v in _example("qa-template-fix-round-vars.json").items() if k != "carry_forward"}
-        self.assertNotEqual(_render(self.QA, values).returncode, 0)
 
     def test_missing_round_fails(self):
         result = self.rbqa(carry_forward_findings_json='["RBQA-004"]')
@@ -217,13 +232,16 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         values = {k: v for k, v in _example("qa-template-vars.json").items() if k != "round"}
         self.assertNotEqual(_render(self.QA, values).returncode, 0)
 
-    def test_fix_branch_at_round_one_is_a_fix_round(self):
+    def test_quick_fix_branch_without_a_finding_is_a_sprint_review(self):
         qa = _render(self.QA, {**_example("qa-template-vars.json"), "branch": "fix/d-4-qa1-f1-retry-jitter"})
         self.assertEqual(qa.returncode, 0, qa.stderr)
-        self.assertIn("Reviewers, exactly: `req-qa`, `arch-qa` and `rust-qa-agent`", qa.stdout)
-        self.assertIn("No finding is carried", qa.stdout)
-        self.assertIn("scripts/fix-round-scope check --findings", qa.stdout)
-        self.assertNotIn("full reviewer set", qa.stdout)
+        self.assertIn("This is a sprint review: run the full reviewer set", qa.stdout)
+        self.assertNotIn("fix-round-scope", qa.stdout)
+
+    def test_carried_finding_on_a_sprint_branch_is_fix_verification(self):
+        qa = _render(self.QA, {**_example("qa-template-vars.json"), "carry_forward": "x-d-4-qa1-f1"})
+        self.assertEqual(qa.returncode, 0, qa.stderr)
+        self.assertIn("This is fix verification of finding beads `x-d-4-qa1-f1`", qa.stdout)
 
 
 # Config-backed dispatch variables (the lead fills them from .claude/project/atm-bd-orchestration.yaml).
@@ -232,7 +250,7 @@ CONFIG_VARS = {
     "fix-assignment.xml.j2": ("lead", "cc", "test_command", "policy_path", "requirements_globs", "adr_globs"),
     "dev-fix.xml.j2": ("lead", "cc", "test_command"),
     "dev-sanity-template.xml.j2": ("lead", "cc", "lint_command"),
-    "qa-template.xml.j2": ("lead", "cc", "policy_path", "reviewers_round1", "reviewers_fix_round", "reviewers_scope_locked"),
+    "qa-template.xml.j2": ("lead", "cc", "policy_path", "reviewers_round1"),
     "plan-review-template.xml.j2": ("lead", "cc", "integration_branch", "plans_dir", "requirements_globs", "adr_globs",
                                     "reviewers_scope_locked"),
     "review-template.xml.j2": ("lead", "cc", "integration_branch"),
@@ -265,18 +283,22 @@ class ConfigVariableTests(unittest.TestCase):
                     self.assertNotIn(needle, text)
 
     def test_reviewer_sets_come_from_the_variables(self):
-        lists = {"reviewers_round1": ["alpha-qa", "beta-qa", "gamma-qa"], "reviewers_fix_round": ["alpha-qa"],
-                 "reviewers_scope_locked": ["beta-qa", "gamma-qa"]}
+        lists = {"reviewers_round1": ["alpha-qa", "beta-qa", "gamma-qa"]}
         round1 = _render("qa-template.xml.j2", {**_example("qa-template-vars.json"), **lists})
         self.assertEqual(round1.returncode, 0, round1.stderr)
         self.assertIn("run the full reviewer set, `alpha-qa`, `beta-qa` and `gamma-qa`,", round1.stdout)
         fix = _render("qa-template.xml.j2", {**_example("qa-template-fix-round-vars.json"), **lists})
         self.assertEqual(fix.returncode, 0, fix.stderr)
-        self.assertIn("Reviewers, exactly: `alpha-qa`, plus", fix.stdout)
-        self.assertIn("`beta-qa` and `gamma-qa` run only as", fix.stdout)
+        self.assertNotIn("alpha-qa", fix.stdout)  # a fix is verified by its filing reviewer, not a configured set
         for text in (round1.stdout, fix.stdout):
-            self.assertNotIn("rust-qa-agent", text)
-            self.assertNotIn("ruthless-boundary-qa", text)
+            self.assertNotIn("`rust-qa-agent`", text)
+            self.assertNotIn("`ruthless-boundary-qa`", text)
+
+    def test_removed_reviewer_variables_are_not_required(self):
+        values = {**_example("qa-template-fix-round-vars.json"),
+                  "reviewers_fix_round": ["req-qa"], "reviewers_scope_locked": ["ruthless-boundary-qa"]}
+        result = _render("qa-template.xml.j2", values)
+        self.assertEqual(result.returncode, 0, result.stderr)  # a 0.4.0-style var file still renders
 
     def test_qa_bead_assignee_is_the_configured_member(self):
         import json

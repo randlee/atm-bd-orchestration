@@ -58,11 +58,11 @@ class LoadTests(unittest.TestCase):
             repo_config.load(repo)
 
     def test_cli_get_prints_scalars_plainly_and_lists_as_json(self):
-        repo = make_repo(self.base, "lead: my-lead\nreviewers_fix_round: [req-x, arch-x]\n")
+        repo = make_repo(self.base, "lead: my-lead\nreviewers_round1: [req-x, arch-x]\n")
         run = lambda *a: subprocess.run([sys.executable, str(SCRIPTS / "repo_config.py"), *a], cwd=repo,
                                         capture_output=True, text=True)
         self.assertEqual(run("get", "lead").stdout, "my-lead\n")
-        self.assertEqual(json.loads(run("get", "reviewers_fix_round").stdout), ["req-x", "arch-x"])
+        self.assertEqual(json.loads(run("get", "reviewers_round1").stdout), ["req-x", "arch-x"])
         missing = run("get", "test_command")
         self.assertEqual(missing.returncode, 2)
         self.assertIn("required key 'test_command' is missing", missing.stderr)

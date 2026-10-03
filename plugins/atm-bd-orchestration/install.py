@@ -36,7 +36,7 @@ the bytes this version ships or bytes some 0.x version shipped
 
 Checks before anything is written: sc-compose, pydantic and PyYAML present;
 `.beads/metadata.json` shows `dolt_mode: server`; every agent named in
-`qa_member`, `dev_sanity_member` and the three reviewer lists has
+`qa_member`, `dev_sanity_member` and the two reviewer lists has
 `.claude/agents/<name>.md` (in the repository or shipped by this install).
 """
 from __future__ import annotations
@@ -69,12 +69,12 @@ BEADS_METADATA = ".beads/metadata.json"
 # JSON array or a comma-separated list).
 LIST_VARIABLES = frozenset({
     "requirements_globs", "adr_globs",
-    "reviewers_round1", "reviewers_fix_round", "reviewers_scope_locked",
+    "reviewers_round1", "reviewers_scope_locked",
 })
 # Variables read from registry.yaml `roles:` and written back there.
 ROLE_KEYS = {"lead": "lead", "dev_sanity_member": "dev-sanity", "qa_member": "quality-mgr"}
 # Variables naming agents that must have .claude/agents/<name>.md.
-AGENT_VARIABLES = ("qa_member", "dev_sanity_member", "reviewers_round1", "reviewers_fix_round", "reviewers_scope_locked")
+AGENT_VARIABLES = ("qa_member", "dev_sanity_member", "reviewers_round1", "reviewers_scope_locked")
 
 # Install-time placeholders in installed skill/agent files (the files listed under
 # `render:` in registry.yaml). repo_slug, repo_name, repo_root and

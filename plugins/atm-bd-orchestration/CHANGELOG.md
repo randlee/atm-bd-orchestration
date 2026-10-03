@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.5.0] - 2026-10-03
+
+Breaking: the configuration contract and `qa-template.xml.j2` required
+variables changed.
+
+### Changed
+- Fix verification is filing-reviewer-only (ruling 2026-10-03; upstream
+  sc-observability 18d7158f). A review of an assigned fix is not a sprint
+  review, regardless of round number or inherited `review_mode`: only the agent
+  that filed the carried finding (`metadata.reviewer`) is dispatched, locked to
+  its `metadata.finding_ref` and acceptance criterion. It reports
+  fixed/open/regressed for that finding and files no new findings; no automatic
+  `req-qa`/`arch-qa`/`rust-qa-agent`, no `ceremony-finding-screen`, no sprint
+  sweep. Required CI stays a separate merge requirement. On verified PASS,
+  quality-mgr reconciles the original finding bead's closure, not only the QA
+  task. This replaces the 0.2.3 fix-round rule.
+  - `roles/quality-mgr.md` "Reviewers": the upstream "Fix verification takes
+    precedence" text; sprint rounds 1–2 stay sprint reviews with
+    `reviewers_round1`.
+  - `qa-template.xml.j2` 4.0.0: `reviewers_fix_round` and
+    `reviewers_scope_locked` are no longer variables; adds upstream's
+    `<fix-verification-precedence>`. A fix verification is `carry_forward`
+    set, whatever the round or branch; `round` above 1 or a `fix/` branch no
+    longer makes one (the `FIX_ROUND_WITHOUT_CARRY_FORWARD` render guard is
+    gone), so a sprint round 2 or a parallel quick fix, which has no original
+    finding to verify, renders as a sprint review with `reviewers_round1`. Step g files no finding bead in a fix verification; step i's PASS
+    is every carried finding verified fixed. The `.sc/qa-log` rows are
+    unchanged (`tested` is still the carried finding_refs).
+  - `scripts/fix-round-scope`: no longer reads the configuration. `owned`
+    prints every carried finding's filing reviewer with its own ids (a carried
+    finding without `metadata.reviewer`/`finding_ref` is an error); `check
+    --carried --dispatch` exits 5 (`FIX_ROUND_DISPATCH_MISMATCH`) unless the
+    dispatch set is exactly those reviewers; `filter` accepts any filing
+    reviewer. `check --findings` is gone (a fix verification imports nothing).
+  - `config/atm-bd-orchestration.yaml.j2` 1.0.0: `reviewers_fix_round` removed.
+    `reviewers_scope_locked` stays: plan review is unchanged and its fix rounds
+    still use it.
+
+### Migration from 0.4.0
+Rerun the install. `reviewers_fix_round` is no longer a configuration
+variable: the installer reads only declared variables from registry.yaml, so a
+leftover `reviewers_fix_round` key there is ignored (delete it at leisure), and
+the rendered `.claude/project/atm-bd-orchestration.yaml` no longer carries it.
+`--set reviewers_fix_round=...` is now an install error (unknown `--set`
+variable). A lead that dispatches `qa-template.xml.j2` with a var file built
+from `repo_config.py json` still renders: the extra keys are ignored.
+
 ## [0.4.0] - 2026-10-02
 
 Breaking: the install contract changed. Configuration is one rendered file, the

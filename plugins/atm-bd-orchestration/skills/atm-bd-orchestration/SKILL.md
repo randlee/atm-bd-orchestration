@@ -92,7 +92,8 @@ one fails the render.
 | `plans_dir` | `phase-index-path`, `check-phase-artifact`, `sprint-report`, `sprint-review`, `plan-review-template` |
 | `requirements_globs`, `adr_globs` | `plan-review-template`, `fix-assignment` |
 | `policy_path` | `qa-template`, `dev-template`, `fix-assignment`, `schema-reviewer-assignment` |
-| `reviewers_round1`, `reviewers_fix_round`, `reviewers_scope_locked` | `qa-template`; `reviewers_scope_locked` also `plan-review-template` and `scripts/fix-round-scope` |
+| `reviewers_round1` | `qa-template` (sprint reviews) |
+| `reviewers_scope_locked` | `plan-review-template` (plan fix rounds) |
 
 There is no base-branch key: `validate-plan` reads the plan from the phase
 root bead's `integration_branch`.
