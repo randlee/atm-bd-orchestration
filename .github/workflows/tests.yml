@@ -18,11 +18,15 @@ jobs:
             sha256: 2e09706e0814f30adaacc88310db4ad629dcd9314d1182ecf12767686f828204
             bd_asset: beads_1.3.0_linux_amd64.tar.gz
             bd_sha256: 2f92b904ecf35b607e44dc5c39229173af69c54f1183e8d709f1773540cdcf3b
+            dolt_asset: dolt-linux-amd64.tar.gz
+            dolt_sha256: 0a2a318f27c5e1088a2883038573c2054e00f356dc9752e74bca934f8321959a
           - os: macos-latest
             target: aarch64-apple-darwin
             sha256: 23db29325d95c0f4bb94dead48d02883e00311e82dc66820fe51b1dd855b7168
             bd_asset: beads_1.3.0_darwin_arm64.tar.gz
             bd_sha256: 7cc77367d0b84c50243a1108bc1f73648699211257d414b917540bf868e6bb85
+            dolt_asset: dolt-darwin-arm64.tar.gz
+            dolt_sha256: d738b9f523289e9c51dbe0e9f2623c8e032924c62fa72a443703020adf099d27
     runs-on: ${{ matrix.os }}
     env:
       SC_COMPOSE_VERSION: "1.6.1"
@@ -69,10 +73,28 @@ jobs:
           test -n "$bin"
           install -m 0755 "$bin" "$HOME/.local/bin/bd"
 
+      # The real-bd pour tests (scripts/tests/test_bead_pour_mock.py) run bd in
+      # proxied-server mode, whose backend is the dolt binary.
+      - name: Install dolt 2.3.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="${{ matrix.dolt_asset }}"
+          curl -fsSL -o "$RUNNER_TEMP/$asset" "https://github.com/dolthub/dolt/releases/download/v2.3.1/$asset"
+          echo "${{ matrix.dolt_sha256 }}  $RUNNER_TEMP/$asset" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/dolt"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/dolt"
+          bin="$(find "$RUNNER_TEMP/dolt" -type f -name dolt | head -n 1)"
+          test -n "$bin"
+          install -m 0755 "$bin" "$HOME/.local/bin/dolt"
+          git config --global user.name "ci" && git config --global user.email "ci@example.invalid"
+          dolt config --global --add user.name ci && dolt config --global --add user.email ci@example.invalid
+
       - name: Tool versions
         run: |
           sc-compose --version
           bd --version
+          dolt version
           jq --version
           python3 --version
           git --version
