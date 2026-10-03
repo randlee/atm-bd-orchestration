@@ -145,6 +145,11 @@ until upstream carries it, then drops it from this list.
   (issue #8): `skills/atm-beads/templates/sprint-bead.json.j2` (version 0.3.0,
   required `difficulty` rendered into `metadata`, `stage:sprint` label) and
   `skills/atm-beads/examples/sprint-bead-vars-d-{4,5}.json` (`difficulty`).
+- Upstream PR #966 at 6fc80720 (unmerged), applied ahead of its merge (0.6.0):
+  dev-sanity selection (LLM and JEV always run, `sanity-selected` picks per
+  deliverable and alone files findings) across `agents/{dev-sanity,dev-sanity-llm,dev-sanity-jev,sc-sanity-llm,sc-sanity-jev}.md`,
+  `roles/dev-sanity.md`, `SKILL.md`, the sanity scripts, templates and examples,
+  and the sanity script tests.
 - Fix verification is upstream for QA (sc-observability 18d7158f, ruling
   2026-10-03: a fix is verified only by its filing reviewer, locked to the
   original finding). Still package-only:
