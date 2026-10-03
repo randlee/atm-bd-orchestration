@@ -13,5 +13,24 @@
   "worktree_path": "{{ worktree_base }}/sprint/d-4-otlp-sync-exporter",
   "pr_number": 231,
   "lead": "{{ bead_prefix }}-lead",
-  "cc": ""
+  "cc": "",
+  "policy_path": ".claude/project/quality-policy.md",
+  "reviewers_round1": [
+    "req-qa",
+    "arch-qa",
+    "rust-qa-agent",
+    "ruthless-boundary-qa",
+    "rust-best-practices-agent",
+    "rust-service-hardening-agent"
+  ],
+  "reviewers_fix_round": [
+    "req-qa",
+    "arch-qa",
+    "rust-qa-agent"
+  ],
+  "reviewers_scope_locked": [
+    "ruthless-boundary-qa",
+    "rust-best-practices-agent",
+    "rust-service-hardening-agent"
+  ]
 }

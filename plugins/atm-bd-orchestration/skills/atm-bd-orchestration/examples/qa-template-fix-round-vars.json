@@ -14,5 +14,24 @@
   "carry_forward": "{{ bead_prefix }}-d-4-qa1-f1",
   "lead": "{{ bead_prefix }}-lead",
   "cc": "",
-  "sprint_bead": "{{ bead_prefix }}-d-4"
+  "sprint_bead": "{{ bead_prefix }}-d-4",
+  "policy_path": ".claude/project/quality-policy.md",
+  "reviewers_round1": [
+    "req-qa",
+    "arch-qa",
+    "rust-qa-agent",
+    "ruthless-boundary-qa",
+    "rust-best-practices-agent",
+    "rust-service-hardening-agent"
+  ],
+  "reviewers_fix_round": [
+    "req-qa",
+    "arch-qa",
+    "rust-qa-agent"
+  ],
+  "reviewers_scope_locked": [
+    "ruthless-boundary-qa",
+    "rust-best-practices-agent",
+    "rust-service-hardening-agent"
+  ]
 }

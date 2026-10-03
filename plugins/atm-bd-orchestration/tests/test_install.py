@@ -471,14 +471,15 @@ def test_real_upgrade_from_a_0_2_3_install(tmp_path, capsys):
     # Copied files from 0.2.3 are owned through config/legacy-owned.json. A rendered file
     # is owned only when it equals what this version renders, so a rendered file whose
     # source changed since 0.2.3 is refused by name; deleting it lets the upgrade through.
-    renders = set(install.load_registry(PKG)["render"])
+    # The set is what 0.2.3 rendered, which includes files this version only copies.
+    renders = set(install.load_registry(old_pkg)["render"])
     changed = sorted(f".claude/{rel}" for rel in renders
                      if (old_pkg / rel).is_file() and (old_pkg / rel).read_bytes() != (PKG / rel).read_bytes())
     rc, err = run(repo, *QA, capsys=capsys)
     if changed:
         assert rc == 1
         refused = sorted(line.split(" exists and is not owned")[0] for line in err.split("; ") if "is not owned" in line)
-        assert [r.replace("install.py: ", "") for r in refused] == changed
+        assert sorted(r.replace("install.py: ", "") for r in refused) == changed
         for key in changed:
             (repo / key).unlink()
         rc, err = run(repo, *QA, capsys=capsys)

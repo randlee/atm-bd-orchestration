@@ -8,5 +8,7 @@
   "lead": "{{ bead_prefix }}-lead",
   "cc": "",
   "primary_checkout": "{{ repo_root }}",
-  "phase_root": "{{ bead_prefix }}-phase-d"
+  "phase_root": "{{ bead_prefix }}-phase-d",
+  "test_command": "make test",
+  "policy_path": ".claude/project/quality-policy.md"
 }

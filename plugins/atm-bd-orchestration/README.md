@@ -7,6 +7,7 @@ Bead-driven phase orchestration for ATM agent teams, as one installable package:
 | `skills/atm-beads` | the phase plan as a beads graph: plan templates, `validate-plan`, the pydantic bead schemas, `resolve-role`, the plan contract, the sprint index scripts |
 | `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment gates, dispatch and close templates, the `dev-sanity` and `quality-mgr` role sheets, sanity run history, the phase-end post-mortem (with JEV screening) |
 | `skills/sprint-report`, `skills/sprint-review` | sprint status tables and dependency DAGs from live beads; the sprint review command |
+| `skills/qa-report` | `/qa-report`: the two QA metrics logs quality-mgr appends under `.sc/qa-log/` (per-round events and cumulative phase stats), read-only |
 | `agents/dev-sanity.md` | the dev-sanity coordinator the two directives below share |
 | `agents/dev-sanity-llm.md`, `agents/sc-sanity-llm.md` | the LLM dev-sanity teammate and its per-deliverable subagent |
 | `agents/dev-sanity-jev.md`, `agents/sc-sanity-jev.md` | the same pair for a Jev (typesafe.ai) sanity check |
@@ -102,8 +103,9 @@ transport and the config file). On every run:
 - an unchanged recorded file the new version no longer ships is removed;
 - an existing file the install did not record is never written over: the install
   fails, naming it, and fails once per target skill directory
-  (`skills/atm-beads`, `skills/atm-bd-orchestration`, `skills/sprint-report`,
-  `skills/sprint-review`) that exists without any file it owns;
+  (`skills/atm-beads`, `skills/atm-bd-orchestration`, `skills/qa-report`,
+  `skills/sprint-report`, `skills/sprint-review`) that exists without any file it
+  owns;
 - a failed install writes nothing.
 
 A pre-0.4.0 install has no lock file. The first 0.4.0 install adopts an existing
