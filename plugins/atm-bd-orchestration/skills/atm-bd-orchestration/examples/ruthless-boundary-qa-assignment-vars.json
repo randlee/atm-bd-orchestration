@@ -6,5 +6,6 @@
   "review_targets": [
     "crates/example-otlp"
   ],
+  "qa_round": 2,
   "carry_forward_findings_json": "[\"RBQA-004\"]"
 }

@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Fix-round reviewer scope: which adversarial reviewers may run, and what they may report."""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+ADVERSARIAL = ("ruthless-boundary-qa", "rust-best-practices-agent", "rust-service-hardening-agent")
+
+
+def owned(carried: list[dict]) -> dict[str, list[str]]:
+    """Carried finding beads -> {adversarial reviewer: [its own finding_refs]}; absent reviewer = not dispatched."""
+    out: dict[str, list[str]] = {}
+    for bead in carried:
+        meta = bead.get("metadata") or {}
+        reviewer, ref = meta.get("reviewer"), meta.get("finding_ref")
+        if reviewer in ADVERSARIAL and isinstance(ref, str) and ref:
+            out.setdefault(reviewer, []).append(ref)
+    return out
+
+
+def filter_result(reviewer: str, carried: list[dict], result: dict) -> dict:
+    """Reduce a scope-locked reviewer result to dispositions on carried beads; nothing else survives."""
+    scope = {(b.get("metadata") or {}).get("finding_ref"): b["id"] for b in carried
+             if (b.get("metadata") or {}).get("reviewer") == reviewer}
+    data = result.get("data", result)
+    reported, dropped = {}, []
+    for finding in data.get("findings") or []:
+        ref = finding.get("id")
+        if ref in scope and ref not in reported:
+            reported[ref] = finding
+        else:
+            dropped.append(finding)
+    dispositions = [{"bead": bead, "finding_ref": ref,
+                     "disposition": (reported[ref].get("disposition") or "open") if ref in reported else "fixed",
+                     "evidence": reported.get(ref, {}).get("evidence", "")}
+                    for ref, bead in scope.items()]
+    return {"reviewer": reviewer, "dispositions": dispositions, "new_findings": [], "dropped_out_of_scope": dropped}
+
+
+def check(rows: list[dict]) -> list[str]:
+    """Fix-round import file -> ids of findings an adversarial reviewer raised (must be empty)."""
+    return [r.get("id", "?") for r in rows if (r.get("metadata") or {}).get("reviewer") in ADVERSARIAL]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=("owned", "filter", "check"))
+    parser.add_argument("--carried", default="", help="bd show <carried ids> --json")
+    parser.add_argument("--findings", default="", help="check: the round's finding-bead import JSONL")
+    parser.add_argument("--reviewer", default="")
+    parser.add_argument("--result", default="", help="the reviewer's fenced-JSON result")
+    args = parser.parse_args(argv)
+    if args.command == "check":
+        rows = [json.loads(line) for line in open(args.findings) if line.strip()] if args.findings else []
+        bad = check(rows)
+        if bad:
+            print("FIX_ROUND_ADVERSARIAL_FINDING: " + " ".join(bad), file=sys.stderr)
+        return 5 if bad else 0
+    carried = json.load(open(args.carried))
+    if args.command == "owned":
+        print(json.dumps(owned(carried)))
+        return 0
+    if args.reviewer not in ADVERSARIAL or not args.result:
+        print(f"filter needs --reviewer in {ADVERSARIAL} and --result", file=sys.stderr)
+        return 2
+    print(json.dumps(filter_result(args.reviewer, carried, json.load(open(args.result)))))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

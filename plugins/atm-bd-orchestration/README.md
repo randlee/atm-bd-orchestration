@@ -102,3 +102,25 @@ until upstream carries it, then drops it from this list.
   (issue #8): `skills/atm-beads/templates/sprint-bead.json.j2` (version 0.3.0,
   required `difficulty` rendered into `metadata`, `stage:sprint` label) and
   `skills/atm-beads/examples/sprint-bead-vars-d-{4,5}.json` (`difficulty`).
+- Fix-round reviewer scope (ruling 2026-10-02; package 0.2.3). On a fix round
+  (`carry_forward` set, `round` above 1, or a `fix/` branch) `req-qa`, `arch-qa`
+  and `rust-qa-agent` run, and `ruthless-boundary-qa`,
+  `rust-best-practices-agent` and `rust-service-hardening-agent` only re-check
+  their own carried ids, scope-locked:
+  - `skills/atm-bd-orchestration/templates/qa-template.xml.j2` (2.3.0): render
+    guard for `round` above 1 without `carry_forward`; `fix_round` and derived
+    `qa_round`; step d fixed allowlist and `fix-round-scope owned`/`filter`;
+    step g runs `fix-round-scope check` before a fix-round `bd import`.
+  - `skills/atm-bd-orchestration/templates/ruthless-boundary-qa-assignment.json.j2`
+    (2.1.0): required `qa_round`; trimmed-scope `locked` flag; refuses
+    `qa_round` above 1 without own ids.
+  - `skills/atm-bd-orchestration/templates/plan-review-template.xml.j2` (1.3.0):
+    step c passes `qa_round`; the fix-round clause limits `ruthless-boundary-qa`
+    to carried findings it owns.
+  - `skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json`:
+    `"qa_round": 2`.
+  - `skills/atm-bd-orchestration/roles/quality-mgr.md` "Reviewers": the
+    fix-round sentence.
+  - New `skills/atm-bd-orchestration/scripts/fix-round-scope` and
+    `scripts/tests/test_fix_round_scope.py`; `FixRoundReviewerScopeTests` in
+    `scripts/tests/test_templates.py`.

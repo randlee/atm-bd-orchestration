@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.3] - 2026-10-02
+
+### Changed
+- Fix rounds run `req-qa`, `arch-qa` and `rust-qa-agent`; `ruthless-boundary-qa`,
+  `rust-best-practices-agent` and `rust-service-hardening-agent` only re-check
+  their own carried finding ids, scope-locked (ruling 2026-10-02). A fix round is
+  `carry_forward` set, `round` above 1, or a `fix/` branch. `qa-template.xml.j2`
+  refuses `round` above 1 without `carry_forward` and gates the fix-round
+  `bd import` on `scripts/fix-round-scope check`; `ruthless-boundary-qa-assignment.json.j2`
+  requires `qa_round` and refuses a fix round without its own ids;
+  `plan-review-template.xml.j2` passes `qa_round`.
+
+### Added
+- `scripts/fix-round-scope` (`owned`, `filter`, `check`) and its tests; render
+  tests for the fix-round rules in `scripts/tests/test_templates.py`.
+
+Package-only, pending upstream: listed in README.md. Builds on 0.2.2 (#10).
+
 ## [0.2.2] - 2026-10-02
 
 ### Fixed

@@ -150,5 +150,81 @@ class TemplateContractTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
 
+def _render(template: str, values: dict) -> subprocess.CompletedProcess:
+    import json
+    import tempfile
+    with tempfile.TemporaryDirectory() as directory:
+        variables = Path(directory) / "vars.json"
+        variables.write_text(json.dumps(values))
+        return subprocess.run(["sc-compose", "render", "--file", str(ROOT / "templates" / template),
+                               "--var-file", str(variables), "--strict"], capture_output=True, text=True)
+
+
+def _example(name: str) -> dict:
+    import json
+    return json.loads((ROOT / "examples" / name).read_text())
+
+
+class FixRoundReviewerScopeTests(unittest.TestCase):
+    """A fix round runs req-qa, arch-qa and rust-qa-agent; the adversarial reviewers only re-check their own ids."""
+
+    RBQA = "ruthless-boundary-qa-assignment.json.j2"
+    QA = "qa-template.xml.j2"
+
+    def rbqa(self, **values) -> subprocess.CompletedProcess:
+        base = {k: v for k, v in _example("ruthless-boundary-qa-assignment-vars.json").items()
+                if k not in ("qa_round", "carry_forward_findings_json")}
+        return _render(self.RBQA, {**base, **values})
+
+    def test_round_one_is_unlocked(self):
+        import json
+        result = self.rbqa(qa_round=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIs(json.loads(result.stdout)["findings_scope_locked"], False)
+        qa = _render(self.QA, _example("qa-template-vars.json"))
+        self.assertEqual(qa.returncode, 0, qa.stderr)
+        self.assertIn("This is round 1: run the full reviewer set", qa.stdout)
+        self.assertIn("`qa_round` = 1", qa.stdout)
+        self.assertNotIn("fix-round-scope", qa.stdout)
+
+    def test_fix_round_with_ids_is_locked(self):
+        import json
+        result = self.rbqa(qa_round=2, carry_forward_findings_json='["RBQA-004"]')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertIs(data["findings_scope_locked"], True)
+        self.assertEqual(data["carry_forward_findings"], ["RBQA-004"])
+        qa = _render(self.QA, _example("qa-template-fix-round-vars.json"))
+        self.assertEqual(qa.returncode, 0, qa.stderr)
+        self.assertIn("Reviewers, exactly: `req-qa`, `arch-qa` and `rust-qa-agent`", qa.stdout)
+        self.assertIn("scripts/fix-round-scope owned --carried", qa.stdout)
+        self.assertIn("`qa_round` = 2", qa.stdout)
+        self.assertNotIn("full reviewer set", qa.stdout)
+        self.assertLess(qa.stdout.index("scripts/fix-round-scope check --findings"), qa.stdout.index("&& bd import"))
+
+    def test_fix_round_with_empty_scope_fails(self):
+        for scope in (None, "[]", "[ ]", "", "  ", "null"):
+            with self.subTest(scope=scope):
+                values = {"qa_round": 2} if scope is None else {"qa_round": 2, "carry_forward_findings_json": scope}
+                self.assertNotEqual(self.rbqa(**values).returncode, 0)
+        values = {k: v for k, v in _example("qa-template-fix-round-vars.json").items() if k != "carry_forward"}
+        self.assertNotEqual(_render(self.QA, values).returncode, 0)
+
+    def test_missing_round_fails(self):
+        result = self.rbqa(carry_forward_findings_json='["RBQA-004"]')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("qa_round", result.stderr)
+        values = {k: v for k, v in _example("qa-template-vars.json").items() if k != "round"}
+        self.assertNotEqual(_render(self.QA, values).returncode, 0)
+
+    def test_fix_branch_at_round_one_is_a_fix_round(self):
+        qa = _render(self.QA, {**_example("qa-template-vars.json"), "branch": "fix/d-4-qa1-f1-retry-jitter"})
+        self.assertEqual(qa.returncode, 0, qa.stderr)
+        self.assertIn("Reviewers, exactly: `req-qa`, `arch-qa` and `rust-qa-agent`", qa.stdout)
+        self.assertIn("No finding is carried", qa.stdout)
+        self.assertIn("scripts/fix-round-scope check --findings", qa.stdout)
+        self.assertNotIn("full reviewer set", qa.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
