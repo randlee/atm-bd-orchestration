@@ -1,5 +1,93 @@
 # Changelog
 
+## [0.5.0] - 2026-10-03
+
+Breaking: the configuration contract and `qa-template.xml.j2` required
+variables changed.
+
+### Changed
+- Fix verification is filing-reviewer-only (ruling 2026-10-03; upstream
+  sc-observability 18d7158f). A review of an assigned fix is not a sprint
+  review, regardless of round number or inherited `review_mode`: only the agent
+  that filed the carried finding (`metadata.reviewer`) is dispatched, locked to
+  its `metadata.finding_ref` and acceptance criterion. It reports
+  fixed/open/regressed for that finding and files no new findings; no automatic
+  `req-qa`/`arch-qa`/`rust-qa-agent`, no `ceremony-finding-screen`, no sprint
+  sweep. Required CI stays a separate merge requirement. On verified PASS,
+  quality-mgr reconciles the original finding bead's closure, not only the QA
+  task. This replaces the 0.2.3 fix-round rule.
+  - `roles/quality-mgr.md` "Reviewers": the upstream "Fix verification takes
+    precedence" text; sprint rounds 1–2 stay sprint reviews with
+    `reviewers_round1`.
+  - `qa-template.xml.j2` 4.0.0: `reviewers_fix_round` and
+    `reviewers_scope_locked` are no longer variables; adds upstream's
+    `<fix-verification-precedence>`. A fix verification is `carry_forward`
+    set, whatever the round or branch; `round` above 1 or a `fix/` branch no
+    longer makes one (the `FIX_ROUND_WITHOUT_CARRY_FORWARD` render guard is
+    gone), so a sprint round 2 or a parallel quick fix, which has no original
+    finding to verify, renders as a sprint review with `reviewers_round1`. Step g files no finding bead in a fix verification; step i's PASS
+    is every carried finding verified fixed. The `.sc/qa-log` rows are
+    unchanged (`tested` is still the carried finding_refs).
+  - `scripts/fix-round-scope`: no longer reads the configuration. `owned`
+    prints every carried finding's filing reviewer with its own ids (a carried
+    finding without `metadata.reviewer`/`finding_ref` is an error); `check
+    --carried --dispatch` exits 5 (`FIX_ROUND_DISPATCH_MISMATCH`) unless the
+    dispatch set is exactly those reviewers; `filter` accepts any filing
+    reviewer. `check --findings` is gone (a fix verification imports nothing).
+  - `config/atm-bd-orchestration.yaml.j2` 1.0.0: `reviewers_fix_round` and
+    `reviewers_scope_locked` removed; `reviewers_round1` is the only reviewer
+    list.
+- Plan-review fix rounds are filing-reviewer-only too (ruling 2026-10-03).
+  From plan round 2 on, `req-qa` and `arch-qa` are not re-run and
+  `plan-scope-reviewer` does not run in full: only the filing reviewer of each
+  carried finding runs, locked to it, with no ceremony screen and no new
+  findings; `validate-plan` still runs, like required CI.
+  `plan-review-template.xml.j2` 3.0.0 (`reviewers_scope_locked` is no longer a
+  variable) adds a `<fix-verification-precedence>` block. Plan findings stay
+  report lines, not beads, and now name their filing reviewer:
+  `<bead> <severity> <reviewer> <field>: <what is wrong>` (`validate-plan` for
+  step b findings). `scripts/fix-round-scope --plan` reads the carried lines,
+  and `check --plan --dispatch` refuses any set other than their filing
+  reviewers (`validate-plan` itself is step b, never dispatched).
+  `plan-scope-reviewer-assignment.json.j2` 1.1.0 (as atm-core 2676a514)
+  locks a round after the first to the reviewer's own carried ids, sets
+  `findings_scope_locked`, and refuses to render
+  (`FIX_ROUND_SCOPE_LOCK_REQUIRED`) without them; `plan-review-template.xml.j2`
+  3.0.1 step c passes it `round_index` and those ids.
+- Orchestration refusals reuse workflow class beads (upstream
+  sc-observability 87a26739, #954). The refusal paths of `dev-template.xml.j2`
+  3.1.0, `dev-fix.xml.j2` 1.1.0, `fix-assignment.xml.j2` 3.1.0,
+  `dev-sanity-template.xml.j2` 2.1.0, `qa-template.xml.j2` 4.0.0,
+  `plan-review-template.xml.j2` 2.1.0 and `review-template.xml.j2` 3.1.0 no
+  longer render and import a new `<task>-wf-<CODE>` bead per task: they append
+  the task id, head, command and failure evidence to an existing workflow class
+  bead for the same failure signature and cite it, or, when no class matches,
+  report the signature to the lead for classification and cite that message.
+  Required variables unchanged (minor bumps).
+  The `roles/quality-mgr.md` and `roles/dev-sanity.md` refusal paragraphs
+  say the same.
+
+### Removed
+- Source-repository text: the roster model names in
+  `atm-beads/resources/dev-sanity.md`, "this phase-D run" in
+  `references/post-mortem-jev.md`, "Phase D" in
+  `blocking-findings-guidelines.md`, and the `omega-prime` decision owner in
+  `blocking-findings-guidelines.md` and `SKILL.md` (now "the user or their
+  delegate").
+
+### Migration from 0.4.0
+Rerun the install. `reviewers_fix_round` and `reviewers_scope_locked` are no
+longer configuration variables: the installer reads only declared variables
+from registry.yaml, so leftover keys there are ignored (delete them at
+leisure), and the rendered `.claude/project/atm-bd-orchestration.yaml` no
+longer carries them. `--set reviewers_fix_round=...` or
+`--set reviewers_scope_locked=...` is now an install error (unknown `--set`
+variable). A lead that dispatches `qa-template.xml.j2` or
+`plan-review-template.xml.j2` with a var file built from `repo_config.py json`
+still renders: the extra keys are ignored. Plan finding lines carried into a
+round-2 plan review must name their reviewer; a line from a 0.4.0 round 1
+report needs the reviewer added (its `reviewers_md` says which).
+
 ## [0.4.0] - 2026-10-02
 
 Breaking: the install contract changed. Configuration is one rendered file, the

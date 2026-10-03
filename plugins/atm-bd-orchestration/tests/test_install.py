@@ -25,7 +25,7 @@ REPO_STRINGS = ("sc-observability", "sc-obs", "obs-", "randlee/sc-", "/Users/ran
 SPEC_VARIABLES = [
     "bead_prefix", "lead", "dev_sanity_member", "qa_member", "worktree_base", "test_command",
     "lint_command", "integration_branch_pattern", "plans_dir", "requirements_globs", "adr_globs",
-    "policy_path", "reviewers_round1", "reviewers_fix_round", "reviewers_scope_locked",
+    "policy_path", "reviewers_round1",
 ]
 needs_sc_compose = pytest.mark.skipif(not SC_COMPOSE, reason="sc-compose not on PATH; install not verified")
 
@@ -83,7 +83,7 @@ def test_config_template_declares_exactly_the_spec_variables_without_defaults():
 
 def test_versions_agree():
     version = install.package_version(PKG)
-    assert version == "0.4.0"
+    assert version == "0.5.0"
     assert json.loads((PKG / ".claude-plugin/plugin.json").read_text())["version"] == version
     assert f"## [{version}]" in (PKG / "CHANGELOG.md").read_text()
 
@@ -114,8 +114,6 @@ requirements_globs: [docs/requirements.md, "docs/**/requirements.md"]
 adr_globs: ["docs/adr/*.md"]
 policy_path: .claude/project/quality-policy.md
 reviewers_round1: [req-qa, arch-qa]
-reviewers_fix_round: [req-qa]
-reviewers_scope_locked: [ruthless-boundary-qa]
 
 roles:
   dev-sanity: my-sanity   # the member running the dev-sanity directive
@@ -188,11 +186,22 @@ def test_set_wins_and_lists_parse(tmp_path):
     assert vals["dev_sanity_member"] == "my-sanity" and "qa_member" not in vals
 
 
+@pytest.mark.parametrize("removed", ["reviewers_fix_round", "reviewers_scope_locked"])
+def test_removed_reviewer_lists_are_ignored_in_registry_and_rejected_by_set(tmp_path, removed):
+    """0.5.0 dropped reviewers_fix_round and reviewers_scope_locked: a leftover registry key is not read; --set names it unknown."""
+    repo = make_repo(tmp_path)
+    reg = repo / ".claude/agents/registry.yaml"
+    reg.write_text(reg.read_text() + f"{removed}: [req-qa]\n")
+    assert removed not in install.resolve_config(repo, {})
+    with pytest.raises(install.InstallError, match=f"unknown --set variable\\(s\\): {removed}"):
+        install.resolve_config(repo, {removed: "req-qa"})
+
+
 def test_wrong_type_and_misplaced_role_are_named(tmp_path):
     repo = make_repo(tmp_path)
     reg = repo / ".claude/agents/registry.yaml"
-    reg.write_text(reg.read_text().replace("reviewers_fix_round: [req-qa]", "reviewers_fix_round: req-qa"))
-    with pytest.raises(install.InstallError, match="reviewers_fix_round must be a list"):
+    reg.write_text(reg.read_text().replace("reviewers_round1: [req-qa, arch-qa]", "reviewers_round1: req-qa"))
+    with pytest.raises(install.InstallError, match="reviewers_round1 must be a list"):
         install.resolve_config(repo, {})
     reg.write_text(reg.read_text() + "lead: x\n")
     with pytest.raises(install.InstallError, match="lead belongs under roles.lead"):
@@ -235,10 +244,10 @@ def test_fresh_install(tmp_path, capsys):
     assert config["qa_member"] == "quality-mgr" and config["lead"] == "my-lead"
     assert config["integration_branch_pattern"] == "integrate/phase-{phase}"
     assert config["requirements_globs"] == ["docs/requirements.md", "docs/**/requirements.md"]
-    assert config["reviewers_scope_locked"] == ["ruthless-boundary-qa"]
+    assert config["reviewers_round1"] == ["req-qa", "arch-qa"]
     # the install record: version and the sha256 of every file written
     record = lock(repo)
-    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.4.0"
+    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.5.0"
     expected = {f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]} | {"scripts/jev_client.py", install.CONFIG_OUT}
     assert set(record["files"]) == expected
     assert all(sha((repo / k).read_bytes()) == v for k, v in record["files"].items())
@@ -302,7 +311,7 @@ def test_missing_reviewer_agent_fails(tmp_path, capsys):
     repo = make_repo(tmp_path, agents=("quality-mgr", "req-qa", "my-sanity"))
     rc, err = run(repo, *QA, capsys=capsys)
     assert rc == 1
-    assert "no .claude/agents/<name>.md for: arch-qa (reviewers_round1), ruthless-boundary-qa (reviewers_scope_locked)" in err
+    assert "no .claude/agents/<name>.md for: arch-qa (reviewers_round1)" in err
     assert not (repo / ".claude/skills").exists()
 
 
@@ -443,7 +452,7 @@ def test_migration_owns_shipped_and_legacy_bytes_and_fails_on_others(tmp_path, p
     assert rc == 0, err
     assert (repo / ".claude" / script).read_bytes() == (PKG / script).read_bytes()
     assert not (repo / ".claude" / dropped).exists()
-    assert lock(repo)["version"] == "0.4.0"
+    assert lock(repo)["version"] == "0.5.0"
 
 
 def _git_has(rev: str) -> bool:

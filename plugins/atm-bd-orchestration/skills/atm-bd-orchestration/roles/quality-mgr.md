@@ -39,11 +39,12 @@ read the pinned PASS commit with `bd show "$CHECKED_BEAD" --json | jq -r
 must equal `metadata.pr_target`, its head must equal the sanity PASS commit,
 and the QA worktree HEAD must equal that PR head. Otherwise refuse
 `SANITY_STALE`; no layer or quick fix lacking QA PASS at that pinned head is
-mergeable. Before the refusal message or task close, strictly render
-`templates/workflow-issue-bead.json.j2` with id `$TASK_ID-wf-SANITY_STALE`,
-`bd import <scratch>/$TASK_ID-wf-SANITY_STALE.json`, and include the created id
-in the refusal. The same render/import-before-refusal rule applies to any
-other QA cannot-run path.
+mergeable. Reuse an existing workflow class bead for the same failure
+signature: append the task id, head, command and failure evidence, and cite the
+class id in the refusal. If no class matches, report the signature to the lead
+for classification and cite that message instead; do not create a per-task
+shadow or delay the refusal. The same rule applies to any other QA cannot-run
+path.
 
 ## Plan Review
 
@@ -61,8 +62,14 @@ why they are strict:
   starts from a bead with the wrong governing ids builds against the wrong
   contract, and QA then checks against the same wrong list. Never downgrade
   these, and never let ceremony-finding-screen remove them.
-- Plan findings are not finding beads. They go in the report, and the
-  plan-review bead stays open until a round passes.
+- Plan findings are not finding beads. They go in the report, one line each
+  naming the reviewer that filed it, and the plan-review bead stays open until
+  a round passes.
+- A plan fix round (`carry_forward` set) follows "Fix verification takes
+  precedence" below: only the filing reviewer of each carried finding runs
+  (`scripts/fix-round-scope --plan`), locked to it; `req-qa` and `arch-qa` are
+  not re-run, `plan-scope-reviewer` does not run in full, there is no ceremony
+  screen and no new finding. `validate-plan` still runs, like required CI.
 
 ## Phase-ending post-mortem
 
@@ -92,18 +99,42 @@ leave integration review pending. Quality scores are advisory, not closures.
 ## Reviewers
 
 The reviewer sets are the repository's, from its configuration, and arrive
-as `qa-template.xml.j2` variables:
+as `qa-template.xml.j2` variables. Round 1 of a layer (no `carry_forward`)
+runs `reviewers_round1`. Sprint rounds 1–2 remain sprint reviews with that
+set; a fix does not become a sprint review because it has a new PR or round
+number.
 
-- round 1 of a layer (no `carry_forward`) runs `reviewers_round1`;
-- a fix round (`carry_forward` set, `round` above 1, or a `fix/` branch) runs
-  `reviewers_fix_round`, and each `reviewers_scope_locked` reviewer runs only
-  to re-check its own carried finding ids, scope-locked and never open-ended
-  (`scripts/fix-round-scope` enforces it; the assignment's step d says how).
+Conditional reviewers (sprint reviews only): add any reviewer the repository
+QA policy (`policy_path`) requires for the change, for example a flaky-test
+reviewer when tests changed or a schema reviewer when a governed interface is
+in scope, as `quality-mgr.md` ("Reviewer Selection") says.
 
-Conditional reviewers: add any reviewer the repository QA policy
-(`policy_path`) requires for the change, for example a flaky-test reviewer
-when tests changed or a schema reviewer when a governed interface is in
-scope, as `quality-mgr.md` ("Reviewer Selection") says.
+### Fix verification takes precedence
+
+A review of an assigned fix is not a sprint review, regardless of its round
+number or inherited `review_mode`. Dispatch only the agent necessary to
+confirm the assigned finding, normally the agent that filed it. That agent
+verifies the original acceptance criterion at the pinned commit and reports
+fixed, open, or regressed for the same finding ID. It files no new findings.
+Do not automatically add req-qa, arch-qa, rust-qa-agent, or a screening agent.
+The selected verifier may run the focused checks necessary to confirm the fix;
+ordinary required CI remains a separate merge requirement. On verified PASS,
+reconcile closure of the original finding, not only the QA task.
+
+For a fix-verification review (`carry_forward` set; independent of sprint
+round numbering):
+- dispatch only the reviewer necessary to confirm the original finding,
+  normally its filing agent (the carried finding bead's `metadata.reviewer`);
+  there is no mandatory multi-agent reviewer set
+- lock the assignment to the original finding ID (`metadata.finding_ref`) and
+  acceptance criterion
+- run only checks necessary to confirm that fix; do not expand to a sprint sweep
+- report fixed/open/regressed for the existing finding, and file no new findings
+- when fixed, reconcile the original finding bead's verified closure with its
+  owner
+
+`scripts/fix-round-scope` enforces the dispatch set and the lock; the
+assignment's step d says how.
 
 Every reviewer is a background agent (a subagent or child agent, whichever
 your harness provides). It gets the pinned `branch`, `commit` and
@@ -133,7 +164,7 @@ sc-compose render --file .claude/skills/atm-bd-orchestration/templates/<reviewer
 
 ## Findings
 
-After the reviewers return, screen every finding with
+In a sprint review, after the reviewers return, screen every finding with
 `ceremony-finding-screen`, which also runs as a background agent. Then file
 one finding bead per finding with `finding-bead.json.j2`, whatever the
 screen said. What happens next depends on the verdict:
@@ -155,7 +186,7 @@ screen said. What happens next depends on the verdict:
   disappearing.
 - A round with only minor findings is PASS; its open finding beads remain
   backlog. Any blocking or important finding is FAIL and receives exactly one
-  fix round. A second FAIL is `ROUND_CAP`: stop dispatch and record the root
+  fix round, verified as "Fix verification takes precedence" says. A second FAIL is `ROUND_CAP`: stop dispatch and record the root
   cause rather than creating another fix round.
 - `difficulty` is required when rendering a finding. Copy it from the
   checked sprint/finding; never select a default. The dispatch report prints
@@ -168,7 +199,8 @@ screen said. What happens next depends on the verdict:
 - Ids are `<qa bead>-f<n>`, numbered in report order.
 - Every finding closes with a close reason. You close ceremony findings. The
   fixer closes the rest, as fixed or not reproducible. In a fix round you
-  note each confirmed fix and reopen each carried finding that regressed or
+  file no finding beads: you note each confirmed fix, reconcile the original
+  finding bead's closure, and reopen each carried finding that regressed or
   is still open (`bd reopen`).
 
 Do not assign findings. The lead picks the member for each one.

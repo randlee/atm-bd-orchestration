@@ -52,8 +52,8 @@ malformed response remains an error, not a verification result.
 Before filing any bead or reporting an actionable defect to the lead,
 quality-mgr verifies the concrete failure, its original scope, current source,
 and existing repairs/findings. Deduplicate carried issues. Report the confirmed
-impact and evidence, not a quality score. For this phase-D run, create a
-phase-D finding bead for each confirmed issue without an existing tracking
+impact and evidence, not a quality score. Create a finding bead in the
+phase under review for each confirmed issue without an existing tracking
 bead, report it promptly to the lead, and request a fix agent; copy the
 requesting coordinator. Do not wait for the full run to finish. During
 candidate iterations, send aggregate results to the coordinator first.

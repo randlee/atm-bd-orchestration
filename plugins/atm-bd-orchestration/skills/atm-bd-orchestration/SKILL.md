@@ -65,7 +65,7 @@ files those from a phase-end review.
 Before treating a finding or unresolved decision as a development stop, read
 [`blocking-findings-guidelines.md`](blocking-findings-guidelines.md). Scope the
 decision and the consequence of choosing wrong. Record decisions for the user
-or omega-prime; conservative, reversible provisional choices keep independent
+or their delegate; conservative, reversible provisional choices keep independent
 work moving. Unresolved decision beads block phase closure, not development.
 
 ## Repository configuration
@@ -92,7 +92,7 @@ one fails the render.
 | `plans_dir` | `phase-index-path`, `check-phase-artifact`, `sprint-report`, `sprint-review`, `plan-review-template` |
 | `requirements_globs`, `adr_globs` | `plan-review-template`, `fix-assignment` |
 | `policy_path` | `qa-template`, `dev-template`, `fix-assignment`, `schema-reviewer-assignment` |
-| `reviewers_round1`, `reviewers_fix_round`, `reviewers_scope_locked` | `qa-template`; `reviewers_scope_locked` also `plan-review-template` and `scripts/fix-round-scope` |
+| `reviewers_round1` | `qa-template` (sprint reviews) |
 
 There is no base-branch key: `validate-plan` reads the plan from the phase
 root bead's `integration_branch`.
@@ -213,7 +213,8 @@ No dev bead is dispatched until the plan passes review.
      findings, it is handed to you open; you fix them and close it.
    - FAIL leaves it open. The author fixes the beads with `bd update`; you
      assign the next round (`round` + 1, `carry_forward` = the open
-     findings) with the same task id.
+     finding lines) with the same task id. That round runs only each carried
+     finding's filing reviewer.
    - Plan review is capped at three rounds, as in `quality-mgr.md`.
 
 Requirements and ADRs are the tight part of the gate. Every dev bead lists
@@ -429,7 +430,7 @@ written to beads with the `atm-beads` templates.
 | `review-template.xml.j2` | assignment | lead → phase-end reviewer |
 | `review-complete.md.j2` | close | phase-end reviewer |
 | `task-refused.md.j2` | close | anyone who cannot do the whole assignment |
-| `req-qa`, `arch-qa`, `ruthless-boundary-qa`, `flaky-test-qa`, `schema-reviewer`, `plan-scope-reviewer` `-assignment.json.j2` | fenced JSON | quality-mgr → its background reviewers; `plan-scope-reviewer` every plan-review round |
+| `req-qa`, `arch-qa`, `ruthless-boundary-qa`, `flaky-test-qa`, `schema-reviewer`, `plan-scope-reviewer` `-assignment.json.j2` | fenced JSON | quality-mgr → its background reviewers; `plan-scope-reviewer` every plan-review round 1, and in a fix round only for its own carried findings |
 | `qa-bead.json.j2` | bead | lead, after a green sanity check |
 | `finding-bead.json.j2` | bead | quality-mgr (QA) and lead (review), one per finding |
 

@@ -14,18 +14,28 @@ LOADER = importlib.machinery.SourceFileLoader("fix_round_scope", str(Path(__file
 scope = importlib.util.module_from_spec(importlib.util.spec_from_loader("fix_round_scope", LOADER))
 LOADER.exec_module(scope)
 
-# The scope-locked set comes from the repository configuration; the tests pass it explicitly.
-LOCKED = ("ruthless-boundary-qa", "rust-best-practices-agent", "rust-service-hardening-agent")
 CARRIED = [
     {"id": "x-d-4-qa1-f1", "metadata": {"reviewer": "ruthless-boundary-qa", "finding_ref": "RBQA-F001"}},
     {"id": "x-d-4-qa1-f2", "metadata": {"reviewer": "arch-qa", "finding_ref": "ARCH-F002"}},
 ]
 
 
-class FixRoundScopeTests(unittest.TestCase):
-    def test_only_owning_adversarial_reviewers_are_dispatched(self):
-        self.assertEqual(scope.owned(CARRIED, LOCKED), {"ruthless-boundary-qa": ["RBQA-F001"]})
-        self.assertEqual(scope.owned([CARRIED[1]], LOCKED), {})  # no RBP/RBQA/RSH carried -> none of them runs
+class FixVerificationScopeTests(unittest.TestCase):
+    """A fix is verified only by the agent that filed it, locked to that finding's own id."""
+
+    def test_dispatch_set_is_the_filing_reviewers(self):
+        self.assertEqual(scope.owned(CARRIED), {"ruthless-boundary-qa": ["RBQA-F001"], "arch-qa": ["ARCH-F002"]})
+        self.assertEqual(scope.owned([CARRIED[1]]), {"arch-qa": ["ARCH-F002"]})  # no automatic panel
+
+    def test_carried_finding_without_reviewer_or_ref_cannot_be_locked(self):
+        for meta in ({"finding_ref": "R-1"}, {"reviewer": "req-qa"}, {"reviewer": "", "finding_ref": "R-1"}):
+            with self.subTest(meta=meta), self.assertRaises(scope.ScopeError):
+                scope.owned([{"id": "x-f9", "metadata": meta}])
+
+    def test_check_rejects_a_panel_and_a_missing_verifier(self):
+        self.assertEqual(scope.check(CARRIED, ["ruthless-boundary-qa", "arch-qa"]), ([], []))
+        self.assertEqual(scope.check([CARRIED[1]], ["arch-qa", "req-qa", "rust-qa-agent"]), (["req-qa", "rust-qa-agent"], []))
+        self.assertEqual(scope.check(CARRIED, ["arch-qa"]), ([], ["ruthless-boundary-qa"]))
 
     def test_out_of_scope_findings_never_survive(self):
         result = {"data": {"findings": [
@@ -39,64 +49,87 @@ class FixRoundScopeTests(unittest.TestCase):
         self.assertEqual(len(out["dropped_out_of_scope"]), 2)
 
     def test_unreported_carried_finding_is_fixed(self):
-        out = scope.filter_result("ruthless-boundary-qa", CARRIED, {"data": {"findings": []}})
-        self.assertEqual(out["dispositions"][0]["disposition"], "fixed")
+        out = scope.filter_result("arch-qa", CARRIED, {"data": {"findings": []}})
+        self.assertEqual(out["dispositions"], [{"bead": "x-d-4-qa1-f2", "finding_ref": "ARCH-F002",
+                                                "disposition": "fixed", "evidence": ""}])
 
     def test_another_reviewers_ids_are_not_in_scope(self):
-        out = scope.filter_result("rust-best-practices-agent", CARRIED, {"data": {"findings": [{"id": "RBQA-F001"}]}})
-        self.assertEqual(out["dispositions"], [])
+        out = scope.filter_result("arch-qa", CARRIED, {"data": {"findings": [{"id": "RBQA-F001"}]}})
+        self.assertEqual([d["finding_ref"] for d in out["dispositions"]], ["ARCH-F002"])
         self.assertEqual(len(out["dropped_out_of_scope"]), 1)
 
 
-    def test_check_rejects_an_adversarial_finding_in_a_fix_round_import(self):
-        rows = [{"id": "q-f1", "metadata": {"reviewer": "rust-qa-agent"}},
-                {"id": "q-f2", "metadata": {"reviewer": "rust-service-hardening-agent"}}]
-        self.assertEqual(scope.check(rows, LOCKED), ["q-f2"])
-        self.assertEqual(scope.check(rows[:1], LOCKED), [])
+PLAN = """- x-d-4 blocking validate-plan requirements: empty; list the governing REQ ids or ["NONE"]
+- x-d-5 blocking arch-qa adrs: ADR-020 is not in docs/architecture.md
+- x-d-6 important ruthless-boundary-qa design: the exporter reaches into the config crate
+"""
 
 
-class ConfiguredScopeTests(unittest.TestCase):
-    """The CLI takes the scope-locked set from `reviewers_scope_locked`, and refuses to run without it."""
+class PlanFixRoundTests(unittest.TestCase):
+    """Plan findings are report lines; the reviewer named on each line is its filing reviewer."""
 
+    def test_lines_name_their_filing_reviewer(self):
+        carried = scope.plan_carried(PLAN)
+        self.assertEqual(scope.owned(carried), {"validate-plan": ["x-d-4 requirements"], "arch-qa": ["x-d-5 adrs"],
+                                                "ruthless-boundary-qa": ["x-d-6 design"]})
+
+    def test_validate_plan_is_never_dispatched(self):
+        carried = scope.plan_carried(PLAN)
+        self.assertEqual(scope.check(carried, ["arch-qa", "ruthless-boundary-qa"]), ([], []))
+        self.assertEqual(scope.check(carried, ["arch-qa", "ruthless-boundary-qa", "req-qa", "plan-scope-reviewer"]),
+                         (["plan-scope-reviewer", "req-qa"], []))
+        self.assertEqual(scope.check(carried, ["validate-plan", "arch-qa", "ruthless-boundary-qa"]), (["validate-plan"], []))
+
+    def test_a_line_without_a_reviewer_is_an_error(self):
+        with self.assertRaises(scope.ScopeError):
+            scope.plan_carried("- x-d-4 blocking requirements: empty\n")
+
+
+class CliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.repo = Path(self.tmp.name)
-        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
-        (self.repo / "carried.json").write_text(json.dumps(CARRIED))
+        self.dir = Path(self.tmp.name)
+        (self.dir / "carried.json").write_text(json.dumps(CARRIED))
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def configure(self, text: str) -> None:
-        path = self.repo / ".claude/project/atm-bd-orchestration.yaml"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
-
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run([sys.executable, str(SCRIPT), *args], cwd=self.repo, capture_output=True, text=True)
+        return subprocess.run([sys.executable, str(SCRIPT), *args], cwd=self.dir, capture_output=True, text=True)
 
-    def test_configured_set_decides_who_is_scope_locked(self):
-        self.configure("reviewers_scope_locked: [arch-qa]\n")
+    def test_owned_needs_no_repository_configuration(self):
         out = self.run_cli("owned", "--carried", "carried.json")
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertEqual(json.loads(out.stdout), {"arch-qa": ["ARCH-F002"]})
-        (self.repo / "f.jsonl").write_text(json.dumps({"id": "q-f1", "metadata": {"reviewer": "arch-qa"}}) + "\n"
-                                           + json.dumps({"id": "q-f2", "metadata": {"reviewer": "ruthless-boundary-qa"}}) + "\n")
-        check = self.run_cli("check", "--findings", "f.jsonl")
-        self.assertEqual(check.returncode, 5)
-        self.assertIn("q-f1", check.stderr)
-        self.assertNotIn("q-f2", check.stderr)
+        self.assertEqual(json.loads(out.stdout), {"ruthless-boundary-qa": ["RBQA-F001"], "arch-qa": ["ARCH-F002"]})
 
-    def test_missing_key_is_a_named_error_not_an_empty_set(self):
-        self.configure("lead: someone\n")
-        out = self.run_cli("check", "--findings", "")
-        self.assertEqual(out.returncode, 2)
-        self.assertIn("reviewers_scope_locked", out.stderr)
+    def test_check_exit_codes(self):
+        ok = self.run_cli("check", "--carried", "carried.json", "--dispatch", "arch-qa,ruthless-boundary-qa")
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        bad = self.run_cli("check", "--carried", "carried.json", "--dispatch", "arch-qa,req-qa")
+        self.assertEqual(bad.returncode, 5)
+        self.assertIn("FIX_ROUND_DISPATCH_MISMATCH", bad.stderr)
+        self.assertIn("req-qa", bad.stderr)
+        self.assertIn("ruthless-boundary-qa", bad.stderr)
 
-    def test_missing_config_file_is_an_error(self):
+    def test_unlockable_carried_finding_is_a_named_error(self):
+        (self.dir / "carried.json").write_text(json.dumps([{"id": "x-f9", "metadata": {}}]))
         out = self.run_cli("owned", "--carried", "carried.json")
         self.assertEqual(out.returncode, 2)
-        self.assertIn("atm-bd-orchestration.yaml", out.stderr)
+        self.assertIn("x-f9", out.stderr)
+
+    def test_plan_mode(self):
+        (self.dir / "plan.txt").write_text(PLAN)
+        out = self.run_cli("check", "--plan", "--carried", "plan.txt", "--dispatch", "arch-qa,req-qa")
+        self.assertEqual(out.returncode, 5)
+        self.assertIn("req-qa", out.stderr)
+        self.assertIn("ruthless-boundary-qa", out.stderr)
+        (self.dir / "bad.txt").write_text("x-d-4 blocking requirements: empty\n")
+        self.assertEqual(self.run_cli("owned", "--plan", "--carried", "bad.txt").returncode, 2)
+
+    def test_filter_refuses_a_reviewer_that_filed_nothing_carried(self):
+        (self.dir / "r.json").write_text(json.dumps({"data": {"findings": []}}))
+        out = self.run_cli("filter", "--carried", "carried.json", "--reviewer", "req-qa", "--result", "r.json")
+        self.assertEqual(out.returncode, 2)
 
 
 if __name__ == "__main__":
