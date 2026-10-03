@@ -1,10 +1,11 @@
 name: atm-bd-orchestration
-version: 0.2.0
+version: 0.3.0
 description: >
   Bead-driven phase orchestration for ATM agent teams: the phase plan as a
   beads graph (atm-beads), dispatch, dev-sanity, QA and stack landing driven
-  by `bd ready` (atm-bd-orchestration), and sprint status tables and DAGs
-  from live beads (sprint-report), with the sanity-check agents they name.
+  by `bd ready` with BV graph analysis for the lead (atm-bd-orchestration),
+  and sprint status tables and DAGs from live beads (sprint-report), with the
+  sanity-check agents they name.
 author: randlee
 license: MIT
 tags:
@@ -49,6 +50,7 @@ artifacts:
     - skills/atm-bd-orchestration/examples/schema-reviewer-assignment-vars.json
     - skills/atm-bd-orchestration/examples/task-refused-vars.json
     - skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json
+    - skills/atm-bd-orchestration/references/bv.md
     - skills/atm-bd-orchestration/references/post-mortem-context-preparation.md
     - skills/atm-bd-orchestration/references/post-mortem-jev.md
     - skills/atm-bd-orchestration/references/post-mortem.md
@@ -56,6 +58,7 @@ artifacts:
     - skills/atm-bd-orchestration/roles/quality-mgr.md
     - skills/atm-bd-orchestration/scripts/assignment-gates.py
     - skills/atm-bd-orchestration/scripts/bd_commands.py
+    - skills/atm-bd-orchestration/scripts/bv-analyze
     - skills/atm-bd-orchestration/scripts/check-review-completion.py
     - skills/atm-bd-orchestration/scripts/post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/post_mortem_jev.py
@@ -84,6 +87,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/fixtures/zero-delta.json
     - skills/atm-bd-orchestration/scripts/tests/test_assignment_gates.py
     - skills/atm-bd-orchestration/scripts/tests/test_atomic.py
+    - skills/atm-bd-orchestration/scripts/tests/test_bv_analyze.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_jev.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_create_findings.py

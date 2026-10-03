@@ -180,6 +180,26 @@ def test_codex_target_installs_skills_only(tmp_path):
 
 
 @needs_sc_compose
+@pytest.mark.parametrize('target', ['.claude', '.codex'])
+def test_install_with_atm_config_and_explicit_members_without_registry(tmp_path, target):
+    repo = make_repo(tmp_path)
+    (repo / '.claude/agents/registry.yaml').unlink()
+    with (repo / '.atm.toml').open('a') as config:
+        config.write('\n[startup.coordinator]\nall = "Lead the assigned phase"\n'
+                     '\n[startup.reviewer]\nall = "Run development sanity"\n')
+    dest = repo / target
+    assert install.main(['--dest', str(dest), '--set', 'lead=coordinator',
+                         '--set', 'dev_sanity_member=reviewer', '--set', 'bead_prefix=task']) == 0
+    assert not (repo / '.claude/agents/registry.yaml').exists()
+    role = (dest / 'skills/atm-bd-orchestration/roles/dev-sanity.md').read_text()
+    assert '`reviewer`' in role
+    bv = dest / 'skills/atm-bd-orchestration'
+    assert (bv / 'references/bv.md').is_file()
+    assert '(references/bv.md)' in (bv / 'SKILL.md').read_text()
+    assert (bv / 'scripts/bv-analyze').stat().st_mode & 0o111
+
+
+@needs_sc_compose
 def test_hook_contract_prepare_fails_with_a_message(tmp_path):
     repo = make_repo(tmp_path, prefix=False)
     options = {"global": False, "local": True, "user": False, "project": False,

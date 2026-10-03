@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0] - 2026-10-02
+
+### Added
+- BV analysis instructions for the orchestration
+  (`skills/atm-bd-orchestration/references/bv.md`): when the lead runs BV to
+  optimize work in progress and plan continuing work (plan graph health before
+  import and at plan review, wave-boundary critical path and parallel width,
+  stall blocker chains, phase-end inventory), what to read, and the action each
+  outcome maps to. Advisory only; linked by one line in the skill.
+- `skills/atm-bd-orchestration/scripts/bv-analyze`: read-only BV snapshot
+  helper (fresh `bd` export or `--file` plan JSONL, phase-root descendant
+  filter, full-export blocker chains, source-authority checks) with tests.
+- Installation coverage with explicit agent names and no legacy agent registry.
+
 ## [0.2.0] - 2026-10-02
 
 ### Changed

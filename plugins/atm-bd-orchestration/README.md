@@ -5,12 +5,21 @@ Bead-driven phase orchestration for ATM agent teams, as one installable package:
 | Skill / agent | What it is |
 | --- | --- |
 | `skills/atm-beads` | the phase plan as a beads graph: plan templates, `validate-plan`, the pydantic bead schemas, `resolve-role`, the plan contract, the sprint index scripts |
-| `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment gates, dispatch and close templates, the `dev-sanity` and `quality-mgr` role sheets, sanity run history, the phase-end post-mortem (with JEV screening) |
+| `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment gates, dispatch and close templates, the `dev-sanity` and `quality-mgr` role sheets, sanity run history, the phase-end post-mortem (with JEV screening); `references/bv.md` and `scripts/bv-analyze`, the lead's BV graph analysis |
 | `skills/sprint-report`, `skills/sprint-review` | sprint status tables and dependency DAGs from live beads; the sprint review command |
 | `agents/dev-sanity.md` | the dev-sanity coordinator the two directives below share |
 | `agents/dev-sanity-llm.md`, `agents/sc-sanity-llm.md` | the LLM dev-sanity teammate and its per-deliverable subagent |
 | `agents/dev-sanity-jev.md`, `agents/sc-sanity-jev.md` | the same pair for a Jev (typesafe.ai) sanity check |
 | `assets/scripts/jev_client.py` | the Jev transport, placed at `<repo>/scripts/jev_client.py` |
+
+BV analysis (`references/bv.md`) is how the lead optimizes work in progress
+and plans continuing work: graph health before import and at plan review,
+critical path and parallel width at each wave boundary, blocker chains when
+work stalls, and the phase-root inventory at phase end. It is advisory and
+never writes the graph. `scripts/bv-analyze` takes a fresh read-only `bd`
+export (or a rendered plan JSONL with `--file`), filters it to the phase
+root's descendants, keeps the full export for blocker chains, and runs BV robot
+commands; it never opens the TUI or falls back to an older JSONL.
 
 The skills run repository-relative scripts (`.claude/skills/<skill>/scripts/...`)
 and dispatch templates that ATM agents execute inside the consuming repository,
@@ -21,15 +30,32 @@ manifests exist so Claude Code can discover it; `install.py` puts it to work.
 ## Install
 
 Requirements in the consuming repository: `.atm.toml` with `[atm] default_team`,
-`.claude/agents/registry.yaml` with `roles.dev-sanity` (and a `bead_prefix`, or
+the lead and sanity member names (`.claude/agents/registry.yaml` `roles`, or passed with `--set`) (and a `bead_prefix`, or
 `issue-prefix` in `.beads/config.yaml`), a git `origin` remote, and `sc-compose`,
 `atm`, `bd`, `jq`, `gh`, `python3` with PyYAML and pydantic on PATH (`prepare()` checks
 sc-compose, PyYAML and pydantic). Jev sanity checks and post-mortem screening also
 need `TYPESAFE_API_KEY` in the agent's environment at run time; without it
 `scripts/jev_client.py --startup` reports `SANITY.JEV_UNAVAILABLE` and the LLM
-directive stays in use.
+directive stays in use. BV analysis is optional and needs `bv` with the
+robot interface and `source_authority` output (tested with v0.25.0) and `bd`
+connected to the repository's Dolt server; nothing in the core flow or the
+installer requires it.
 
-Standalone, from a checkout of this repository:
+The existing installer also accepts legacy `.claude/agents/registry.yaml`
+defaults. When using `.atm.toml` for agent configuration, pass the selected
+members explicitly; no agent registry file is required:
+
+```bash
+python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude \
+  --set lead=<lead-member> --set dev_sanity_member=<sanity-member> \
+  --set bead_prefix=<prefix>
+```
+
+Select those names from the repository's `.atm.toml`; the installer does not
+infer semantic roles from startup prompts. Dispatch templates accept explicit
+recipient vars. Legacy `resolve-role` callers still use the registry YAML.
+
+Standalone, when those defaults are already available:
 
 ```bash
 python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude
@@ -92,3 +118,9 @@ Sources: sc-observability `develop` at f2ebe1bc plus open PR #933 at b1ffa1ad
 with every repository- and team-specific string replaced by an install-time value
 or a neutral example. Recheck the JEV files if #933 changes before it merges.
 See `CHANGELOG.md`.
+
+Package-only additions, not from sc-observability (preserve them on a re-mirror):
+`skills/atm-bd-orchestration/references/bv.md`,
+`skills/atm-bd-orchestration/scripts/bv-analyze`,
+`skills/atm-bd-orchestration/scripts/tests/test_bv_analyze.py`, and the one
+line in `skills/atm-bd-orchestration/SKILL.md` that links `references/bv.md`.
