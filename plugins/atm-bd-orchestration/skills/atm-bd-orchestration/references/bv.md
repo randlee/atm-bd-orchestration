@@ -1,9 +1,6 @@
-# BV graph analysis for the lead
-
-Routine task assignment is the dispatcher's job: the dispatcher (parallax,
-where installed; otherwise whoever runs the Loop in `SKILL.md`) assigns what
-`bd ready` returns, with the templates, in priority order. The lead does not
-re-run that loop by hand. The lead's orchestration work has two halves:
+Routine dispatch (the `bd ready` loop in this skill) assigns what `bd ready`
+returns, with the templates, in priority order. BV does not pick routine
+dispatches. Beyond that loop, the lead's orchestration work has two halves:
 
 1. finding process porn and ceremony and eliminating it, with the
    `just-say-no-to-process-porn-and-ceremony` skill;
@@ -95,11 +92,11 @@ Expected in this workflow, not findings:
 - orphans that are the phase root, `stage:plan*` beads, `bd gate` beads or a
   release bead (a dev or sanity bead with no edges is worth a look);
 - triage `claimable` flags and emitted commands: assignment is the
-  dispatcher's, so never run what BV emits.
+  routine dispatch's job, so never run what BV emits.
 
 `priority_mismatch` alerts and `--robot-priority` suggestions are inputs, not
 instructions. Finding priority comes from severity (`SKILL.md`, Priority) and
-the dispatcher works in priority order, so a priority change is a lead
+routine dispatch works in priority order, so a priority change is a lead
 decision with a reason, never a suggestion applied as-is.
 
 ## Optimizing the work in progress
@@ -111,7 +108,7 @@ findings. Run `--epic <root> --modes triage alerts plan insights`. Then:
 
 | Signal | Lead action |
 | --- | --- |
-| a slack-0 bead is open behind slack>0 work at the same priority | re-prioritize: `bd update <bead> --priority <n>` with the reason in its notes, so the dispatcher takes it next |
+| a slack-0 bead is open behind slack>0 work at the same priority | re-prioritize: `bd update <bead> --priority <n>` with the reason in its notes, so routine dispatch takes it next |
 | `plan.tracks` shows fewer live tracks than devs, while a serial chain holds the rest | split or re-order: if a queued sprint on the chain has a part with disjoint `owned_paths`, replan it into two sprints through the planner; if a `must_follow` edge has no real prerequisite, have the planner make it `parallel_safe` |
 | a top `blockers_to_clear` or `Bottlenecks` entry is a sanity check | the sanity member is the bottleneck: confirm its task is moving; if checks queue behind each other, raise it with the user (staffing is a roster decision) |
 | findings pile up under one dev bead on the critical path | send its blocking findings to the strongest dev (the lead picks finding assignees); add a finding-to-finding `blocks` edge only where one fix needs another |
@@ -128,8 +125,8 @@ receipt's `excluded_dependencies`, and act on the root blocker:
 
 | Root blocker | Lead action |
 | --- | --- |
-| an open sanity check whose dev bead closed | the dispatcher missed or lost it: tell the dispatcher, or re-assign it with the same task id |
-| an open finding child of a sanity FAIL | the dev-fix or fix assignment is missing: the dispatcher sends it (`SKILL.md`, Loop) |
+| an open sanity check whose dev bead closed | routine dispatch missed or lost it: dispatch it, or re-assign it with the same task id |
+| an open finding child of a sanity FAIL | the dev-fix or fix assignment is missing: dispatch it (`SKILL.md`, Loop) |
 | the plan-review bead | the plan gate has not passed (`SKILL.md`, Plan Gate) |
 | a `bd gate` bead | only the user releases it; say what it holds |
 | a bead outside the phase (`excluded_dependencies`) | a cross-phase prerequisite: report it to that phase's lead or the user (`blocking-findings-guidelines.md`); never pull it into this phase |
