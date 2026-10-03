@@ -52,7 +52,6 @@ render:
   - skills/atm-beads/resources/importing-md-plan.md
   - skills/atm-beads/resources/planning.md
   - skills/atm-beads/resources/troubleshooting.md
-  - skills/atm-beads/scripts/sprint_index_common.py
   - skills/sprint-report/SKILL.md
   - skills/sprint-report/tests/test_sprint_report.py
 # RENDER-END

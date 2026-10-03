@@ -88,6 +88,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_fix_round_scope.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_jev.py
+    - skills/atm-bd-orchestration/scripts/tests/test_qa_report_contract.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_create_findings.py
     - skills/atm-bd-orchestration/scripts/tests/test_templates.py
     - skills/atm-bd-orchestration/scripts/tests/test_transitions.py
@@ -136,6 +137,7 @@ artifacts:
     - skills/atm-beads/scripts/check-phase-artifact
     - skills/atm-beads/scripts/phase-index-path
     - skills/atm-beads/scripts/plan_contract.py
+    - skills/atm-beads/scripts/repo_config.py
     - skills/atm-beads/scripts/resolve-role
     - skills/atm-beads/scripts/sprint_index_common.py
     - skills/atm-beads/scripts/validate-plan
@@ -143,7 +145,10 @@ artifacts:
     - skills/atm-beads/templates/plan-root.json.j2
     - skills/atm-beads/templates/sprint-bead.json.j2
     - skills/atm-beads/tests/test_importing_docs.py
+    - skills/atm-beads/tests/test_plan_root.py
+    - skills/atm-beads/tests/test_repo_config.py
     - skills/atm-beads/tests/test_validate_plan.py
+    - skills/qa-report/SKILL.md
     - skills/sprint-report/SKILL.md
     - skills/sprint-report/dag-view.html
     - skills/sprint-report/renderer/.gitignore
