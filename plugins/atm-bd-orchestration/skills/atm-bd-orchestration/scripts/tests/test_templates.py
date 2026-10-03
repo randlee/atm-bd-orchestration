@@ -242,8 +242,10 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertNotIn("full reviewer set", out)
         for reviewer in ("req-qa", "arch-qa", "rust-qa-agent"):  # no automatic panel
             self.assertNotIn(f"`{reviewer}`", out)
-        step_g = out[out.index('<step id="g">'):out.index('<step id="g1">')]
-        self.assertIn("File no finding bead", step_g)
+        self.assertNotIn('<step id="f">', out)  # no ceremony screen, as upstream 12be0fad
+        self.assertNotIn('<step id="g1">', out)
+        step_g = out[out.index('<step id="g">'):out.index('<step id="h">')]
+        self.assertIn("Do not screen or file new findings", step_g)
         self.assertNotIn("bd import", step_g)
         self.assertIn("reconcile the original finding's closure", step_g)
         self.assertIn("PASS requires every carried finding verified fixed.", out)

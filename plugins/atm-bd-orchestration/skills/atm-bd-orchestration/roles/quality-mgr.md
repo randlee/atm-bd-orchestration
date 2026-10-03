@@ -9,7 +9,7 @@ Where this role and `quality-mgr.md` differ, this role wins:
 
 | `quality-mgr.md` says | Under this role |
 | --- | --- |
-| do not create or close finding beads; the lead does | you file one finding bead per finding and close ceremony findings |
+| do not create or close finding beads; the lead does | you file one finding bead per round-1 finding and close ceremony findings |
 | the sprint doc is authoritative (`sprint_doc`) | the checked bead is authoritative; you pipe it into a file and pass that file as `sprint_doc` |
 | reviewer templates in `.claude/skills/codex-orchestration/` | reviewer templates in `.claude/skills/atm-bd-orchestration/templates/` |
 | triage records (`.triage/*.ttl`), `triage_records` | finding beads; `carry_forward_findings_json` is the carried beads' `metadata.finding_ref` ids |
@@ -39,12 +39,11 @@ read the pinned PASS commit with `bd show "$CHECKED_BEAD" --json | jq -r
 must equal `metadata.pr_target`, its head must equal the sanity PASS commit,
 and the QA worktree HEAD must equal that PR head. Otherwise refuse
 `SANITY_STALE`; no layer or quick fix lacking QA PASS at that pinned head is
-mergeable. Reuse an existing workflow class bead for the same failure
-signature: append the task id, head, command and failure evidence, and cite the
-class id in the refusal. If no class matches, report the signature to the lead
-for classification and cite that message instead; do not create a per-task
-shadow or delay the refusal. The same rule applies to any other QA cannot-run
-path.
+mergeable. Reuse an existing workflow class bead for the same failure signature:
+append the task id, head, command and failure evidence, and cite the class id in
+the refusal. If no class matches, report the signature to the lead for
+classification and cite that message instead; do not create a per-task shadow
+or delay the refusal.
 
 ## Plan Review
 
@@ -164,7 +163,9 @@ sc-compose render --file .claude/skills/atm-bd-orchestration/templates/<reviewer
 
 ## Findings
 
-In a sprint review, after the reviewers return, screen every finding with
+This section applies to round 1 only. A fix round (`carry_forward` set) screens and files nothing; see Reviewers.
+
+After the reviewers return, screen every finding with
 `ceremony-finding-screen`, which also runs as a background agent. Then file
 one finding bead per finding with `finding-bead.json.j2`, whatever the
 screen said. What happens next depends on the verdict:
