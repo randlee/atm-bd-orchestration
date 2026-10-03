@@ -47,6 +47,8 @@ variables changed.
   bead for the same failure signature and cite it, or, when no class matches,
   report the signature to the lead for classification and cite that message.
   Required variables unchanged (minor bumps).
+  The `roles/quality-mgr.md` and `roles/dev-sanity.md` refusal paragraphs
+  say the same.
 
 ### Removed
 - Source-repository text: the roster model names in
