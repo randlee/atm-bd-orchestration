@@ -157,6 +157,9 @@ until upstream carries it, then drops it from this list.
     plan-scope-reviewer, no ceremony screen, no new findings), the plan-review
     bullets of `roles/quality-mgr.md`, and the reviewer column in
     `examples/plan-review-*-vars.json`.
+  - `skills/atm-bd-orchestration/templates/plan-scope-reviewer-assignment.json.j2`
+    (1.1.0, ported from atm-core 2676a514): `round_index` above 1 refuses to
+    render without the reviewer's own ids; `findings_scope_locked` flag.
   - `skills/atm-bd-orchestration/scripts/fix-round-scope` (`owned`, `check`,
     `filter`; `--plan` reads carried plan finding lines) and
     `scripts/tests/test_fix_round_scope.py`: the dispatch set of a fix

@@ -248,6 +248,7 @@ class PlanFixRoundTests(unittest.TestCase):
     """A plan fix round runs only the carried findings' filing reviewers; round 1 runs the full plan review."""
 
     PLAN = "plan-review-template.xml.j2"
+    PSR = "plan-scope-reviewer-assignment.json.j2"
 
     def test_round_one_is_the_full_plan_review(self):
         out = _render(self.PLAN, _example("plan-review-template-vars.json"))
@@ -270,6 +271,27 @@ class PlanFixRoundTests(unittest.TestCase):
         self.assertNotIn("Run `ceremony-finding-screen`", text)
         self.assertIn("files no new findings", text)
         self.assertIn("validate-plan", text)  # step b still runs
+
+    def test_plan_scope_reviewer_fix_round_is_locked_to_its_own_ids(self):
+        import json
+        base = {k: v for k, v in _example("plan-scope-reviewer-assignment-vars.json").items()
+                if k not in ("round_index", "carry_forward_findings_json")}
+        for scope in (None, "[]", "[ ]", "", "null"):
+            with self.subTest(scope=scope):
+                values = {**base, "round_index": 2}
+                if scope is not None:
+                    values["carry_forward_findings_json"] = scope
+                self.assertNotEqual(_render(self.PSR, values).returncode, 0)
+        first = _render(self.PSR, {**base, "round_index": 1})
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIs(json.loads(first.stdout)["findings_scope_locked"], False)
+        later = _render(self.PSR, {**base, "round_index": 2, "carry_forward_findings_json": '["PLAN-SCOPE-003"]'})
+        self.assertEqual(later.returncode, 0, later.stderr)
+        data = json.loads(later.stdout)
+        self.assertIs(data["findings_scope_locked"], True)
+        self.assertEqual(data["carry_forward_findings"], ["PLAN-SCOPE-003"])
+        plan = _render(self.PLAN, _example("plan-review-template-fix-round-vars.json"))
+        self.assertIn("`round_index` = 2", plan.stdout)
 
     def test_removed_variable_is_not_required(self):
         values = {**_example("plan-review-template-fix-round-vars.json"), "reviewers_scope_locked": ["x"]}

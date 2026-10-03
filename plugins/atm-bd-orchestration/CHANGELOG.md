@@ -49,6 +49,11 @@ variables changed.
   step b findings). `scripts/fix-round-scope --plan` reads the carried lines,
   and `check --plan --dispatch` refuses any set other than their filing
   reviewers (`validate-plan` itself is step b, never dispatched).
+  `plan-scope-reviewer-assignment.json.j2` 1.1.0 (as atm-core 2676a514)
+  locks a round after the first to the reviewer's own carried ids, sets
+  `findings_scope_locked`, and refuses to render
+  (`FIX_ROUND_SCOPE_LOCK_REQUIRED`) without them; `plan-review-template.xml.j2`
+  3.0.1 step c passes it `round_index` and those ids.
 - Orchestration refusals reuse workflow class beads (upstream
   sc-observability 87a26739, #954). The refusal paths of `dev-template.xml.j2`
   3.1.0, `dev-fix.xml.j2` 1.1.0, `fix-assignment.xml.j2` 3.1.0,
