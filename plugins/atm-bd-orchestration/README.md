@@ -131,7 +131,9 @@ clone). CI (`.github/workflows/tests.yml`) runs all of them on ubuntu and macos.
 ## Provenance
 
 Sources: sc-observability `develop` at f2ebe1bc plus open PR #933 at 07ad4d26
-(`fix/jev-post-mortem-workflow`, the JEV post-mortem role and context workflow),
+(`fix/jev-post-mortem-workflow`, the JEV post-mortem role and context workflow)
+and open PR #966 at 05367233 (`fix/dev-sanity-triage`, dev-sanity selection, with
+#967's filing-reviewer-only fix verification merged in),
 with every repository- and team-specific string replaced by an install-time value
 or a neutral example. Recheck the JEV files if #933 changes before it merges.
 See `CHANGELOG.md`.
@@ -145,23 +147,22 @@ until upstream carries it, then drops it from this list.
   (issue #8): `skills/atm-beads/templates/sprint-bead.json.j2` (version 0.3.0,
   required `difficulty` rendered into `metadata`, `stage:sprint` label) and
   `skills/atm-beads/examples/sprint-bead-vars-d-{4,5}.json` (`difficulty`).
-- Fix verification is upstream for QA (sc-observability 18d7158f, ruling
-  2026-10-03: a fix is verified only by its filing reviewer, locked to the
-  original finding). Still package-only:
-  - Plan-review fix rounds are filing-reviewer-only too (ruling 2026-10-03,
-    relayed for sc-observability PR #967, which does not carry it yet):
-    `skills/atm-bd-orchestration/templates/plan-review-template.xml.j2` (3.0.0:
-    no `reviewers_scope_locked`; plan finding lines name their reviewer,
-    `<bead> <severity> <reviewer> <field>: ...`; a fix round dispatches only the
-    carried lines' filing reviewers, no req-qa/arch-qa re-run, no full
-    plan-scope-reviewer, no ceremony screen, no new findings), the plan-review
-    bullets of `roles/quality-mgr.md`, and the reviewer column in
-    `examples/plan-review-*-vars.json`.
+- Fix verification is upstream for QA (sc-observability 18d7158f) and for plan
+  review (PR #967, carried by #966 at 05367233): a fix is verified only by its
+  filing reviewer, locked to the original finding, with no req-qa/arch-qa
+  re-run, no ceremony screen and no new findings. Still package-only:
+  - Plan finding lines name their filing reviewer,
+    `<bead> <severity> <reviewer> <field>: ...` (`validate-plan` for step b):
+    `skills/atm-bd-orchestration/templates/plan-review-template.xml.j2` step e,
+    the plan-review bullets of `roles/quality-mgr.md`, and the reviewer column
+    in `examples/plan-review-*-vars.json`.
   - `skills/atm-bd-orchestration/templates/plan-scope-reviewer-assignment.json.j2`
     (1.1.0, ported from atm-core 2676a514): `round_index` above 1 refuses to
-    render without the reviewer's own ids; `findings_scope_locked` flag.
+    render without the reviewer's own ids (`FIX_ROUND_SCOPE_LOCK_REQUIRED`);
+    `findings_scope_locked` flag; `plan-review-template.xml.j2` step c passes it
+    `round_index` and those ids.
   - `skills/atm-bd-orchestration/scripts/fix-round-scope` (`owned`, `check`,
-    `filter`; `--plan` reads carried plan finding lines) and
+    `filter`; `check --dispatch`, and `--plan` for carried plan finding lines) and
     `scripts/tests/test_fix_round_scope.py`: the dispatch set of a fix
     verification is exactly the carried findings' filing reviewers, and their
     results reduce to dispositions on their own ids; `qa-template.xml.j2` step

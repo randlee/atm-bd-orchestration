@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.6.0] - 2026-10-03
+
+### Changed
+- Dev sanity triages reviewer findings and disagreements before close
+  (upstream sc-observability PR #966 at 05367233, unmerged; applied as close to
+  verbatim as the package allows). Every sanity run executes both reviewers
+  (`sanity-llm`, `sanity-jev`), then a `sanity-selected` merge picks one
+  whole reply per deliverable from a strict selection array; only the selected
+  result creates finding children (`sanity-create-findings --reviewer
+  sc-sanity-selected`), and checker defects create none. `sanity-split` no
+  longer takes `--reviewers`; its manifest always lists all three reviewers.
+  Reviewer assignments carry a `context` array.
+  - `dev-sanity-template.xml.j2` 2.2.0: `reviewers` is no longer a variable
+    (upstream 1.9.0 removed it; the package's config-driven `lead`, `cc` and
+    `lint_command` stay required). `dev-sanity-assignment.json.j2` 1.1.0,
+    `dev-sanity-complete.md.j2` 1.2.0, `sanity-run-record.json.j2` 2.0.0,
+    `sanity-run-table.md.j2` 1.5.0 (upstream's numbers; `sanity-run-record` is
+    major for its new required variables, as upstream 05367233).
+  - Sanity ledger (OTel log contract, upstream format): history is appended in
+    order LLM, JEV, SEL with the selected `final_verdict` on every row; records
+    add `final_verdict` and `selection` (null except on SEL rows); the run
+    table adds `Pick` and `Match` columns.
+  - `agents/dev-sanity.md`, `dev-sanity-llm.md`, `dev-sanity-jev.md`,
+    `sc-sanity-llm.md`, `sc-sanity-jev.md` and `roles/dev-sanity.md` follow.
+  - Tests: `scripts/tests/test_sanity_selected.py` (new); upstream's root
+    `scripts/tests/test_sanity_{merge,run_history,split}.py` now ship beside
+    the skill's `scripts/tests` with import paths adjusted.
+- Fix verification wording from upstream #967, merged into #966 at 05367233
+  (filing-reviewer-only fix verification, now with plan-review text). The
+  package's 0.5.0 rule stays in force; upstream's wording replaces the
+  package's where both say the same thing, and the package-only enforcement
+  (`fix-round-scope` checks, plan finding lines naming their reviewer,
+  plan-scope-reviewer `round_index` wiring) stays.
+  - `qa-template.xml.j2` 4.2.0: in a fix verification (`carry_forward` set) steps
+    f and g1 do not render; steps b, e, g and i take upstream's fix-verification
+    text; stack-discipline adds upstream's fix-verification sentence. The fixer
+    closes a carried finding; fix verification confirms it or reopens it and no
+    longer closes it itself. A fix-round PASS is a PASS from the filing reviewer
+    and every carried finding confirmed fixed and closed (no deliverable
+    completion term). `<fix-verification-precedence>` names only the steps that
+    render in a fix round (c, e, g, i). Required variables unchanged.
+  - `plan-review-template.xml.j2` 3.2.0: every dev bead and the root are piped
+    before the branch, and a fix round's filing reviewers read all of them
+    (still locked to their own ids); step d does not render in a fix round;
+    round 1's plan-scope-reviewer "runs in full"; `<fix-verification-precedence>`
+    names steps c and e.
+  - `plan-scope-reviewer-assignment.json.j2` 1.1.1: upstream's description.
+  - `roles/quality-mgr.md`: upstream's fix-round paragraph under "Fix
+    verification takes precedence" (QA no longer closes the original finding),
+    upstream's carried-finding line, refusal paragraph and Findings scope line; `SKILL.md`: upstream's qa-complete row and plan-scope-reviewer row.
+
+### Migration from 0.5.0
+Rerun the install. A lead that passed `reviewers` to `dev-sanity-template.xml.j2`
+drops it.
+
 ## [0.5.0] - 2026-10-03
 
 Breaking: the configuration contract and `qa-template.xml.j2` required

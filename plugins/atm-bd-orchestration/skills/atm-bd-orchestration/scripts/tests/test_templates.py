@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import re
 import subprocess
 import unittest
 
@@ -149,6 +151,33 @@ class TemplateContractTests(unittest.TestCase):
                     "--var-file", str(variables), "--strict"], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_sanity_assignment_context_shape_matches_reviewer_inputs(self):
+        assignment = ROOT / "templates/dev-sanity-assignment.json.j2"
+        examples = ROOT / "examples"
+        rendered_values = []
+        for fixture, expected_context in (("dev-sanity-assignment-vars.json", []),
+                                          ("dev-sanity-assignment-context-vars.json", [{"path": "docs/retry.md", "why": "The deliverable delegates retry policy here."}])):
+            with self.subTest(fixture=fixture):
+                result = subprocess.run([
+                    "sc-compose", "render", "--strict", "--file", str(assignment),
+                    "--var-file", str(examples / fixture),
+                ], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                rendered = json.loads(result.stdout)
+                self.assertEqual(rendered["context"], expected_context)
+                rendered_values.append(rendered)
+
+        expected_keys = set(rendered_values[0])
+        for reviewer in ("sc-sanity-llm.md", "sc-sanity-jev.md"):
+            with self.subTest(reviewer=reviewer):
+                text = (ROOT.parents[1] / "agents" / reviewer).read_text()
+                matched = re.search(r"## Inputs.*?```json\n(.*?)\n```", text, re.S)
+                self.assertIsNotNone(matched)
+                input_json = json.loads(matched.group(1))
+                self.assertEqual(set(input_json), expected_keys)
+                self.assertEqual(input_json["context"], [])
+                self.assertIn("Read only that evidence plus any `context` paths at the pinned commit; never request more.", text)
+
 
 def _render(template: str, values: dict) -> subprocess.CompletedProcess:
     import json
@@ -213,11 +242,13 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertNotIn("full reviewer set", out)
         for reviewer in ("req-qa", "arch-qa", "rust-qa-agent"):  # no automatic panel
             self.assertNotIn(f"`{reviewer}`", out)
-        step_g = out[out.index('<step id="g">'):out.index('<step id="g1">')]
-        self.assertIn("File no finding bead", step_g)
+        self.assertNotIn('<step id="f">', out)  # no ceremony screen, as upstream 12be0fad
+        self.assertNotIn('<step id="g1">', out)
+        step_g = out[out.index('<step id="g">'):out.index('<step id="h">')]
+        self.assertIn("Do not screen or file new findings", step_g)
         self.assertNotIn("bd import", step_g)
-        self.assertIn("reconcile the original finding's closure", step_g)
-        self.assertIn("PASS requires every carried finding verified fixed.", out)
+        self.assertNotIn("bd close <finding>", step_g)  # the fixer closes; verification confirms or reopens
+        self.assertIn("PASS requires a PASS from the filing reviewer and every carried finding confirmed fixed and closed.", out)
 
     def test_fix_round_with_empty_scope_fails(self):
         for scope in (None, "[]", "[ ]", "", "  ", "null"):
@@ -253,8 +284,8 @@ class PlanFixRoundTests(unittest.TestCase):
     def test_round_one_is_the_full_plan_review(self):
         out = _render(self.PLAN, _example("plan-review-template-vars.json"))
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertIn("run `req-qa` and `arch-qa` as background agents", out.stdout)
-        self.assertIn("run `plan-scope-reviewer` over the whole set", out.stdout)
+        self.assertIn("Run `req-qa` and `arch-qa` as background agents", out.stdout)
+        self.assertIn("Run `plan-scope-reviewer` over the whole set", out.stdout)
         self.assertIn("Run `ceremony-finding-screen`", out.stdout)
         self.assertNotIn("fix-round-scope", out.stdout)
         self.assertIn("`<bead> <severity> <reviewer> <field>: <what is wrong>`", out.stdout)
@@ -266,7 +297,7 @@ class PlanFixRoundTests(unittest.TestCase):
         self.assertIn("<fix-verification-precedence>", text)
         self.assertIn("fix-round-scope owned --plan --carried", text)
         self.assertIn("fix-round-scope check --plan --carried", text)
-        self.assertNotIn("run `req-qa` and `arch-qa` as background agents", text)
+        self.assertNotIn("Run `req-qa` and `arch-qa` as background agents", text)
         self.assertNotIn("over the whole set", text)
         self.assertNotIn("Run `ceremony-finding-screen`", text)
         self.assertIn("files no new findings", text)
