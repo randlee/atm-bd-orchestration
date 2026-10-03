@@ -15,7 +15,7 @@
   - `dev-sanity-template.xml.j2` 2.2.0: `reviewers` is no longer a variable
     (upstream 1.9.0 removed it; the package's config-driven `lead`, `cc` and
     `lint_command` stay required). `dev-sanity-assignment.json.j2` 1.1.0,
-    `dev-sanity-complete.md.j2` 1.2.0, `sanity-run-record.json.j2` 1.2.0,
+    `dev-sanity-complete.md.j2` 1.2.0, `sanity-run-record.json.j2` 2.0.0,
     `sanity-run-table.md.j2` 1.5.0 (upstream's numbers).
   - Sanity ledger (OTel log contract, upstream format): history is appended in
     order LLM, JEV, SEL with the selected `final_verdict` on every row; records
