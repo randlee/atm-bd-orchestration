@@ -37,6 +37,16 @@ variables changed.
   - `config/atm-bd-orchestration.yaml.j2` 1.0.0: `reviewers_fix_round` removed.
     `reviewers_scope_locked` stays: plan review is unchanged and its fix rounds
     still use it.
+- Orchestration refusals reuse workflow class beads (upstream
+  sc-observability 87a26739, #954). The refusal paths of `dev-template.xml.j2`
+  3.1.0, `dev-fix.xml.j2` 1.1.0, `fix-assignment.xml.j2` 3.1.0,
+  `dev-sanity-template.xml.j2` 2.1.0, `qa-template.xml.j2` 4.0.0,
+  `plan-review-template.xml.j2` 2.1.0 and `review-template.xml.j2` 3.1.0 no
+  longer render and import a new `<task>-wf-<CODE>` bead per task: they append
+  the task id, head, command and failure evidence to an existing workflow class
+  bead for the same failure signature and cite it, or, when no class matches,
+  report the signature to the lead for classification and cite that message.
+  Required variables unchanged (minor bumps).
 
 ### Migration from 0.4.0
 Rerun the install. `reviewers_fix_round` is no longer a configuration
