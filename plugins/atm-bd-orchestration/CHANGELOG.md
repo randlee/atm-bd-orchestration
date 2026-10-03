@@ -48,6 +48,14 @@ variables changed.
   report the signature to the lead for classification and cite that message.
   Required variables unchanged (minor bumps).
 
+### Removed
+- Source-repository text: the roster model names in
+  `atm-beads/resources/dev-sanity.md`, "this phase-D run" in
+  `references/post-mortem-jev.md`, "Phase D" in
+  `blocking-findings-guidelines.md`, and the `omega-prime` decision owner in
+  `blocking-findings-guidelines.md` and `SKILL.md` (now "the user or their
+  delegate").
+
 ### Migration from 0.4.0
 Rerun the install. `reviewers_fix_round` is no longer a configuration
 variable: the installer reads only declared variables from registry.yaml, so a

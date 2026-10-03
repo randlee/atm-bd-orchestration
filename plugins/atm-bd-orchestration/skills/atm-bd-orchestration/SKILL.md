@@ -65,7 +65,7 @@ files those from a phase-end review.
 Before treating a finding or unresolved decision as a development stop, read
 [`blocking-findings-guidelines.md`](blocking-findings-guidelines.md). Scope the
 decision and the consequence of choosing wrong. Record decisions for the user
-or omega-prime; conservative, reversible provisional choices keep independent
+or their delegate; conservative, reversible provisional choices keep independent
 work moving. Unresolved decision beads block phase closure, not development.
 
 ## Repository configuration
