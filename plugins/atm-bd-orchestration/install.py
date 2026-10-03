@@ -94,7 +94,7 @@ RENDER_VARIABLES = (
 PLACEHOLDER_RE = re.compile(r"\{\{ (" + "|".join(RENDER_VARIABLES) + r") \}\}")
 
 # Repository files placed outside the target directory: assets/<path> lands at <repo>/<path>.
-# scripts/jev_client.py is the Jev transport that dev-sanity-jev and post_mortem_jev.py call by
+# scripts/jev_client.py is the Jev transport that sc-sanity-jev and post_mortem_jev.py call by
 # that repository-relative path (`--client` default).
 REPO_ASSETS = ("assets/scripts/jev_client.py",)
 

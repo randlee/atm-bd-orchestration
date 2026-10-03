@@ -1,5 +1,5 @@
 name: atm-bd-orchestration
-version: 0.6.1
+version: 0.7.0
 description: >
   Bead-driven phase orchestration for ATM agent teams: the phase plan as a
   beads graph (atm-beads), dispatch, dev-sanity, QA and stack landing driven
@@ -53,7 +53,6 @@ artifacts:
     - skills/atm-bd-orchestration/references/post-mortem-context-preparation.md
     - skills/atm-bd-orchestration/references/post-mortem-jev.md
     - skills/atm-bd-orchestration/references/post-mortem.md
-    - skills/atm-bd-orchestration/roles/dev-sanity.md
     - skills/atm-bd-orchestration/roles/quality-mgr.md
     - skills/atm-bd-orchestration/scripts/assignment-gates.py
     - skills/atm-bd-orchestration/scripts/bd_commands.py
@@ -171,8 +170,6 @@ artifacts:
     - skills/sprint-review/SKILL.md
     - skills/sprint-review/scripts/sprint-review
   agents:
-    - agents/dev-sanity-jev.md
-    - agents/dev-sanity-llm.md
     - agents/dev-sanity.md
     - agents/sc-sanity-jev.md
     - agents/sc-sanity-llm.md
