@@ -16,9 +16,13 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             sha256: 2e09706e0814f30adaacc88310db4ad629dcd9314d1182ecf12767686f828204
+            bd_asset: beads_1.3.0_linux_amd64.tar.gz
+            bd_sha256: 2f92b904ecf35b607e44dc5c39229173af69c54f1183e8d709f1773540cdcf3b
           - os: macos-latest
             target: aarch64-apple-darwin
             sha256: 23db29325d95c0f4bb94dead48d02883e00311e82dc66820fe51b1dd855b7168
+            bd_asset: beads_1.3.0_darwin_arm64.tar.gz
+            bd_sha256: 7cc77367d0b84c50243a1108bc1f73648699211257d414b917540bf868e6bb85
     runs-on: ${{ matrix.os }}
     env:
       SC_COMPOSE_VERSION: "1.6.1"
@@ -51,9 +55,25 @@ jobs:
           install -m 0755 "$bin" "$HOME/.local/bin/sc-compose"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      # validate-plan (run by the installed skill suites) requires bd on PATH.
+      - name: Install bd 1.3.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="${{ matrix.bd_asset }}"
+          curl -fsSL -o "$RUNNER_TEMP/$asset" "https://github.com/steveyegge/beads/releases/download/v1.3.0/$asset"
+          echo "${{ matrix.bd_sha256 }}  $RUNNER_TEMP/$asset" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/bd"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/bd"
+          bin="$(find "$RUNNER_TEMP/bd" -type f -name bd | head -n 1)"
+          test -n "$bin"
+          install -m 0755 "$bin" "$HOME/.local/bin/bd"
+
       - name: Tool versions
         run: |
           sc-compose --version
+          bd --version
+          jq --version
           python3 --version
           git --version
 
