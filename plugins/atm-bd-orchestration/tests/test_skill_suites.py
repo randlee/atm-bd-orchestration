@@ -16,11 +16,10 @@ from pathlib import Path
 
 import pytest
 
+import install
+from test_install import make_repo
+
 PKG = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PKG))
-sys.path.insert(0, str(PKG / "tests"))
-import install  # noqa: E402
-from test_install import make_repo  # noqa: E402
 
 pytestmark = pytest.mark.skipif(shutil.which("sc-compose") is None, reason="sc-compose not on PATH; skill suites not run")
 
@@ -38,7 +37,7 @@ REPO_DATA_TESTS = (
 @pytest.fixture(scope="module")
 def installed(tmp_path_factory):
     repo = make_repo(tmp_path_factory.mktemp("suites"))
-    assert install.main(["--dest", str(repo / ".claude")]) == 0
+    assert install.main(["--dest", str(repo / ".claude"), "--set", "qa_member=quality-mgr"]) == 0
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "install"], check=True)
     return repo

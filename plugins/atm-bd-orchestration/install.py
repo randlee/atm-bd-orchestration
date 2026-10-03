@@ -6,47 +6,80 @@ Two ways in:
 1. sc-install (synaptic-canvas) loads this file as the package's Tier-3
    install hook and calls prepare()/complete()/cleanup() around its own
    manifest-artifact copy step, once per target (.claude and/or .codex).
-2. Standalone: `python3 install.py --dest <repo>/.claude [--codex] [--force]
-   [--set KEY=VALUE ...]` copies the manifest artifacts itself and then runs
-   the same complete() step.
+2. Standalone: `python3 install.py --dest <repo>/.claude [--set NAME=VALUE ...]`
+   runs prepare() and complete(); complete() places every file itself.
 
-complete() renders the repository-specific values (team, lead, dev-sanity
-member, bead prefix, workflow-issues root, repo slug, worktree base) into
-the installed copies of the files listed under `render:` in registry.yaml,
-with `sc-compose render --strict`. The values come from the consuming
-repository, never from this package:
+Configuration. The only input is the consuming repository's
+`.claude/agents/registry.yaml` (plus `--set NAME=VALUE`, which wins). The
+variables are the `required_variables` of `config/atm-bd-orchestration.yaml.j2`;
+each is read from the top-level registry key of the same name, except the three
+role members, which are read from `roles:`:
 
-    .atm.toml                    [atm] default_team           -> team
-    .claude/agents/registry.yaml roles.lead                   -> lead
-                                 roles.dev-sanity             -> dev_sanity_member
-                                 bead_prefix                  -> bead_prefix
-                                 workflow_issues_root         -> workflow_issues_root
-    .beads/config.yaml           issue-prefix (fallback)      -> bead_prefix
-    git remote origin            owner/name                   -> repo_slug, repo_name
-    the repository path                                       -> repo_root, worktree_base
+    lead               -> roles.lead
+    dev_sanity_member  -> roles.dev-sanity
+    qa_member          -> roles.quality-mgr
 
-Any value can be overridden with `--set NAME=VALUE` (sc-install) or
-`--set NAME=VALUE` (standalone); the hook reads them from options["args"].
+The template is rendered with `sc-compose render --strict` into
+`<repo>/.claude/project/atm-bd-orchestration.yaml`; a missing variable is an
+install error that names it. There are no defaults. The resolved role members are
+written back into `roles:` so `resolve-role` agrees with the config file.
+
+Ownership. `<repo>/.claude/project/atm-bd-orchestration.lock.json` records the
+package version and the sha256 of every file the install wrote. A rerun replaces
+a recorded file only when it is unchanged since it was written and fails, naming
+it, when it was modified; it never writes over a file it does not own, and it
+fails when a target skill directory exists that it does not own. Files a newer
+version stops shipping are removed when unchanged. A repository installed by
+0.x (no lock file) is migrated once: an existing file is owned when its bytes are
+the bytes this version ships or bytes some 0.x version shipped
+(`config/legacy-owned.json`); any other existing file fails the install.
+
+Checks before anything is written: sc-compose, pydantic and PyYAML present;
+`.beads/metadata.json` shows `dolt_mode: server`; every agent named in
+`qa_member`, `dev_sanity_member` and the three reviewer lists has
+`.claude/agents/<name>.md` (in the repository or shipped by this install).
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import os
 import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 PKG_DIR = Path(__file__).resolve().parent
+PACKAGE = "atm-bd-orchestration"
 REGISTRY_FILE = "registry.yaml"
 MANIFEST_FILE = "manifest.yaml"
-VARIABLE_NAMES = (
-    "team",
+CONFIG_TEMPLATE = "config/atm-bd-orchestration.yaml.j2"
+LEGACY_OWNED = "config/legacy-owned.json"
+CONFIG_OUT = ".claude/project/atm-bd-orchestration.yaml"
+LOCK_OUT = ".claude/project/atm-bd-orchestration.lock.json"
+CONSUMER_REGISTRY = ".claude/agents/registry.yaml"
+BEADS_METADATA = ".beads/metadata.json"
+
+# Variables whose value is a list (YAML list in registry.yaml; `--set` takes a
+# JSON array or a comma-separated list).
+LIST_VARIABLES = frozenset({
+    "requirements_globs", "adr_globs",
+    "reviewers_round1", "reviewers_fix_round", "reviewers_scope_locked",
+})
+# Variables read from registry.yaml `roles:` and written back there.
+ROLE_KEYS = {"lead": "lead", "dev_sanity_member": "dev-sanity", "qa_member": "quality-mgr"}
+# Variables naming agents that must have .claude/agents/<name>.md.
+AGENT_VARIABLES = ("qa_member", "dev_sanity_member", "reviewers_round1", "reviewers_fix_round", "reviewers_scope_locked")
+
+# Install-time placeholders in installed skill/agent files (the files listed under
+# `render:` in registry.yaml). repo_slug, repo_name, repo_root and
+# workflow_issues_root are derived from the repository, not configured.
+RENDER_VARIABLES = (
     "lead",
     "dev_sanity_member",
     "bead_prefix",
@@ -56,227 +89,20 @@ VARIABLE_NAMES = (
     "repo_root",
     "worktree_base",
 )
+PLACEHOLDER_RE = re.compile(r"\{\{ (" + "|".join(RENDER_VARIABLES) + r") \}\}")
+
 # Repository files placed outside the target directory: assets/<path> lands at <repo>/<path>.
 # scripts/jev_client.py is the Jev transport that dev-sanity-jev and post_mortem_jev.py call by
 # that repository-relative path (`--client` default).
 REPO_ASSETS = ("assets/scripts/jev_client.py",)
-PLACEHOLDER_RE = re.compile(r"\{\{ (" + "|".join(VARIABLE_NAMES) + r") \}\}")
 
-# INVENTORY entries a later version stopped shipping; complete() removes them when present.
-DROPPED = (
-    "skills/atm-beads/scripts/export-sprint-index",
-    "skills/atm-beads/tests/test_sprint_index.py",
-    "skills/atm-bd-orchestration/scripts/blocking-finding-gates.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_blocking_finding_gates.py",
-    "skills/atm-beads/scripts/check-plan.jq",
-    "skills/atm-beads/scripts/migrate-phase-contract",
-    "skills/atm-beads/scripts/phase_contract_check.py",
-    "skills/atm-beads/tests/fixtures/acceptance_key_5_of_3.json",
-    "skills/atm-beads/tests/fixtures/deliverables_1_2_4.json",
-    "skills/atm-beads/tests/fixtures/dev_without_sprint_label.json",
-    "skills/atm-beads/tests/fixtures/difficulty_medium.json",
-    "skills/atm-beads/tests/fixtures/finding_parented_on_root.json",
-    "skills/atm-beads/tests/fixtures/finding_under_root_caused_by.json",
-    "skills/atm-beads/tests/fixtures/finding_without_severity.json",
-    "skills/atm-beads/tests/fixtures/handoff_outside_consumer_fence.json",
-    "skills/atm-beads/tests/fixtures/important_finding_p3.json",
-    "skills/atm-beads/tests/fixtures/in_progress_with_open_blocker.json",
-    "skills/atm-beads/tests/fixtures/index_undeclared_key.json",
-    "skills/atm-beads/tests/fixtures/index_waiver_bad_check.json",
-    "skills/atm-beads/tests/fixtures/listed_pair_missing_from_beads.json",
-    "skills/atm-beads/tests/fixtures/live_pair_missing_from_index.json",
-    "skills/atm-beads/tests/fixtures/open_finding_without_difficulty.json",
-    "skills/atm-beads/tests/fixtures/owned_path_overlap.json",
-    "skills/atm-beads/tests/fixtures/pass_without_qa.json",
-    "skills/atm-beads/tests/fixtures/pr_base_mismatch.json",
-    "skills/atm-beads/tests/fixtures/pr_target_sanity_outside_closure.json",
-    "skills/atm-beads/tests/fixtures/qa_under_root_validates.json",
-    "skills/atm-beads/tests/fixtures/r16_blocking_finding_without_sanity.json",
-    "skills/atm-beads/tests/fixtures/r16_deferred_finding_exempts_upstream.json",
-    "skills/atm-beads/tests/fixtures/r16_downstream_not_gated.json",
-    "skills/atm-beads/tests/fixtures/r16_gate_not_blocked_by_finding.json",
-    "skills/atm-beads/tests/fixtures/r16_in_progress_exempt_warns.json",
-    "skills/atm-beads/tests/fixtures/reopened_pass_sanity.json",
-    "skills/atm-beads/tests/fixtures/root_feature_under_task.json",
-    "skills/atm-beads/tests/fixtures/root_task_at_top_level.json",
-    "skills/atm-beads/tests/fixtures/sanity_base_sha_commit_short.json",
-    "skills/atm-beads/tests/fixtures/second_fix_round.json",
-    "skills/atm-beads/tests/fixtures/sprint_bead_p3.json",
-    "skills/atm-beads/tests/fixtures/sprint_without_difficulty.json",
-    "skills/atm-beads/tests/fixtures/started_before_blocker_closed.json",
-    "skills/atm-beads/tests/fixtures/unlisted_human_gate.json",
-    "skills/atm-beads/tests/fixtures/valid_closed_finding_p3.json",
-    "skills/atm-beads/tests/fixtures/valid_closed_finding_without_difficulty.json",
-    "skills/atm-beads/tests/fixtures/valid_index_with_policy.json",
-    "skills/atm-beads/tests/fixtures/valid_ordered_overlap.json",
-    "skills/atm-beads/tests/fixtures/valid_pass_with_qa.json",
-    "skills/atm-beads/tests/fixtures/valid_phase.json",
-    "skills/atm-beads/tests/fixtures/valid_r16_gated.json",
-    "skills/atm-beads/tests/fixtures/valid_root_feature_under_epic.json",
-    "skills/atm-beads/tests/fixtures/valid_waived_reopen.json",
-    "skills/atm-beads/tests/test_phase_contract_check.py",
-    "skills/sprint-report/report-detailed.md.j2",
-)
 
-# Every path this package has ever installed, across all versions.
-# Only append - never remove an entry. If a version stops shipping a
-# path listed here, add a matching `if (Path(destination_path) / path
-# ).exists(): ...unlink()` line to complete() before removing that
-# artifact from manifest.yaml, or CI will fail.
-INVENTORY = [
-    # INVENTORY-BEGIN (generated from manifest.yaml by tests/gen_manifest.py)
-    "skills/atm-bd-orchestration/SKILL.md",
-    "skills/atm-bd-orchestration/blocking-findings-guidelines.md",
-    "skills/atm-bd-orchestration/examples/arch-qa-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-fix-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-sanity-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-sanity-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-sanity-template-vars.json",
-    "skills/atm-bd-orchestration/examples/dev-template-vars.json",
-    "skills/atm-bd-orchestration/examples/finding-bead-vars.json",
-    "skills/atm-bd-orchestration/examples/fix-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/fix-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/flaky-test-qa-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/plan-review-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/plan-review-template-fix-round-vars.json",
-    "skills/atm-bd-orchestration/examples/plan-review-template-vars.json",
-    "skills/atm-bd-orchestration/examples/plan-scope-reviewer-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/qa-bead-vars.json",
-    "skills/atm-bd-orchestration/examples/qa-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/qa-template-fix-round-vars.json",
-    "skills/atm-bd-orchestration/examples/qa-template-vars.json",
-    "skills/atm-bd-orchestration/examples/req-qa-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/review-complete-vars.json",
-    "skills/atm-bd-orchestration/examples/review-template-vars.json",
-    "skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/sanity-run-record-vars.json",
-    "skills/atm-bd-orchestration/examples/sanity-run-table-vars.json",
-    "skills/atm-bd-orchestration/examples/schema-reviewer-assignment-vars.json",
-    "skills/atm-bd-orchestration/examples/task-refused-vars.json",
-    "skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json",
-    "skills/atm-bd-orchestration/references/post-mortem-context-preparation.md",
-    "skills/atm-bd-orchestration/references/post-mortem-jev.md",
-    "skills/atm-bd-orchestration/references/post-mortem.md",
-    "skills/atm-bd-orchestration/roles/dev-sanity.md",
-    "skills/atm-bd-orchestration/roles/quality-mgr.md",
-    "skills/atm-bd-orchestration/scripts/assignment-gates.py",
-    "skills/atm-bd-orchestration/scripts/bd_commands.py",
-    "skills/atm-bd-orchestration/scripts/check-review-completion.py",
-    "skills/atm-bd-orchestration/scripts/fix-round-scope",
-    "skills/atm-bd-orchestration/scripts/post_mortem_context.py",
-    "skills/atm-bd-orchestration/scripts/post_mortem_jev.py",
-    "skills/atm-bd-orchestration/scripts/sanity-create-findings",
-    "skills/atm-bd-orchestration/scripts/sanity-merge",
-    "skills/atm-bd-orchestration/scripts/sanity-run-history",
-    "skills/atm-bd-orchestration/scripts/sanity-split",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/dev-ready.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/difficulty-mismatch.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/dirty-tree.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/not-ready.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/plan-invalid.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/pr-required.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/qa-head-mismatch.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/qa-ready.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/sanity-frozen.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/sanity-ready.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/stale-base.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/stale-sanity.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-first-fail.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-minor-pass.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-round-cap.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/transition-sanity-pass.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/unclaimable.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/wrong-base.json",
-    "skills/atm-bd-orchestration/scripts/tests/fixtures/zero-delta.json",
-    "skills/atm-bd-orchestration/scripts/tests/test_assignment_gates.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_atomic.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_fix_round_scope.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_post_mortem_context.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_post_mortem_jev.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_sanity_create_findings.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_templates.py",
-    "skills/atm-bd-orchestration/scripts/tests/test_transitions.py",
-    "skills/atm-bd-orchestration/scripts/transitions.py",
-    "skills/atm-bd-orchestration/templates/arch-qa-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/dev-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/dev-fix.xml.j2",
-    "skills/atm-bd-orchestration/templates/dev-sanity-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/dev-sanity-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/dev-sanity-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/dev-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/finding-bead.json.j2",
-    "skills/atm-bd-orchestration/templates/fix-assignment.xml.j2",
-    "skills/atm-bd-orchestration/templates/fix-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/flaky-test-qa-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/plan-review-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/plan-review-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/plan-scope-reviewer-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/qa-bead.json.j2",
-    "skills/atm-bd-orchestration/templates/qa-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/qa-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/req-qa-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/review-complete.md.j2",
-    "skills/atm-bd-orchestration/templates/review-template.xml.j2",
-    "skills/atm-bd-orchestration/templates/ruthless-boundary-qa-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/sanity-run-record.json.j2",
-    "skills/atm-bd-orchestration/templates/sanity-run-table.md.j2",
-    "skills/atm-bd-orchestration/templates/schema-reviewer-assignment.json.j2",
-    "skills/atm-bd-orchestration/templates/task-refused.md.j2",
-    "skills/atm-bd-orchestration/templates/workflow-issue-bead.json.j2",
-    "skills/atm-beads/SKILL.md",
-    "skills/atm-beads/examples/dev-sanity-bead-vars-d-4.json",
-    "skills/atm-beads/examples/plan-root-vars.json",
-    "skills/atm-beads/examples/sprint-bead-vars-d-4.json",
-    "skills/atm-beads/examples/sprint-bead-vars-d-5.json",
-    "skills/atm-beads/references/installation-and-troubleshooting.md",
-    "skills/atm-beads/resources/atm-beads-plan-guidelines.md",
-    "skills/atm-beads/resources/dev-sanity.md",
-    "skills/atm-beads/resources/importing-md-plan.md",
-    "skills/atm-beads/resources/orchestrating.md",
-    "skills/atm-beads/resources/planning.md",
-    "skills/atm-beads/resources/troubleshooting.md",
-    "skills/atm-beads/schemas/sanity-bead.schema.json",
-    "skills/atm-beads/schemas/sprint-bead.schema.json",
-    "skills/atm-beads/scripts/bead_schema.py",
-    "skills/atm-beads/scripts/check-phase-artifact",
-    "skills/atm-beads/scripts/phase-index-path",
-    "skills/atm-beads/scripts/plan_contract.py",
-    "skills/atm-beads/scripts/resolve-role",
-    "skills/atm-beads/scripts/sprint_index_common.py",
-    "skills/atm-beads/scripts/validate-plan",
-    "skills/atm-beads/templates/dev-sanity-bead.json.j2",
-    "skills/atm-beads/templates/plan-root.json.j2",
-    "skills/atm-beads/templates/sprint-bead.json.j2",
-    "skills/atm-beads/tests/test_importing_docs.py",
-    "skills/atm-beads/tests/test_validate_plan.py",
-    "skills/sprint-report/SKILL.md",
-    "skills/sprint-report/dag-view.html",
-    "skills/sprint-report/renderer/.gitignore",
-    "skills/sprint-report/renderer/package-lock.json",
-    "skills/sprint-report/renderer/package.json",
-    "skills/sprint-report/renderer/render.cjs",
-    "skills/sprint-report/report.md.j2",
-    "skills/sprint-report/scripts/phase_artifact.py",
-    "skills/sprint-report/scripts/sprint-report",
-    "skills/sprint-report/scripts/sprint_dag.py",
-    "skills/sprint-report/scripts/sprint_qa.py",
-    "skills/sprint-report/tests/test_sprint_dag.py",
-    "skills/sprint-report/tests/test_sprint_report.py",
-    "skills/sprint-report/tests/test_sprint_review.py",
-    "skills/sprint-review/SKILL.md",
-    "skills/sprint-review/scripts/sprint-review",
-    "agents/dev-sanity-jev.md",
-    "agents/dev-sanity-llm.md",
-    "agents/dev-sanity.md",
-    "agents/sc-sanity-jev.md",
-    "agents/sc-sanity-llm.md",
-    # INVENTORY-END
-]
+class InstallError(RuntimeError):
+    """An install refusal; the message names what to fix."""
 
 
 # ---------------------------------------------------------------------------
-# Small YAML/TOML readers (pyyaml for the repository files, like resolve-role)
+# Package files
 # ---------------------------------------------------------------------------
 
 
@@ -284,16 +110,17 @@ def _yaml():
     try:
         import yaml  # type: ignore
     except ImportError as exc:  # pragma: no cover - environment dependent
-        raise RuntimeError(
-            "PyYAML is required to read registry.yaml (pip install pyyaml)"
-        ) from exc
+        raise InstallError("PyYAML is required to read registry.yaml (pip install pyyaml)") from exc
     return yaml
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
-    data = _yaml().safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        data = _yaml().safe_load(path.read_text(encoding="utf-8")) or {}
+    except _yaml().YAMLError as exc:
+        raise InstallError(f"{path}: not valid YAML: {exc}") from exc
     if not isinstance(data, dict):
-        raise RuntimeError(f"{path}: expected a mapping at the top level")
+        raise InstallError(f"{path}: expected a mapping at the top level")
     return data
 
 
@@ -301,27 +128,52 @@ def load_registry(pkg_dir: Path = PKG_DIR) -> Dict[str, Any]:
     return _load_yaml(pkg_dir / REGISTRY_FILE)
 
 
+def load_manifest(pkg_dir: Path = PKG_DIR) -> Dict[str, Any]:
+    return _load_yaml(pkg_dir / MANIFEST_FILE)
+
+
 def load_manifest_artifacts(pkg_dir: Path = PKG_DIR) -> Dict[str, List[str]]:
-    data = _load_yaml(pkg_dir / MANIFEST_FILE)
-    artifacts = data.get("artifacts") or {}
+    artifacts = load_manifest(pkg_dir).get("artifacts") or {}
     return {k: list(v or []) for k, v in artifacts.items()}
 
 
-def _atm_default_team(atm_toml: Path) -> Optional[str]:
-    text = atm_toml.read_text(encoding="utf-8")
-    try:
-        import tomllib  # Python 3.11+
+def package_version(pkg_dir: Path = PKG_DIR) -> str:
+    return str(load_manifest(pkg_dir)["version"])
 
-        data = tomllib.loads(text)
-        value = (data.get("atm") or {}).get("default_team")
-        return str(value) if value else None
-    except ImportError:  # pragma: no cover - old python
-        pass
-    m = re.search(r"^\[atm\]\s*$(.*?)(?=^\[|\Z)", text, re.M | re.S)
+
+def config_variables(pkg_dir: Path = PKG_DIR) -> List[str]:
+    """The required_variables of the config template: the one declaration of the inputs."""
+    text = (pkg_dir / CONFIG_TEMPLATE).read_text(encoding="utf-8")
+    m = re.match(r"---\n(.*?)\n---\n", text, re.S)
     if not m:
-        return None
-    m2 = re.search(r'^\s*default_team\s*=\s*"([^"]+)"', m.group(1), re.M)
-    return m2.group(1) if m2 else None
+        raise InstallError(f"{CONFIG_TEMPLATE}: no front matter")
+    names = (_yaml().safe_load(m.group(1)) or {}).get("required_variables") or []
+    return [str(n) for n in names]
+
+
+def load_legacy_owned(pkg_dir: Path = PKG_DIR) -> Dict[str, set]:
+    path = pkg_dir / LEGACY_OWNED
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {rel: set(shas) for rel, shas in (data.get("files") or {}).items()}
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Repository values
+# ---------------------------------------------------------------------------
+
+
+def repo_root_for(destination_path: Path) -> Path:
+    """The consuming repository: the parent of <repo>/.claude or <repo>/.codex."""
+    dest = Path(destination_path).resolve()
+    if dest.name in (".claude", ".codex"):
+        return dest.parent
+    raise InstallError(f"--dest must be a repository's .claude or .codex directory, got {dest}")
 
 
 def _git_origin_slug(repo_root: Path) -> Optional[str]:
@@ -336,91 +188,116 @@ def _git_origin_slug(repo_root: Path) -> Optional[str]:
     return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
-# ---------------------------------------------------------------------------
-# Variable resolution
-# ---------------------------------------------------------------------------
+def _registry_location(name: str) -> str:
+    if name in ROLE_KEYS:
+        return f"{CONSUMER_REGISTRY} roles.{ROLE_KEYS[name]}"
+    return f"{CONSUMER_REGISTRY} {name}"
 
 
-def repo_root_for(destination_path: Path) -> Path:
-    """The consuming repository: the parent of <repo>/.claude or <repo>/.codex,
-    or the git toplevel above an explicit --dest."""
-    dest = Path(destination_path).resolve()
-    if dest.name in (".claude", ".codex"):
-        return dest.parent
-    try:
-        top = subprocess.run(
-            ["git", "-C", str(dest.parent), "rev-parse", "--show-toplevel"],
-            check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-        ).stdout.strip()
-        if top:
-            return Path(top)
-    except (OSError, subprocess.CalledProcessError):
-        pass
-    return dest.parent
+def parse_set(items: Iterable[str]) -> Dict[str, str]:
+    overrides: Dict[str, str] = {}
+    for item in items:
+        if "=" not in item:
+            raise InstallError(f"--set expects NAME=VALUE, got {item!r}")
+        k, v = item.split("=", 1)
+        overrides[k.strip()] = v.strip()
+    return overrides
 
 
-def resolve_variables(repo_root: Path, overrides: Dict[str, str]) -> Tuple[Dict[str, str], List[str]]:
-    """Return (variables, problems). problems is empty when every variable resolved."""
-    repo_root = Path(repo_root).resolve()
-    vals: Dict[str, Optional[str]] = {name: None for name in VARIABLE_NAMES}
-    problems: List[str] = []
-
-    atm_toml = repo_root / ".atm.toml"
-    if atm_toml.is_file():
-        vals["team"] = _atm_default_team(atm_toml)
-    registry = repo_root / ".claude" / "agents" / "registry.yaml"
-    reg: Dict[str, Any] = {}
-    if registry.is_file():
+def _coerce_set_value(name: str, raw: Any) -> Any:
+    if name not in LIST_VARIABLES or not isinstance(raw, str):
+        return raw
+    text = raw.strip()
+    if text.startswith("["):
         try:
-            reg = _load_yaml(registry)
-        except Exception as exc:  # noqa: BLE001 - reported, not raised
-            problems.append(f"{registry}: {exc}")
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise InstallError(f"--set {name}: not a JSON array: {exc}") from exc
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def resolve_config(repo_root: Path, overrides: Dict[str, Any], pkg_dir: Path = PKG_DIR) -> Dict[str, Any]:
+    """Read the declared variables from registry.yaml and --set. Missing ones are left
+    out (the strict render names them); unknown --set keys and wrong types are errors."""
+    names = config_variables(pkg_dir)
+    unknown = sorted(k for k in overrides if k not in names)
+    if unknown:
+        raise InstallError(
+            "unknown --set variable(s): " + ", ".join(unknown)
+            + f"; the variables are the required_variables of {CONFIG_TEMPLATE}: " + ", ".join(names))
+    registry = repo_root / CONSUMER_REGISTRY
+    reg = _load_yaml(registry) if registry.is_file() else {}
+    misplaced = sorted(n for n in ROLE_KEYS if n in reg)
+    if misplaced:
+        raise InstallError(
+            f"{registry}: " + ", ".join(f"{n} belongs under roles.{ROLE_KEYS[n]}" for n in misplaced))
     roles = reg.get("roles") or {}
-    vals["lead"] = str(roles.get("lead") or "team-lead")
-    if roles.get("dev-sanity"):
-        vals["dev_sanity_member"] = str(roles["dev-sanity"])
-    if reg.get("bead_prefix"):
-        vals["bead_prefix"] = str(reg["bead_prefix"])
-    else:
-        beads_cfg = repo_root / ".beads" / "config.yaml"
-        if beads_cfg.is_file():
-            m = re.search(r'^\s*issue-prefix:\s*"?([A-Za-z0-9_-]+)"?\s*$', beads_cfg.read_text(encoding="utf-8"), re.M)
-            if m:
-                vals["bead_prefix"] = m.group(1)
-    if reg.get("workflow_issues_root"):
-        vals["workflow_issues_root"] = str(reg["workflow_issues_root"])
-    vals["repo_slug"] = _git_origin_slug(repo_root)
-    vals["repo_root"] = str(repo_root)
+    if not isinstance(roles, dict):
+        raise InstallError(f"{registry}: roles must be a mapping")
+    values: Dict[str, Any] = {}
+    for name in names:
+        if name in overrides:
+            value = _coerce_set_value(name, overrides[name])
+        elif name in ROLE_KEYS:
+            value = roles.get(ROLE_KEYS[name])
+        else:
+            value = reg.get(name)
+        if value is None:
+            continue
+        if name in LIST_VARIABLES:
+            if not isinstance(value, list) or not all(isinstance(v, str) and v for v in value):
+                raise InstallError(f"{name} must be a list of non-empty strings ({_registry_location(name)}), got {value!r}")
+        elif not isinstance(value, str) or not value:
+            raise InstallError(f"{name} must be a non-empty string ({_registry_location(name)}), got {value!r}")
+        values[name] = value
+    return values
 
-    for key, value in overrides.items():
-        name = key.lower()
-        if name in vals:
-            vals[name] = value
 
-    if vals["repo_slug"] and not vals["repo_name"]:
-        vals["repo_name"] = vals["repo_slug"].rsplit("/", 1)[-1]
-    if not vals["repo_name"]:
-        vals["repo_name"] = repo_root.name
-    if vals["bead_prefix"] and not vals["workflow_issues_root"]:
-        vals["workflow_issues_root"] = f"{vals['bead_prefix']}-workflow-issues"
-    if not vals["worktree_base"]:
-        vals["worktree_base"] = str(repo_root.parent / f"{vals['repo_name']}-worktrees")
-
-    sources = {
-        "team": f"{atm_toml} [atm] default_team",
-        "dev_sanity_member": f"{registry} roles.dev-sanity",
-        "bead_prefix": f"{registry} bead_prefix (or .beads/config.yaml issue-prefix)",
-        "repo_slug": "git remote get-url origin",
+def derived_values(repo_root: Path, config: Dict[str, Any]) -> Dict[str, str]:
+    """The install-time render values that come from the repository itself."""
+    slug = _git_origin_slug(repo_root)
+    if not slug:
+        raise InstallError(f"{repo_root}: no git remote 'origin' with an owner/name URL; add one (git remote add origin ...)")
+    return {
+        "repo_slug": slug,
+        "repo_name": slug.rsplit("/", 1)[-1],
+        "repo_root": str(repo_root),
+        "workflow_issues_root": f"{config['bead_prefix']}-workflow-issues",
     }
-    for name, source in sources.items():
-        if not vals[name]:
-            problems.append(f"{name} is not set: add it to {source}, or pass --set {name}=<value>")
-    return {k: v for k, v in vals.items() if v is not None}, problems
 
 
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
+
+
+def _sc_compose(template_text: str, variables: Dict[str, Any], *, suffix: str) -> subprocess.CompletedProcess:
+    with tempfile.TemporaryDirectory(prefix="atm-bd-install-") as tmp:
+        tmp_dir = Path(tmp)
+        (tmp_dir / f"body{suffix}").write_text(template_text, encoding="utf-8")
+        (tmp_dir / "vars.json").write_text(json.dumps(variables), encoding="utf-8")
+        return subprocess.run(
+            ["sc-compose", "render", "--file", f"body{suffix}", "--var-file", "vars.json", "--strict"],
+            cwd=tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+
+
+MISSING_RE = re.compile(r"missing required variable: ([A-Za-z0-9_]+)")
+
+
+def render_config(values: Dict[str, Any], pkg_dir: Path = PKG_DIR) -> bytes:
+    """Render the config template strictly. A missing variable fails, naming it."""
+    proc = _sc_compose((pkg_dir / CONFIG_TEMPLATE).read_text(encoding="utf-8"), values, suffix=".yaml.j2")
+    if proc.returncode != 0:
+        missing = list(dict.fromkeys(MISSING_RE.findall(proc.stderr)))
+        if missing:
+            raise InstallError(
+                "sc-compose --strict: missing required variable(s): " + ", ".join(missing) + "; set "
+                + "; ".join(f"{n} in {_registry_location(n)} (or --set {n}=...)" for n in missing))
+        first = (proc.stderr or proc.stdout).strip().splitlines()[:1]
+        raise InstallError(f"sc-compose render of {CONFIG_TEMPLATE} failed: {first[0] if first else 'no output'}")
+    out = proc.stdout if proc.stdout.endswith("\n") else proc.stdout + "\n"
+    return out.encode("utf-8")
 
 
 def _split_frontmatter(text: str) -> Tuple[str, str]:
@@ -432,58 +309,306 @@ def _split_frontmatter(text: str) -> Tuple[str, str]:
 
 
 def render_text(text: str, variables: Dict[str, str]) -> str:
-    """Render one file body with sc-compose (strict: every referenced token must be declared)."""
+    """Render one skill/agent file body with sc-compose (strict: every referenced token must be declared)."""
     front, body = _split_frontmatter(text)
-    declared = "".join(f"  - {name}\n" for name in VARIABLE_NAMES)
+    declared = "".join(f"  - {name}\n" for name in RENDER_VARIABLES)
     template = f"---\nname: atm-bd-install\nversion: 1.0.0\nformat: markdown\nrequired_variables:\n{declared}---\n{body}"
-    with tempfile.TemporaryDirectory(prefix="atm-bd-install-") as tmp:
-        tmp_dir = Path(tmp)
-        (tmp_dir / "body.md").write_text(template, encoding="utf-8")
-        (tmp_dir / "vars.json").write_text(json.dumps({n: variables.get(n, "") for n in VARIABLE_NAMES}), encoding="utf-8")
-        proc = subprocess.run(
-            ["sc-compose", "render", "--file", "body.md", "--var-file", "vars.json", "--strict"],
-            cwd=tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        )
+    proc = _sc_compose(template, {n: variables[n] for n in RENDER_VARIABLES}, suffix=".md")
     if proc.returncode != 0:
         first = (proc.stderr or proc.stdout).strip().splitlines()[:1]
-        raise RuntimeError(f"sc-compose render failed: {first[0] if first else 'no output'}")
+        raise InstallError(f"sc-compose render failed: {first[0] if first else 'no output'}")
     rendered = proc.stdout
     if body.endswith("\n") and not rendered.endswith("\n"):
         rendered += "\n"
     leftover = PLACEHOLDER_RE.search(rendered)
     if leftover:
-        raise RuntimeError(f"placeholder {leftover.group(0)} survived rendering")
+        raise InstallError(f"placeholder {leftover.group(0)} survived rendering")
     return front + rendered
 
 
-def _copy_mode(src: Path, dst: Path) -> None:
-    mode = src.stat().st_mode
-    if mode & stat.S_IXUSR:
-        dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
 
 
-def render_into(source_path: Path, destination_path: Path, variables: Dict[str, str], *, force: bool) -> List[str]:
-    """Render every registry `render:` file whose installed copy exists.
+def check_tools() -> None:
+    if shutil.which("sc-compose") is None:
+        raise InstallError("sc-compose is not on PATH; install it (brew install randlee/tap/sc-compose) and rerun")
+    # validate-plan runs scripts/bead_schema.py (pydantic) with the python3 on PATH.
+    probe = subprocess.run(["python3", "-c", "import pydantic, yaml"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if probe.returncode != 0:
+        raise InstallError("python3 on PATH cannot import pydantic and PyYAML, which validate-plan needs; "
+                           "install them (python3 -m pip install pydantic pyyaml) and rerun")
 
-    A copy is rendered when it is byte-identical to the package source (sc-install
-    or the standalone copy just wrote it) or when force is set. A copy that already
-    differs from the source was rendered by an earlier install and is left alone
-    unless force is set, matching sc-install's skip-existing behaviour.
-    """
-    registry = load_registry(source_path)
-    rendered: List[str] = []
-    for rel in registry.get("render") or []:
-        src = source_path / rel
-        dst = destination_path / rel
-        if not dst.is_file():
-            continue  # not installed on this target (agents are .claude-only)
-        src_text = src.read_text(encoding="utf-8")
-        if not force and dst.read_text(encoding="utf-8") != src_text:
+
+def check_beads_server_mode(repo_root: Path) -> None:
+    path = repo_root / BEADS_METADATA
+    if not path.is_file():
+        raise InstallError(f"BEADS_NOT_SERVER_MODE: {path} not found; the loop needs a beads database in "
+                           "Dolt server mode (bd doctor --json), so initialise it against a dolt sql-server")
+    try:
+        mode = json.loads(path.read_text(encoding="utf-8")).get("dolt_mode")
+    except (OSError, json.JSONDecodeError) as exc:
+        raise InstallError(f"BEADS_NOT_SERVER_MODE: {path}: unreadable: {exc}") from exc
+    if mode != "server":
+        raise InstallError(f"BEADS_NOT_SERVER_MODE: {path} has dolt_mode {mode!r}, not 'server'; validate-plan needs "
+                           "bd doctor --json, which only server mode provides")
+
+
+def check_agents(repo_root: Path, config: Dict[str, Any], shipped_agents: Iterable[str]) -> None:
+    shipped = {Path(rel).stem for rel in shipped_agents}
+    missing: List[str] = []
+    for var in AGENT_VARIABLES:
+        names = config[var] if isinstance(config[var], list) else [config[var]]
+        for name in names:
+            if name in shipped or (repo_root / ".claude" / "agents" / f"{name}.md").is_file():
+                continue
+            missing.append(f"{name} ({var})")
+    if missing:
+        raise InstallError("no .claude/agents/<name>.md for: " + ", ".join(dict.fromkeys(missing)))
+
+
+# ---------------------------------------------------------------------------
+# Install plan: what to write, what to remove, what is in the way
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Plan:
+    repo_root: Path
+    target_prefix: str                                   # ".claude/" or ".codex/"
+    writes: Dict[str, Tuple[bytes, bool]] = field(default_factory=dict)   # repo-rel -> (bytes, executable)
+    removals: List[str] = field(default_factory=list)
+    problems: List[str] = field(default_factory=list)
+    lock_files: Dict[str, str] = field(default_factory=dict)
+    registry_text: Optional[str] = None                  # registry.yaml with the roles written, if it changes
+
+
+def _read_lock(repo_root: Path) -> Optional[Dict[str, Any]]:
+    path = repo_root / LOCK_OUT
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise InstallError(f"{path}: not valid JSON ({exc}); restore it from git") from exc
+    if data.get("package") != PACKAGE or not isinstance(data.get("files"), dict):
+        raise InstallError(f"{path}: not an {PACKAGE} install record; restore it from git")
+    return data
+
+
+def desired_files(pkg_dir: Path, target_prefix: str, *, codex: bool, render_values: Dict[str, str],
+                  config_bytes: bytes) -> Dict[str, Tuple[bytes, bool, str]]:
+    """repo-relative path -> (bytes, executable, package source path)."""
+    renders = set(load_registry(pkg_dir).get("render") or [])
+    artifacts = load_manifest_artifacts(pkg_dir)
+    cats = ("skills",) if codex else ("skills", "agents")
+    out: Dict[str, Tuple[bytes, bool, str]] = {}
+    for cat in cats:
+        for rel in artifacts.get(cat, []):
+            src = pkg_dir / rel
+            if not src.is_file():
+                raise InstallError(f"manifest artifact missing from the package: {rel}")
+            data = src.read_bytes()
+            if rel in renders:
+                data = render_text(data.decode("utf-8"), render_values).encode("utf-8")
+            out[target_prefix + rel] = (data, bool(src.stat().st_mode & stat.S_IXUSR), rel)
+    for rel in REPO_ASSETS:
+        src = pkg_dir / rel
+        out[str(Path(rel).relative_to("assets"))] = (src.read_bytes(), bool(src.stat().st_mode & stat.S_IXUSR), rel)
+    out[CONFIG_OUT] = (config_bytes, False, CONFIG_TEMPLATE)
+    return out
+
+
+def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex: bool) -> Tuple[Plan, Dict[str, Any]]:
+    """Resolve, render and check everything; return the plan. Writes nothing."""
+    pkg_dir = Path(pkg_dir).resolve()
+    repo_root = repo_root_for(dest)
+    target_prefix = Path(dest).resolve().name + "/"
+    config = resolve_config(repo_root, overrides, pkg_dir)
+    config_bytes = render_config(config, pkg_dir)
+    check_beads_server_mode(repo_root)
+    artifacts = load_manifest_artifacts(pkg_dir)
+    check_agents(repo_root, config, [] if codex else artifacts.get("agents", []))
+    render_values = {**{k: v for k, v in config.items() if k in RENDER_VARIABLES}, **derived_values(repo_root, config)}
+
+    wanted = desired_files(pkg_dir, target_prefix, codex=codex, render_values=render_values, config_bytes=config_bytes)
+    lock = _read_lock(repo_root)
+    locked: Dict[str, str] = dict(lock["files"]) if lock else {}
+    legacy = load_legacy_owned(pkg_dir) if lock is None else {}
+    plan = Plan(repo_root=repo_root, target_prefix=target_prefix)
+
+    def owned(key: str, data: bytes, pkg_rel: Optional[str]) -> Optional[bool]:
+        """True owned and unmodified, False in the way, None for locked-but-modified."""
+        digest = sha256(data)
+        if key in locked:
+            return True if locked[key] == digest else None
+        if pkg_rel is None:
+            return False
+        shipped = {sha256(wanted[key][0])} if key in wanted else set()
+        src = pkg_dir / pkg_rel
+        if src.is_file() and pkg_rel != CONFIG_TEMPLATE:
+            shipped.add(sha256(src.read_bytes()))   # sc-install copies the raw source before complete()
+        shipped |= legacy.get(pkg_rel, set())
+        return digest in shipped
+
+    # A target skill directory that exists must hold at least one file this package owns.
+    skill_names = sorted({rel.split("/")[1] for rel in artifacts.get("skills", [])})
+    foreign_dirs: set = set()
+    for name in skill_names:
+        skill_dir = repo_root / target_prefix / "skills" / name
+        if not skill_dir.is_dir():
             continue
-        dst.write_text(render_text(src_text, variables), encoding="utf-8")
-        _copy_mode(src, dst)
-        rendered.append(rel)
-    return rendered
+        has_owned = False
+        for path in skill_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            key = path.relative_to(repo_root).as_posix()
+            pkg_rel = wanted[key][2] if key in wanted else _legacy_pkg_rel(key, target_prefix, legacy)
+            if owned(key, path.read_bytes(), pkg_rel) is not False:
+                has_owned = True
+                break
+        if not has_owned:
+            foreign_dirs.add(name)
+            plan.problems.append(f"skill '{name}' exists at {target_prefix}skills/{name} and is not owned by {PACKAGE}; "
+                                 "remove or rename it and rerun")
+
+    for key, (data, executable, pkg_rel) in sorted(wanted.items()):
+        if any(key.startswith(f"{target_prefix}skills/{n}/") for n in foreign_dirs):
+            continue
+        path = repo_root / key
+        if path.is_file():
+            state = owned(key, path.read_bytes(), pkg_rel)
+            if state is None:
+                plan.problems.append(f"{key} was modified since {PACKAGE} installed it; restore it (or delete it) and rerun")
+                continue
+            if state is False:
+                plan.problems.append(f"{key} exists and is not owned by {PACKAGE}; remove or rename it and rerun")
+                continue
+        elif path.exists():
+            plan.problems.append(f"{key} exists and is not a file")
+            continue
+        plan.writes[key] = (data, executable)
+        plan.lock_files[key] = sha256(data)
+
+    # Files an earlier install placed that this version no longer ships (this target only).
+    stale: Dict[str, Optional[str]] = {k: v for k, v in locked.items() if k.startswith(target_prefix) and k not in wanted}
+    for pkg_rel in legacy:
+        key = target_prefix + pkg_rel
+        if pkg_rel.startswith(("skills/", "agents/")) and key not in wanted and key not in stale:
+            stale[key] = None
+    for key, recorded in sorted(stale.items()):
+        path = repo_root / key
+        if not path.is_file():
+            continue
+        digest = sha256(path.read_bytes())
+        if recorded is not None:
+            if digest == recorded:
+                plan.removals.append(key)
+            else:
+                plan.problems.append(f"{key} was modified since {PACKAGE} installed it and this version no longer "
+                                     "ships it; move it out of the way and rerun")
+        elif digest in legacy.get(key[len(target_prefix):], set()):
+            plan.removals.append(key)
+
+    try:
+        plan.registry_text = roles_text(repo_root / CONSUMER_REGISTRY, {role: config[var] for var, role in ROLE_KEYS.items()})
+    except InstallError as exc:
+        plan.problems.append(str(exc))
+
+    # Keep the other target's records.
+    for key, digest in locked.items():
+        if not key.startswith(target_prefix) and key not in plan.lock_files and key not in wanted:
+            plan.lock_files[key] = digest
+    return plan, config
+
+
+def _legacy_pkg_rel(key: str, target_prefix: str, legacy: Dict[str, set]) -> Optional[str]:
+    rel = key[len(target_prefix):] if key.startswith(target_prefix) else None
+    return rel if rel is not None and rel in legacy else None
+
+
+# ---------------------------------------------------------------------------
+# Applying a plan
+# ---------------------------------------------------------------------------
+
+
+def roles_text(registry: Path, roles: Dict[str, str]) -> Optional[str]:
+    """registry.yaml with roles.<role> set, keeping the rest of the file as written;
+    None when nothing changes."""
+    text = registry.read_text(encoding="utf-8") if registry.is_file() else ""
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, line in enumerate(lines) if re.match(r"^roles:\s*(#.*)?$", line.rstrip("\n"))), None)
+    if start is None:
+        new = text + ("\n" if text and not text.endswith("\n") else "")
+        new += "roles:\n" + "".join(f"  {k}: {v}\n" for k, v in roles.items())
+    else:
+        end = start + 1
+        while end < len(lines) and (not lines[end].strip() or lines[end][:1] in (" ", "\t")):
+            end += 1
+        block = lines[start + 1:end]
+        trailing: List[str] = []
+        while block and not block[-1].strip():
+            trailing.insert(0, block.pop())
+        if block and not block[-1].endswith("\n"):
+            block[-1] += "\n"
+        indent = next((m.group(1) for m in (re.match(r"^([ \t]+)\S", line) for line in block) if m), "  ")
+        for role, member in roles.items():
+            pattern = re.compile(rf"^({re.escape(indent)}{re.escape(role)}:[ \t]*)([^#\n]*?)([ \t]*(?:#.*)?\n?)$")
+            for i, line in enumerate(block):
+                m = pattern.match(line)
+                if m:
+                    block[i] = f"{indent}{role}: {member}{m.group(3)}"
+                    break
+            else:
+                block.append(f"{indent}{role}: {member}\n")
+        new = "".join(lines[:start + 1] + block + trailing + lines[end:])
+    try:
+        new_roles = (_yaml().safe_load(new) or {}).get("roles") or {}
+    except _yaml().YAMLError:
+        new_roles = {}
+    if not isinstance(new_roles, dict) or any(new_roles.get(k) != v for k, v in roles.items()):
+        raise InstallError(f"{registry}: could not write roles {roles} (is roles: a flow mapping?); set them by hand and rerun")
+    return None if new == text else new
+
+
+def write_roles(registry: Path, roles: Dict[str, str]) -> bool:
+    """Set roles.<role> in registry.yaml. Returns True when the file changed."""
+    new = roles_text(registry, roles)
+    if new is None:
+        return False
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    registry.write_text(new, encoding="utf-8")
+    return True
+
+
+def apply_plan(plan: Plan, version: str) -> int:
+    """Write the plan; return the number of files whose bytes changed."""
+    root = plan.repo_root
+    changed = 0
+    for key, (data, executable) in plan.writes.items():
+        path = root / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.is_file() or path.read_bytes() != data:
+            path.write_bytes(data)
+            changed += 1
+        if executable:
+            path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    for key in plan.removals:
+        path = root / key
+        path.unlink()
+        parent = path.parent
+        stop = root / plan.target_prefix
+        while parent != stop and parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
+    lock = {"package": PACKAGE, "version": version, "files": dict(sorted(plan.lock_files.items()))}
+    lock_path = root / LOCK_OUT
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+    if plan.registry_text is not None:
+        (root / CONSUMER_REGISTRY).write_text(plan.registry_text, encoding="utf-8")
+    return changed
 
 
 # ---------------------------------------------------------------------------
@@ -499,126 +624,74 @@ def _fail(message: str) -> Dict[str, str]:
     return {"result": "fail", "message": message}
 
 
-def prepare(source_path: str, destination_path: str, options: dict) -> dict:
-    """Check the tools and repository values before anything is copied. Writes nothing."""
-    if shutil.which("sc-compose") is None:
-        return _fail("sc-compose is not on PATH; install it (brew install randlee/tap/sc-compose) and rerun")
-    # validate-plan runs scripts/bead_schema.py (pydantic) with the python3 on PATH.
-    probe = subprocess.run(["python3", "-c", "import pydantic, yaml"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    if probe.returncode != 0:
-        return _fail("python3 on PATH cannot import pydantic and PyYAML, which validate-plan needs; "
-                     "install them (python3 -m pip install pydantic pyyaml) and rerun")
+def _codex(destination_path: str, options: dict) -> bool:
+    return bool(options.get("codex")) or Path(destination_path).name == ".codex"
+
+
+def _plan_or_fail(source_path: str, destination_path: str, options: dict) -> Tuple[Optional[Plan], Dict[str, Any], Optional[dict]]:
     try:
-        _, problems = resolve_variables(repo_root_for(Path(destination_path)), options.get("args") or {})
-    except RuntimeError as exc:
-        return _fail(str(exc))
-    if problems:
-        return _fail("; ".join(problems))
-    return _ok()
+        check_tools()
+        plan, config = plan_install(Path(source_path), Path(destination_path), dict(options.get("args") or {}),
+                                    codex=_codex(destination_path, options))
+    except InstallError as exc:
+        return None, {}, _fail(str(exc))
+    if plan.problems:
+        return None, {}, _fail("; ".join(plan.problems))
+    return plan, config, None
+
+
+def prepare(source_path: str, destination_path: str, options: dict) -> dict:
+    """Check the tools, the repository values, the beads mode, the agents and file
+    ownership before anything is copied. Writes nothing."""
+    _, _, failure = _plan_or_fail(source_path, destination_path, options)
+    return failure or _ok()
 
 
 def complete(source_path: str, destination_path: str, options: dict) -> dict:
-    """Render the repository values into the installed copies (idempotent)."""
-    src = Path(source_path).resolve()
-    dst = Path(destination_path).resolve()
-    try:
-        variables, problems = resolve_variables(repo_root_for(dst), options.get("args") or {})
-        if problems:
-            return _fail("; ".join(problems))
-        rendered = render_into(src, dst, variables, force=bool(options.get("force")))
-    except RuntimeError as exc:
-        return _fail(f"{exc}; fix the named file or value and rerun the install with --force")
-    repo = repo_root_for(dst)
-    for rel in REPO_ASSETS:
-        asset_src = src / rel
-        asset_dst = repo / Path(rel).relative_to("assets")
-        if asset_src.is_file() and (bool(options.get("force")) or not asset_dst.exists()):
-            asset_dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(asset_src, asset_dst)
-    for rel in DROPPED:
-        if (dst / rel).is_file():
-            (dst / rel).unlink()
-    print(f"atm-bd-orchestration: rendered {len(rendered)} file(s) for {variables['repo_slug']} "
-          f"(team {variables['team']}, prefix {variables['bead_prefix']}, dev-sanity {variables['dev_sanity_member']})")
+    """Place every file (rendered where listed), remove unchanged files no longer
+    shipped, write the config, the install record and the roles."""
+    plan, config, failure = _plan_or_fail(source_path, destination_path, options)
+    if failure:
+        return failure
+    assert plan is not None
+    version = package_version(Path(source_path))
+    changed = apply_plan(plan, version)
+    print(f"{PACKAGE} {version}: {changed} file(s) written, {len(plan.writes) - changed} unchanged, "
+          f"{len(plan.removals)} removed; roles {'updated' if plan.registry_text is not None else 'unchanged'} "
+          f"in {CONSUMER_REGISTRY}; config {CONFIG_OUT}; record {LOCK_OUT}")
     return _ok()
 
 
 def cleanup(source_path: str, destination_path: str, options: dict) -> dict:
-    """The only files created beyond the manifest artifacts are the REPO_ASSETS (<repo>/scripts/jev_client.py),
-    which the repository owns once installed, so they stay."""
+    """Nothing to clean: prepare() writes nothing and complete() writes only recorded files."""
     return _ok()
 
 
 # ---------------------------------------------------------------------------
-# Standalone installer (same copy semantics as sc-install: skip existing unless --force)
+# Standalone installer
 # ---------------------------------------------------------------------------
 
 
-def iter_artifacts(artifacts: Dict[str, List[str]], *, codex: bool) -> Iterable[str]:
-    order = ["skills", "scripts", "assets"] if codex else ["commands", "skills", "agents", "scripts", "assets"]
-    for key in order:
-        yield from artifacts.get(key, [])
-
-
-def _copy_artifacts(dest: Path, *, codex: bool, force: bool) -> Tuple[int, int]:
-    copied = skipped = 0
-    for rel in iter_artifacts(load_manifest_artifacts(), codex=codex):
-        src = PKG_DIR / rel
-        dst = dest / rel
-        if not src.is_file():
-            raise RuntimeError(f"manifest artifact missing from the package: {rel}")
-        if dst.exists() and not force:
-            skipped += 1
-            continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-        copied += 1
-    return copied, skipped
-
-
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
     parser = argparse.ArgumentParser(description="Install atm-bd-orchestration into a repository's .claude (or .codex) directory.")
     parser.add_argument("--dest", required=True, help="<repo>/.claude or <repo>/.codex")
     parser.add_argument("--codex", action="store_true", help="the destination is a .codex directory (skills only, no agents)")
-    parser.add_argument("--force", action="store_true", help="overwrite and re-render files that already exist")
-    parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="override a resolved variable")
-    parser.add_argument("--print-vars", action="store_true", help="resolve and print the variables, install nothing")
+    parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
+                        help="set a config variable (wins over registry.yaml); lists take a JSON array or a,b,c")
     args = parser.parse_args(argv)
-
-    overrides: Dict[str, str] = {}
-    for item in args.set:
-        if "=" not in item:
-            parser.error(f"--set expects NAME=VALUE, got {item!r}")
-        k, v = item.split("=", 1)
-        overrides[k.strip()] = v.strip()
-
-    dest = Path(args.dest).expanduser().resolve()
-    codex = args.codex or dest.name == ".codex"
-    options = {"global": False, "local": True, "user": False, "project": False,
-               "codex": codex, "force": args.force, "expand": True, "args": overrides}
-
-    if args.print_vars:
-        variables, problems = resolve_variables(repo_root_for(dest), overrides)
-        print(json.dumps(variables, indent=2, sort_keys=True))
-        for p in problems:
-            print(f"problem: {p}", file=sys.stderr)
-        return 1 if problems else 0
-
-    result = prepare(str(PKG_DIR), str(dest), options)
-    if result["result"] != "success":
-        print(f"install.py: {result['message']}", file=sys.stderr)
-        return 1
-    dest.mkdir(parents=True, exist_ok=True)
     try:
-        copied, skipped = _copy_artifacts(dest, codex=codex, force=args.force)
-    except RuntimeError as exc:
+        overrides = parse_set(args.set)
+    except InstallError as exc:
         print(f"install.py: {exc}", file=sys.stderr)
         return 1
-    print(f"atm-bd-orchestration: copied {copied} file(s), skipped {skipped} existing (use --force to overwrite) into {dest}")
-    result = complete(str(PKG_DIR), str(dest), options)
-    if result["result"] != "success":
-        print(f"install.py: {result['message']}", file=sys.stderr)
-        return 1
+    dest = Path(args.dest).expanduser().resolve()
+    options = {"global": False, "local": True, "user": False, "project": False,
+               "codex": args.codex or dest.name == ".codex", "force": False, "expand": True, "args": overrides}
+    for step in (prepare, complete):
+        result = step(str(pkg_dir), str(dest), options)
+        if result["result"] != "success":
+            print(f"install.py: {result['message']}", file=sys.stderr)
+            return 1
     return 0
 
 

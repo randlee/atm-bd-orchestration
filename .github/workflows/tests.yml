@@ -1,0 +1,86 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            sha256: 2e09706e0814f30adaacc88310db4ad629dcd9314d1182ecf12767686f828204
+            bd_asset: beads_1.3.0_linux_amd64.tar.gz
+            bd_sha256: 2f92b904ecf35b607e44dc5c39229173af69c54f1183e8d709f1773540cdcf3b
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            sha256: 23db29325d95c0f4bb94dead48d02883e00311e82dc66820fe51b1dd855b7168
+            bd_asset: beads_1.3.0_darwin_arm64.tar.gz
+            bd_sha256: 7cc77367d0b84c50243a1108bc1f73648699211257d414b917540bf868e6bb85
+    runs-on: ${{ matrix.os }}
+    env:
+      SC_COMPOSE_VERSION: "1.6.1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # test_real_upgrade_from_a_0_2_3_install installs 0.2.3 from history
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python test dependencies
+        run: python3 -m pip install pytest pydantic pyyaml
+
+      # Same pinned release asset and checksum as atm-core's tools/bootstrap.toml.
+      - name: Install sc-compose ${{ env.SC_COMPOSE_VERSION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="sc-compose_${SC_COMPOSE_VERSION}_${{ matrix.target }}.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$asset" \
+            "https://github.com/randlee/sc-compose/releases/download/v${SC_COMPOSE_VERSION}/$asset"
+          echo "${{ matrix.sha256 }}  $RUNNER_TEMP/$asset" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/sc-compose"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/sc-compose"
+          bin="$(find "$RUNNER_TEMP/sc-compose" -type f -name sc-compose | head -n 1)"
+          test -n "$bin"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$bin" "$HOME/.local/bin/sc-compose"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # validate-plan (run by the installed skill suites) requires bd on PATH.
+      - name: Install bd 1.3.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="${{ matrix.bd_asset }}"
+          curl -fsSL -o "$RUNNER_TEMP/$asset" "https://github.com/steveyegge/beads/releases/download/v1.3.0/$asset"
+          echo "${{ matrix.bd_sha256 }}  $RUNNER_TEMP/$asset" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/bd"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/bd"
+          bin="$(find "$RUNNER_TEMP/bd" -type f -name bd | head -n 1)"
+          test -n "$bin"
+          install -m 0755 "$bin" "$HOME/.local/bin/bd"
+
+      - name: Tool versions
+        run: |
+          sc-compose --version
+          bd --version
+          jq --version
+          python3 --version
+          git --version
+
+      - name: Generated blocks are current
+        working-directory: plugins/atm-bd-orchestration
+        run: python3 tests/gen_manifest.py --check
+
+      - name: Package tests
+        working-directory: plugins/atm-bd-orchestration
+        run: python3 -m pytest -q -rs
