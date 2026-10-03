@@ -17,7 +17,7 @@ sprint (Q2, decided; drawn in 02b). Model names marked "proposed" do not exist
 in `bead_schema.py` yet.
 
 Marking (see the README): thick arrows and purple dashed nodes are poured by
-sc-compose (mock for now). Dotted arrows are added by the post-pour step.
+sc-compose (mock for now). Dotted arrows are added by the post-pour script.
 Solid arrows and nodes are created by hand, by a template or by a script.
 
 ## 4a. The sprint group, with the schema model of each node
@@ -32,7 +32,7 @@ flowchart TB
 
   subgraph POUR["poured by sc-compose (mock): sprint formula onto p-d-29"]
     DEV["dev: the assigned dev task<br/>model: SprintBead or DevBead (proposed) (N3)<br/>assignee: dev member"]:::poured
-    SAN["sanity (initial)<br/>model: SanityBead<br/>metadata.dev_bead = dev<br/>+ C1: verdict, round"]:::poured
+    SAN["sanity: gate, run sanity on p-d-29<br/>SanityBead (dev_bead, as today)"]:::poured
     QA["qa round 1<br/>model: QaBead (proposed)<br/>checked_bead, commit, round, branch, layer<br/>+ C1: verdict"]:::poured
   end
 
@@ -46,11 +46,11 @@ flowchart TB
 ```
 
 **Legend.** `QA blocks sanity` puts QA after sanity. QA-to-dev and
-QA-to-sanity are different pairs, so the post-pour step can also give QA a
+QA-to-sanity are different pairs, so the post-pour script can also give QA a
 `validates` edge to the bead it checks. Inside one pair, sanity to dev can
 carry only one type (E1, drawn in 05). Under options A and C the formula pours
 it as `blocks`. Under option B the formula pours only the sanity bead, and the
-post-pour step adds its `validates` edge. The existing `SanityBead` validator
+post-pour script adds its `validates` edge. The existing `SanityBead` validator
 requires a `blocks` edge to `metadata.dev_bead`, so option B would need that
 model changed, and option C keeps it unchanged.
 
@@ -58,8 +58,9 @@ model changed, and option C keeps it unchanged.
 
 1. E1: the type of the sanity-to-dev edge: A, B or C (05).
 2. N3: does `SprintBead` validate the container or the dev child?
-3. C1: are verdict and round required metadata on sanity and QA when they
-   close, or derived from status and graph?
+3. C1: are verdict and round required metadata on QA when it closes, or
+   derived from status and graph? (Sanity is a simple gate and gets no new
+   fields: N9, decided.)
 4. C3: does QA validate the dev bead, at the same PR head sanity checked, or
    the sanity bead? Is "sanity before QA" its own `blocks` edge, as drawn?
 5. T1: classify dev, sanity and QA by `issue_type` (custom types) or by schema
@@ -80,7 +81,7 @@ flowchart TB
 
   subgraph POUR3["poured by sc-compose (mock): finding formula onto f3"]
     FX3["f3 fix r1<br/>model: DevBead or FixBead (proposed)"]:::poured
-    FS3["f3 fix sanity r1<br/>model: SanityBead, dev_bead = fix"]:::poured
+    FS3["f3 fix sanity r1: gate"]:::poured
     FQ3["f3 fix qa r1<br/>model: QaBead, checked_bead = fix (C3)"]:::poured
   end
   subgraph POUR7["poured by sc-compose (mock): finding formula onto f7"]
@@ -113,7 +114,8 @@ flowchart TB
 edge to the sprint and its `discovered-from` edge to QA (solid). Each finding
 then gets its own poured group, which shares no edge with any other
 finding's group: one finding, one fix, as in the old triage/TTL model. The
-group is drawn under the finding (see the Q1 note in the README). bd keeps the
+group attaches under the finding (Q1, confirmed). quality-mgr closes the
+finding after the filing reviewer verifies the fix (N10, decided). bd keeps the
 finding open until its fix, sanity and QA close, and the finding keeps the
 sprint open. If two findings must be fixed in order, the existing
 inter-finding `blocks` edge (`blocked_by` in `finding-bead.json.j2`) sits
@@ -140,7 +142,7 @@ flowchart TB
 
   subgraph R1["poured by sc-compose (mock): finding formula, round 1"]
     FX1["fix r1<br/>closed"]:::closed
-    FS1["fix sanity r1<br/>closed, verdict PASS"]:::closed
+    FS1["fix sanity r1: gate<br/>closed"]:::closed
     FQ1["fix qa r1<br/>closed, verdict FAIL, round 1"]:::closed
   end
   subgraph R2["poured by sc-compose (mock): finding formula, round 2"]
@@ -162,7 +164,9 @@ flowchart TB
   FQ2 ==>|blocks| FS2
 ```
 
-**Legend.** When fix QA round 1 closes with FAIL, the finding stays open, and
+**Legend.** When a fix QA round passes, quality-mgr closes the finding after
+the filing reviewer verifies the fix (N10, decided). When fix QA round 1
+closes with FAIL, the finding stays open, and
 sc-compose pours the finding formula again with `round = 2`. No round-1 bead
 is reopened, so its verdict and evidence stay intact. The next round number is
 the highest existing round under the finding, plus 1. Today the template
@@ -187,9 +191,9 @@ flowchart TB
 
   SPR["p-d-29 sprint container<br/>cannot close: dev is open"]:::tmpl
   DEV["p-d-29 dev<br/>reopened by the lead after sanity FAIL<br/>cannot close: sanity findings are open"]:::poured
-  SAN["p-d-29 sanity (initial)<br/>verdict FAIL (C1)"]:::poured
-  SF1["sanity finding D2 not done<br/>bug, metadata.severity (default blocking)<br/>sanity_finding.sanity_bead = p-d-29 sanity<br/>sanity-create-findings"]:::script
-  SF2["sanity finding D5 not done"]:::script
+  SAN["p-d-29 sanity: gate<br/>stays open on FAIL, as today"]:::poured
+  SF1["p-d-29.deliverable-2 NOT complete<br/>sanity-create-findings"]:::script
+  SF2["p-d-29.deliverable-5 NOT complete"]:::script
 
   DEV ==>|parent-child| SPR
   SAN ==>|parent-child| SPR
@@ -208,11 +212,11 @@ close the sprint (Q4) until the dev bead closes. The dev fixes each finding in
 place on the reopened dev bead, as today (`dev-fix.xml.j2`). Sanity findings
 get no poured fix group.
 
-**Open decisions**
-
-1. C1 and C2: how the sanity FAIL is recorded. Today the sanity bead stays
-   open on FAIL and is dispatched again after the fix. Under C2 a new sanity
-   bead would be created for the next round.
-2. N9: should sanity findings record a `discovered-from` edge to the sanity bead,
-   added by the post-pour step or by the script, instead of only
-   `metadata.sanity_finding.sanity_bead`? (Today: no such edge exists.)
+N9 (decided): sanity is a simple gate. A sanity bead only signals that the
+sanity agent must run on its parent sprint. Its result reads like
+"p-d-29.deliverable-2 NOT complete". Ideally it becomes JEV-only once JEV is
+qualified, and JEV's output then holds all the data. It gets no
+`discovered-from` edge and no fields beyond what `SanityBead` has today. The
+dev-sanity role points at a team member with no agent file, today
+`atm-sanity`. dev-sanity may later collapse into one agent file, since
+dev-sanity-llm and dev-sanity-jev are merged.

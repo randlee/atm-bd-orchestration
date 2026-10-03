@@ -9,11 +9,13 @@ sequenceDiagram
   participant B as bd
   participant A as ATM
   participant D as dev member
-  participant S as sanity member
+  participant S as dev-sanity role (member atm-sanity)
   participant Q as quality-mgr
   participant G as logs in .sc
 
-  Note over L,B: plan import: sprint container from sprint-bead.json.j2,<br/>then sc-compose (mock) pours dev, sanity, qa and the post-pour step adds edges (07)
+  Note over L,B: planning: sprint containers from sprint-bead.json.j2 and bd import
+  L->>B: post-pour script over the phase's sprint beads (N8): sc-compose (mock) pours<br/>each missing dev, sanity, qa group, then the script adds the missing edges (07)
+  Note over L,Q: plan review (plan-review bead), after the post-pour script. Re-running it<br/>after sprints are added creates only what is missing.
   L->>B: bd ready
   B-->>L: dev (sanity and qa are gated: E1, qa blocks sanity)
   L->>A: atm task assign D --task-id dev-bead-id
@@ -27,9 +29,9 @@ sequenceDiagram
   S->>B: claim sanity
   S->>G: append .sc/sanity-log/phase-p.jsonl (sanity-run-history)
   alt PASS
-    S->>B: bd close sanity, verdict PASS + round (C1, today close_reason "PASS at sha")
+    S->>B: bd close sanity: PASS (simple gate, N9)
   else FAIL
-    S->>B: sanity-create-findings: children of dev (Q3), sanity stays open today (C1, C2)
+    S->>B: sanity-create-findings: "p-d-29.deliverable-2 NOT complete", children of dev (Q3)<br/>sanity stays open, as today
     L->>B: reopen dev, assign dev-fix. Dev cannot close until its sanity findings close (Q3)
   end
   S->>A: atm task close same-id
@@ -43,9 +45,9 @@ sequenceDiagram
   Q->>B: bd close qa, verdict + round (C1, today metadata.round + close_reason "FAIL: n findings filed")
   Q->>A: atm task close same-id completed
   loop each open blocking finding, independently (Q1)
-    L->>B: sc-compose pour (mock) finding formula, round n, then the post-pour step (07)
+    L->>B: sc-compose pour (mock) finding formula, round n, then its post-pour edges (N11, 07)
     Note over L,Q: fix, fix sanity, fix qa run in the same order as dev, sanity, qa<br/>and append the same logs. Fix qa FAIL means pour round n+1, never reopen (C2).
-    L->>B: close the finding after its fix qa PASS
+    Q->>B: filing reviewer verifies the fix, then quality-mgr closes the finding (N10)
   end
   L->>B: team lead closes the sprint container once all its blocking findings are closed (Q4)
   Note over L,D: important and minor findings stay under the phase feature bead.<br/>Idle dev agents pick them up by priority. They never hold a sprint open (Q2).
@@ -56,7 +58,7 @@ written:
 
 | Fact | Bead | Field today | Field to-be |
 | --- | --- | --- | --- |
-| sanity verdict, pinned sha | sanity bead | `close_reason` "PASS at sha" | `metadata.verdict`, `metadata.commit` (C1) |
+| sanity result | sanity bead (a simple gate) | `close_reason` "PASS at sha"; FAIL leaves child findings "deliverable-N NOT complete" | unchanged; ideally JEV-only later, with JEV output holding the data (N9) |
 | QA verdict | QA bead | `close_reason` "PASS/FAIL: n findings filed" | `metadata.verdict` (C1) |
 | round | QA bead | `metadata.round` | `metadata.round` on every checker (C1, C2) |
 | severity | finding bead | `metadata.severity` + `severity:` label | `metadata.severity`, required (C4) |
@@ -71,17 +73,21 @@ check closes.
 
 1. C1: verdict and round as required metadata written when the checker
    closes (or the ATM close status), or derived from status and graph.
-2. C2: if a sanity FAIL closes its bead, the sanity bead's `blocks` edge
-   releases the next sprint's "normal" dependency (02). Either a sanity FAIL
-   keeps the bead open, as today, or gating reads `verdict` instead of
-   status.
-3. N10: who closes a blocking finding: the lead after its fix QA PASS (as drawn),
-   or the fix QA itself.
+2. C2: one QA bead per round, never reopened.
+3. N11: who runs the finding-group pour and its edges: the post-pour script
+   or the lead by hand.
 
 Decided (Rand): Q1, one independent group per blocking finding; Q2,
 important and minor findings sit under a phase feature bead; Q3, sanity
 findings hold the dev bead open and so hold the sprint open; Q4, the team
-lead closes the sprint once all of its blocking findings are closed.
+lead closes the sprint once all of its blocking findings are closed; N8, the
+post-pour script runs after planning and before plan review; N9, sanity is a
+simple gate that keeps the bead open on FAIL, as today; N10, quality-mgr
+closes a blocking finding after the filing reviewer verifies the fix.
+
+The dev-sanity role points at a team member with no agent file, today
+`atm-sanity`. dev-sanity may later collapse into one agent file, since
+dev-sanity-llm and dev-sanity-jev are merged.
 
 ## 5b. E1: the edge-per-pair options for dev and sanity inside the sprint
 
@@ -129,8 +135,8 @@ flowchart LR
 ```
 
 Trade-off: the edge correlates sanity to dev explicitly, but plain `bd ready`
-stops being the queue. The option is feasible with the post-pour step:
-sc-compose pours the sanity bead, and the post-pour step adds its `validates`
+stops being the queue. The option is feasible with the post-pour script:
+sc-compose pours the sanity bead, and the post-pour script adds its `validates`
 edge (dotted). The `SanityBead` model, which requires a `blocks` edge, must
 change.
 

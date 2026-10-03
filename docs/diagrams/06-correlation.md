@@ -8,7 +8,10 @@ flowchart LR
   classDef file fill:#f1f3f4,stroke:#5f6368,stroke-dasharray:4 3,color:#000
   classDef atm fill:#fef7e0,stroke:#f9ab00,color:#000
 
-  TOML[/".atm-beads/current-phase.toml<br/>gitignored, one per checkout<br/>root = p-phase-d<br/>sprints = docs/plans/phase-d/sprints.jsonl (relative)<br/>integration_branch = integrate/phase-d"/]:::file
+  subgraph ATMBD[".atm-bd/  (gitignore: .atm-bd/* then !.atm-bd/formula/)"]
+    TOML[/"current-phase.toml (untracked, one per checkout)<br/>root = p-phase-d<br/>sprints = docs/plans/phase-d/sprints.jsonl (relative)<br/>integration_branch = integrate/phase-d"/]:::file
+    FORM[/"formula/ (tracked): repo formula overrides (07)"/]:::file
+  end
   ROOT["p-phase-d root bead<br/>metadata.integration_branch"]:::tmpl
   SJ[/"sprints.jsonl on origin/integration_branch"/]:::file
   BEAD["bead under the root<br/>id = p-d-29-sanity"]:::tmpl
@@ -21,7 +24,7 @@ flowchart LR
   BEAD <-. "join: bead id == ATM task id" .-> TASK
 ```
 
-**Legend.** `current-phase.toml` is per checkout and gitignored, so every
+**Legend.** `.atm-bd/current-phase.toml` is per checkout and untracked, so every
 worktree resolves its own phase root without passing `--root`. It holds three
 keys: the root bead id, the path of `sprints.jsonl` relative to the
 repository, and the integration branch. Beads and ATM tasks are joined by
@@ -81,3 +84,10 @@ the diamond is a first draft for review.
 2. Is the status-agreement table right? As drawn, an `open` bead with an
    assigned task that has not started counts as agreement, because that is
    the normal state before a claim.
+
+## Future (note, not a decision)
+
+The atm-bd app will run a cron task that analyzes bead and ATM state and sends
+the lead any assignments it missed. Sanity and quality-mgr beads will then be
+assigned automatically with `atm task assign --template --vars`, keeping the
+bead id equal to the ATM task id.

@@ -14,59 +14,80 @@ in sc-compose 1.6.1, which offers `render`, `validate`, `preview-pour` and
 `pour`. Until it exists, a mock script stands in for the sc-compose pour. A
 separate agent is writing that mock now.
 
-Decided (Rand): formulas live in the package for now (N1). Pouring has three
-stages (N4):
+Decided (Rand):
 
-1. sc-compose pours the formula (the mock for now);
-2. a post-pour step adds the edges a formula cannot express: `validates`,
-   `discovered-from` and cross-sprint `blocks`;
-3. everything else is created by hand or by a script.
+- **N1:** formulas live in the package for now.
+- **N7:** a repo may override a package formula in `.atm-bd/formula/`, which
+  is committed to git.
+- **N4:** pouring has three stages:
+  1. sc-compose pours the formula (the mock for now);
+  2. a post-pour script adds the edges a formula cannot express: `validates`,
+     `discovered-from` and cross-sprint `blocks`;
+  3. everything else is created by hand or by a script.
+- **N8:** the post-pour script runs after planning and before plan review. It
+  takes one sprint, a list of sprint beads, or every sprint in a phase. It has
+  a validate mode, and it fills in only what is missing, so it is safe to
+  re-run after sprints are added. Planning itself stays out of it.
+- **Q1:** a finding group attaches under the finding. The sc-compose beads
+  formula will be extended for "advanced pouring", building on the formula's
+  existing YAML variable header (the front matter that declares
+  `required_variables` and defaults, as in the package `.j2` templates). The
+  extension lands there, in sc-compose, not in the package.
 
 ## 7a. The three stages, inputs, and where the formula is defined
 
 ```mermaid
-flowchart LR
+flowchart TB
   classDef file fill:#f1f3f4,stroke:#5f6368,stroke-dasharray:4 3,color:#000
+  classDef untracked fill:#fafafa,stroke:#9e9e9e,stroke-dasharray:2 4,color:#000
   classDef future fill:#fce8e6,stroke:#c5221f,stroke-dasharray:2 2,color:#000
   classDef poured fill:#f3e8fd,stroke:#8430ce,stroke-width:3px,stroke-dasharray:6 3,color:#000
   classDef post fill:#fff8e1,stroke:#b06000,stroke-dasharray:1 3,color:#000
   classDef hand fill:#fff4e5,stroke:#e8710a,color:#000
 
-  subgraph SRC["formula source"]
-    PKG[/"package default (decided, N1)<br/>randlee/atm-bd-orchestration<br/>plugins/atm-bd-orchestration/skills/atm-bd-orchestration/formulas/<br/>sprint-group.formula.toml.j2<br/>finding-group.formula.toml.j2"/]:::file
-    OVR[/"repo override (FUTURE)<br/>a consuming repo's own copy of a package formula<br/>path not decided"/]:::future
+  subgraph PKGREPO["randlee/atm-bd-orchestration (package default, N1)"]
+    PKG[/"plugins/atm-bd-orchestration/skills/atm-bd-orchestration/formulas/<br/>sprint-group.formula.toml.j2<br/>finding-group.formula.toml.j2<br/>YAML variable header + formula body"/]:::file
+  end
+  subgraph ATMBD["consuming repo: .atm-bd/  (gitignore: .atm-bd/* then !.atm-bd/formula/)"]
+    OVR[/".atm-bd/formula/  (tracked, committed)<br/>repo override of a package formula (N7, future use)"/]:::future
+    TOML[/".atm-bd/current-phase.toml  (untracked, per checkout)<br/>root, sprints path, integration_branch (06)"/]:::untracked
   end
 
-  REQ[/"request JSON, schema sc-compose/beads/v1<br/>template, rendered_formula, formula_name<br/>compose_variables: members, sprint or finding fields, schema version<br/>bead_variables: parent, sprint, phase, stack, round<br/>pour_authorization CreatePersistentBeads"/]:::file
+  PLAN["planning: sprint containers from sprint-bead.json.j2 + bd import,<br/>sprints.jsonl committed"]:::hand
+  PPS["post-pour script (N8)<br/>input: one sprint, a list of sprint beads, or a whole phase<br/>validate mode: report what is missing, write nothing<br/>otherwise: create only what is missing"]:::post
+  REQ[/"request JSON, schema sc-compose/beads/v1<br/>template, rendered_formula, formula_name<br/>compose_variables: members, sprint or finding fields<br/>bead_variables: parent, sprint, phase, stack, round<br/>pour_authorization CreatePersistentBeads"/]:::file
 
   subgraph S1["stage 1: poured by sc-compose (mock for now)"]
-    POUR["render, bd cook --dry-run, bd where,<br/>attach under parent (#613; mock until built)<br/>pours: beads + parent-child + blocks between its own steps"]:::poured
+    POUR["render, bd cook --dry-run, bd where,<br/>attach under parent (#613, mock until built)<br/>pours: beads + parent-child + blocks between its own steps"]:::poured
   end
-  subgraph S2["stage 2: post-pour step"]
-    PP["adds validates, discovered-from,<br/>cross-sprint blocks (from sprints.jsonl)<br/>reads the pour receipt for poured ids"]:::post
+  RCPT[/"receipt: parent id to poured ids (#613)"/]:::file
+  subgraph S2["stage 2: post-pour script adds edges"]
+    PP["validates, discovered-from,<br/>cross-sprint blocks (from sprints.jsonl)"]:::post
   end
-  subgraph S3["stage 3: hand or script"]
-    HS["templates + bd import (sprint container, findings),<br/>package scripts (sanity-create-findings),<br/>lead bd create / bd dep add"]:::hand
-  end
-  RCPT[/"receipt: stages, outcome,<br/>parent id to poured ids (#613)"/]:::file
-  OUT[/"rendered formula (ADR-0021):<br/>active-beads-dir/formulas/name.formula.toml"/]:::file
+  REVIEW["plan review (plan-review bead)"]:::hand
 
+  PLAN --> PPS
   PKG --> REQ
-  OVR -. "future: replaces the default" .-> REQ
+  OVR -. "if present, used instead of the package default" .-> REQ
+  PPS -- "for each sprint with no group" --> REQ
   REQ --> POUR
-  POUR --> OUT
   POUR --> RCPT
   RCPT --> PP
+  PPS --> PP
+  PP --> REVIEW
 ```
 
 **Legend.** Stage 1 (purple) is the pour. Its edges are drawn as thick arrows
-in every diagram. Stage 2 (amber) is the post-pour step. Its edges are drawn
+in every diagram. Stage 2 (amber) is the post-pour script. Its edges are drawn
 as dotted arrows. Stage 3 (orange) is everything made by hand or by a script,
-drawn as solid arrows. ADR-0021 fixes the rendered output path,
+drawn as solid arrows. `.atm-bd/` holds both the tracked `formula/` override
+directory and the untracked per-checkout `current-phase.toml`, so the
+repository's `.gitignore` has `.atm-bd/*` followed by `!.atm-bd/formula/`.
+ADR-0021 fixes the rendered output path,
 `<active-beads-dir>/formulas/<formula-name>.formula.toml`; the package
-directory holds the source the request renders from. #551 notes that bd
-formulas have no foreach and no list variables. Neither group formula needs
-one: each pours a fixed three steps.
+directory, or the override, holds the source the request renders from. #551
+notes that bd formulas have no foreach and no list variables. Neither group
+formula needs one: each pours a fixed three steps.
 
 What a formula step can express (`bd formula schema step`, bd 1.3.0):
 
@@ -82,10 +103,9 @@ fails as an unknown step"). Those are stage 2.
 
 **Open decisions**
 
-1. N7: where a future repo override lives, and how the package default is chosen
-   when no override exists.
-2. N8: whether the post-pour step is a package script or part of the mock and,
-   later, of the sc-compose attach operation.
+1. N11: the post-pour script is defined over sprint beads. Does the same
+   script, or the lead by hand, run the finding-group pour and its edges when
+   QA files a blocking finding?
 
 ## 7b. Sprint formula: the exact beads and edges, by stage
 
@@ -99,7 +119,7 @@ flowchart TB
   MOL["molecule root (N5: only if attach<br/>goes through an intermediate container)"]:::open
   subgraph POUR["poured by sc-compose (mock): sprint-group formula"]
     DEV["step dev<br/>type: T1, assignee: dev member<br/>metadata: sprint, phase, stack"]:::poured
-    SAN["step sanity, needs dev (A, C)<br/>type: T1, assignee: sanity member<br/>metadata.dev_bead = dev id"]:::poured
+    SAN["step sanity: gate, needs dev (A, C)<br/>assignee: dev-sanity role (atm-sanity)<br/>metadata.dev_bead (as today, N9)"]:::poured
     QA["step qa, needs sanity<br/>type: T1, assignee: qa_member<br/>metadata: checked_bead, round = 1"]:::poured
   end
   NEXT["next sprint container (stage 3)"]:::tmpl
@@ -118,7 +138,7 @@ flowchart TB
 **Legend.** Thick arrows are stage 1, dotted arrows are stage 2, solid nodes
 are stage 3. Exactly one of the two sanity-to-dev edges exists, depending on
 E1. Under option B the formula's sanity step has no `needs dev`, and the
-post-pour step adds `validates`. The "tight" variant points the cross-sprint
+post-pour script adds `validates`. The "tight" variant points the cross-sprint
 `blocks` at the sprint container instead of the sanity bead (02). Today
 `bd mol pour` creates a new parentless molecule with generated ids, and a
 sprint variable does not attach it (#613 gap 1). So the stage 1 `parent-child`
@@ -127,7 +147,7 @@ it until then.
 
 **Open decisions**
 
-1. E1: A, B or C (05). All three are feasible with the post-pour step.
+1. E1: A, B or C (05). All three are feasible with the post-pour script.
 2. N2: the ids of the poured beads must be deterministic and must match the
    sanity id that `sprints.jsonl` names at plan time. Native
    `bd mol bond --ref` gives `<parent>.<ref>.<step>`, for example
@@ -138,7 +158,7 @@ it until then.
 4. Metadata values in a step (`metadata.dev_bead = dev id`) assume variable
    substitution inside `metadata`. bd documents substitution for title,
    description, notes and assignee only. Unverified; if it is unsupported,
-   the post-pour step writes them.
+   the post-pour script writes them.
 
 ## 7c. Finding formula: the exact beads and edges for one blocking finding
 
@@ -152,7 +172,7 @@ flowchart TB
   F["p-d-29-qa1-f3 blocking finding (stage 3: QA, finding-bead.json.j2)<br/>bead_variables.parent = the finding (Q1)<br/>bead_variables.round = n"]:::tmpl
   subgraph POUR["poured by sc-compose (mock): finding-group formula, round n"]
     FX["step fix<br/>id suffix -rn"]:::poured
-    FS["step fix-sanity, needs fix (A, C)<br/>metadata.dev_bead = fix id"]:::poured
+    FS["step fix-sanity: gate, needs fix (A, C)<br/>metadata.dev_bead (N9)"]:::poured
     FQ["step fix-qa, needs fix-sanity<br/>metadata: checked_bead, round = n"]:::poured
   end
 
@@ -169,9 +189,10 @@ flowchart TB
 **Legend.** One pour per blocking finding, independent of every other finding
 (Q1, decided). The finding itself is stage 3: QA files it from
 `finding-bead.json.j2`, and that import creates its `parent-child` and
-`discovered-from` edges. The post-pour step adds `discovered-from` only when a
+`discovered-from` edges. The post-pour script adds `discovered-from` only when a
 bead is not created by that template. A second round is the same formula
-poured again with `round = n+1` (04c). Important and minor findings get no
+poured again with `round = n+1` (04c). quality-mgr closes the finding
+after the filing reviewer verifies the fix (N10). Important and minor findings get no
 pour; they wait under the phase feature bead (Q2, 02b).
 
 **Open decisions**
@@ -216,7 +237,7 @@ attaches deterministically, but repeating it reopened a closed child and
 cleared its notes on bd 1.3.0. So bond cannot be used blindly for resume. That
 behavior is an upstream bd concern, and sc-compose must not expose it as a
 safe retry. The mock that stands in for sc-compose must keep the same rules,
-and the post-pour step (stage 2) must be idempotent in the same way: it adds
+and the post-pour script (stage 2) must be idempotent in the same way: it adds
 only edges that are missing.
 
 **Open decisions**

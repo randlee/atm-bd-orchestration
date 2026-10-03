@@ -14,7 +14,7 @@ phase instead and never block a sprint. A dependent sprint `blocks` either on
 the predecessor's initial sanity bead ("normal") or on its sprint bead
 ("tight"). An sc-compose beads formula pours both kinds of group. A mock
 script stands in for sc-compose until its attach operation exists. A
-post-pour step then adds the edges a formula cannot express.
+post-pour script then adds the edges a formula cannot express.
 
 The starting point is the existing schema and validator:
 `plugins/atm-bd-orchestration/skills/atm-beads/scripts/bead_schema.py`
@@ -30,7 +30,7 @@ and QA models, and to add an ATM-to-bead alignment check.
 | [04-sprint-to-be.md](04-sprint-to-be.md) | sprint | the sprint triple, the blocking-finding triple, a second fix round, with schema models |
 | [05-lifecycle.md](05-lifecycle.md) | sprint | ready, claim and close order; where verdict, severity and round are written; where the logs are appended; edge-per-pair options A, B and C |
 | [06-correlation.md](06-correlation.md) | phase | bead id equals ATM task id, `current-phase.toml`, the ATM-to-bead alignment check |
-| [07-sc-compose-formula.md](07-sc-compose-formula.md) | detail | the three stages (sc-compose pour, post-pour step, hand or script), formula inputs, package location and future repo override, the exact beads and edges poured for a sprint and for a blocking finding, resume-safe attach |
+| [07-sc-compose-formula.md](07-sc-compose-formula.md) | detail | the three stages (sc-compose pour, post-pour script, hand or script), formula inputs, package location and future repo override, the exact beads and edges poured for a sprint and for a blocking finding, resume-safe attach |
 
 ## Conventions used in every diagram
 
@@ -45,8 +45,8 @@ and QA models, and to add an ATM-to-bead alignment check.
      inside a subgraph titled "poured by sc-compose (mock): `<formula>`". A
      thick arrow (`==>`) is an edge the formula pours. A formula can pour only
      `parent-child` (attach) and `blocks` between its own steps.
-  2. **added by the post-pour step**: a dotted arrow (`-.->`) labeled with a bd
-     type. The post-pour step runs right after the pour and adds `validates`,
+  2. **added by the post-pour script**: a dotted arrow (`-.->`) labeled with a bd
+     type. The post-pour script runs right after the pour and adds `validates`,
      `discovered-from` and cross-sprint `blocks`.
   3. **created by hand or by a script**: solid nodes and solid arrows (`-->`).
      This covers a template rendered and loaded with `bd import`, a package
@@ -70,21 +70,28 @@ and QA models, and to add an ATM-to-bead alignment check.
 
 | # | Decision | Ruling | On |
 | --- | --- | --- | --- |
-| Q1 | Fix groups for blocking findings | Every blocking finding gets its own fix bead, plus its own sanity and QA beads, independent of every other finding: one finding, one fix, as in the old triage/TTL model. Drawn under the finding, so the finding stays open until its group closes (see the note below). | 04, 07 |
+| Q1 | Fix groups for blocking findings | Every blocking finding gets its own fix bead, plus its own sanity and QA beads, independent of every other finding: one finding, one fix, as in the old triage/TTL model. The group attaches under the finding (confirmed). The sc-compose beads formula will be extended for "advanced pouring", building on the formula's existing YAML variable header; that extension lands in sc-compose. | 04, 07 |
 | Q2 | Important and minor findings | Filed against the phase, normally under a feature bead, not under the sprint. Idle dev agents pick them up by priority. They never block a sprint from closing. | 02, 04 |
 | Q3 | Sanity-FAIL findings | bd will not close a bead while any child is open. Sanity findings are children of the dev bead, so they hold the dev bead open, and the dev bead holds its sprint open. | 03, 04, 05 |
 | Q4 | Who closes the sprint bead | The team lead closes it once all of its blocking findings are closed. | 02, 04, 05 |
 | N1 | Where formulas live | In the package for now: `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/formulas/`. Later (future), a repo may hold an override of the package default. | 07 |
-| N4 | Who adds the edges a formula cannot express | sc-compose pours each formula (a mock script for now, while a separate agent writes it). A post-pour step then adds `validates`, `discovered-from` and cross-sprint `blocks`. | 02, 04, 07 |
+| N4 | Who adds the edges a formula cannot express | sc-compose pours each formula (a mock script for now, while a separate agent writes it). A post-pour script then adds `validates`, `discovered-from` and cross-sprint `blocks`. | 02, 04, 07 |
+| N7 | Repo override of a package formula | `.atm-bd/formula/`, committed to git. `.atm-bd/` also holds the untracked per-checkout `current-phase.toml`, so `.gitignore` has `.atm-bd/*` then `!.atm-bd/formula/`. (`.atm-beads/` was the sc-obs name; the folder is `.atm-bd/`.) | 06, 07 |
+| N8 | The post-pour script | A script that takes one sprint, a list of sprint beads, or every sprint in a phase. It has a validate mode and creates only what is missing, so re-running it after sprints are added is safe. It runs after planning and before plan review; planning stays out of it. | 05, 07 |
+| N9 | Sanity | A simple gate: a sanity bead only signals that the sanity agent must run on its parent sprint. Its result reads like "bead-7.deliverable-2 NOT complete". Ideally JEV-only once JEV is qualified, with JEV's output holding all the data. No `discovered-from` edge and nothing beyond what exists today. | 04, 05, 07 |
+| N10 | Who closes a blocking finding | quality-mgr, after the filing reviewer verifies the fix | 04, 05, 07 |
 
-Note on Q1: the ruling fixes one independent group per blocking finding. The
-diagrams attach that group under the finding, because then bd's closure rule
-(Q3) keeps the finding open until its fix, sanity and QA close. If the group
-should sit under the sprint instead, only the target of the three
-`parent-child` edges changes.
+The dev-sanity role points at a team member with no agent file, today
+`atm-sanity`. dev-sanity may later collapse into one agent file, since
+dev-sanity-llm and dev-sanity-jev are merged.
 
-Note on E1 option B: with the post-pour step, option B is feasible. The
-formula pours the sanity bead, and the post-pour step adds its `validates`
+Future (not a decision, noted in 06): the atm-bd app will run a cron task that
+analyzes state and sends the lead any assignments it missed. Sanity and
+quality-mgr beads will be assigned automatically with
+`atm task assign --template --vars`.
+
+Note on E1 option B: with the post-pour script, option B is feasible. The
+formula pours the sanity bead, and the post-pour script adds its `validates`
 edge. Its trade-off is unchanged: plain `bd ready` stops being the queue.
 
 ## Open decisions
@@ -108,9 +115,6 @@ items come from the review brief. N items surfaced while drawing.
 | N3 | Which bead validates against `SprintBead` | the sprint container (deliverables, branch, `pr_target`), or the dev child. `SanityBead.metadata.dev_bead` must name the bead its `blocks` edge points at. | 04 |
 | N5 | Intermediate workflow container | #613 asks whether children attach directly under the sprint or under a molecule root | 07 |
 | N6 | Encoding "tight" in `sprints.jsonl` | add a field to the tuple, or name the predecessor's sprint id instead of its sanity id | 02 |
-| N7 | Future repo override of a package formula | where the override lives, and how the default is chosen when there is none | 07 |
-| N8 | Owner of the post-pour step | a package script, or part of the mock and later of the sc-compose attach operation | 07 |
-| N9 | Sanity finding provenance | add a `discovered-from` edge to the sanity bead, or keep only `metadata.sanity_finding.sanity_bead` as today | 04 |
-| N10 | Who closes a blocking finding | the lead after its fix QA PASS, or the fix QA itself | 05 |
+| N11 | Finding-group pours | The post-pour script is defined over sprint beads. Does it, or the lead by hand, run the finding-group pour and its edges when QA files a blocking finding? | 05, 07 |
 
 Live bugs D1 to D7 are deliberately left out of these diagrams.

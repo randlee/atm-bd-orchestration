@@ -3,8 +3,9 @@
 This is Rand's target model at phase level. The sprint bead is a container.
 The plan import creates it from a template, as today. At plan completion,
 sc-compose pours the sprint formula onto it (a mock script stands in until
-the sc-compose attach operation exists), and the post-pour step adds the
-edges a formula cannot express (07). The container cannot close while any
+the sc-compose attach operation exists), and the post-pour script adds the
+edges a formula cannot express (07). The script runs after planning and before
+plan review (N8, decided). The container cannot close while any
 child is open, and blocking findings become children of the sprint (04). The
 team lead closes the sprint once all of its blocking findings are closed (Q4,
 decided). Important and minor findings live at the phase level and never
@@ -61,7 +62,7 @@ flowchart TB
 ```
 
 **Legend.** Purple dashed nodes and thick arrows are poured by sc-compose
-(mock for now). Dotted arrows are added by the post-pour step: here the
+(mock for now). Dotted arrows are added by the post-pour script: here the
 cross-sprint `blocks` edges, read from `sprints.jsonl`. Blue nodes come from a
 template plus `bd import`, orange from a hand `bd create`, and solid arrows
 from either.
@@ -82,7 +83,7 @@ container, not on its dev child. The intra-sprint edges are drawn in detail in
 
 1. N2: today `sprints.jsonl` names the sanity bead id at plan time
    (`[sprint, sanity_bead_id, deps]`). The "normal" edge needs that id to
-   exist when the post-pour step runs, so the formula's sanity id has to be
+   exist when the post-pour script runs, so the formula's sanity id has to be
    deterministic and known in advance. Options: the formula takes the id as
    an input, or the tuple names the sprint and the id is derived.
 2. N6: `sprints.jsonl` has no way to say "tight". Options: add a fourth tuple
@@ -111,7 +112,7 @@ flowchart TB
   REL["phase release bead<br/>type: C7"]:::hand
   WFR["p-workflow-issues<br/>workflow-issues root, outside the phase"]:::hand
   WF["workflow-issue class bead<br/>type: C7"]:::tmpl
-  TOML[/".atm-beads/current-phase.toml (gitignored, per checkout)<br/>root, sprints (relative path), integration_branch"/]:::file
+  TOML[/".atm-bd/current-phase.toml (untracked, per checkout)<br/>root, sprints (relative path), integration_branch"/]:::file
   SJ[/"plans/phase-d/sprints.jsonl<br/>on origin/integration_branch"/]:::file
 
   SPR -->|parent-child| ROOT
