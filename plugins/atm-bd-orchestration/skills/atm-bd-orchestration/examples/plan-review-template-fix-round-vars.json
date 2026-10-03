@@ -3,5 +3,22 @@
   "root": "{{ bead_prefix }}-phase-d",
   "phase": "d",
   "round": 2,
-  "carry_forward": "{{ bead_prefix }}-d-4 blocking requirements: empty; list the governing REQ ids or [\"NONE\"]\n{{ bead_prefix }}-d-5 blocking adrs: ADR-020 is not in docs/architecture.md"
+  "carry_forward": "{{ bead_prefix }}-d-4 blocking requirements: empty; list the governing REQ ids or [\"NONE\"]\n{{ bead_prefix }}-d-5 blocking adrs: ADR-020 is not in docs/architecture.md",
+  "lead": "{{ bead_prefix }}-lead",
+  "cc": "",
+  "integration_branch": "integrate/phase-d",
+  "plans_dir": "docs/plans",
+  "requirements_globs": [
+    "docs/requirements.md",
+    "docs/*/requirements.md"
+  ],
+  "adr_globs": [
+    "docs/architecture.md",
+    "docs/*/architecture.md"
+  ],
+  "reviewers_scope_locked": [
+    "ruthless-boundary-qa",
+    "rust-best-practices-agent",
+    "rust-service-hardening-agent"
+  ]
 }

@@ -226,5 +226,85 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertNotIn("full reviewer set", qa.stdout)
 
 
+# Config-backed dispatch variables (the lead fills them from .claude/project/atm-bd-orchestration.yaml).
+CONFIG_VARS = {
+    "dev-template.xml.j2": ("lead", "cc", "test_command", "policy_path"),
+    "fix-assignment.xml.j2": ("lead", "cc", "test_command", "policy_path", "requirements_globs", "adr_globs"),
+    "dev-fix.xml.j2": ("lead", "cc", "test_command"),
+    "dev-sanity-template.xml.j2": ("lead", "cc", "lint_command"),
+    "qa-template.xml.j2": ("lead", "cc", "policy_path", "reviewers_round1", "reviewers_fix_round", "reviewers_scope_locked"),
+    "plan-review-template.xml.j2": ("lead", "cc", "integration_branch", "plans_dir", "requirements_globs", "adr_globs",
+                                    "reviewers_scope_locked"),
+    "review-template.xml.j2": ("lead", "cc", "integration_branch"),
+    "schema-reviewer-assignment.json.j2": ("policy_path",),
+    "qa-bead.json.j2": ("qa_member",),
+}
+REPO_DEFAULTS = ("team-lead", "just validate", "just lint", "quality-policy.md", "develop", "integrate/phase-",
+                 "docs/requirements.md", "docs/architecture.md", "docs/plans", "sc-rust", "rust-development",
+                 "practice-inventory")
+
+
+class ConfigVariableTests(unittest.TestCase):
+    """Repository values are required dispatch variables: no defaults, so a missing one fails the render."""
+
+    def test_each_config_variable_is_required(self):
+        for template, names in CONFIG_VARS.items():
+            values = _example(template.removesuffix(".j2").rsplit(".", 1)[0] + "-vars.json")
+            self.assertEqual(_render(template, values).returncode, 0, template)
+            for name in names:
+                with self.subTest(template=template, variable=name):
+                    result = _render(template, {k: v for k, v in values.items() if k != name})
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(name, result.stderr)
+
+    def test_no_repository_default_is_built_in(self):
+        for path in sorted((ROOT / "templates").glob("*.j2")):
+            text = path.read_text()
+            for needle in REPO_DEFAULTS:
+                with self.subTest(template=path.name, value=needle):
+                    self.assertNotIn(needle, text)
+
+    def test_reviewer_sets_come_from_the_variables(self):
+        lists = {"reviewers_round1": ["alpha-qa", "beta-qa", "gamma-qa"], "reviewers_fix_round": ["alpha-qa"],
+                 "reviewers_scope_locked": ["beta-qa", "gamma-qa"]}
+        round1 = _render("qa-template.xml.j2", {**_example("qa-template-vars.json"), **lists})
+        self.assertEqual(round1.returncode, 0, round1.stderr)
+        self.assertIn("run the full reviewer set, `alpha-qa`, `beta-qa` and `gamma-qa`,", round1.stdout)
+        fix = _render("qa-template.xml.j2", {**_example("qa-template-fix-round-vars.json"), **lists})
+        self.assertEqual(fix.returncode, 0, fix.stderr)
+        self.assertIn("Reviewers, exactly: `alpha-qa`, plus", fix.stdout)
+        self.assertIn("`beta-qa` and `gamma-qa` run only as", fix.stdout)
+        for text in (round1.stdout, fix.stdout):
+            self.assertNotIn("rust-qa-agent", text)
+            self.assertNotIn("ruthless-boundary-qa", text)
+
+    def test_qa_bead_assignee_is_the_configured_member(self):
+        import json
+        result = _render("qa-bead.json.j2", {**_example("qa-bead-vars.json"), "qa_member": "my-qa"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["assignee"], "my-qa")
+
+
+class QaLogContractTests(unittest.TestCase):
+    """The QA metrics log is a stable contract (paths, record fields and their order); config never changes it."""
+
+    ROUND_ROW = ("'{completed_at:$completed_at, completed_local:$completed_local, duration:$duration, phase:$phase, sprint:$sprint,\n"
+                 "    task:$task, pr_number:(($pr_number|tonumber?)//null), iteration:$iteration, verdict:$verdict, tested:$tested,\n"
+                 "    fnd:$fnd, blk:$blk, imp:$imp, min:$min}' >> .sc/qa-log/phase-d.jsonl")
+    STATS_ROW = ("  {snapshot_at: $completed_at, snapshot_local: $completed_local, phase: $ph, trigger_task: $task,\n"
+                 "   tot: ($f | length),\n")
+
+    def test_log_paths_and_fields_are_unchanged(self):
+        for example in ("qa-template-vars.json", "qa-template-fix-round-vars.json"):
+            with self.subTest(example=example):
+                result = _render("qa-template.xml.j2", _example(example))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                step = result.stdout[result.stdout.index('<step id="j">'):]
+                self.assertIn("mkdir -p .sc/qa-log\nLOCKDIR=.sc/qa-log/.append.lock\n", step)
+                self.assertIn(self.ROUND_ROW, step)
+                self.assertIn(self.STATS_ROW, step)
+                self.assertIn("min: ([$f[] | select(.status==\"open\" and .metadata.severity==\"minor\")] | length)}' >> .sc/qa-log/phase-d-stats.jsonl", step)
+
+
 if __name__ == "__main__":
     unittest.main()

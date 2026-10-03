@@ -24,5 +24,6 @@
   ],
   "files_outside_owned_paths": [],
   "base_sha": "sprint/d-3-otlp-config",
-  "primary_checkout": "{{ repo_root }}"
+  "primary_checkout": "{{ repo_root }}",
+  "lint_command": "make lint"
 }

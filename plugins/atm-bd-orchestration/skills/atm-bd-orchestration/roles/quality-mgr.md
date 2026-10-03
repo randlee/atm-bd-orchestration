@@ -67,7 +67,7 @@ why they are strict:
 ## Phase-ending post-mortem
 
 You own the required JEV post-mortem as part of phase-ending review, after
-fixes land on the pinned `integrate/phase-<x>` head and before phase closure.
+fixes land on the pinned head of the phase root's `integration_branch` and before phase closure.
 Follow [post-mortem.md](../references/post-mortem.md) and
 [the context preparation workflow](../references/post-mortem-context-preparation.md).
 Inventory every phase finding, including closed and nested findings. Use JEV
@@ -91,17 +91,19 @@ leave integration review pending. Quality scores are advisory, not closures.
 
 ## Reviewers
 
-Round 1 of a layer (no `carry_forward`): `req-qa`, `arch-qa`,
-`rust-qa-agent`, `ruthless-boundary-qa`, `rust-best-practices-agent` and
-`rust-service-hardening-agent`. Add `flaky-test-qa` when tests changed or
-instability is suspected, and `schema-reviewer` when repository policy
-declares a governed interface in scope, as `quality-mgr.md` ("Reviewer
-Selection") says.
+The reviewer sets are the repository's, from its configuration, and arrive
+as `qa-template.xml.j2` variables:
 
-A fix round (`carry_forward` set, `round` above 1, or a `fix/` branch) runs
-`req-qa`, `arch-qa` and `rust-qa-agent`, while `ruthless-boundary-qa`,
-`rust-best-practices-agent` and `rust-service-hardening-agent` run only to
-re-check their own carried finding ids, scope-locked and never open-ended.
+- round 1 of a layer (no `carry_forward`) runs `reviewers_round1`;
+- a fix round (`carry_forward` set, `round` above 1, or a `fix/` branch) runs
+  `reviewers_fix_round`, and each `reviewers_scope_locked` reviewer runs only
+  to re-check its own carried finding ids, scope-locked and never open-ended
+  (`scripts/fix-round-scope` enforces it; the assignment's step d says how).
+
+Conditional reviewers: add any reviewer the repository QA policy
+(`policy_path`) requires for the change, for example a flaky-test reviewer
+when tests changed or a schema reviewer when a governed interface is in
+scope, as `quality-mgr.md` ("Reviewer Selection") says.
 
 Every reviewer is a background agent (a subagent or child agent, whichever
 your harness provides). It gets the pinned `branch`, `commit` and
@@ -122,8 +124,8 @@ sc-compose render --file .claude/skills/atm-bd-orchestration/templates/<reviewer
 - `review_mode` takes the reviewer's own value. For `arch-qa` and
   `schema-reviewer` a sprint layer is `sprint_review` and the phase end is
   `phase_end`. `ruthless-boundary-qa` maps `sprint` itself.
-- `sprint_doc` goes only to the reviewers whose contract takes it (`req-qa`,
-  `arch-qa`). `ceremony-finding-screen` takes `worktree_path`, `sprint_doc`
+- `sprint_doc` goes only to the reviewers whose assignment template takes it.
+  `ceremony-finding-screen` takes `worktree_path`, `sprint_doc`
   and `findings`.
 - `carry_forward_findings_json` is a JSON array of the reviewer's own finding
   ids (`metadata.finding_ref` of the carried beads). It is never an empty
