@@ -87,7 +87,7 @@ message, when it is not on PATH.
 
 ## Provenance
 
-Sources: sc-observability `develop` at f2ebe1bc plus open PR #933 at b1ffa1ad
+Sources: sc-observability `develop` at f2ebe1bc plus open PR #933 at 07ad4d26
 (`fix/jev-post-mortem-workflow`, the JEV post-mortem role and context workflow),
 with every repository- and team-specific string replaced by an install-time value
 or a neutral example. Recheck the JEV files if #933 changes before it merges.
