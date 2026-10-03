@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.1] - 2026-10-03
+
+### Changed
+- `roles.dev-sanity` (`dev_sanity_member`) names a team member, which may have
+  no agent file (atm-core's `atm-sanity`, a roster member running the
+  dev-sanity directive). The installer no longer checks it against
+  `.claude/agents/<name>.md`; `qa_member` and `reviewers_round1` keep the
+  check. There is no ATM roster lookup (CI has no ATM). Rand ruling 2026-10-03.
+
+### Migration from 0.6.0
+Rerun the install.
+
 ## [0.6.0] - 2026-10-03
 
 ### Changed

@@ -83,7 +83,7 @@ def test_config_template_declares_exactly_the_spec_variables_without_defaults():
 
 def test_versions_agree():
     version = install.package_version(PKG)
-    assert version == "0.6.0"
+    assert version == "0.6.1"
     assert json.loads((PKG / ".claude-plugin/plugin.json").read_text())["version"] == version
     assert f"## [{version}]" in (PKG / "CHANGELOG.md").read_text()
 
@@ -247,7 +247,7 @@ def test_fresh_install(tmp_path, capsys):
     assert config["reviewers_round1"] == ["req-qa", "arch-qa"]
     # the install record: version and the sha256 of every file written
     record = lock(repo)
-    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.6.0"
+    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.6.1"
     expected = {f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]} | {"scripts/jev_client.py", install.CONFIG_OUT}
     assert set(record["files"]) == expected
     assert all(sha((repo / k).read_bytes()) == v for k, v in record["files"].items())
@@ -308,10 +308,13 @@ def test_unknown_set_fails_the_install(tmp_path, capsys):
 
 @needs_sc_compose
 def test_missing_reviewer_agent_fails(tmp_path, capsys):
-    repo = make_repo(tmp_path, agents=("quality-mgr", "req-qa", "my-sanity"))
+    # no agent file for the reviewer arch-qa nor for the dev-sanity member my-sanity:
+    # only the reviewer fails
+    repo = make_repo(tmp_path, agents=("quality-mgr", "req-qa"))
     rc, err = run(repo, *QA, capsys=capsys)
     assert rc == 1
     assert "no .claude/agents/<name>.md for: arch-qa (reviewers_round1)" in err
+    assert "dev_sanity_member" not in err
     assert not (repo / ".claude/skills").exists()
 
 
@@ -320,8 +323,16 @@ def test_agent_shipped_by_the_package_counts(tmp_path, capsys):
     repo = make_repo(tmp_path, agents=("quality-mgr", "req-qa", "arch-qa", "ruthless-boundary-qa"))
     rc, err = run(repo, *QA, "--set", "dev_sanity_member=dev-sanity-llm", capsys=capsys)
     assert rc == 0, err
-    rc, err = run(repo, *QA, "--set", "dev_sanity_member=nobody", capsys=capsys)
-    assert rc == 1 and "nobody (dev_sanity_member)" in err
+
+
+@needs_sc_compose
+def test_dev_sanity_member_without_an_agent_file_installs(tmp_path, capsys):
+    # roles.dev-sanity names a team member (atm-core: atm-sanity), not an agent file
+    repo = make_repo(tmp_path, agents=("quality-mgr", "req-qa", "arch-qa"))
+    rc, err = run(repo, *QA, "--set", "dev_sanity_member=atm-sanity", capsys=capsys)
+    assert rc == 0, err
+    assert not (repo / ".claude/agents/atm-sanity.md").exists()
+    assert "atm-sanity" in (repo / install.CONFIG_OUT).read_text()
 
 
 @needs_sc_compose
@@ -452,7 +463,7 @@ def test_migration_owns_shipped_and_legacy_bytes_and_fails_on_others(tmp_path, p
     assert rc == 0, err
     assert (repo / ".claude" / script).read_bytes() == (PKG / script).read_bytes()
     assert not (repo / ".claude" / dropped).exists()
-    assert lock(repo)["version"] == "0.6.0"
+    assert lock(repo)["version"] == "0.6.1"
 
 
 def _git_has(rev: str) -> bool:

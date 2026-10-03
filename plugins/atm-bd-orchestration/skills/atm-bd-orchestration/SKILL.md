@@ -83,7 +83,7 @@ one fails the render.
 | --- | --- |
 | `bead_prefix` | `sprint_index_common.py` when no root id is given (a root id `<prefix>-phase-<x>` wins) |
 | `lead` | every assignment template (`lead`, `cc`) |
-| `dev_sanity_member` | the `dev-sanity` role (`resolve-role dev-sanity`) |
+| `dev_sanity_member` | the `dev-sanity` role (`resolve-role dev-sanity`); a team member, which may have no `.claude/agents/<name>.md` |
 | `qa_member` | `qa-bead.json.j2` (`qa_member`), the plan-review bead's assignee |
 | `worktree_base` | sprint bead `worktree` = `<worktree_base>/<branch>` |
 | `test_command` | `dev-template`, `fix-assignment`, `dev-fix` |
