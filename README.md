@@ -10,12 +10,16 @@ plugins/
   atm-bd-orchestration/                  one package: skills + agents + installer
     .claude-plugin/plugin.json           Claude Code plugin manifest
     manifest.yaml                        sc-install package manifest (artifacts, requires)
-    registry.yaml                        repository values rendered at install time
+    registry.yaml                        the files rendered at install time
+    config/atm-bd-orchestration.yaml.j2  the configuration variables (required, no defaults)
+    config/legacy-owned.json             hashes of files 0.x shipped, for the one-time migration
     install.py                           sc-install hook (prepare/complete/cleanup) and standalone installer
+    conftest.py                          test path setup
     skills/{atm-beads,atm-bd-orchestration,sprint-report,sprint-review}/
     agents/{dev-sanity,dev-sanity-llm,sc-sanity-llm,dev-sanity-jev,sc-sanity-jev}.md
     assets/scripts/jev_client.py         Jev transport, placed at <repo>/scripts/jev_client.py
     tests/                               package consistency and install tests
+.github/workflows/tests.yml              the package tests on ubuntu and macos
 ```
 
 ## Use it
@@ -35,10 +39,13 @@ python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude
 python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.codex
 ```
 
-`install.py` reads the repository's `.atm.toml` and `.claude/agents/registry.yaml`
-(team, lead, dev-sanity member, bead prefix, workflow-issues root) and its git
-origin (repo slug) and renders them into the installed copy with `sc-compose`.
-Details, variables and overrides: [plugins/atm-bd-orchestration/README.md](plugins/atm-bd-orchestration/README.md).
+`install.py` reads the configuration from the repository's
+`.claude/agents/registry.yaml` (no defaults: a missing variable fails the install
+and is named), renders it with `sc-compose --strict` into
+`.claude/project/atm-bd-orchestration.yaml`, writes the `roles:` it resolved, and
+records every file it placed in `.claude/project/atm-bd-orchestration.lock.json`
+so reruns upgrade unmodified files and refuse modified or foreign ones.
+Variables, checks and upgrades: [plugins/atm-bd-orchestration/README.md](plugins/atm-bd-orchestration/README.md).
 
 synaptic-canvas will reference this repository's package with a `git-subdir`
 marketplace entry and list it in its `sc-install` registry at release time;
@@ -48,10 +55,11 @@ nothing is copied.
 
 ```bash
 cd plugins/atm-bd-orchestration
-python3 -m pytest -q tests assets/scripts/tests
+uv run --with pytest --with pydantic --with pyyaml python -m pytest -q
 python3 tests/gen_manifest.py   # after adding or removing a skill or agent file
 ```
 
 No repository- or team-specific string may appear in `skills/` or `agents/`;
 `tests/test_install.py` fails on the known ones. A value that differs per
-repository becomes a variable in `registry.yaml`, never an edit.
+repository becomes a required variable in `config/atm-bd-orchestration.yaml.j2`,
+never an edit.

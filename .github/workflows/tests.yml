@@ -1,0 +1,66 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            sha256: 2e09706e0814f30adaacc88310db4ad629dcd9314d1182ecf12767686f828204
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            sha256: 23db29325d95c0f4bb94dead48d02883e00311e82dc66820fe51b1dd855b7168
+    runs-on: ${{ matrix.os }}
+    env:
+      SC_COMPOSE_VERSION: "1.6.1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # test_real_upgrade_from_a_0_2_3_install installs 0.2.3 from history
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python test dependencies
+        run: python3 -m pip install pytest pydantic pyyaml
+
+      # Same pinned release asset and checksum as atm-core's tools/bootstrap.toml.
+      - name: Install sc-compose ${{ env.SC_COMPOSE_VERSION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="sc-compose_${SC_COMPOSE_VERSION}_${{ matrix.target }}.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$asset" \
+            "https://github.com/randlee/sc-compose/releases/download/v${SC_COMPOSE_VERSION}/$asset"
+          echo "${{ matrix.sha256 }}  $RUNNER_TEMP/$asset" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/sc-compose"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/sc-compose"
+          bin="$(find "$RUNNER_TEMP/sc-compose" -type f -name sc-compose | head -n 1)"
+          test -n "$bin"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$bin" "$HOME/.local/bin/sc-compose"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Tool versions
+        run: |
+          sc-compose --version
+          python3 --version
+          git --version
+
+      - name: Generated blocks are current
+        working-directory: plugins/atm-bd-orchestration
+        run: python3 tests/gen_manifest.py --check
+
+      - name: Package tests
+        working-directory: plugins/atm-bd-orchestration
+        run: python3 -m pytest -q -rs

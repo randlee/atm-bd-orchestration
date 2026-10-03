@@ -20,70 +20,113 @@ manifests exist so Claude Code can discover it; `install.py` puts it to work.
 
 ## Install
 
-Requirements in the consuming repository: `.atm.toml` with `[atm] default_team`,
-`.claude/agents/registry.yaml` with `roles.dev-sanity` (and a `bead_prefix`, or
-`issue-prefix` in `.beads/config.yaml`), a git `origin` remote, and `sc-compose`,
-`atm`, `bd`, `jq`, `gh`, `python3` with PyYAML and pydantic on PATH (`prepare()` checks
-sc-compose, PyYAML and pydantic). Jev sanity checks and post-mortem screening also
-need `TYPESAFE_API_KEY` in the agent's environment at run time; without it
-`scripts/jev_client.py --startup` reports `SANITY.JEV_UNAVAILABLE` and the LLM
-directive stays in use.
+Requirements in the consuming repository:
+
+- `.claude/agents/registry.yaml` with every configuration variable (below);
+- `.beads/metadata.json` showing `"dolt_mode": "server"` (validate-plan needs
+  `bd doctor --json`, which only server mode provides);
+- `.claude/agents/<name>.md` for every agent named in `qa_member`,
+  `dev_sanity_member` and the three reviewer lists (agents this package ships
+  count);
+- a git `origin` remote (`owner/name`);
+- `sc-compose`, `atm`, `bd`, `jq`, `gh`, and `python3` with PyYAML and pydantic
+  on PATH.
+
+Jev sanity checks and post-mortem screening also need `TYPESAFE_API_KEY` in the
+agent's environment at run time; without it `scripts/jev_client.py --startup`
+reports `SANITY.JEV_UNAVAILABLE` and the LLM directive stays in use.
 
 Standalone, from a checkout of this repository:
 
 ```bash
 python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude
 python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.codex   # skills only, no agents
-python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude --print-vars
+python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude --set test_command="make test"
 ```
 
-Through `sc-install` (synaptic-canvas), once its marketplace references this
-package: `sc-install install atm-bd-orchestration --local` installs both the
-`.claude` and `.codex` targets and runs `install.py` as the package's
-`prepare()`/`complete()`/`cleanup()` hook.
+Through `sc-install` (synaptic-canvas): `sc-install install atm-bd-orchestration
+--local` runs `install.py` as the package's `prepare()`/`complete()`/`cleanup()`
+hook, with `--set` values in `options["args"]`. `prepare()` makes every check
+below and writes nothing; `complete()` places, renders and records the files.
 
-Existing files are skipped unless `--force` is given, in both paths. Rerunning
-is idempotent. A value can be overridden with `--set NAME=VALUE`; the hook reads
-the same overrides from `options["args"]`.
+## Configuration
 
-## What install-time rendering does
+The variables are declared once, as the `required_variables` of
+`config/atm-bd-orchestration.yaml.j2`. There are no defaults: install renders the
+template with `sc-compose render --strict` into
+`<repo>/.claude/project/atm-bd-orchestration.yaml` and fails, naming every
+missing variable and the registry key that sets it. Skills read that file at run
+time (`skills/atm-beads/scripts/repo_config.py`).
 
-`registry.yaml` is the registry of repository-specific values and of the files
-they are rendered into. After the copy step, `install.py` renders those files
-with `sc-compose render --strict` from the consuming repository's own config:
+| Variable | registry.yaml key | Example |
+| --- | --- | --- |
+| `bead_prefix` | `bead_prefix` | `myp` |
+| `lead` | `roles.lead` | `team-lead` |
+| `dev_sanity_member` | `roles.dev-sanity` | `dev-sanity-llm` |
+| `qa_member` | `roles.quality-mgr` | `quality-mgr` |
+| `worktree_base` | `worktree_base` | `../my-repo-worktrees` |
+| `test_command` | `test_command` | `just test` |
+| `lint_command` | `lint_command` | `just lint` |
+| `integration_branch_pattern` | `integration_branch_pattern` | `integrate/phase-{phase}` |
+| `plans_dir` | `plans_dir` | `docs/plans` |
+| `requirements_globs` | `requirements_globs` (list) | `[docs/requirements.md]` |
+| `adr_globs` | `adr_globs` (list) | `["docs/adr/*.md"]` |
+| `policy_path` | `policy_path` | `.claude/project/quality-policy.md` |
+| `reviewers_round1` | `reviewers_round1` (list) | `[req-qa, arch-qa]` |
+| `reviewers_fix_round` | `reviewers_fix_round` (list) | `[req-qa]` |
+| `reviewers_scope_locked` | `reviewers_scope_locked` (list) | `[ruthless-boundary-qa]` |
 
-| Variable | Source |
-| --- | --- |
-| `team` | `.atm.toml` `[atm] default_team` |
-| `lead` | `registry.yaml` `roles.lead` (default `team-lead`) |
-| `dev_sanity_member` | `registry.yaml` `roles.dev-sanity` |
-| `bead_prefix` | `registry.yaml` `bead_prefix`, else `.beads/config.yaml` `issue-prefix` |
-| `workflow_issues_root` | `registry.yaml` `workflow_issues_root` (default `<bead_prefix>-workflow-issues`) |
-| `repo_slug`, `repo_name` | `git remote get-url origin` |
-| `repo_root`, `worktree_base` | the repository path and `../<repo_name>-worktrees` |
+`--set NAME=VALUE` wins over registry.yaml; a list takes a JSON array or
+`a,b,c`. An unknown name is an error. The resolved `lead`, `dev_sanity_member`
+and `qa_member` are written back into `roles:` (the rest of registry.yaml is kept
+as written), which is the map `resolve-role` reads.
 
-`assets/scripts/jev_client.py` is also placed at `<repo>/scripts/jev_client.py`
-(the path `dev-sanity-jev` and `post_mortem_jev.py` call) unless one exists (`--force`
-replaces it); the repository owns it from then on. Files a newer version stops
-shipping are removed from the target (`DROPPED` in `install.py`). Everything else, including
-every `*.j2` dispatch template, is copied byte for byte; the dispatch templates take their values at dispatch time from the lead's
-vars files as before. `templates/workflow-issue-bead.json.j2` takes the
-workflow-issues root bead as its required `parent` variable.
+The files listed under `render:` in `registry.yaml` (examples, a few docs and
+tests) also carry install-time placeholders: `{{ lead }}`,
+`{{ dev_sanity_member }}`, `{{ bead_prefix }}`, `{{ worktree_base }}` from the
+configuration, and `{{ repo_slug }}`, `{{ repo_name }}` (git origin),
+`{{ repo_root }}` and `{{ workflow_issues_root }}` (`<bead_prefix>-workflow-issues`)
+derived from the repository. Every other file, including every `*.j2` dispatch
+template, is copied byte for byte. `assets/scripts/jev_client.py` is placed at
+`<repo>/scripts/jev_client.py`, the path `dev-sanity-jev` and
+`post_mortem_jev.py` call.
+
+## Ownership and upgrades
+
+`<repo>/.claude/project/atm-bd-orchestration.lock.json` records the package
+version and the sha256 of every file the install wrote (both targets, the Jev
+transport and the config file). On every run:
+
+- a recorded file that is unchanged since it was written is replaced by the new
+  version's bytes; a recorded file that was modified fails the install, named;
+- an unchanged recorded file the new version no longer ships is removed;
+- an existing file the install did not record is never written over: the install
+  fails, naming it, and fails once per target skill directory
+  (`skills/atm-beads`, `skills/atm-bd-orchestration`, `skills/sprint-report`,
+  `skills/sprint-review`) that exists without any file it owns;
+- a failed install writes nothing.
+
+A pre-0.4.0 install has no lock file. The first 0.4.0 install adopts an existing
+file when its bytes are what 0.4.0 installs or what any 0.x version shipped
+(`config/legacy-owned.json`), and fails on the rest; see the migration note in
+`CHANGELOG.md`.
 
 ## Tests
 
 ```bash
 cd plugins/atm-bd-orchestration
-python3 -m pytest -q tests assets/scripts/tests
-python3 tests/gen_manifest.py --check   # manifest.yaml, INVENTORY and registry.yaml render list are generated
+uv run --with pytest --with pydantic --with pyyaml python -m pytest -q
+python3 tests/gen_manifest.py --check   # manifest.yaml artifacts and the registry.yaml render list are generated
 ```
 
-`tests/test_skill_suites.py` installs the package into a throwaway repository
-(bead prefix `myp`) and runs the skills' own suites there, because they resolve
-paths from the repository layout and some scripts carry install-time values.
-One upstream test that reads the source repository's own phase-d plan is
-deselected. The install tests need `sc-compose` and are skipped, with a
-message, when it is not on PATH.
+`conftest.py` sets the import path and keeps pytest out of `skills/` and
+`agents/`: `tests/test_skill_suites.py` installs the package into a throwaway
+repository (bead prefix `myp`) and runs the skills' own suites there, because
+they resolve paths from the repository layout. One upstream test that reads the
+source repository's own phase-d plan is deselected. The install tests need
+`sc-compose` and are skipped, with a message, when it is not on PATH;
+`test_real_upgrade_from_a_0_2_3_install` needs the package history (a full
+clone). CI (`.github/workflows/tests.yml`) runs all of them on ubuntu and macos.
 
 ## Provenance
 
