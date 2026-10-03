@@ -92,3 +92,13 @@ Sources: sc-observability `develop` at f2ebe1bc plus open PR #933 at 07ad4d26
 with every repository- and team-specific string replaced by an install-time value
 or a neutral example. Recheck the JEV files if #933 changes before it merges.
 See `CHANGELOG.md`.
+
+## Package-only changes pending upstream
+
+Changes below are not yet in the upstream source. The next sync keeps each one
+until upstream carries it, then drops it from this list.
+
+- Upstream PR #936 at d566149d (unmerged), applied verbatim ahead of its merge
+  (issue #8): `skills/atm-beads/templates/sprint-bead.json.j2` (version 0.3.0,
+  required `difficulty` rendered into `metadata`, `stage:sprint` label) and
+  `skills/atm-beads/examples/sprint-bead-vars-d-{4,5}.json` (`difficulty`).

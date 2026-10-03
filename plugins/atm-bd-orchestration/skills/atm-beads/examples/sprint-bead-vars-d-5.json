@@ -31,5 +31,6 @@
   "parent": "{{ bead_prefix }}-phase-d",
   "adrs": [
     "NONE"
-  ]
+  ],
+  "difficulty": "normal"
 }
