@@ -1,4 +1,5 @@
 """Fresh input and source-selection regressions; no live bead mutations."""
+import importlib.machinery
 import importlib.util
 import json
 from pathlib import Path
@@ -7,8 +8,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/beads-bv/scripts/analyze.py"
-spec = importlib.util.spec_from_file_location("analysis", SCRIPT)
+SCRIPT = Path(__file__).resolve().parents[1] / "bv-analyze"
+LOADER = importlib.machinery.SourceFileLoader("bv_analyze", str(SCRIPT))
+spec = importlib.util.spec_from_loader("bv_analyze", LOADER)
 analysis = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(analysis)
 
@@ -172,6 +174,28 @@ class AnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'absent from export'):
             self.analyze(epic='absent')
         self.assertFalse(any('--robot-triage' in c for c in self.calls))
+
+    def test_plan_file_is_analyzed_without_bd_and_scoped_by_epic(self):
+        plan = self.root / 'plan.jsonl'
+        rows = [
+            {'id': 'root', 'issue_type': 'epic'},
+            {'id': 'x-1', 'dependencies': [{'depends_on_id': 'root', 'type': 'parent-child'}]},
+            {'id': 'x-1-sanity', 'dependencies': [{'depends_on_id': 'root', 'type': 'parent-child'},
+                                                   {'depends_on_id': 'x-1', 'type': 'blocks'}]},
+        ]
+        plan.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        receipt = self.analyze(plan_file=plan, epic='root', modes=['insights'])
+        self.assertTrue(receipt['complete'])
+        self.assertFalse(any(c[0] == 'bd' for c in self.calls))
+        self.assertEqual(receipt['plan_file'], str(plan.resolve()))
+        self.assertEqual(Path(receipt['snapshot']).read_bytes(), plan.read_bytes())
+        self.assertEqual(receipt['members'], ['root', 'x-1', 'x-1-sanity'])
+        self.assertEqual(list(receipt['outputs']), ['insights'])
+
+    def test_missing_plan_file_fails_before_any_tool(self):
+        with self.assertRaises(FileNotFoundError):
+            self.analyze(plan_file=self.root / 'absent.jsonl')
+        self.assertEqual(self.calls, [])
 
     def test_epic_and_label_cannot_silently_intersect(self):
         with self.assertRaisesRegex(ValueError, 'not both'):

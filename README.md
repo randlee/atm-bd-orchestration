@@ -15,7 +15,6 @@ plugins/
     skills/{atm-beads,atm-bd-orchestration,sprint-report,sprint-review}/
     agents/{dev-sanity,dev-sanity-llm,sc-sanity-llm,dev-sanity-jev,sc-sanity-jev}.md
     assets/scripts/jev_client.py         Jev transport, placed at <repo>/scripts/jev_client.py
-    skills/{beads-workflow,beads-bv,multi-agent-swarm-workflow,beads-compliance-and-completion-verification}/  four job skills
     tests/                               package consistency and install tests
 ```
 
@@ -36,10 +35,9 @@ python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude
 python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.codex
 ```
 
-The four job skills cover planning (`beads-workflow`), prioritization
-(`beads-bv`), execution (`multi-agent-swarm-workflow`), and evidence verification
-(`beads-compliance-and-completion-verification`). They use `atm`, `bd`/Dolt,
-`.atm.toml` agent configuration, and the assigned phase/worktree context.
+`skills/atm-bd-orchestration/references/bv.md` tells the lead how to use BV
+graph analysis (`scripts/bv-analyze`) to optimize work in progress and plan
+continuing work. BV is optional.
 
 `install.py` reads the team from `.atm.toml` and the repo slug from git origin.
 Pass lead/sanity member names with `--set` when using `.atm.toml` agent

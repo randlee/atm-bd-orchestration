@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Export live bead records, then analyze only that snapshot without a TUI."""
+"""Export live bead records, then analyze only that snapshot with BV robot commands.
+
+Usage (from the repository root):
+  .claude/skills/atm-bd-orchestration/scripts/bv-analyze --epic <root> [--modes ...] [--target <bead>]
+  .claude/skills/atm-bd-orchestration/scripts/bv-analyze --file <plan.jsonl> [--epic <root>] [--modes ...]
+
+Read-only: never writes a bead, never opens the BV TUI, never falls back to an
+existing JSONL. Prints a receipt summary; outputs land in a fresh temp directory.
+See ../references/bv.md for when the lead runs it and what each output means.
+"""
 
 import argparse
 from datetime import datetime, timezone
@@ -65,32 +74,44 @@ def epic_scope(rows, epic):
     return selected, excluded
 
 
-def analyze(repo, label=None, target=None, modes=None, epic=None):
+def analyze(repo, label=None, target=None, modes=None, epic=None, plan_file=None):
+    """Analyze a fresh live export, or (plan_file) a rendered plan JSONL before import."""
     if epic and label:
         raise ValueError("choose epic membership or label scope, not both")
     modes = tuple(dict.fromkeys(modes if modes is not None else ("triage", "alerts")))
     if not modes or any(mode not in MODES for mode in modes):
         raise ValueError("choose one or more supported robot modes")
     repo = Path(repo).resolve(strict=True)
-    info = json.loads(run(["bd", "info", "--json"], repo))
-    versions = {"bd": run(["bd", "version"], repo).strip(),
-                "bv": run(["bv", "--version"], repo).strip()}
-    directory = Path(tempfile.mkdtemp(prefix="beads-bv-"))
+    if plan_file:
+        plan_file = Path(plan_file).resolve(strict=True)
+        info = {}
+        versions = {"bv": run(["bv", "--version"], repo).strip()}
+    else:
+        info = json.loads(run(["bd", "info", "--json"], repo))
+        versions = {"bd": run(["bd", "version"], repo).strip(),
+                    "bv": run(["bv", "--version"], repo).strip()}
+    directory = Path(tempfile.mkdtemp(prefix="bv-analyze-"))
     snapshot = directory / "issues.jsonl"
     receipt = {
         "complete": False, "repo": str(repo), "versions": versions,
         "database_path": info.get("database_path"), "database_mode": info.get("mode"),
         "export_started_at": now(), "snapshot": str(snapshot),
     }
+    if plan_file:
+        receipt["plan_file"] = str(plan_file)
     # Capture database identity without retaining unrelated configuration values.
     metadata = repo / ".beads" / "metadata.json"
-    if metadata.is_file():
+    if metadata.is_file() and not plan_file:
         identity = json.loads(metadata.read_text())
         receipt["database"] = identity.get("dolt_database")
         receipt["backend"] = identity.get("backend")
     receipt_path = directory / "receipt.json"
     try:
-        run(["bd", "--readonly", "export", "--all", "--output", str(snapshot)], repo)
+        if plan_file:
+            # Copy, so the hash checks cover exactly what BV read.
+            snapshot.write_bytes(plan_file.read_bytes())
+        else:
+            run(["bd", "--readonly", "export", "--all", "--output", str(snapshot)], repo)
         receipt["export_finished_at"] = now()
         content = snapshot.read_bytes()
         rows = [json.loads(line) for line in content.splitlines() if line.strip()]
@@ -153,16 +174,18 @@ def analyze(repo, label=None, target=None, modes=None, epic=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", required=True, help="Checkout configured for the live bd database")
+    parser.add_argument("--repo", default=".", help="Checkout configured for the live bd database (default: .)")
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument("--label", help="Optional BV label scope")
     scope.add_argument("--epic", help="Filter export to this epic and all its descendants before BV")
+    parser.add_argument("--file", dest="plan_file",
+                        help="Analyze this rendered plan JSONL (before bd import) instead of a live export")
     parser.add_argument("--target", help="Also inspect this bead's whole-database blocker chain")
     parser.add_argument("--modes", nargs="+", choices=MODES,
                         help="Robot outputs to collect (default: triage alerts)")
     args = parser.parse_args()
     try:
-        receipt = analyze(args.repo, args.label, args.target, args.modes, args.epic)
+        receipt = analyze(args.repo, args.label, args.target, args.modes, args.epic, args.plan_file)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Analysis failed; no existing JSONL fallback used: {error}\n")
     summary = {key: value for key, value in receipt.items()

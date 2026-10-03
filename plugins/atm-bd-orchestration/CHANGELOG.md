@@ -3,11 +3,15 @@
 ## [0.3.0] - 2026-10-02
 
 ### Added
-- Four job skills adapted from the supplied planning, BV, swarm, and compliance
-  workflows, using ATM, bd/Dolt, and existing phase/worktree assignments.
-- BV snapshot helper for triage, alerts, plans, insights, and priority, with
-  epic filtering before analysis, full-export blocker checks, source-authority
-  checks, and regression coverage.
+- BV analysis instructions for the orchestration
+  (`skills/atm-bd-orchestration/references/bv.md`): when the lead runs BV to
+  optimize work in progress and plan continuing work (plan graph health before
+  import and at plan review, wave-boundary critical path and parallel width,
+  stall blocker chains, phase-end inventory), what to read, and the action each
+  outcome maps to. Advisory only; linked by one line in the skill.
+- `skills/atm-bd-orchestration/scripts/bv-analyze`: read-only BV snapshot
+  helper (fresh `bd` export or `--file` plan JSONL, phase-root descendant
+  filter, full-export blocker chains, source-authority checks) with tests.
 - Installation coverage with explicit agent names and no legacy agent registry.
 
 ## [0.2.0] - 2026-10-02

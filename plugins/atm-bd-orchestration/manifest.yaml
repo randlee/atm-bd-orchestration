@@ -1,9 +1,11 @@
 name: atm-bd-orchestration
 version: 0.3.0
 description: >
-  ATM + bd/Dolt workflows for planning, BV prioritization, parallel execution,
-  and evidence verification, with bead schemas, dispatch gates, sprint reports,
-  and sanity agents.
+  Bead-driven phase orchestration for ATM agent teams: the phase plan as a
+  beads graph (atm-beads), dispatch, dev-sanity, QA and stack landing driven
+  by `bd ready` with BV graph analysis for the lead (atm-bd-orchestration),
+  and sprint status tables and DAGs from live beads (sprint-report), with the
+  sanity-check agents they name.
 author: randlee
 license: MIT
 tags:
@@ -48,6 +50,7 @@ artifacts:
     - skills/atm-bd-orchestration/examples/schema-reviewer-assignment-vars.json
     - skills/atm-bd-orchestration/examples/task-refused-vars.json
     - skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json
+    - skills/atm-bd-orchestration/references/bv.md
     - skills/atm-bd-orchestration/references/post-mortem-context-preparation.md
     - skills/atm-bd-orchestration/references/post-mortem-jev.md
     - skills/atm-bd-orchestration/references/post-mortem.md
@@ -55,6 +58,7 @@ artifacts:
     - skills/atm-bd-orchestration/roles/quality-mgr.md
     - skills/atm-bd-orchestration/scripts/assignment-gates.py
     - skills/atm-bd-orchestration/scripts/bd_commands.py
+    - skills/atm-bd-orchestration/scripts/bv-analyze
     - skills/atm-bd-orchestration/scripts/check-review-completion.py
     - skills/atm-bd-orchestration/scripts/post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/post_mortem_jev.py
@@ -83,6 +87,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/fixtures/zero-delta.json
     - skills/atm-bd-orchestration/scripts/tests/test_assignment_gates.py
     - skills/atm-bd-orchestration/scripts/tests/test_atomic.py
+    - skills/atm-bd-orchestration/scripts/tests/test_bv_analyze.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_jev.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_create_findings.py
@@ -141,14 +146,6 @@ artifacts:
     - skills/atm-beads/templates/sprint-bead.json.j2
     - skills/atm-beads/tests/test_importing_docs.py
     - skills/atm-beads/tests/test_validate_plan.py
-    - skills/beads-bv/SKILL.md
-    - skills/beads-bv/references/commands-and-metrics.md
-    - skills/beads-bv/scripts/analyze.py
-    - skills/beads-compliance-and-completion-verification/SKILL.md
-    - skills/beads-compliance-and-completion-verification/references/evidence-and-scoring.md
-    - skills/beads-workflow/SKILL.md
-    - skills/beads-workflow/references/planning-prompts.md
-    - skills/multi-agent-swarm-workflow/SKILL.md
     - skills/sprint-report/SKILL.md
     - skills/sprint-report/dag-view.html
     - skills/sprint-report/renderer/.gitignore
@@ -185,6 +182,5 @@ requires:
   - sc-compose >= 1.6.1
   - atm >= 1.6.1
   - bd >= 1.3.0
-  - bv >= 0.25.0
   - jq
   - git >= 2.27

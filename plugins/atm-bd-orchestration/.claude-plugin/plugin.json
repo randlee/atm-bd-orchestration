@@ -1,6 +1,6 @@
 {
   "name": "atm-bd-orchestration",
-  "description": "ATM + bd/Dolt workflows for planning, BV prioritization, parallel execution, and evidence verification, with bead schemas, dispatch gates, sprint reports, and sanity agents.",
+  "description": "Bead-driven phase orchestration for ATM agent teams: atm-beads (the plan as a beads graph), atm-bd-orchestration (dispatch, dev-sanity, QA and stack landing from bd ready, plus BV graph analysis for the lead) and sprint-report (status tables and DAGs from live beads), plus the dev-sanity agents they name.",
   "version": "0.3.0",
   "author": {
     "name": "randlee"

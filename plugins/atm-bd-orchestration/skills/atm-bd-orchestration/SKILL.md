@@ -30,6 +30,8 @@ The flow and the dependency edges are in
 [`orchestrating.md`](../atm-beads/resources/orchestrating.md); this skill is
 the lead's loop and the full set of assignment, close and bead templates.
 
+Optimizing work in progress and planning continuing work with BV graph analysis: [`references/bv.md`](references/bv.md).
+
 Never block on bureaucracy. Dev waits only on its prerequisites'
 sanity checks; QA, triage and fixes run beside it. 100% of findings are
 closed, each with a close reason.

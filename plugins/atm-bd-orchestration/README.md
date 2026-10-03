@@ -4,31 +4,22 @@ Bead-driven phase orchestration for ATM agent teams, as one installable package:
 
 | Skill / agent | What it is |
 | --- | --- |
-| `skills/beads-workflow` | turn approved plans into self-contained beads and polish their dependency graph |
-| `skills/beads-bv` | prioritize scoped work using a fresh Dolt export and BV robot analysis |
-| `skills/multi-agent-swarm-workflow` | coordinate ATM workers through assignment, implementation, and review |
-| `skills/beads-compliance-and-completion-verification` | verify acceptance criteria against code, tests, sanity, QA, and merge evidence |
 | `skills/atm-beads` | the phase plan as a beads graph: plan templates, `validate-plan`, the pydantic bead schemas, `resolve-role`, the plan contract, the sprint index scripts |
-| `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment gates, dispatch and close templates, the `dev-sanity` and `quality-mgr` role sheets, sanity run history, the phase-end post-mortem (with JEV screening) |
+| `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment gates, dispatch and close templates, the `dev-sanity` and `quality-mgr` role sheets, sanity run history, the phase-end post-mortem (with JEV screening); `references/bv.md` and `scripts/bv-analyze`, the lead's BV graph analysis |
 | `skills/sprint-report`, `skills/sprint-review` | sprint status tables and dependency DAGs from live beads; the sprint review command |
 | `agents/dev-sanity.md` | the dev-sanity coordinator the two directives below share |
 | `agents/dev-sanity-llm.md`, `agents/sc-sanity-llm.md` | the LLM dev-sanity teammate and its per-deliverable subagent |
 | `agents/dev-sanity-jev.md`, `agents/sc-sanity-jev.md` | the same pair for a Jev (typesafe.ai) sanity check |
 | `assets/scripts/jev_client.py` | the Jev transport, placed at `<repo>/scripts/jev_client.py` |
 
-The four job skills form a loop: plan → prioritize → execute → verify, with
-confirmed gaps returned to planning. They reuse the existing schemas, gates,
-and dispatch templates below. Agent configuration comes from `.atm.toml`.
-The lead knows its phase; workers use their assigned worktree and the phase
-information in `docs/plans/phase-<current>/`. Concurrent phases on separate
-computers retain separate assignment scope.
-
-BV analysis requires `bv` with the robot/source-authority interface (tested
-with v0.25.0) and `bd` connected to the repository's Dolt server. The helper
-exports live records and filters epic descendants before BV analysis, retaining
-the full export for external blocker checks. It never opens the TUI or
-falls back to checked-in JSONL. Dolt remote synchronization follows the
-consuming repository's procedure before exporting.
+BV analysis (`references/bv.md`) is how the lead optimizes work in progress
+and plans continuing work: graph health before import and at plan review,
+critical path and parallel width at each wave boundary, blocker chains when
+work stalls, and the phase-root inventory at phase end. It is advisory and
+never writes the graph. `scripts/bv-analyze` takes a fresh read-only `bd`
+export (or a rendered plan JSONL with `--file`), filters it to the phase
+root's descendants, keeps the full export for blocker chains, and runs BV robot
+commands; it never opens the TUI or falls back to an older JSONL.
 
 The skills run repository-relative scripts (`.claude/skills/<skill>/scripts/...`)
 and dispatch templates that ATM agents execute inside the consuming repository,
@@ -45,7 +36,10 @@ the lead and sanity member names (`.claude/agents/registry.yaml` `roles`, or pas
 sc-compose, PyYAML and pydantic). Jev sanity checks and post-mortem screening also
 need `TYPESAFE_API_KEY` in the agent's environment at run time; without it
 `scripts/jev_client.py --startup` reports `SANITY.JEV_UNAVAILABLE` and the LLM
-directive stays in use.
+directive stays in use. BV analysis is optional and needs `bv` with the
+robot interface and `source_authority` output (tested with v0.25.0) and `bd`
+connected to the repository's Dolt server; nothing in the core flow or the
+installer requires it.
 
 The existing installer also accepts legacy `.claude/agents/registry.yaml`
 defaults. When using `.atm.toml` for agent configuration, pass the selected
@@ -125,12 +119,8 @@ with every repository- and team-specific string replaced by an install-time valu
 or a neutral example. Recheck the JEV files if #933 changes before it merges.
 See `CHANGELOG.md`.
 
-The four job skills adapt the user-supplied `beads-workflow`, `beads-bv`,
-`multi-agent-swarm-workflow`, and
-`beads-compliance-and-completion-verification` packages reviewed on 2026-09-27.
-They preserve plan polishing, graph-aware prioritization, coordinated workers,
-and criterion-level evidence verification. `br`/SQLite and Agent Mail/NTM
-procedures are replaced by `bd`/Dolt and ATM. Source-specific paths, thresholds,
-and incomplete audit-runner scripts are not carried over; the new BV snapshot
-helper has its own regression tests. Detailed prompts and scoring guidance
-remain in each skill's references.
+Package-only additions, not from sc-observability (preserve them on a re-mirror):
+`skills/atm-bd-orchestration/references/bv.md`,
+`skills/atm-bd-orchestration/scripts/bv-analyze`,
+`skills/atm-bd-orchestration/scripts/tests/test_bv_analyze.py`, and the one
+line in `skills/atm-bd-orchestration/SKILL.md` that links `references/bv.md`.

@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "atm-bd-orchestration",
-      "description": "Plan, prioritize with BV, coordinate ATM workers, and verify completion using bd/Dolt beads and assigned phase context.",
+      "description": "Bead-driven phase orchestration for ATM agent teams: atm-beads, atm-bd-orchestration (with BV graph analysis for the lead) and sprint-report skills plus the dev-sanity agents they name.",
       "author": {
         "name": "randlee"
       },

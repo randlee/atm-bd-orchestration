@@ -193,10 +193,10 @@ def test_install_with_atm_config_and_explicit_members_without_registry(tmp_path,
     assert not (repo / '.claude/agents/registry.yaml').exists()
     role = (dest / 'skills/atm-bd-orchestration/roles/dev-sanity.md').read_text()
     assert '`reviewer`' in role
-    for name in ('beads-workflow', 'beads-bv', 'multi-agent-swarm-workflow',
-                 'beads-compliance-and-completion-verification'):
-        assert (dest / 'skills' / name / 'SKILL.md').is_file()
-    assert (dest / 'skills/beads-bv/scripts/analyze.py').stat().st_mode & 0o111
+    bv = dest / 'skills/atm-bd-orchestration'
+    assert (bv / 'references/bv.md').is_file()
+    assert '(references/bv.md)' in (bv / 'SKILL.md').read_text()
+    assert (bv / 'scripts/bv-analyze').stat().st_mode & 0o111
 
 
 @needs_sc_compose
