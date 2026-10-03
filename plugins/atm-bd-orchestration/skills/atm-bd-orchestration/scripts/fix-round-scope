@@ -6,7 +6,13 @@ finding (the finding bead's `metadata.reviewer`), locked to that finding's own i
 (`metadata.finding_ref`). The verifier reports fixed, open or regressed for those
 ids and files no new findings.
 
-    owned  --carried <bd show json>                       {filing reviewer: [its finding_refs]}
+Plan findings are not beads: they are report lines `<bead> <severity> <reviewer>
+<field>: <what is wrong>`, and a plan fix round carries them as text. With
+`--plan`, `--carried` is that text; the filing reviewer is the line's third word
+and the finding id is `<bead> <field>`. `validate-plan` findings are re-checked by
+the plan review's own validate-plan step, so it is never a dispatched reviewer.
+
+    owned  --carried <bd show json> [--plan]              {filing reviewer: [its finding_refs]}
     check  --carried <bd show json> --dispatch a,b         exit 5 unless the dispatch set is exactly the filing reviewers
     filter --carried <bd show json> --reviewer <name> --result <json>
                                                            the result reduced to dispositions on that reviewer's carried ids
@@ -15,7 +21,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+
+PLAN_LINE = re.compile(r"^\s*(?:[-*]\s+)?(?P<bead>\S+)\s+(?P<severity>blocking|important|minor)\s+"
+                       r"(?P<reviewer>\S+)\s+(?P<field>[^:\s][^:]*):")
+PLAN_SCRIPT = "validate-plan"
 
 
 class ScopeError(ValueError):
@@ -34,9 +45,23 @@ def owned(carried: list[dict]) -> dict[str, list[str]]:
     return out
 
 
+def plan_carried(text: str) -> list[dict]:
+    """Carried plan finding lines -> the bead-shaped records owned/check/filter take."""
+    out = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        m = PLAN_LINE.match(line)
+        if not m:
+            raise ScopeError(f"carried plan finding is not `<bead> <severity> <reviewer> <field>: ...`: {line.strip()}")
+        ref = f"{m['bead']} {m['field'].strip()}"
+        out.append({"id": ref, "metadata": {"reviewer": m["reviewer"], "finding_ref": ref}})
+    return out
+
+
 def check(carried: list[dict], dispatch: list[str]) -> tuple[list[str], list[str]]:
     """(extra, missing): reviewers dispatched that filed no carried finding, and filing reviewers not dispatched."""
-    want = set(owned(carried))
+    want = set(owned(carried)) - {PLAN_SCRIPT}
     have = set(dispatch)
     return sorted(have - want), sorted(want - have)
 
@@ -63,13 +88,14 @@ def filter_result(reviewer: str, carried: list[dict], result: dict) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("owned", "filter", "check"))
-    parser.add_argument("--carried", required=True, help="bd show <carried ids> --json")
+    parser.add_argument("--carried", required=True, help="bd show <carried ids> --json; with --plan, the carried plan finding lines")
+    parser.add_argument("--plan", action="store_true", help="--carried is a plan review's carried finding lines")
     parser.add_argument("--dispatch", default="", help="check: the reviewers to be dispatched, comma-separated")
     parser.add_argument("--reviewer", default="")
     parser.add_argument("--result", default="", help="the reviewer's fenced-JSON result")
     args = parser.parse_args(argv)
-    carried = json.load(open(args.carried))
     try:
+        carried = plan_carried(open(args.carried).read()) if args.plan else json.load(open(args.carried))
         filing = owned(carried)
     except ScopeError as exc:
         print(f"fix-round-scope: {exc}", file=sys.stderr)

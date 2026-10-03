@@ -34,9 +34,21 @@ variables changed.
     --carried --dispatch` exits 5 (`FIX_ROUND_DISPATCH_MISMATCH`) unless the
     dispatch set is exactly those reviewers; `filter` accepts any filing
     reviewer. `check --findings` is gone (a fix verification imports nothing).
-  - `config/atm-bd-orchestration.yaml.j2` 1.0.0: `reviewers_fix_round` removed.
-    `reviewers_scope_locked` stays: plan review is unchanged and its fix rounds
-    still use it.
+  - `config/atm-bd-orchestration.yaml.j2` 1.0.0: `reviewers_fix_round` and
+    `reviewers_scope_locked` removed; `reviewers_round1` is the only reviewer
+    list.
+- Plan-review fix rounds are filing-reviewer-only too (ruling 2026-10-03).
+  From plan round 2 on, `req-qa` and `arch-qa` are not re-run and
+  `plan-scope-reviewer` does not run in full: only the filing reviewer of each
+  carried finding runs, locked to it, with no ceremony screen and no new
+  findings; `validate-plan` still runs, like required CI.
+  `plan-review-template.xml.j2` 3.0.0 (`reviewers_scope_locked` is no longer a
+  variable) adds a `<fix-verification-precedence>` block. Plan findings stay
+  report lines, not beads, and now name their filing reviewer:
+  `<bead> <severity> <reviewer> <field>: <what is wrong>` (`validate-plan` for
+  step b findings). `scripts/fix-round-scope --plan` reads the carried lines,
+  and `check --plan --dispatch` refuses any set other than their filing
+  reviewers (`validate-plan` itself is step b, never dispatched).
 - Orchestration refusals reuse workflow class beads (upstream
   sc-observability 87a26739, #954). The refusal paths of `dev-template.xml.j2`
   3.1.0, `dev-fix.xml.j2` 1.1.0, `fix-assignment.xml.j2` 3.1.0,
@@ -59,13 +71,17 @@ variables changed.
   delegate").
 
 ### Migration from 0.4.0
-Rerun the install. `reviewers_fix_round` is no longer a configuration
-variable: the installer reads only declared variables from registry.yaml, so a
-leftover `reviewers_fix_round` key there is ignored (delete it at leisure), and
-the rendered `.claude/project/atm-bd-orchestration.yaml` no longer carries it.
-`--set reviewers_fix_round=...` is now an install error (unknown `--set`
-variable). A lead that dispatches `qa-template.xml.j2` with a var file built
-from `repo_config.py json` still renders: the extra keys are ignored.
+Rerun the install. `reviewers_fix_round` and `reviewers_scope_locked` are no
+longer configuration variables: the installer reads only declared variables
+from registry.yaml, so leftover keys there are ignored (delete them at
+leisure), and the rendered `.claude/project/atm-bd-orchestration.yaml` no
+longer carries them. `--set reviewers_fix_round=...` or
+`--set reviewers_scope_locked=...` is now an install error (unknown `--set`
+variable). A lead that dispatches `qa-template.xml.j2` or
+`plan-review-template.xml.j2` with a var file built from `repo_config.py json`
+still renders: the extra keys are ignored. Plan finding lines carried into a
+round-2 plan review must name their reviewer; a line from a 0.4.0 round 1
+report needs the reviewer added (its `reviewers_md` says which).
 
 ## [0.4.0] - 2026-10-02
 

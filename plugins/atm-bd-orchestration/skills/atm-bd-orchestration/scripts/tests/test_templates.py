@@ -244,6 +244,38 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertIn("This is fix verification of finding beads `x-d-4-qa1-f1`", qa.stdout)
 
 
+class PlanFixRoundTests(unittest.TestCase):
+    """A plan fix round runs only the carried findings' filing reviewers; round 1 runs the full plan review."""
+
+    PLAN = "plan-review-template.xml.j2"
+
+    def test_round_one_is_the_full_plan_review(self):
+        out = _render(self.PLAN, _example("plan-review-template-vars.json"))
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("run `req-qa` and `arch-qa` as background agents", out.stdout)
+        self.assertIn("run `plan-scope-reviewer` over the whole set", out.stdout)
+        self.assertIn("Run `ceremony-finding-screen`", out.stdout)
+        self.assertNotIn("fix-round-scope", out.stdout)
+        self.assertIn("`<bead> <severity> <reviewer> <field>: <what is wrong>`", out.stdout)
+
+    def test_fix_round_dispatches_only_filing_reviewers(self):
+        out = _render(self.PLAN, _example("plan-review-template-fix-round-vars.json"))
+        self.assertEqual(out.returncode, 0, out.stderr)
+        text = out.stdout
+        self.assertIn("<fix-verification-precedence>", text)
+        self.assertIn("fix-round-scope owned --plan --carried", text)
+        self.assertIn("fix-round-scope check --plan --carried", text)
+        self.assertNotIn("run `req-qa` and `arch-qa` as background agents", text)
+        self.assertNotIn("over the whole set", text)
+        self.assertNotIn("Run `ceremony-finding-screen`", text)
+        self.assertIn("files no new findings", text)
+        self.assertIn("validate-plan", text)  # step b still runs
+
+    def test_removed_variable_is_not_required(self):
+        values = {**_example("plan-review-template-fix-round-vars.json"), "reviewers_scope_locked": ["x"]}
+        self.assertEqual(_render(self.PLAN, values).returncode, 0)
+
+
 # Config-backed dispatch variables (the lead fills them from .claude/project/atm-bd-orchestration.yaml).
 CONFIG_VARS = {
     "dev-template.xml.j2": ("lead", "cc", "test_command", "policy_path"),
@@ -251,8 +283,7 @@ CONFIG_VARS = {
     "dev-fix.xml.j2": ("lead", "cc", "test_command"),
     "dev-sanity-template.xml.j2": ("lead", "cc", "lint_command"),
     "qa-template.xml.j2": ("lead", "cc", "policy_path", "reviewers_round1"),
-    "plan-review-template.xml.j2": ("lead", "cc", "integration_branch", "plans_dir", "requirements_globs", "adr_globs",
-                                    "reviewers_scope_locked"),
+    "plan-review-template.xml.j2": ("lead", "cc", "integration_branch", "plans_dir", "requirements_globs", "adr_globs"),
     "review-template.xml.j2": ("lead", "cc", "integration_branch"),
     "schema-reviewer-assignment.json.j2": ("policy_path",),
     "qa-bead.json.j2": ("qa_member",),

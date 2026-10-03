@@ -62,8 +62,14 @@ why they are strict:
   starts from a bead with the wrong governing ids builds against the wrong
   contract, and QA then checks against the same wrong list. Never downgrade
   these, and never let ceremony-finding-screen remove them.
-- Plan findings are not finding beads. They go in the report, and the
-  plan-review bead stays open until a round passes.
+- Plan findings are not finding beads. They go in the report, one line each
+  naming the reviewer that filed it, and the plan-review bead stays open until
+  a round passes.
+- A plan fix round (`carry_forward` set) follows "Fix verification takes
+  precedence" below: only the filing reviewer of each carried finding runs
+  (`scripts/fix-round-scope --plan`), locked to it; `req-qa` and `arch-qa` are
+  not re-run, `plan-scope-reviewer` does not run in full, there is no ceremony
+  screen and no new finding. `validate-plan` still runs, like required CI.
 
 ## Phase-ending post-mortem
 

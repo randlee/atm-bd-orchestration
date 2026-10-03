@@ -27,7 +27,7 @@ Requirements in the consuming repository:
 - `.beads/metadata.json` showing `"dolt_mode": "server"` (validate-plan needs
   `bd doctor --json`, which only server mode provides);
 - `.claude/agents/<name>.md` for every agent named in `qa_member`,
-  `dev_sanity_member` and the two reviewer lists (agents this package ships
+  `dev_sanity_member` and `reviewers_round1` (agents this package ships
   count);
 - a git `origin` remote (`owner/name`);
 - `sc-compose`, `atm`, `bd`, `jq`, `gh`, and `python3` with PyYAML and pydantic
@@ -74,7 +74,6 @@ time (`skills/atm-beads/scripts/repo_config.py`).
 | `adr_globs` | `adr_globs` (list) | `["docs/adr/*.md"]` |
 | `policy_path` | `policy_path` | `.claude/project/quality-policy.md` |
 | `reviewers_round1` | `reviewers_round1` (list) | `[req-qa, arch-qa]` |
-| `reviewers_scope_locked` | `reviewers_scope_locked` (list) | `[ruthless-boundary-qa]` |
 
 `--set NAME=VALUE` wins over registry.yaml; a list takes a JSON array or
 `a,b,c`. An unknown name is an error. The resolved `lead`, `dev_sanity_member`
@@ -146,19 +145,26 @@ until upstream carries it, then drops it from this list.
   (issue #8): `skills/atm-beads/templates/sprint-bead.json.j2` (version 0.3.0,
   required `difficulty` rendered into `metadata`, `stage:sprint` label) and
   `skills/atm-beads/examples/sprint-bead-vars-d-{4,5}.json` (`difficulty`).
-- Fix verification is upstream (sc-observability 18d7158f, ruling 2026-10-03:
-  a fix is verified only by its filing reviewer, locked to the original
-  finding). Still package-only:
+- Fix verification is upstream for QA (sc-observability 18d7158f, ruling
+  2026-10-03: a fix is verified only by its filing reviewer, locked to the
+  original finding). Still package-only:
+  - Plan-review fix rounds are filing-reviewer-only too (ruling 2026-10-03,
+    relayed for sc-observability PR #967, which does not carry it yet):
+    `skills/atm-bd-orchestration/templates/plan-review-template.xml.j2` (3.0.0:
+    no `reviewers_scope_locked`; plan finding lines name their reviewer,
+    `<bead> <severity> <reviewer> <field>: ...`; a fix round dispatches only the
+    carried lines' filing reviewers, no req-qa/arch-qa re-run, no full
+    plan-scope-reviewer, no ceremony screen, no new findings), the plan-review
+    bullets of `roles/quality-mgr.md`, and the reviewer column in
+    `examples/plan-review-*-vars.json`.
   - `skills/atm-bd-orchestration/scripts/fix-round-scope` (`owned`, `check`,
-    `filter`) and `scripts/tests/test_fix_round_scope.py`: the dispatch set of
-    a fix verification is exactly the carried findings' filing reviewers, and
-    their results reduce to dispositions on their own ids;
-    `qa-template.xml.j2` step d runs it.
+    `filter`; `--plan` reads carried plan finding lines) and
+    `scripts/tests/test_fix_round_scope.py`: the dispatch set of a fix
+    verification is exactly the carried findings' filing reviewers, and their
+    results reduce to dispositions on their own ids; `qa-template.xml.j2` step
+    d and `plan-review-template.xml.j2` step c run it.
   - `skills/atm-bd-orchestration/templates/ruthless-boundary-qa-assignment.json.j2`
     (2.1.0): required `qa_round`; trimmed-scope `locked` flag; refuses
     `qa_round` above 1 without own ids.
-  - `skills/atm-bd-orchestration/templates/plan-review-template.xml.j2`: step c
-    passes `qa_round`; the plan fix-round clause limits `reviewers_scope_locked`
-    to carried findings they own.
   - `skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json`:
     `"qa_round": 2`.

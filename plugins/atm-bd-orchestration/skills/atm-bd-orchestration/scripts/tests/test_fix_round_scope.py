@@ -59,6 +59,32 @@ class FixVerificationScopeTests(unittest.TestCase):
         self.assertEqual(len(out["dropped_out_of_scope"]), 1)
 
 
+PLAN = """- x-d-4 blocking validate-plan requirements: empty; list the governing REQ ids or ["NONE"]
+- x-d-5 blocking arch-qa adrs: ADR-020 is not in docs/architecture.md
+- x-d-6 important ruthless-boundary-qa design: the exporter reaches into the config crate
+"""
+
+
+class PlanFixRoundTests(unittest.TestCase):
+    """Plan findings are report lines; the reviewer named on each line is its filing reviewer."""
+
+    def test_lines_name_their_filing_reviewer(self):
+        carried = scope.plan_carried(PLAN)
+        self.assertEqual(scope.owned(carried), {"validate-plan": ["x-d-4 requirements"], "arch-qa": ["x-d-5 adrs"],
+                                                "ruthless-boundary-qa": ["x-d-6 design"]})
+
+    def test_validate_plan_is_never_dispatched(self):
+        carried = scope.plan_carried(PLAN)
+        self.assertEqual(scope.check(carried, ["arch-qa", "ruthless-boundary-qa"]), ([], []))
+        self.assertEqual(scope.check(carried, ["arch-qa", "ruthless-boundary-qa", "req-qa", "plan-scope-reviewer"]),
+                         (["plan-scope-reviewer", "req-qa"], []))
+        self.assertEqual(scope.check(carried, ["validate-plan", "arch-qa", "ruthless-boundary-qa"]), (["validate-plan"], []))
+
+    def test_a_line_without_a_reviewer_is_an_error(self):
+        with self.assertRaises(scope.ScopeError):
+            scope.plan_carried("- x-d-4 blocking requirements: empty\n")
+
+
 class CliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -90,6 +116,15 @@ class CliTests(unittest.TestCase):
         out = self.run_cli("owned", "--carried", "carried.json")
         self.assertEqual(out.returncode, 2)
         self.assertIn("x-f9", out.stderr)
+
+    def test_plan_mode(self):
+        (self.dir / "plan.txt").write_text(PLAN)
+        out = self.run_cli("check", "--plan", "--carried", "plan.txt", "--dispatch", "arch-qa,req-qa")
+        self.assertEqual(out.returncode, 5)
+        self.assertIn("req-qa", out.stderr)
+        self.assertIn("ruthless-boundary-qa", out.stderr)
+        (self.dir / "bad.txt").write_text("x-d-4 blocking requirements: empty\n")
+        self.assertEqual(self.run_cli("owned", "--plan", "--carried", "bad.txt").returncode, 2)
 
     def test_filter_refuses_a_reviewer_that_filed_nothing_carried(self):
         (self.dir / "r.json").write_text(json.dumps({"data": {"findings": []}}))

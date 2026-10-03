@@ -14,10 +14,5 @@
   "adr_globs": [
     "docs/architecture.md",
     "docs/*/architecture.md"
-  ],
-  "reviewers_scope_locked": [
-    "ruthless-boundary-qa",
-    "rust-best-practices-agent",
-    "rust-service-hardening-agent"
   ]
 }
