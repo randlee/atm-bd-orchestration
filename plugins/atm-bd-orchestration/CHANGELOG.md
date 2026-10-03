@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.7.0] - 2026-10-03
+
+### Changed
+- One dev-sanity teammate (Rand ruling 2026-10-03): `agents/dev-sanity.md` is
+  the only named teammate and the whole dev-sanity role in one agent prompt.
+  It spawns `sc-sanity-llm` and `sc-sanity-jev` as subagents.
+  - Removed `agents/dev-sanity-llm.md` and `agents/dev-sanity-jev.md` (0.6.x
+    compatibility shims that only pointed at `dev-sanity.md`).
+  - Removed `skills/atm-bd-orchestration/roles/dev-sanity.md`; its binding
+    rules (who fills the role, concurrent tasks, pre-claim refusals, check
+    contract, verdicts, finding children, round cap, console report) are
+    merged into `agents/dev-sanity.md` (2.0.0), each duty once. That file is
+    now rendered at install (`{{ repo_name }}`, `{{ dev_sanity_member }}`).
+  - `agents/dev-sanity.md` regains the Jev startup probe
+    (`scripts/jev_client.py --startup --lead <lead>`); a failed probe records
+    every JEV slot as `SANITY.JEV_UNAVAILABLE` while the LLM subagent runs.
+    `jev_client.py` startup messages no longer name `dev-sanity-llm`.
+  - SKILL.md "Roles": the dev-sanity prompt is `.claude/agents/dev-sanity.md`;
+    the role-switch message takes the role's prompt path. README,
+    `atm-beads/resources/dev-sanity.md` and tests follow.
+
+### Migration from 0.6.x
+Rerun the install: it removes the two legacy agent files and the role sheet
+when unchanged (a modified copy fails the install, named). Point the
+dev-sanity member's `[startup.<member>]` prompt in `.atm.toml` at
+`.claude/agents/dev-sanity.md`.
+
 ## [0.6.1] - 2026-10-03
 
 ### Changed

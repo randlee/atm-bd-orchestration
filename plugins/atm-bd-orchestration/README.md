@@ -5,12 +5,11 @@ Bead-driven phase orchestration for ATM agent teams, as one installable package:
 | Skill / agent | What it is |
 | --- | --- |
 | `skills/atm-beads` | the phase plan as a beads graph: plan templates, `validate-plan`, the pydantic bead schemas, `resolve-role`, the plan contract, the sprint index scripts |
-| `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment gates, dispatch and close templates, the `dev-sanity` and `quality-mgr` role sheets, sanity run history, the phase-end post-mortem (with JEV screening) |
+| `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment gates, dispatch and close templates, the `quality-mgr` role sheet, sanity run history, the phase-end post-mortem (with JEV screening) |
 | `skills/sprint-report`, `skills/sprint-review` | sprint status tables and dependency DAGs from live beads; the sprint review command |
 | `skills/qa-report` | `/qa-report`: the two QA metrics logs quality-mgr appends under `.sc/qa-log/` (per-round events and cumulative phase stats), read-only |
-| `agents/dev-sanity.md` | the dev-sanity coordinator the two directives below share |
-| `agents/dev-sanity-llm.md`, `agents/sc-sanity-llm.md` | the LLM dev-sanity teammate and its per-deliverable subagent |
-| `agents/dev-sanity-jev.md`, `agents/sc-sanity-jev.md` | the same pair for a Jev (typesafe.ai) sanity check |
+| `agents/dev-sanity.md` | the single dev-sanity teammate: the whole dev-sanity role in one agent prompt |
+| `agents/sc-sanity-llm.md`, `agents/sc-sanity-jev.md` | the per-deliverable LLM and Jev (typesafe.ai) subagents dev-sanity spawns |
 | `assets/scripts/jev_client.py` | the Jev transport, placed at `<repo>/scripts/jev_client.py` |
 
 The skills run repository-relative scripts (`.claude/skills/<skill>/scripts/...`)
@@ -35,7 +34,8 @@ Requirements in the consuming repository:
 
 Jev sanity checks and post-mortem screening also need `TYPESAFE_API_KEY` in the
 agent's environment at run time; without it `scripts/jev_client.py --startup`
-reports `SANITY.JEV_UNAVAILABLE` and the LLM directive stays in use.
+reports `SANITY.JEV_UNAVAILABLE` and dev-sanity records every JEV slot as
+unavailable (the LLM subagent still runs).
 
 Standalone, from a checkout of this repository:
 
@@ -63,7 +63,7 @@ time (`skills/atm-beads/scripts/repo_config.py`).
 | --- | --- | --- |
 | `bead_prefix` | `bead_prefix` | `myp` |
 | `lead` | `roles.lead` | `team-lead` |
-| `dev_sanity_member` | `roles.dev-sanity` | `dev-sanity-llm` |
+| `dev_sanity_member` | `roles.dev-sanity` | `dev-sanity` |
 | `qa_member` | `roles.quality-mgr` | `quality-mgr` |
 | `worktree_base` | `worktree_base` | `../my-repo-worktrees` |
 | `test_command` | `test_command` | `just test` |
@@ -87,7 +87,7 @@ configuration, and `{{ repo_slug }}`, `{{ repo_name }}` (git origin),
 `{{ repo_root }}` and `{{ workflow_issues_root }}` (`<bead_prefix>-workflow-issues`)
 derived from the repository. Every other file, including every `*.j2` dispatch
 template, is copied byte for byte. `assets/scripts/jev_client.py` is placed at
-`<repo>/scripts/jev_client.py`, the path `dev-sanity-jev` and
+`<repo>/scripts/jev_client.py`, the path `sc-sanity-jev` and
 `post_mortem_jev.py` call.
 
 ## Ownership and upgrades

@@ -83,7 +83,7 @@ def test_config_template_declares_exactly_the_spec_variables_without_defaults():
 
 def test_versions_agree():
     version = install.package_version(PKG)
-    assert version == "0.6.1"
+    assert version == "0.7.0"
     assert json.loads((PKG / ".claude-plugin/plugin.json").read_text())["version"] == version
     assert f"## [{version}]" in (PKG / "CHANGELOG.md").read_text()
 
@@ -247,7 +247,7 @@ def test_fresh_install(tmp_path, capsys):
     assert config["reviewers_round1"] == ["req-qa", "arch-qa"]
     # the install record: version and the sha256 of every file written
     record = lock(repo)
-    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.6.1"
+    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.7.0"
     expected = {f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]} | {"scripts/jev_client.py", install.CONFIG_OUT}
     assert set(record["files"]) == expected
     assert all(sha((repo / k).read_bytes()) == v for k, v in record["files"].items())
@@ -257,7 +257,8 @@ def test_fresh_install(tmp_path, capsys):
     assert reg["roles"] == {"dev-sanity": "my-sanity", "lead": "my-lead", "quality-mgr": "quality-mgr"}
     assert "# the member running the dev-sanity directive" in reg_text and "skills" in reg
     # rendered values, the Jev transport, executable scripts, byte-identical templates
-    role = (dest / "skills/atm-bd-orchestration/roles/dev-sanity.md").read_text()
+    role = (dest / "agents/dev-sanity.md").read_text()
+    assert role.startswith("---\nname: dev-sanity\n")
     assert "| Setting | Where | my-repo |" in role and "`my-sanity`" in role
     example = (dest / "skills/atm-bd-orchestration/examples/dev-sanity-template-vars.json").read_text()
     assert "https://github.com/owner/my-repo/pull/" in example and str(repo.resolve().parent / "my-repo-worktrees") in example
@@ -321,7 +322,7 @@ def test_missing_reviewer_agent_fails(tmp_path, capsys):
 @needs_sc_compose
 def test_agent_shipped_by_the_package_counts(tmp_path, capsys):
     repo = make_repo(tmp_path, agents=("quality-mgr", "req-qa", "arch-qa", "ruthless-boundary-qa"))
-    rc, err = run(repo, *QA, "--set", "dev_sanity_member=dev-sanity-llm", capsys=capsys)
+    rc, err = run(repo, *QA, "--set", "dev_sanity_member=dev-sanity", capsys=capsys)
     assert rc == 0, err
 
 
@@ -383,8 +384,8 @@ def test_reinstall_updates_unmodified_files_and_rerenders(tmp_path, pkg_copy, ca
     # a new package version changes a copied file and a rendered file
     script = "skills/atm-beads/scripts/resolve-role"
     (pkg_copy / script).write_text((pkg_copy / script).read_text() + "# upgraded\n")
-    (pkg_copy / "skills/atm-bd-orchestration/roles/dev-sanity.md").write_text(
-        (pkg_copy / "skills/atm-bd-orchestration/roles/dev-sanity.md").read_text() + "\nupgraded for {{ dev_sanity_member }}\n")
+    (pkg_copy / "agents/dev-sanity.md").write_text(
+        (pkg_copy / "agents/dev-sanity.md").read_text() + "\nupgraded for {{ dev_sanity_member }}\n")
     # and the repository renames its dev-sanity member
     reg = repo / ".claude/agents/registry.yaml"
     reg.write_text(reg.read_text().replace("dev-sanity: my-sanity", "dev-sanity: quality-mgr"))
@@ -392,7 +393,7 @@ def test_reinstall_updates_unmodified_files_and_rerenders(tmp_path, pkg_copy, ca
     assert rc == 0, err
     assert (repo / ".claude" / script).read_text().endswith("# upgraded\n")
     assert (repo / ".claude" / script).stat().st_mode & 0o111
-    role = (repo / ".claude/skills/atm-bd-orchestration/roles/dev-sanity.md").read_text()
+    role = (repo / ".claude/agents/dev-sanity.md").read_text()
     assert role.endswith("upgraded for quality-mgr\n") and "`my-sanity`" not in role
     assert yaml.safe_load((repo / install.CONFIG_OUT).read_text())["dev_sanity_member"] == "quality-mgr"
     assert lock(repo)["files"][f".claude/{script}"] == sha((repo / ".claude" / script).read_bytes())
@@ -420,20 +421,37 @@ def test_reinstall_fails_naming_modified_files_and_changes_nothing(tmp_path, pkg
 def test_files_no_longer_shipped_are_removed_when_unchanged(tmp_path, pkg_copy, capsys):
     repo = make_repo(tmp_path)
     assert run(repo, *QA)[0] == 0
-    gone = ["skills/sprint-review/SKILL.md", "skills/sprint-review/scripts/sprint-review", "agents/dev-sanity-jev.md"]
+    gone = ["skills/sprint-review/SKILL.md", "skills/sprint-review/scripts/sprint-review", "agents/sc-sanity-jev.md"]
     for rel in gone:
         (pkg_copy / rel).unlink()
     shutil.rmtree(pkg_copy / "skills/sprint-review")
     regenerate(pkg_copy)
-    (repo / ".claude/agents/dev-sanity-jev.md").write_text("edited\n")
+    (repo / ".claude/agents/sc-sanity-jev.md").write_text("edited\n")
     rc, err = run(repo, pkg=pkg_copy, capsys=capsys)
-    assert rc == 1 and ".claude/agents/dev-sanity-jev.md was modified" in err and "no longer ships it" in err
-    (repo / ".claude/agents/dev-sanity-jev.md").unlink()
+    assert rc == 1 and ".claude/agents/sc-sanity-jev.md was modified" in err and "no longer ships it" in err
+    (repo / ".claude/agents/sc-sanity-jev.md").unlink()
     rc, err = run(repo, pkg=pkg_copy, capsys=capsys)
     assert rc == 0, err
     assert not (repo / ".claude/skills/sprint-review").exists()
     assert not any(k.startswith(".claude/skills/sprint-review/") for k in lock(repo)["files"])
 
+
+
+@needs_sc_compose
+def test_upgrade_from_0_6_removes_the_legacy_sanity_teammates_and_role_sheet(tmp_path, pkg_copy, capsys):
+    # 0.6.x shipped dev-sanity-llm/-jev teammates and roles/dev-sanity.md; 0.7.0 folds them into agents/dev-sanity.md
+    legacy = ["agents/dev-sanity-llm.md", "agents/dev-sanity-jev.md", "skills/atm-bd-orchestration/roles/dev-sanity.md"]
+    for rel in legacy:
+        (pkg_copy / rel).write_text(f"0.6.x {rel}\n")
+    regenerate(pkg_copy)
+    repo = make_repo(tmp_path)
+    assert run(repo, *QA, pkg=pkg_copy)[0] == 0
+    assert all((repo / ".claude" / rel).is_file() for rel in legacy)
+    rc, err = run(repo, capsys=capsys)
+    assert rc == 0, err
+    assert not any((repo / ".claude" / rel).exists() for rel in legacy)
+    assert not any(f".claude/{rel}" in lock(repo)["files"] for rel in legacy)
+    assert (repo / ".claude/agents/dev-sanity.md").is_file()
 
 # ---------------------------------------------------------------- migration from 0.x (no lock file)
 
@@ -463,7 +481,7 @@ def test_migration_owns_shipped_and_legacy_bytes_and_fails_on_others(tmp_path, p
     assert rc == 0, err
     assert (repo / ".claude" / script).read_bytes() == (PKG / script).read_bytes()
     assert not (repo / ".claude" / dropped).exists()
-    assert lock(repo)["version"] == "0.6.1"
+    assert lock(repo)["version"] == "0.7.0"
 
 
 def _git_has(rev: str) -> bool:
@@ -492,9 +510,11 @@ def test_real_upgrade_from_a_0_2_3_install(tmp_path, capsys):
     # is owned only when it equals what this version renders, so a rendered file whose
     # source changed since 0.2.3 is refused by name; deleting it lets the upgrade through.
     # The set is what 0.2.3 rendered, which includes files this version only copies.
+    # A rendered file this version no longer ships (roles/dev-sanity.md) is not installed, so not refused.
     renders = set(install.load_registry(old_pkg)["render"])
     changed = sorted(f".claude/{rel}" for rel in renders
-                     if (old_pkg / rel).is_file() and (old_pkg / rel).read_bytes() != (PKG / rel).read_bytes())
+                     if (old_pkg / rel).is_file() and (PKG / rel).is_file()
+                     and (old_pkg / rel).read_bytes() != (PKG / rel).read_bytes())
     rc, err = run(repo, *QA, capsys=capsys)
     if changed:
         assert rc == 1
