@@ -100,5 +100,7 @@ templates differ from the phase-d data:
    child to be added, but the parent's close happened first, so
    `parent-child` groups the findings here and does not act as a closure gate.
 2. C2: the reopen and append-notes flow versus one checker bead per round.
-3. Q3: sanity-FAIL findings are children of the dev bead today. Do they move
-   under the sprint container in the target model?
+
+Q3 (decided): sanity-FAIL findings stay children of the dev bead. bd will not
+close a bead while a child is open, so they hold the dev bead open, and in the
+target model the dev bead holds its sprint open (04, 4d).

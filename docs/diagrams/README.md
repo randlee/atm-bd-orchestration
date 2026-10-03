@@ -1,16 +1,20 @@
 # Bead relationship diagrams (for review)
 
 These diagrams are for Rand to review. They change no code. Nothing in them is
-adopted until Rand approves it; every choice still open is listed below under
-"Open decisions" and is drawn on the diagram it affects.
+adopted until Rand approves it. Rand's rulings are listed under "Decided".
+Every choice still open is listed under "Open decisions" and is drawn on the
+diagram it affects.
 
 The to-be diagrams draw Rand's target model. The sprint bead is a container
 with three children: the assigned dev task, the sanity task and the QA task.
 Blocking findings from a failed QA become children of the sprint bead, so the
 sprint cannot close until they are fixed. Each blocking finding gets its own
-fix, sanity and QA group. A dependent sprint `blocks` either on the
-predecessor's initial sanity bead ("normal") or on its sprint bead
-("tight"). An sc-compose beads formula pours both kinds of group.
+fix, sanity and QA group. Important and minor findings are filed against the
+phase instead and never block a sprint. A dependent sprint `blocks` either on
+the predecessor's initial sanity bead ("normal") or on its sprint bead
+("tight"). An sc-compose beads formula pours both kinds of group. A mock
+script stands in for sc-compose until its attach operation exists. A
+post-pour step then adds the edges a formula cannot express.
 
 The starting point is the existing schema and validator:
 `plugins/atm-bd-orchestration/skills/atm-beads/scripts/bead_schema.py`
@@ -21,12 +25,12 @@ and QA models, and to add an ATM-to-bead alignment check.
 | File | Level | Shows |
 | --- | --- | --- |
 | [01-phase-as-is.md](01-phase-as-is.md) | phase | root, sprints, cross-sprint edges, plan review, phase-end review, release, workflow-issue beads, `sprints.jsonl`, as they are today |
-| [02-phase-to-be.md](02-phase-to-be.md) | phase | the same with sprint containers, poured triples and `current-phase.toml` |
+| [02-phase-to-be.md](02-phase-to-be.md) | phase | the same with sprint containers, poured groups, "normal" and "tight" edges, the phase-level home of important and minor findings, `current-phase.toml` |
 | [03-sprint-as-is.md](03-sprint-as-is.md) | sprint | phase-d data for one sprint, and what the package templates and scripts create today |
 | [04-sprint-to-be.md](04-sprint-to-be.md) | sprint | the sprint triple, the blocking-finding triple, a second fix round, with schema models |
 | [05-lifecycle.md](05-lifecycle.md) | sprint | ready, claim and close order; where verdict, severity and round are written; where the logs are appended; edge-per-pair options A, B and C |
 | [06-correlation.md](06-correlation.md) | phase | bead id equals ATM task id, `current-phase.toml`, the ATM-to-bead alignment check |
-| [07-sc-compose-formula.md](07-sc-compose-formula.md) | detail | formula inputs, file location, the exact beads and edges poured for a sprint and for a blocking finding, resume-safe attach |
+| [07-sc-compose-formula.md](07-sc-compose-formula.md) | detail | the three stages (sc-compose pour, post-pour step, hand or script), formula inputs, package location and future repo override, the exact beads and edges poured for a sprint and for a blocking finding, resume-safe attach |
 
 ## Conventions used in every diagram
 
@@ -36,15 +40,21 @@ and QA models, and to add an ATM-to-bead alignment check.
   depends on, and its label is the exact bd dependency type. `A -->|blocks| B`
   means A waits for B. `A -->|parent-child| B` means A is a child of B.
   `A -->|discovered-from| B` means A was found while working B.
-- Who creates a bead or edge:
-  - **poured**: a dashed, bold node inside a subgraph titled
-    "poured by `<formula>`". A thick arrow (`==>`) is an edge the formula pours.
-  - **script**: a dotted arrow (`-.->`) is an edge a package script adds,
-    because a formula cannot express it (see 07).
-  - **template**: a rendered `.json.j2` template loaded with `bd import`.
-  - **hand**: the lead runs `bd create` or `bd dep add`.
-  - Files (not beads) are drawn as parallelograms. A dashed arrow to or from a
-    file is a lookup, not a bd edge.
+- Who creates a bead or edge. There are three stages:
+  1. **poured by sc-compose (mock for now)**: a dashed, bold purple node
+     inside a subgraph titled "poured by sc-compose (mock): `<formula>`". A
+     thick arrow (`==>`) is an edge the formula pours. A formula can pour only
+     `parent-child` (attach) and `blocks` between its own steps.
+  2. **added by the post-pour step**: a dotted arrow (`-.->`) labeled with a bd
+     type. The post-pour step runs right after the pour and adds `validates`,
+     `discovered-from` and cross-sprint `blocks`.
+  3. **created by hand or by a script**: solid nodes and solid arrows (`-->`).
+     This covers a template rendered and loaded with `bd import`, a package
+     script such as `sanity-create-findings`, and the lead running `bd create`
+     or `bd dep add`. Node colors say which: blue for a template, green for a
+     script, orange for hand.
+  - Files (not beads) are drawn as parallelograms. A dashed arrow whose label
+    is not a bd type, to or from a file, is a lookup, not a bd edge.
 - bd facts verified on bd 1.3.0 (5f99d05f) in a scratch database on
   2026-10-03:
   - bd keeps one dependency type per bead pair. Adding `blocks` where
@@ -56,11 +66,31 @@ and QA models, and to add an ATM-to-bead alignment check.
   - `bd close` refuses a parent that has open children unless `--force` is
     passed.
 
+## Decided (Rand, 2026-10-03)
+
+| # | Decision | Ruling | On |
+| --- | --- | --- | --- |
+| Q1 | Fix groups for blocking findings | Every blocking finding gets its own fix bead, plus its own sanity and QA beads, independent of every other finding: one finding, one fix, as in the old triage/TTL model. Drawn under the finding, so the finding stays open until its group closes (see the note below). | 04, 07 |
+| Q2 | Important and minor findings | Filed against the phase, normally under a feature bead, not under the sprint. Idle dev agents pick them up by priority. They never block a sprint from closing. | 02, 04 |
+| Q3 | Sanity-FAIL findings | bd will not close a bead while any child is open. Sanity findings are children of the dev bead, so they hold the dev bead open, and the dev bead holds its sprint open. | 03, 04, 05 |
+| Q4 | Who closes the sprint bead | The team lead closes it once all of its blocking findings are closed. | 02, 04, 05 |
+| N1 | Where formulas live | In the package for now: `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/formulas/`. Later (future), a repo may hold an override of the package default. | 07 |
+| N4 | Who adds the edges a formula cannot express | sc-compose pours each formula (a mock script for now, while a separate agent writes it). A post-pour step then adds `validates`, `discovered-from` and cross-sprint `blocks`. | 02, 04, 07 |
+
+Note on Q1: the ruling fixes one independent group per blocking finding. The
+diagrams attach that group under the finding, because then bd's closure rule
+(Q3) keeps the finding open until its fix, sanity and QA close. If the group
+should sit under the sprint instead, only the target of the three
+`parent-child` edges changes.
+
+Note on E1 option B: with the post-pour step, option B is feasible. The
+formula pours the sanity bead, and the post-pour step adds its `validates`
+edge. Its trade-off is unchanged: plain `bd ready` stops being the queue.
+
 ## Open decisions
 
 Each decision is numbered and drawn on the diagram it affects. C, E and T
-items come from the review brief. Q items are questions put to Rand about his
-target model. N items surfaced while drawing.
+items come from the review brief. N items surfaced while drawing.
 
 | # | Decision | Options | On |
 | --- | --- | --- | --- |
@@ -73,16 +103,14 @@ target model. N items surfaced while drawing.
 | C7 | Types for workflow-issue class beads (chore?) and for the phase release bead | Pick a type for each, so classification needs no catch-all | 01, 02 |
 | C8 | Phase-d label data | One-time migration script after phase-d ends, with no runtime label parsing; or keep reading labels | 01, 03 |
 | E1 | Edge per pair: the same pair cannot carry both "sanity `validates` dev" and "sanity `blocks` on dev" | A, B or C. Each is drawn with its trade-off in 05; none is recommended. | 04, 05, 07 |
-| Q1 | Where each blocking finding's fix, sanity and QA group attaches | (a) under the finding, which then works as a container and closure gate, or (b) under the sprint, with an edge tying the finding to its group | 04, 07 |
-| Q2 | Do `important` findings count as blocking? | Policy treats important as a FAIL. Important and minor findings must not be children of the sprint, or they block its close. Where do they live? | 04, 07 |
-| Q3 | Sanity-FAIL findings | They are children of the dev bead today. Do they also go under the sprint and get a group? | 03, 04, 05 |
-| Q4 | Who closes the sprint container, and when | bd never closes a parent automatically. The same question applies to a finding under Q1 (a). | 02, 04, 05 |
 | T1 | Classification | Use `issue_type` (built-in, or custom via `bd config set types.custom`, which is per database) or schema metadata. Either way, no `stage:` labels. | 02, 04 |
-| N1 | Where the formula source lives | (a) the package, (b) the sc-compose fragment library, or (c) each consuming repo. ADR-0021 fixes only where the rendered formula goes. | 02, 04, 07 |
 | N2 | Ids of poured beads | `sprints.jsonl` names each sanity bead id at plan time. Native `bd mol bond --ref` makes ids like `<parent>.<ref>.<step>`, and plain `bd mol pour` makes generated ids. | 02, 07 |
 | N3 | Which bead validates against `SprintBead` | the sprint container (deliverables, branch, `pr_target`), or the dev child. `SanityBead.metadata.dev_bead` must name the bead its `blocks` edge points at. | 04 |
-| N4 | Who adds edges a formula cannot express | Formula steps can only `needs`/`depends_on` sibling steps (`blocks`). Cross-sprint `blocks`, `discovered-from` and `validates` must be added by (a) the sc-compose attach operation (#613) or (b) a package script after the pour. | 07 |
 | N5 | Intermediate workflow container | #613 asks whether children attach directly under the sprint or under a molecule root | 07 |
 | N6 | Encoding "tight" in `sprints.jsonl` | add a field to the tuple, or name the predecessor's sprint id instead of its sanity id | 02 |
+| N7 | Future repo override of a package formula | where the override lives, and how the default is chosen when there is none | 07 |
+| N8 | Owner of the post-pour step | a package script, or part of the mock and later of the sc-compose attach operation | 07 |
+| N9 | Sanity finding provenance | add a `discovered-from` edge to the sanity bead, or keep only `metadata.sanity_finding.sanity_bead` as today | 04 |
+| N10 | Who closes a blocking finding | the lead after its fix QA PASS, or the fix QA itself | 05 |
 
 Live bugs D1 to D7 are deliberately left out of these diagrams.

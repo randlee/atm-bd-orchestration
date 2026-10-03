@@ -13,7 +13,7 @@ sequenceDiagram
   participant Q as quality-mgr
   participant G as logs in .sc
 
-  Note over L,B: plan import: sprint container from sprint-bead.json.j2,<br/>then the sprint formula attaches dev, sanity, qa (07)
+  Note over L,B: plan import: sprint container from sprint-bead.json.j2,<br/>then sc-compose (mock) pours dev, sanity, qa and the post-pour step adds edges (07)
   L->>B: bd ready
   B-->>L: dev (sanity and qa are gated: E1, qa blocks sanity)
   L->>A: atm task assign D --task-id dev-bead-id
@@ -29,23 +29,26 @@ sequenceDiagram
   alt PASS
     S->>B: bd close sanity, verdict PASS + round (C1, today close_reason "PASS at sha")
   else FAIL
-    S->>B: file sanity findings (Q3), sanity stays open today (C1, C2)
+    S->>B: sanity-create-findings: children of dev (Q3), sanity stays open today (C1, C2)
+    L->>B: reopen dev, assign dev-fix. Dev cannot close until its sanity findings close (Q3)
   end
   S->>A: atm task close same-id
   L->>B: bd ready
   B-->>L: qa
   L->>A: atm task assign Q --task-id qa-bead-id
   Q->>B: claim qa
-  Q->>B: file findings: FindingBead, metadata.severity, parent-child sprint (blocking), discovered-from qa
+  Q->>B: blocking findings: FindingBead, parent-child sprint, discovered-from qa
+  Q->>B: important and minor findings: parent-child phase feature bead, discovered-from qa (Q2)
   Q->>G: append .sc/qa-log/phase-p.jsonl and phase-p-stats.jsonl
   Q->>B: bd close qa, verdict + round (C1, today metadata.round + close_reason "FAIL: n findings filed")
   Q->>A: atm task close same-id completed
-  loop each open blocking finding
-    L->>B: pour finding formula, round n (07)
+  loop each open blocking finding, independently (Q1)
+    L->>B: sc-compose pour (mock) finding formula, round n, then the post-pour step (07)
     Note over L,Q: fix, fix sanity, fix qa run in the same order as dev, sanity, qa<br/>and append the same logs. Fix qa FAIL means pour round n+1, never reopen (C2).
-    L->>B: close the finding after its fix qa PASS (Q4)
+    L->>B: close the finding after its fix qa PASS
   end
-  L->>B: bd close sprint container when no child is open (Q4)
+  L->>B: team lead closes the sprint container once all its blocking findings are closed (Q4)
+  Note over L,D: important and minor findings stay under the phase feature bead.<br/>Idle dev agents pick them up by priority. They never hold a sprint open (Q2).
 ```
 
 **Legend.** Each `atm task` id equals the bead id (06). Where each fact is
@@ -72,8 +75,13 @@ check closes.
    releases the next sprint's "normal" dependency (02). Either a sanity FAIL
    keeps the bead open, as today, or gating reads `verdict` instead of
    status.
-3. Q3: where sanity-FAIL findings live, and whether they get a group.
-4. Q4: who closes a finding and the sprint container, and when.
+3. N10: who closes a blocking finding: the lead after its fix QA PASS (as drawn),
+   or the fix QA itself.
+
+Decided (Rand): Q1, one independent group per blocking finding; Q2,
+important and minor findings sit under a phase feature bead; Q3, sanity
+findings hold the dev bead open and so hold the sprint open; Q4, the team
+lead closes the sprint once all of its blocking findings are closed.
 
 ## 5b. E1: the edge-per-pair options for dev and sanity inside the sprint
 
@@ -121,8 +129,10 @@ flowchart LR
 ```
 
 Trade-off: the edge correlates sanity to dev explicitly, but plain `bd ready`
-stops being the queue. The `SanityBead` model, which requires a `blocks`
-edge, must change. A formula step cannot pour `validates` (N4).
+stops being the queue. The option is feasible with the post-pour step:
+sc-compose pours the sanity bead, and the post-pour step adds its `validates`
+edge (dotted). The `SanityBead` model, which requires a `blocks` edge, must
+change.
 
 **Option C: keep the existing schema**
 
