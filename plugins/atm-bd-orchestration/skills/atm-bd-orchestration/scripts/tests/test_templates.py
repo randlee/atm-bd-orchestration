@@ -247,8 +247,8 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         step_g = out[out.index('<step id="g">'):out.index('<step id="h">')]
         self.assertIn("Do not screen or file new findings", step_g)
         self.assertNotIn("bd import", step_g)
-        self.assertIn("reconcile the original finding's closure", step_g)
-        self.assertIn("PASS requires every carried finding verified fixed.", out)
+        self.assertNotIn("bd close <finding>", step_g)  # the fixer closes; verification confirms or reopens
+        self.assertIn("PASS requires a PASS from the filing reviewer and every carried finding confirmed fixed and closed.", out)
 
     def test_fix_round_with_empty_scope_fails(self):
         for scope in (None, "[]", "[ ]", "", "  ", "null"):
@@ -284,8 +284,8 @@ class PlanFixRoundTests(unittest.TestCase):
     def test_round_one_is_the_full_plan_review(self):
         out = _render(self.PLAN, _example("plan-review-template-vars.json"))
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertIn("run `req-qa` and `arch-qa` as background agents", out.stdout)
-        self.assertIn("run `plan-scope-reviewer` over the whole set", out.stdout)
+        self.assertIn("Run `req-qa` and `arch-qa` as background agents", out.stdout)
+        self.assertIn("Run `plan-scope-reviewer` over the whole set", out.stdout)
         self.assertIn("Run `ceremony-finding-screen`", out.stdout)
         self.assertNotIn("fix-round-scope", out.stdout)
         self.assertIn("`<bead> <severity> <reviewer> <field>: <what is wrong>`", out.stdout)
@@ -297,7 +297,7 @@ class PlanFixRoundTests(unittest.TestCase):
         self.assertIn("<fix-verification-precedence>", text)
         self.assertIn("fix-round-scope owned --plan --carried", text)
         self.assertIn("fix-round-scope check --plan --carried", text)
-        self.assertNotIn("run `req-qa` and `arch-qa` as background agents", text)
+        self.assertNotIn("Run `req-qa` and `arch-qa` as background agents", text)
         self.assertNotIn("over the whole set", text)
         self.assertNotIn("Run `ceremony-finding-screen`", text)
         self.assertIn("files no new findings", text)

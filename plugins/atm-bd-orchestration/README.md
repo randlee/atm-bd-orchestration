@@ -132,7 +132,7 @@ clone). CI (`.github/workflows/tests.yml`) runs all of them on ubuntu and macos.
 
 Sources: sc-observability `develop` at f2ebe1bc plus open PR #933 at 07ad4d26
 (`fix/jev-post-mortem-workflow`, the JEV post-mortem role and context workflow)
-and open PR #966 at 12be0fad (`fix/dev-sanity-triage`, dev-sanity selection, with
+and open PR #966 at 05367233 (`fix/dev-sanity-triage`, dev-sanity selection, with
 #967's filing-reviewer-only fix verification merged in),
 with every repository- and team-specific string replaced by an install-time value
 or a neutral example. Recheck the JEV files if #933 changes before it merges.
@@ -148,7 +148,7 @@ until upstream carries it, then drops it from this list.
   required `difficulty` rendered into `metadata`, `stage:sprint` label) and
   `skills/atm-beads/examples/sprint-bead-vars-d-{4,5}.json` (`difficulty`).
 - Fix verification is upstream for QA (sc-observability 18d7158f) and for plan
-  review (PR #967, carried by #966 at 12be0fad): a fix is verified only by its
+  review (PR #967, carried by #966 at 05367233): a fix is verified only by its
   filing reviewer, locked to the original finding, with no req-qa/arch-qa
   re-run, no ceremony screen and no new findings. Still package-only:
   - Plan finding lines name their filing reviewer,

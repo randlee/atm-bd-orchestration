@@ -110,27 +110,10 @@ in scope, as `quality-mgr.md` ("Reviewer Selection") says.
 
 ### Fix verification takes precedence
 
-A review of an assigned fix is not a sprint review, regardless of its round
-number or inherited `review_mode`. Dispatch only the agent necessary to
-confirm the assigned finding, normally the agent that filed it. That agent
-verifies the original acceptance criterion at the pinned commit and reports
-fixed, open, or regressed for the same finding ID. It files no new findings.
-Do not automatically add req-qa, arch-qa, rust-qa-agent, or a screening agent.
-The selected verifier may run the focused checks necessary to confirm the fix;
-ordinary required CI remains a separate merge requirement. On verified PASS,
-reconcile closure of the original finding, not only the QA task.
-
-For a fix-verification review (`carry_forward` set; independent of sprint
-round numbering):
-- dispatch only the reviewer necessary to confirm the original finding,
-  normally its filing agent (the carried finding bead's `metadata.reviewer`);
-  there is no mandatory multi-agent reviewer set
-- lock the assignment to the original finding ID (`metadata.finding_ref`) and
-  acceptance criterion
-- run only checks necessary to confirm that fix; do not expand to a sprint sweep
-- report fixed/open/regressed for the existing finding, and file no new findings
-- when fixed, reconcile the original finding bead's verified closure with its
-  owner
+A fix round (`carry_forward` set) dispatches only each carried finding's
+filing reviewer, locked to the carried finding ids and their original
+acceptance criteria: no req-qa/arch-qa/rust-qa or screening panel, no sweep,
+no new findings. Required CI stays a separate merge requirement.
 
 `scripts/fix-round-scope` enforces the dispatch set and the lock; the
 assignment's step d says how.
@@ -200,8 +183,7 @@ screen said. What happens next depends on the verdict:
 - Ids are `<qa bead>-f<n>`, numbered in report order.
 - Every finding closes with a close reason. You close ceremony findings. The
   fixer closes the rest, as fixed or not reproducible. In a fix round you
-  file no finding beads: you note each confirmed fix, reconcile the original
-  finding bead's closure, and reopen each carried finding that regressed or
+  note each confirmed fix and reopen each carried finding that regressed or
   is still open (`bd reopen`).
 
 Do not assign findings. The lead picks the member for each one.
