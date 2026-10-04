@@ -14,7 +14,7 @@ flowchart LR
   end
   ROOT["p-phase-d root bead<br/>metadata.integration_branch"]:::tmpl
   SJ[/"sprints.jsonl on origin/integration_branch"/]:::file
-  BEAD["bead under the root<br/>id = p-d-29-sanity"]:::tmpl
+  BEAD["bead under the root<br/>id = p-d-29-sanity<br/>(dev, fix, sanity or qa child of a sprint)"]:::tmpl
   TASK["ATM task<br/>task id = p-d-29-sanity<br/>assigned, active or closed"]:::atm
 
   TOML -. "root" .-> ROOT
@@ -31,6 +31,22 @@ repository, and the integration branch. Beads and ATM tasks are joined by
 identical ids: work is assigned with `atm task assign <member> --task-id
 <bead id>`. The arrow from the root to a bead is the parent-child chain
 followed downward, not a single edge.
+
+Under the flat fix model (decided 2026-10-03) every poured bead (dev, sanity,
+qa, and each blocking finding's fix, sanity, qa) is a direct child of a sprint
+container, so for those the chain is root, sprint, child. Each is one ATM
+task, held by the member that closes it:
+
+| Bead | ATM task held by | Template |
+| --- | --- | --- |
+| dev | dev member | `dev-template.xml.j2` (`dev-fix.xml.j2` after a sanity FAIL) |
+| fix (one per blocking finding, carries the finding's metadata) | dev member | `fix-assignment.xml.j2` |
+| sanity (sprint or fix group) | dev-sanity (`agents/dev-sanity.md`, spawns `sc-sanity-jev` and `sc-sanity-llm`) | `dev-sanity-template.xml.j2` |
+| qa (sprint or fix group) | quality-mgr | `qa-template.xml.j2` |
+| important or minor finding (under the phase feature bead) | an idle dev, by priority | not decided |
+
+The sprint container is closed by the team lead once every blocking fix group
+is closed.
 
 **Open decisions**
 

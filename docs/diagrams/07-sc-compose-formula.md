@@ -9,10 +9,13 @@ Sources:
   at sc-compose 58f4d00): the `sc-compose/beads/v1` request contract.
 - `sc-compose bead --help` (1.6.1) and `bd formula schema step` (bd 1.3.0).
 
-Neither formula exists yet. The attach operation #613 asks for does not exist
-in sc-compose 1.6.1, which offers `render`, `validate`, `preview-pour` and
-`pour`. Until it exists, a mock script stands in for the sc-compose pour. A
-separate agent is writing that mock now.
+Both formulas, the mock and the post-pour step are implemented in PR #19
+(open): `scripts/sc-compose-pour-mock` stands in for the sc-compose pour, and
+`scripts/bead-groups` (under
+`plugins/atm-bd-orchestration/skills/atm-bd-orchestration/`) runs the pour and
+then adds the edges a formula cannot express, over the same targets. The
+attach operation #613 asks for does not exist in sc-compose 1.6.1, which
+offers `render`, `validate`, `preview-pour` and `pour`.
 
 Decided (Rand):
 
@@ -27,12 +30,21 @@ Decided (Rand):
 - **N8:** the post-pour script runs after planning and before plan review. It
   takes one sprint, a list of sprint beads, or every sprint in a phase. It has
   a validate mode, and it fills in only what is missing, so it is safe to
-  re-run after sprints are added. Planning itself stays out of it.
-- **Q1:** a finding group attaches under the finding. The sc-compose beads
+  re-run after sprints are added. Planning itself stays out of it. PR #19
+  implements it as `scripts/bead-groups`.
+- **Q1:** one independent group per blocking finding. The sc-compose beads
   formula will be extended for "advanced pouring", building on the formula's
   existing YAML variable header (the front matter that declares
   `required_variables` and defaults, as in the package `.j2` templates). The
   extension lands there, in sc-compose, not in the package.
+- **Flat fix model (2026-10-03, supersedes "the group attaches under the
+  finding"):** `finding-group.formula.toml.j2` attaches to the sprint as
+  parent. Its three steps, `fix ← sanity ← qa`, are siblings of the sprint's
+  own `dev ← sanity ← qa`. There is no finding container. The fix bead is the
+  dev's assigned task and carries the finding's metadata; its instructions
+  are in `fix-assignment.xml.j2`.
+- **N11 (2026-10-03):** quality-mgr runs the finding-group pour and its
+  post-pour edges with `scripts/bead-groups`, before it closes the QA bead.
 
 ## 7a. The three stages, inputs, and where the formula is defined
 
@@ -54,19 +66,21 @@ flowchart TB
   end
 
   PLAN["planning: sprint containers from sprint-bead.json.j2 + bd import,<br/>sprints.jsonl committed"]:::hand
-  PPS["post-pour script (N8)<br/>input: one sprint, a list of sprint beads, or a whole phase<br/>validate mode: report what is missing, write nothing<br/>otherwise: create only what is missing"]:::post
+  PPS["scripts/bead-groups (N8, PR #19)<br/>input: one sprint, a list of sprint beads, or a whole phase<br/>validate mode: report what is missing, write nothing<br/>otherwise: create only what is missing"]:::post
   REQ[/"request JSON, schema sc-compose/beads/v1<br/>template, rendered_formula, formula_name<br/>compose_variables: members, sprint or finding fields<br/>bead_variables: parent, sprint, phase, stack, round<br/>pour_authorization CreatePersistentBeads"/]:::file
 
   subgraph S1["stage 1: poured by sc-compose (mock for now)"]
     POUR["render, bd cook --dry-run, bd where,<br/>attach under parent (#613, mock until built)<br/>pours: beads + parent-child + blocks between its own steps"]:::poured
   end
   RCPT[/"receipt: parent id to poured ids (#613)"/]:::file
-  subgraph S2["stage 2: post-pour script adds edges"]
+  subgraph S2["stage 2: bead-groups adds edges after the pour"]
     PP["validates, discovered-from,<br/>cross-sprint blocks (from sprints.jsonl)"]:::post
   end
   REVIEW["plan review (plan-review bead)"]:::hand
 
+  QM["quality-mgr at QA FAIL, before closing qa (N11):<br/>bead-groups for each blocking finding, parent = the sprint"]:::hand
   PLAN --> PPS
+  QM -- "finding-group.formula.toml.j2" --> REQ
   PKG --> REQ
   OVR -. "if present, used instead of the package default" .-> REQ
   PPS -- "for each sprint with no group" --> REQ
@@ -101,11 +115,9 @@ So the pour itself cannot create `validates`, `discovered-from`, or an edge to
 a bead outside the formula (#613: "A formula dependency on an external sprint
 fails as an unknown step"). Those are stage 2.
 
-**Open decisions**
-
-1. N11: the post-pour script is defined over sprint beads. Does the same
-   script, or the lead by hand, run the finding-group pour and its edges when
-   QA files a blocking finding?
+N11 is decided (2026-10-03): quality-mgr runs `scripts/bead-groups` for each
+blocking finding, which pours the finding-group formula onto the sprint and
+adds its post-pour edges, before it closes the QA bead.
 
 ## 7b. Sprint formula: the exact beads and edges, by stage
 
@@ -119,7 +131,7 @@ flowchart TB
   MOL["molecule root (N5: only if attach<br/>goes through an intermediate container)"]:::open
   subgraph POUR["poured by sc-compose (mock): sprint-group formula"]
     DEV["step dev<br/>type: T1, assignee: dev member<br/>metadata: sprint, phase, stack"]:::poured
-    SAN["step sanity: gate, needs dev (A, C)<br/>assignee: dev-sanity role (atm-sanity)<br/>metadata.dev_bead (as today, N9)"]:::poured
+    SAN["step sanity: gate, needs dev (A, C)<br/>assignee: dev-sanity (agents/dev-sanity.md)<br/>metadata.dev_bead (as today, N9)"]:::poured
     QA["step qa, needs sanity<br/>type: T1, assignee: qa_member<br/>metadata: checked_bead, round = 1"]:::poured
   end
   NEXT["next sprint container (stage 3)"]:::tmpl
@@ -166,39 +178,44 @@ it until then.
 flowchart TB
   classDef tmpl fill:#e8f0fe,stroke:#3367d6,color:#000
   classDef poured fill:#f3e8fd,stroke:#8430ce,stroke-width:3px,stroke-dasharray:6 3,color:#000
+  classDef closed fill:#e0e0e0,stroke:#757575,color:#000
 
-  SPR["p-d-29 sprint container"]:::tmpl
-  QA1["p-d-29 qa round 1 (closed, FAIL)"]:::tmpl
-  F["p-d-29-qa1-f3 blocking finding (stage 3: QA, finding-bead.json.j2)<br/>bead_variables.parent = the finding (Q1)<br/>bead_variables.round = n"]:::tmpl
-  subgraph POUR["poured by sc-compose (mock): finding-group formula, round n"]
-    FX["step fix<br/>id suffix -rn"]:::poured
-    FS["step fix-sanity: gate, needs fix (A, C)<br/>metadata.dev_bead (N9)"]:::poured
-    FQ["step fix-qa, needs fix-sanity<br/>metadata: checked_bead, round = n"]:::poured
+  SPR["p-d-29 sprint container<br/>bead_variables.parent = the sprint<br/>bead_variables.round = n"]:::tmpl
+  QA1["p-d-29 qa round 1 (FAIL)<br/>closed by quality-mgr after this pour"]:::closed
+  subgraph POUR["poured by sc-compose (mock), run by quality-mgr via bead-groups: finding-group formula, finding f3, round n"]
+    FX["step fix: the dev's assigned task<br/>metadata: the finding's severity, found_at_commit,<br/>reviewer, finding_ref, requirements, adrs, round<br/>instructions: fix-assignment.xml.j2<br/>id suffix -rn"]:::poured
+    FS["step fix-sanity: gate, needs fix (A, C)<br/>assignee: dev-sanity, metadata.dev_bead (N9)"]:::poured
+    FQ["step fix-qa, needs fix-sanity<br/>assignee: quality-mgr<br/>metadata: checked_bead, round = n"]:::poured
   end
 
-  F -->|parent-child| SPR
-  F -->|discovered-from| QA1
-  FX ==>|parent-child| F
-  FS ==>|parent-child| F
-  FQ ==>|parent-child| F
+  FX ==>|parent-child| SPR
+  FS ==>|parent-child| SPR
+  FQ ==>|parent-child| SPR
   FS ==>|"blocks (needs fix): E1 A, C"| FX
   FQ ==>|"blocks (needs fix-sanity)"| FS
   FQ -.->|"validates (C3)"| FX
+  FX -.->|discovered-from| QA1
 ```
 
 **Legend.** One pour per blocking finding, independent of every other finding
-(Q1, decided). The finding itself is stage 3: QA files it from
-`finding-bead.json.j2`, and that import creates its `parent-child` and
-`discovered-from` edges. The post-pour script adds `discovered-from` only when a
-bead is not created by that template. A second round is the same formula
-poured again with `round = n+1` (04c). quality-mgr closes the finding
-after the filing reviewer verifies the fix (N10). Important and minor findings get no
-pour; they wait under the phase feature bead (Q2, 02b).
+(Q1). The formula attaches to the sprint as parent, so the three steps are
+siblings of the sprint's own dev, sanity and qa (flat fix model, decided
+2026-10-03). There is no separate blocking-finding bead: the fix step carries
+the finding's metadata, and the fix's `discovered-from` edge to the QA bead
+that found it is a post-pour edge (dotted), since a formula cannot express it.
+A second round is the same formula poured again onto the sprint with
+`round = n+1` (04c). The dev closes the fix, dev-sanity closes the fix sanity
+on PASS only, and quality-mgr closes the fix qa. Important and minor findings
+get no pour; they are plain finding beads under the phase feature bead (Q2,
+02b). PR #19 currently takes `--finding ID --round N` and attaches under the
+finding; under this ruling its `parent` variable is the sprint. This flat
+one-finding-one-fix shape is new structure relative to phase-d (03, 3c), and
+migrating the phase-d data is post-phase-d work.
 
 **Open decisions**
 
 1. N2: round-unique ids (`-r1`, `-r2`) as a formula input.
-2. C3: whether the fix QA validates the fix bead or the finding.
+2. C3: whether the fix QA validates the fix bead (as drawn) or the fix sanity.
 
 ## 7d. Resume-safe attach onto an existing parent (#613)
 

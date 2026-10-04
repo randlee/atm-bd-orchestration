@@ -5,11 +5,15 @@ The plan import creates it from a template, as today. At plan completion,
 sc-compose pours the sprint formula onto it (a mock script stands in until
 the sc-compose attach operation exists), and the post-pour script adds the
 edges a formula cannot express (07). The script runs after planning and before
-plan review (N8, decided). The container cannot close while any
-child is open, and blocking findings become children of the sprint (04). The
-team lead closes the sprint once all of its blocking findings are closed (Q4,
-decided). Important and minor findings live at the phase level and never
-block a sprint (Q2, decided; 2b).
+plan review (N8, decided). PR #19 implements the pour and the post-pour step
+as `scripts/bead-groups`. The container cannot close while any child is open.
+When QA fails, quality-mgr pours one flat `fix ← sanity ← qa` group per
+blocking finding as siblings directly under the sprint, before it closes qa
+(04, decided 2026-10-03). The team lead closes the sprint once every blocking
+fix group is closed. Important and minor findings are plain finding beads at
+the phase level, never poured, and never block a sprint (Q2, decided; 2b).
+Flat one-finding-one-fix is new structure relative to phase-d (03, 3c), and
+migrating the phase-d data is post-phase-d work.
 
 The classes below still say `task` or `epic`, because the type is an open
 decision (T1, C7).
@@ -25,7 +29,7 @@ flowchart TB
   ROOT["p-phase-d (phase root)<br/>epic or feature<br/>model: RootBead (proposed)<br/>metadata: plan_scope, phase, integration_branch"]:::tmpl
   PQA["p-phase-d-plan-qa<br/>plan review checker, one bead per round (C2)<br/>model: QaBead (proposed)"]:::hand
 
-  SA["p-d-28 sprint container<br/>model: SprintBead (N3)<br/>template: sprint-bead.json.j2<br/>closed by the team lead (Q4)"]:::tmpl
+  SA["p-d-28 sprint container<br/>model: SprintBead (N3)<br/>template: sprint-bead.json.j2<br/>closed by the team lead"]:::tmpl
   subgraph POURA["poured by sc-compose (mock): sprint formula onto p-d-28"]
     DA["p-d-28 dev"]:::poured
     NA["p-d-28 sanity (initial)"]:::poured
@@ -37,6 +41,12 @@ flowchart TB
     DB["p-d-29 dev"]:::poured
     NB["p-d-29 sanity (initial)"]:::poured
     QB["p-d-29 qa"]:::poured
+  end
+
+  subgraph POURF["poured by quality-mgr via bead-groups: finding-group onto p-d-28 (one blocking finding)"]
+    FXA["p-d-28 f3 fix: the dev's task"]:::poured
+    FSA["p-d-28 f3 fix sanity"]:::poured
+    FQA["p-d-28 f3 fix qa"]:::poured
   end
 
   SC["p-d-30 sprint container<br/>tight dependency on p-d-28"]:::tmpl
@@ -56,6 +66,11 @@ flowchart TB
   QA_A ==>|blocks| NA
   NB ==>|"E1: blocks (poured) or validates (post-pour)"| DB
   QB ==>|blocks| NB
+  FXA ==>|parent-child| SA
+  FSA ==>|parent-child| SA
+  FQA ==>|parent-child| SA
+  FSA ==>|E1| FXA
+  FQA ==>|blocks| FSA
 
   SB -.->|"blocks (normal)"| NA
   SC -.->|"blocks (tight)"| SA
@@ -72,12 +87,14 @@ from either.
   its first sanity check.
 - **tight**: the dependent sprint container `blocks` on the predecessor's
   sprint container, so it waits until the team lead closes it, which happens
-  once every blocking finding is closed (Q4).
+  once every blocking fix group (here p-d-28's f3 group) is closed.
 
 Verified on bd 1.3.0: a `blocks` edge on a container hides all of its
 children from `bd ready`. So both cross-sprint edges can sit on the dependent
-container, not on its dev child. The intra-sprint edges are drawn in detail in
-04.
+container, not on its dev child. A fix group is a sibling of the sprint's own
+group, so "normal" is unaffected by it (the initial sanity bead is already
+closed) while "tight" waits for it. The intra-sprint edges are drawn in detail
+in 04.
 
 **Open decisions**
 
@@ -133,10 +150,11 @@ flowchart TB
   ROOT -. "integration_branch locates" .-> SJ
 ```
 
-**Legend.** Q2 (decided): important and minor findings are filed against the
-phase, normally under a feature bead, not under the sprint. They are never
-children of a sprint container, so they never hold one open. QA files them
-from `finding-bead.json.j2` with `parent` = the feature bead and
+**Legend.** Q2 (decided): important and minor findings are plain finding
+beads filed against the phase, normally under a feature bead, not under the
+sprint. They are not poured. They are never children of a sprint container,
+so they never hold one open, and idle devs pick them up by priority.
+quality-mgr creates them before it closes the QA bead that found them, from `finding-bead.json.j2` with `parent` = the feature bead and
 `discovered-from` = the QA bead that found them. Both edges are created by
 the template import, not by a formula. Phase-wide checkers and the release
 bead are made by hand or from templates. `current-phase.toml` is the

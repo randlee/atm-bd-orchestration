@@ -30,7 +30,7 @@ flowchart TB
 and the dev bead are the same bead. The sanity bead is a sibling of the dev
 bead under the root, not its child. QA has no edge to the sanity bead.
 Findings sit flat under the dev bead. Fixes were batched into one bead, with
-no triple per finding. Phase-wide counts: QA `blocks` sanity on 365 edges;
+no triple per finding (3c shows the fix beads in detail). Phase-wide counts: QA `blocks` sanity on 365 edges;
 finding `discovered-from` QA on 779 edges; no finding is `discovered-from` a
 sanity bead; only 2 `validates` edges. The verdict and the pinned sha are
 parsed from `close_reason`.
@@ -104,3 +104,50 @@ templates differ from the phase-d data:
 Q3 (decided): sanity-FAIL findings stay children of the dev bead. bd will not
 close a bead while a child is open, so they hold the dev bead open, and in the
 target model the dev bead holds its sprint open (04, 4d).
+
+## 3c. Phase-d data: the fix beads
+
+Checked 2026-10-03 against all 14 fix beads in sc-obs phase-d.
+
+```mermaid
+flowchart TB
+  classDef tmpl fill:#e8f0fe,stroke:#3367d6,color:#000
+  classDef hand fill:#fff4e5,stroke:#e8710a,color:#000
+
+  SPR["p-d-29 = sprint bead = dev bead"]:::tmpl
+  F1["p-d-29-qa1-f1 .. fN<br/>findings"]:::tmpl
+  FIXA["p-d-29-qa1-fixes<br/>one fix bead for several findings"]:::hand
+  FIXAS["p-d-29-qa1-fixes-sanity"]:::hand
+  FIXAQ["p-d-29-qa1-fixes-qa"]:::hand
+
+  SPR35["p-d-35 = sprint bead = dev bead"]:::tmpl
+  F4["p-d-35-qa1-f4 finding"]:::tmpl
+  FIXB["p-d-35-qa3-fixes<br/>fix bead under a finding"]:::hand
+  FIXBS["p-d-35-qa3-fixes-sanity"]:::hand
+  FIXBQ["p-d-35-qa3-fixes-qa"]:::hand
+
+  F1 -->|parent-child| SPR
+  FIXA -->|parent-child| SPR
+  FIXAS -->|parent-child| FIXA
+  FIXAQ -->|parent-child| FIXA
+  F4 -->|parent-child| SPR35
+  FIXB -->|parent-child| F4
+  FIXBS -->|parent-child| FIXB
+  FIXBQ -->|parent-child| FIXB
+```
+
+**Legend.** Three facts from the phase-d data:
+
+1. A fix bead's parent is either the sprint bead (`p-d-29-qa1-fixes`,
+   `p-d-30-qa2-fixes`, `p-d-31-qa3-fixes`) or a finding (`p-d-35-qa3-fixes`
+   under `p-d-35-qa1-f4`, `p-d-31-qa5-fixes` under `p-d-31-qa1-f4`,
+   `p-d-35-qa1-fixes-code` under `p-d-35-qa1-f3`).
+2. The fix's sanity and QA beads are `parent-child` children of the fix
+   (`<fix>-sanity`, `<fix>-qa`), not siblings under the sprint.
+3. One fix bead usually covers several findings (`qaN-fixes`), and no finding
+   has an edge to its fix bead (0 of 14). Which findings a fix covers is not
+   recorded in the graph.
+
+So the to-be flat model (04), one finding and one fix with `fix ← sanity ←
+qa` as siblings under the sprint, is new structure relative to phase-d.
+Migrating the phase-d data is post-phase-d work (C8).
