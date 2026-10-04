@@ -385,13 +385,13 @@ class PlanFixRoundTests(unittest.TestCase):
 
 # Config-backed dispatch variables (the lead fills them from .claude/project/atm-bd-orchestration.yaml).
 CONFIG_VARS = {
-    "dev-template.xml.j2": ("lead", "cc", "test_command", "policy_path"),
-    "fix-assignment.xml.j2": ("lead", "cc", "test_command", "policy_path", "requirements_globs", "adr_globs"),
-    "dev-fix.xml.j2": ("lead", "cc", "test_command"),
-    "dev-sanity-template.xml.j2": ("lead", "cc", "lint_command"),
-    "qa-template.xml.j2": ("lead", "cc", "policy_path", "reviewers_round1"),
-    "plan-review-template.xml.j2": ("lead", "cc", "integration_branch", "plans_dir", "requirements_globs", "adr_globs"),
-    "review-template.xml.j2": ("lead", "cc", "integration_branch"),
+    "dev-template.xml.j2": ("test_command", "policy_path"),
+    "fix-assignment.xml.j2": ("test_command", "policy_path", "requirements_globs", "adr_globs"),
+    "dev-fix.xml.j2": ("test_command",),
+    "dev-sanity-template.xml.j2": ("lint_command",),
+    "qa-template.xml.j2": ("policy_path", "reviewers_round1"),
+    "plan-review-template.xml.j2": ("integration_branch", "plans_dir", "requirements_globs", "adr_globs"),
+    "review-template.xml.j2": ("integration_branch",),
     "schema-reviewer-assignment.json.j2": ("policy_path",),
     "qa-bead.json.j2": ("qa_member",),
 }
@@ -412,6 +412,14 @@ class ConfigVariableTests(unittest.TestCase):
                     result = _render(template, {k: v for k, v in values.items() if k != name})
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(name, result.stderr)
+
+    def test_no_template_names_a_recipient(self):
+        """Closes and reports go to the task assigner; no template names or computes a recipient."""
+        for path in sorted((ROOT / "templates").glob("*.j2")):
+            text = path.read_text()
+            for needle in ("{{ lead", "{{ cc", "atm send {{", "\n  - lead\n", "\n  - cc\n"):
+                with self.subTest(template=path.name, needle=needle):
+                    self.assertNotIn(needle, text)
 
     def test_no_repository_default_is_built_in(self):
         for path in sorted((ROOT / "templates").glob("*.j2")):

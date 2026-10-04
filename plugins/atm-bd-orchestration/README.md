@@ -10,6 +10,7 @@ Bead-driven phase orchestration for ATM agent teams, as one installable package:
 | `skills/qa-report` | `/qa-report`: the two QA metrics logs quality-mgr appends under `.sc/qa-log/` (per-round events and cumulative phase stats), read-only |
 | `agents/dev-sanity.md` | the single dev-sanity teammate: the whole dev-sanity role in one agent prompt |
 | `agents/sc-sanity-llm.md`, `agents/sc-sanity-jev.md` | the per-deliverable LLM and Jev (typesafe.ai) subagents dev-sanity spawns |
+| `agents/parallax.md` | optional work-orchestrator teammate: runs the lead's routine orchestration; the lead keeps `bv`, monitoring and rulings |
 | `assets/scripts/jev_client.py` | the Jev transport, placed at `<repo>/scripts/jev_client.py` |
 
 The skills run repository-relative scripts (`.claude/skills/<skill>/scripts/...`)

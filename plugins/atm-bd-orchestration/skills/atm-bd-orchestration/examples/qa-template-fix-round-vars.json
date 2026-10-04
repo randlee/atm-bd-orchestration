@@ -12,8 +12,6 @@
   "base": "sprint/d-5-otlp-logs",
   "worktree_path": "{{ worktree_base }}/fix/d-4-qa1-f1-retry-jitter",
   "carry_forward": "{{ bead_prefix }}-d-4-qa1-f1",
-  "lead": "{{ bead_prefix }}-lead",
-  "cc": "",
   "sprint_bead": "{{ bead_prefix }}-d-4",
   "policy_path": ".claude/project/quality-policy.md",
   "reviewers_round1": [

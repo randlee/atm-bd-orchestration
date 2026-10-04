@@ -41,7 +41,7 @@ and the QA worktree HEAD must equal that PR head. Otherwise refuse
 `SANITY_STALE`; no layer or quick fix lacking QA PASS at that pinned head is
 mergeable. Reuse an existing workflow class bead for the same failure signature:
 append the task id, head, command and failure evidence, and cite the class id in
-the refusal. If no class matches, report the signature to the lead for
+the refusal. If no class matches, report the signature to the task assigner for
 classification and cite that message instead; do not create a per-task shadow
 or delay the refusal.
 
@@ -83,7 +83,7 @@ behavior, and do not expand a carried finding into a new whole-sprint review.
 
 Investigate every uncertain or flagged result before accepting it or filing
 anything. Confirm defects against the original obligation and current source,
-deduplicate them, then report them to the lead, who files them as finding beads
+deduplicate them, then report them to the task assigner, who files them as finding beads
 for fix assignment. You verify these carried gaps after the fixes; the lead coordinates
 development. Keep unchecked cases unresolved rather than sampling them away.
 
