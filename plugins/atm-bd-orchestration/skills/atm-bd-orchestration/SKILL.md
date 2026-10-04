@@ -243,7 +243,8 @@ whose dev bead closed, QA beads and open findings. For each ready bead:
 | dev (`stage:dev`) | [`dev-template.xml.j2`](templates/dev-template.xml.j2) | its assignee |
 | sanity check (`stage:dev-sanity`) | [`dev-sanity-template.xml.j2`](templates/dev-sanity-template.xml.j2) | `resolve-role dev-sanity` |
 | QA (`stage:qa`) | [`qa-template.xml.j2`](templates/qa-template.xml.j2) | quality-mgr |
-| finding (`stage:finding`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | the member the lead picks |
+| finding (`stage:finding`, no `metadata.sanity_finding`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | the member the lead picks |
+| sanity finding (`stage:finding` with `metadata.sanity_finding`) | its checked bead's [`dev-fix.xml.j2`](templates/dev-fix.xml.j2), once per checked bead | the checked bead's assignee |
 | review (`stage:review`) | [`review-template.xml.j2`](templates/review-template.xml.j2) | the phase-end reviewer |
 
 Then, on each task close:

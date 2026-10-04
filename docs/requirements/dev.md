@@ -45,7 +45,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 28. Read the bead, its `metadata.sprint_bead`, and the finding's requirements and ADRs (`requirements_globs`, `adr_globs`); read `policy_path` and its guidelines.
 29. Confirm the defect at the cited file:line; absent: no work, close `not_reproducible` with the file:line checked.
 30. Fix every in-scope occurrence of the pattern; touch only what the remedy needs.
-31. Close: `bd close --reason "fixed at <short sha>"` (or `"not reproducible: <file:line>"`) + `fix-complete.md.j2`, `outcome` `fixed` or `not_reproducible`.
+31. Close: `bd close --reason "fixed at <short sha>"` (or `"not reproducible: <file:line>"`) + `fix-complete.md.j2`, `outcome` `fixed` or `not_reproducible`; `commit` and `rebased_onto` required for `fixed`, omitted for `not_reproducible`.
 32. Cannot fix: class bead or escalation (9); `bd update --status open --assignee "" --append-notes "FIX_CANNOT_COMPLETE; ..."`; task `refused`. Never close a finding unfixed.
 
 ### Parallel quick fix (finder)
@@ -63,8 +63,6 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 
 ## Unresolved
 
-1. Templates step a1 waits on `false`; `assignment-gates.py` prints `NOT_READY`.
-2. Templates require `metadata.pr_target` to equal `pr_target`; `assignment-gates.py` passes when it is absent.
-3. `SKILL.md` refused row: failed dev bead gets a `failed:` note; dev-template/dev-fix write `DEV_CANNOT_COMPLETE; ...`.
-4. `SKILL.md` sanity-FAIL row: a finding bead closes with `dev-complete.md.j2`; `fix-assignment` closes with `fix-complete.md.j2`.
-5. `SKILL.md`: `not_reproducible` has no commit; `fix-complete.md.j2` requires `commit` and `rebased_onto`.
+1. Templates require `metadata.pr_target` to equal `pr_target`; `assignment-gates.py` passes when it is absent.
+2. `SKILL.md` refused row: failed dev bead gets a `failed:` note; dev-template/dev-fix write `DEV_CANNOT_COMPLETE; ...`.
+3. `SKILL.md` sanity-FAIL row: a finding bead closes with `dev-complete.md.j2`; `fix-assignment` closes with `fix-complete.md.j2`.

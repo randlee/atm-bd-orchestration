@@ -180,6 +180,19 @@ class TemplateContractTests(unittest.TestCase):
                 self.assertEqual(input_json["context"], [])
                 self.assertIn("Read only that evidence plus any `context` paths at the pinned commit; never request more.", text)
 
+    def test_sc_sanity_jev_names_a_request_jev_client_accepts(self):
+        import importlib.util
+        text = (ROOT.parents[1] / "agents" / "sc-sanity-jev.md").read_text()
+        self.assertIn("python3 scripts/jev_client.py --request <file>", text)
+        request = json.loads(re.search(r"request is one Choice question.*?```json\n(.*?)\n\s*```", text, re.S).group(1))
+        spec = importlib.util.spec_from_file_location("jev_client", ROOT.parents[2] / "scripts" / "jev_client.py")
+        client = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(client)
+        client.validate_request(request)  # raises JevError on a shape the transport rejects
+        self.assertEqual(request["model"], client.MODEL)
+        for code in ("SANITY.JEV_UNAVAILABLE", "SANITY.JEV_RESPONSE_INVALID", "SANITY.JEV_INCONCLUSIVE"):
+            self.assertIn(code, text)
+
 
 def _render(template: str, values: dict) -> subprocess.CompletedProcess:
     import json
@@ -275,6 +288,45 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         qa = _render(self.QA, {**_example("qa-template-vars.json"), "carry_forward": "x-d-4-qa1-f1"})
         self.assertEqual(qa.returncode, 0, qa.stderr)
         self.assertIn("This is fix verification of finding beads `x-d-4-qa1-f1`", qa.stdout)
+
+
+    def test_every_assignment_taking_carried_ids_carries_the_scope_lock(self):
+        import json
+        for name in ("req-qa", "arch-qa", "flaky-test-qa"):
+            base = _example(f"{name}-assignment-vars.json")
+            with self.subTest(reviewer=name):
+                free = _render(f"{name}-assignment.json.j2", base)
+                self.assertEqual(free.returncode, 0, free.stderr)
+                self.assertNotIn("SCOPE LOCK", json.loads(free.stdout)["notes"])
+                locked = _render(f"{name}-assignment.json.j2", {**base, "carry_forward_findings_json": '["RQ-1"]'})
+                self.assertEqual(locked.returncode, 0, locked.stderr)
+                data = json.loads(locked.stdout)
+                self.assertEqual(data["carry_forward_findings"], ["RQ-1"])
+                self.assertIn("Report a disposition (fixed | open | regressed) for each id", data["notes"])
+
+
+class DevAssignmentTests(unittest.TestCase):
+    """Dev, dev-fix and fix assignments: the a1 trigger, actor-stamped bd writes, and the not_reproducible close."""
+
+    def test_a1_fires_on_not_ready_and_every_bd_write_has_an_actor(self):
+        for name in ("dev-template.xml.j2", "dev-fix.xml.j2", "fix-assignment.xml.j2"):
+            result = _render(name, _example(name.removesuffix(".j2").rsplit(".", 1)[0] + "-vars.json"))
+            with self.subTest(template=name):
+                self.assertEqual(result.returncode, 0, result.stderr)
+                a1 = result.stdout[result.stdout.index('<step id="a1">'):]
+                self.assertTrue(a1.startswith('<step id="a1"><![CDATA[When it prints `NOT_READY`'))
+                writes = re.findall(r"`(bd (?:close|update) [^`]*)`", result.stdout)
+                self.assertTrue(any("--claim" in w for w in writes))
+                for write in writes:
+                    self.assertIn('--actor "$ATM_IDENTITY"', write)
+
+    def test_not_reproducible_needs_no_commit_but_fixed_does(self):
+        base = {k: v for k, v in _example("fix-complete-vars.json").items() if k not in ("commit", "rebased_onto")}
+        result = _render("fix-complete.md.j2", {**base, "outcome": "not_reproducible"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Commit:", result.stdout)
+        self.assertNotEqual(_render("fix-complete.md.j2", {**base, "outcome": "fixed"}).returncode, 0)
+        self.assertEqual(_render("fix-complete.md.j2", _example("fix-complete-vars.json")).returncode, 0)
 
 
 class PlanFixRoundTests(unittest.TestCase):

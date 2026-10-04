@@ -1,21 +1,23 @@
 ---
 name: fix-complete
-version: 2.0.0
-description: Developer completion report for one finding bead (fix-task); the body of `atm task close <task-id> completed`. The lead reads `commit` and `rebased_onto` for the fix's sanity check and link.
+version: 2.1.0
+description: Developer completion report for one finding bead (fix-task); the body of `atm task close <task-id> completed`. The lead reads `commit` and `rebased_onto` (required when `outcome` is `fixed`) for the fix's sanity check and link.
 format: markdown
 required_variables:
   - generated_at
   - task_id
   - sprint
   - branch
-  - commit
-  - rebased_onto
   - outcome
   - resolution_md
   - validation_md
 optional_variables:
+  - commit
+  - rebased_onto
   - notes_md
 defaults:
+  commit: ""
+  rebased_onto: ""
   notes_md: ""
 metadata:
   type: fix-complete
@@ -31,14 +33,15 @@ metadata:
     transition: complete
 ---
 {% if outcome not in ["fixed", "not_reproducible"] %}{{ outcome | outcome_must_be_fixed_or_not_reproducible }}ERROR: outcome must be fixed or not_reproducible, got {{ outcome }}
+{% endif %}{% if outcome == "fixed" and not (commit and rebased_onto) %}{{ outcome | fixed_requires_commit_and_rebased_onto }}ERROR: outcome fixed requires commit and rebased_onto
 {% endif %}# Fix Complete
 
 Generated: {{ generated_at }}
 Finding bead: {{ task_id }} (sprint {{ sprint }})
 Branch: `{{ branch }}`
-Commit: `{{ commit }}`
+{% if commit %}Commit: `{{ commit }}`
 Rebased onto: `{{ rebased_onto }}`
-Outcome: **{{ outcome }}**
+{% endif %}Outcome: **{{ outcome }}**
 
 ## Machine Status (JSON)
 ```json

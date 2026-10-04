@@ -125,6 +125,7 @@ Keep `<scratch>` outside the repository.
 | `title` | H1 without the `<id> — ` prefix |
 | `assignee`, `model_class` | frontmatter `assignee`, `model_class` (or the sprint table's `agent:model`) |
 | `relation` | frontmatter `relation` (`root`, `must_follow`, `parallel_safe`) |
+| `difficulty` | frontmatter `difficulty` (`hard`, `normal`, `fast`) |
 | `blocked_by` | for each `must_follow` parent in `depends_on`: that parent's sanity check bead (`{{ bead_prefix }}-d-5-sanity`), never the parent's dev bead |
 | `closure_type`, `target_boundary` | frontmatter or the "Closure" section |
 | `owned_paths` | the "Owned Paths" section, else "Exact Targets", plus `owned_docs` (see Checks) |
@@ -182,7 +183,7 @@ does not stop it.
 | `assignee` is not an ATM identity on the team (`atm members`) | blocking | ask lead for the assignee |
 | The planned branch or worktree already exists (`git ls-remote`, `git worktree list`) | blocking | ask lead: rename it, or finish that sprint on the old workflow |
 | Branch name is not `sprint/<p>-<n>-<slug>`, and no branch exists yet | warn | rename it at import and list the old and new names |
-| `model_class` missing | warn | import without it; lead picks at dispatch |
+| `difficulty` missing or not `hard`, `normal` or `fast` | blocking | ask the author |
 | Frontmatter `base` is not the phase's `integration_branch` | warn | ignore it; the stack's layer 1 targets the `integration_branch` |
 | Requirement or ADR ids named in the body but not in frontmatter | warn | add them to `requirements` / `adrs` and list them |
 

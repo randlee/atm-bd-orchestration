@@ -5,12 +5,14 @@
 #   2. every sprint bead validates against SprintBead (scripts/bead_schema.py, published as schemas/sprint-bead.schema.json);
 #   3. every sanity bead validates against SanityBead, its metadata.dev_bead is its sprint, and it has a blocks edge to it;
 #   4. bd doctor reports no error (skipped with --no-doctor);
-#   5. only epics live at the top level: no open bead created since the phase root has no parent.
+#   5. only epics live at the top level: no open bead created since the phase root has no parent
+#      (with --file, the file's beads, their parent taken from the parent-child dependency).
 # Every sprint and sanity bead named in sprints.jsonl must exist. This header is the one list of
 # what validate-plan checks; the skill docs point here.
 #
 #   validate-plan --root <id> [--index <sprints.jsonl>]                       live beads
-#   validate-plan --file <plan.jsonl> --root <id> [--index <sprints.jsonl>]   rendered plan, before `bd import`
+#   validate-plan --file <plan.jsonl> --root <id> [--index <sprints.jsonl>]   rendered plan, before `bd import`;
+#                                                                             index beads not in the file are read live
 #   validate-plan --beads <beads.json> --root <id> --index <sprints.jsonl> --no-doctor   test input
 #
 # Without --index the plan is read from origin/<integration_branch>:<plans_dir>/phase-<p>/sprints.jsonl,
@@ -63,7 +65,15 @@ prefix=${root%%phase-*}
 if [ -n "$beads" ]; then
   cp "$beads" "$scratch/beads.json"
 elif [ -n "$file" ]; then
-  jq -s . "$file" > "$scratch/beads.json" || { echo "validate-plan: $file is not JSONL" >&2; exit 2; }
+  jq -s . "$file" > "$scratch/plan.json" || { echo "validate-plan: $file is not JSONL" >&2; exit 2; }
+  # a one-plan import: the index's other sprint and sanity beads are already live
+  echo '[]' > "$scratch/live.json"
+  for id in $(jq -r --arg p "$prefix" --slurpfile f "$scratch/plan.json" \
+      '($f[0] | map(.id)) as $have | "\($p)\(.[0])", .[1] | select(. as $i | $have | index($i) | not)' "$index"); do
+    bd show "$id" --json > "$scratch/one.json" && jq -s '.[0] + .[1]' "$scratch/live.json" "$scratch/one.json" > "$scratch/both.json" \
+      && mv "$scratch/both.json" "$scratch/live.json"
+  done
+  jq -s '.[0] + .[1]' "$scratch/plan.json" "$scratch/live.json" > "$scratch/beads.json"
 else
   # shellcheck disable=SC2046
   bd show $(jq -r --arg p "$prefix" '"\($p)\(.[0])", .[1]' "$index") --json > "$scratch/beads.json" 2>"$scratch/bd.err" \
@@ -96,11 +106,12 @@ problems=$(printf '%s\n%s' "$problems" "$schema" | sed '/^$/d')
 
 # 5. epics only at the top level (closed beads are history and are not checked)
 if [ -n "$beads" ]; then cp "$scratch/beads.json" "$scratch/everything.json"
+elif [ -n "$file" ]; then cp "$scratch/plan.json" "$scratch/everything.json"  # before import: the plan's own beads
 else bd list --all -n 0 --json > "$scratch/everything.json" 2>"$scratch/bd.err" \
   || { echo "validate-plan: bd list failed: $(cat "$scratch/bd.err")" >&2; exit 2; }; fi
 roots=$(jq -r --arg root "$root" '
   ((.[] | select(.id == $root) | .created_at) // "") as $since
-  | .[] | select(.status != "closed" and (.parent // "") == "" and .issue_type != "epic" and (.created_at // "") >= $since)
+  | .[] | select(.status != "closed" and (.parent // ([(.dependencies // [])[] | select((.type // .dependency_type) == "parent-child") | (.depends_on_id // .id)][0]) // "") == "" and .issue_type != "epic" and (.created_at // "") >= $since)
   | "\(.id): \(.issue_type) at the top level; only epics live at the top level, parent it under its epic"' "$scratch/everything.json") \
   || { echo "validate-plan: the top-level check failed to run" >&2; exit 2; }
 problems=$(printf '%s\n%s' "$problems" "$roots" | sed '/^$/d')

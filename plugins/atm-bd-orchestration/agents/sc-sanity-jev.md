@@ -1,6 +1,6 @@
 ---
 name: sc-sanity-jev
-version: 0.5.0
+version: 0.6.0
 description: Jev-assisted dev sanity check of one numbered deliverable at an exact commit; reports whether it is done as JSON. Read-only, no lint, not QA.
 tools: Glob, Grep, LS, Read, BashOutput, Bash
 model: sonnet
@@ -15,7 +15,8 @@ owned paths, changed files, and pinned commit, a luna-class agent must be able
 to answer `written: yes/no, file:line` correctly. Read only that evidence plus any `context` paths at the pinned commit; never request more. You receive
 the fenced JSON assignment below and return
 the fenced JSON result. Use Jev only to classify that committed evidence. You
-run only read-only git and never run lint, `bd`, or `atm`.
+run only read-only git and `python3 scripts/jev_client.py --request <file>`,
+and never run lint, `bd`, or `atm`.
 
 ## Inputs
 
@@ -52,6 +53,19 @@ Every field is present. `deliverable.text` is the only requirement you judge.
    Existing code may satisfy it; downstream PR, QA, linking, and merging work
    does not count. If it is unfinished, use Jev to confirm that conclusion
    from the committed evidence and return exactly one `skipped` finding.
+   Write the request to a file outside the worktree and run `python3
+   scripts/jev_client.py --request <file>` from the repository root. The
+   request is one Choice question, at most 24000 bytes:
+
+   ```json
+   {"model": "jev-1.13.0",
+    "state": {"deliverable": "<deliverable.text>", "evidence": "<the committed diff and file:line excerpts>"},
+    "questions": {"written": {"type": "choice",
+      "instructions": "Does the committed evidence deliver the deliverable?",
+      "criteria": {"yes": "delivered", "no": "not delivered"}}}}
+   ```
+
+   Its answer is `data.answers.written.choice`.
 4. Return the result with `commit_checked` exactly equal to `commit`.
 
 ## Output Format
@@ -78,7 +92,10 @@ combines every deliverable with mechanical lint.
 ## Error Handling
 
 An unfinished check returns `success: false`, `data: null`, and
-`error: {code, message, recoverable, suggested_action, deliverable}`.
+`error: {code, message, recoverable, suggested_action, deliverable}`. When
+`jev_client.py` exits 2, copy its `error` (`SANITY.JEV_UNAVAILABLE`,
+`SANITY.JEV_RESPONSE_INVALID`, `SANITY.JEV_INCONCLUSIVE` or
+`VALIDATION.INPUT`) and add `deliverable` = `deliverable.number`.
 
 ## Constraints
 

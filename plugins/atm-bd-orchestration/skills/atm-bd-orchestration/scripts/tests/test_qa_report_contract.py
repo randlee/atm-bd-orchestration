@@ -26,20 +26,40 @@ def _step_j(values: dict) -> str:
     return text[text.index("```"):text.rindex("rmdir")]
 
 
-def _produce(step: str, workdir: Path) -> tuple[dict, dict]:
-    """Run step j's two row writers (bd replaced by an empty finding list) and return one row of each log."""
+def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
+             bd_rows: list[dict] | None = None) -> tuple[dict, dict]:
+    """Run step j's count lines and two row writers on real finding rows (bd replaced by `bd_rows`)."""
+    counts = step[step.index("FNDFILE="):step.index("TESTED=")].replace("<scratch>", str(workdir))
     round_cmd = step[step.index("jq -nc"):step.index("\n\nbd list")]
     stats_cmd = step[step.index("bd list"):].rstrip()
-    stats_cmd = stats_cmd.replace("bd list --all --json 2>/dev/null", "echo '[]'", 1)
+    (workdir / "bd-list.json").write_text(json.dumps(bd_rows or []))
+    stats_cmd = stats_cmd.replace("bd list --all --json 2>/dev/null", "cat bd-list.json", 1)
+    if findings:
+        task = step[step.index("FNDFILE=<scratch>/") + len("FNDFILE=<scratch>/"):step.index("-findings.jsonl")]
+        (workdir / f"{task}-findings.jsonl").write_text("".join(json.dumps(f) + "\n" for f in findings))
     env = {**os.environ, "NOW": "2026-10-02T12:00:00Z", "LOCAL": "05:00", "DURATION": "3m",
-           "VERDICT": "PASS", "FND": "0", "BLK": "0", "IMP": "0", "MIN": "0", "TESTED": "x"}
-    script = "set -eu\nmkdir -p .sc/qa-log\n" + round_cmd + "\n" + stats_cmd + "\n"
+           "VERDICT": "PASS", "TESTED": "x"}
+    script = "set -eu\nmkdir -p .sc/qa-log\n" + counts + "\n" + round_cmd + "\n" + stats_cmd + "\n"
     subprocess.run(["bash", "-c", script], cwd=workdir, env=env, check=True, capture_output=True, text=True)
     logs = workdir / ".sc/qa-log"
     round_rows = (logs / "phase-d.jsonl").read_text().splitlines()
     stats_rows = (logs / "phase-d-stats.jsonl").read_text().splitlines()
     assert len(round_rows) == 1 and len(stats_rows) == 1, (round_rows, stats_rows)
     return json.loads(round_rows[0]), json.loads(stats_rows[0])
+
+
+def _concrete(values: dict) -> dict:
+    """An example var file with its install-time bead prefix placeholder filled, as installed."""
+    return json.loads(json.dumps(values).replace("{{ " + "bead_prefix }}", "p"))
+
+
+def _finding(n: int, severity: str, screen: str) -> dict:
+    """A finding row exactly as qa-template step g renders it from finding-bead.json.j2."""
+    values = {**_concrete(_example("finding-bead-vars.json")), "id": f"p-d-4-qa1-f{n}", "severity": severity, "screen": screen}
+    result = _render("finding-bead.json.j2", values)
+    if result.returncode:
+        raise AssertionError(result.stderr)
+    return json.loads(result.stdout)
 
 
 def _columns(skill: str, log_label: str) -> list[str]:
@@ -58,7 +78,7 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
     def test_paths_sort_keys_and_columns_exist_in_the_produced_rows(self):
         for example in ("qa-template-vars.json", "qa-template-fix-round-vars.json"):
             with self.subTest(example=example):
-                values = _example(example)
+                values = _concrete(_example(example))
                 self.assertEqual(values["phase"], "d")
                 workdir = Path(self.tmp.name) / example
                 workdir.mkdir()
@@ -87,6 +107,21 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
                 # The display shortening keys off qa-pr<number> in the task id step j records.
                 self.assertEqual(round_row["task"], values["task_id"])
                 self.assertEqual(stats_row["trigger_task"], values["task_id"])
+
+
+    def test_counts_come_from_real_finding_rows(self):
+        findings = [_finding(1, "blocking", "keep"), _finding(2, "minor", "not_applicable"),
+                    _finding(3, "important", "ceremony")]
+        closed = {**findings[2], "status": "closed"}
+        sanity_child = {**_finding(1, "blocking", "keep"), "id": "p-d-4.1"}  # a sanity child of the dev bead
+        other_phase = {**_finding(4, "blocking", "keep"), "metadata": {**findings[0]["metadata"], "phase": "e"}}
+        workdir = Path(self.tmp.name) / "real"
+        workdir.mkdir()
+        round_row, stats_row = _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir, findings,
+                                        [findings[0], findings[1], closed, sanity_child, other_phase])
+        self.assertEqual((round_row["fnd"], round_row["blk"], round_row["imp"], round_row["min"]), (2, 1, 0, 1))
+        self.assertEqual({k: stats_row[k] for k in ("tot", "open", "blk", "imp", "min")},
+                         {"tot": 3, "open": 2, "blk": 1, "imp": 0, "min": 1})
 
 
 if __name__ == "__main__":

@@ -60,7 +60,7 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 47. Read only with `git diff <base_sha>...<commit>` and `git show <commit>:<path>`; never the working tree; unreadable: `SANITY.TARGET_UNREADABLE`.
 48. Existing code may satisfy a deliverable; PR, QA, linking, merging are not judged.
 49. Not done: exactly one `skipped` finding at a real relative file and line; missing file: line 1 of the nearest file that should reference it.
-50. JEV: confirm an undone conclusion with Jev; Jev unavailable, timed out or invalid: failure envelope, never an unaided result labelled Jev.
+50. JEV: confirm an undone conclusion with Jev through `python3 scripts/jev_client.py --request <file>` (one Choice question `written`, `yes`/`no`, at most 24000 bytes); Jev unavailable, timed out or invalid: failure envelope with the client's `SANITY.JEV_*`/`VALIDATION.INPUT` error and `deliverable`, never an unaided result labelled Jev.
 51. Return fenced JSON `{success, data:{sanity_bead, dev_bead, deliverable, commit_checked=commit, findings}, error}`; failure: `data:null`, `error:{code, message, recoverable, suggested_action, deliverable}`.
 52. Never edit, commit, push, build, test, lint or run `bd`/`atm`; empty findings is success.
 
@@ -77,5 +77,4 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 
 1. Clean tree: `assignment-gates.py` ignores untracked files and `.beads.gate.lock`/`.sc-compose/`; `sanity-split` and `sanity-merge` fail `COMMIT_MISMATCH` on any `git status --porcelain` output.
 2. Children: `atm-beads/resources/orchestrating.md` files "every reported failure"; `agents/dev-sanity.md` and `sanity-create-findings` create none for lint.
-3. Jev transport: `README.md` and `install.py` say `sc-sanity-jev` calls `scripts/jev_client.py`; `sc-sanity-jev.md` names no command, so the call is unverified.
-4. FAIL parent: `formulas/README.md` has dev-sanity reopen the dev or fix bead on FAIL; `agents/dev-sanity.md` and `dev-sanity-template.xml.j2` e1 never reopen or edit the parent (the lead reopens it).
+3. FAIL parent: `formulas/README.md` has dev-sanity reopen the dev or fix bead on FAIL; `agents/dev-sanity.md` and `dev-sanity-template.xml.j2` e1 never reopen or edit the parent (the lead reopens it).

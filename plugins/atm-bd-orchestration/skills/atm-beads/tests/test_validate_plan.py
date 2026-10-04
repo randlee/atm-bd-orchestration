@@ -184,5 +184,34 @@ class LivePlan(unittest.TestCase):
         self.assertIn(why, out.stderr)
 
 
+class FilePlan(LivePlan):
+    """--file before import: a one-plan import reads the index's other beads live; check 5 covers only the file."""
+
+    def rendered(self, bead: dict) -> dict:
+        out = {k: v for k, v in copy.deepcopy(bead).items() if k != "parent"}
+        out["dependencies"] = out.get("dependencies", []) + [{"type": "parent-child", "depends_on_id": bead["parent"]}]
+        return out
+
+    def run_file(self, plan: list[dict]) -> subprocess.CompletedProcess:
+        unrelated = {"id": "x-old", "issue_type": "task", "status": "open", "created_at": "2025-01-01T00:00:00Z"}
+        self.beads.write_text(json.dumps(VALID[:3] + [unrelated]))  # live: the root, t-1 and its sanity check
+        base = Path(self.tmp.name)
+        (base / "plan.jsonl").write_text("".join(json.dumps(b) + "\n" for b in plan))
+        (base / "sprints.jsonl").write_text("".join(json.dumps(r) + "\n" for r in PLAN))
+        return subprocess.run([str(SCRIPT), "--file", str(base / "plan.jsonl"), "--root", "x-phase-t",
+                               "--index", str(base / "sprints.jsonl"), "--no-doctor"],
+                              cwd=self.repo, env=self.env, capture_output=True, text=True)
+
+    def test_one_plan_import_passes(self):
+        out = self.run_file([self.rendered(VALID[3]), self.rendered(VALID[4])])
+        self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
+
+    def test_a_parentless_plan_bead_is_still_caught(self):
+        orphan = {**{k: v for k, v in VALID[3].items() if k != "parent"}, "issue_type": "task"}
+        out = self.run_file([orphan, self.rendered(VALID[4])])
+        self.assertEqual(out.returncode, 5)
+        self.assertEqual(out.stdout.splitlines(), ["x-t-2: task at the top level; only epics live at the top level, parent it under its epic"])
+
+
 if __name__ == "__main__":
     unittest.main()
