@@ -7,6 +7,10 @@
   that runs the lead's routine orchestration under the same skill, so the
   lead keeps `bv`, monitoring and rulings and receives only its summaries and
   escalations. No formula or script changes.
+- `prompt-rewrite-judge` skill: fresh subagents rewrite a prompt, `scripts/judge.py`
+  asks Jev (through `scripts/jev_client.py`) one keep question per requirement plus
+  `changes_rule`, `unnecessary`, `ambiguous` and `clearer_than_original`; planted
+  controls must be caught before a winner is picked.
 
 ### Changed
 - A finding from a quick-fix QA has its own Loop row (no sanity bead, quick-fix re-QA) so a waiting one is never dispatched as an ordinary finding; the lead acts on its subagent's report for fix-assignment steps c and f1; a QA bead whose checked bead changes after sanity PASS is held by the new fix bead's sanity bead, never by reopening the passed one (`SKILL.md` 0.6.17).
