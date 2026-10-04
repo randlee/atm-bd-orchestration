@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.2.0
+version: 2.3.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -222,7 +222,7 @@ explicit.
 | Verdict | Sanity check bead | Task |
 | --- | --- | --- |
 | PASS | `bd close` with reason `PASS at <commit>` | `completed`, `dev-sanity-complete.md.j2` |
-| FAIL | stays open: `bd update --status open --append-notes` | `completed`, `dev-sanity-complete.md.j2` with the findings |
+| FAIL | stays open: `bd update --status open --append-notes`; the checked bead is reopened (`bd reopen`) | `completed`, `dev-sanity-complete.md.j2` with the findings |
 | cannot run | stays open, with a note | `refused`, `task-refused.md.j2` |
 
 A FAIL never closes the bead. Closing it would release the dev beads that
@@ -234,10 +234,10 @@ parent-to-child `blocks` edge is invalid. Each child is blocking at
 `clamp(parent priority - 1, P1, P4)`, records the same structured JSON finding
 data as the sanity report, and copies the checked bead's
 phase/sprint/stack/layer provenance. The lead reviews those children and may
-overrule or modify them, but does not recreate their report data. The lead
-then follows its existing process to reopen the parent and assign the dev fix,
-adding `blocks` edges only between those new beads, where one fix depends on
-another. The parent cannot close until all children close. That closure makes
+overrule or modify them, but does not recreate their report data. The script
+adds `blocks` edges only between those new beads, where one fix depends on
+another. dev-sanity then reopens the checked bead, which re-blocks this sanity
+bead, and the lead assigns the dev fix. The parent cannot close until all children close. That closure makes
 the same sanity check bead ready again.
 
 After the second operational FAIL for the same checked bead, report

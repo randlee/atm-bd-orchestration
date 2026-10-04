@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.3.8
+version: 0.4.0
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -84,18 +84,18 @@ one fails the render.
 | `bead_prefix` | `sprint_index_common.py` when no root id is given (a root id `<prefix>-phase-<x>` wins) |
 | `lead` | every assignment template (`lead`, `cc`) |
 | `dev_sanity_member` | the `dev-sanity` role (`resolve-role dev-sanity`); a team member, which may have no `.claude/agents/<name>.md` |
-| `qa_member` | `qa-bead.json.j2` (`qa_member`), the plan-review bead's assignee |
+| `qa_member` | `qa-bead.json.j2` (`qa_member`), a parallel quick fix's QA bead |
 | `worktree_base` | sprint bead `worktree` = `<worktree_base>/<branch>` |
 | `test_command` | `dev-template`, `fix-assignment`, `dev-fix` |
 | `lint_command` | `dev-sanity-template` |
 | `integration_branch_pattern` | the root's `integration_branch` (`plan-root.json.j2`), then `review-template` and `plan-review-template` (`integration_branch`) |
-| `plans_dir` | `phase-index-path`, `check-phase-artifact`, `sprint-report`, `sprint-review`, `plan-review-template` |
+| `plans_dir` | `sprint_index_common.py` (`phase_path`), `sprint-report`, `sprint-review`, `plan-review-template` |
 | `requirements_globs`, `adr_globs` | `plan-review-template`, `fix-assignment` |
 | `policy_path` | `qa-template`, `dev-template`, `fix-assignment`, `schema-reviewer-assignment` |
 | `reviewers_round1` | `qa-template` (sprint reviews) |
 
-There is no base-branch key: `validate-plan` reads the plan from the phase
-root bead's `integration_branch`.
+There is no base-branch key: `validate-plan` reads the plan file from the
+`integration_branch` the phase file `.atm-bd/phase-<x>.toml` names.
 
 ## Roles
 
@@ -146,7 +146,7 @@ A gate and its edges are created only on the user's explicit instruction for
 that gate.
 
 Human gates require explicit user agreement recorded on the gate bead or phase
-root; the canonical `sprints.jsonl` contains only planned sprint dependencies.
+root; the plan file contains only planned sprint dependencies.
 
 ### Parallel Quick Fix
 
@@ -188,25 +188,25 @@ the designs drift apart.
 
 No dev bead is dispatched until the plan passes review.
 
-1. Create the plan-review bead right after the import (the import
-   procedures do this as their next step), so that it blocks every root sprint (every dev
-   bead with no sanity check blocker). For sprints imported into a running
-   phase, use `<root>-plan-qa-<n>` (the next free number) and block only the
-   new dev beads, including any that already have sanity check blockers:
+1. Create the plan-review bead right after the import and the pour (the
+   import procedures do this as their next step), so that every sprint
+   container blocks on it. For sprints imported into a running phase, use
+   `<root>-plan-qa-<n>` (the next free number) and block only the new sprint
+   containers. It gets no assignee; dispatch sets it:
 
    ```bash
    bd create --id <root>-plan-qa --type task --parent <root> \
-     -l phase-<x>,stage:plan-review --assignee <qa_member> \
-     --title "phase-<x>: plan review" --deps blocks:<root sprint>,blocks:<root sprint>
+     -l phase-<x>,stage:plan-review --title "phase-<x>: plan review"
+   bd dep add <sprint container> <root>-plan-qa    # once per sprint container
    ```
 
 2. Generate the initial phase diagram before review:
    `.claude/skills/sprint-review/scripts/sprint-review --root <root>`
    writes the HTML locally; it never commits or pushes.
-   The phase integration branch must contain the committed/pushed
-   `<plans_dir>/phase-<x>/sprints.jsonl` canonical dependency tuples. Do not open the
+   The phase integration branch must contain the committed/pushed plan file
+   `<plans_dir>/phase-<x>.jsonl` and phase file `.atm-bd/phase-<x>.toml`. Do not open the
    diagram unless `--view` was requested and Wyvern is available.
-   Then run `.claude/skills/atm-beads/scripts/validate-plan --root <root>`
+   Then run `.claude/skills/atm-beads/scripts/validate-plan --phase <x>`
    from the repository root; its header lists what it checks. Exit 0 or stop.
 
 3. Dispatch it with
@@ -217,7 +217,7 @@ No dev bead is dispatched until the plan passes review.
      assign the next round (`round` + 1, `carry_forward` = the open
      finding lines) with the same task id. That round runs only each carried
      finding's filing reviewer.
-   - Plan review is capped at three rounds, as in `quality-mgr.md`.
+   - Plan review is capped at three rounds.
 
 Requirements and ADRs are the tight part of the gate. Every dev bead lists
 its governing ids in `metadata.requirements` and `metadata.adrs`, or exactly
@@ -235,7 +235,8 @@ bd ready -l phase-<x> -n 0 --json
 
 `bd ready` lists every bead whose blockers are closed, highest priority
 first: dev beads whose prerequisites' sanity checks passed, sanity checks
-whose dev bead closed, QA beads and open findings. For each ready bead:
+whose dev or fix bead closed, QA beads whose sanity check passed, fix beads and
+open findings. For each ready bead:
 
 | Ready bead | Template | To |
 | --- | --- | --- |
@@ -243,7 +244,8 @@ whose dev bead closed, QA beads and open findings. For each ready bead:
 | dev (`stage:dev`) | [`dev-template.xml.j2`](templates/dev-template.xml.j2) | the member the lead picks for its `difficulty` |
 | sanity check (`stage:dev-sanity`) | [`dev-sanity-template.xml.j2`](templates/dev-sanity-template.xml.j2) | `resolve-role dev-sanity` |
 | QA (`stage:qa`) | [`qa-template.xml.j2`](templates/qa-template.xml.j2) | quality-mgr |
-| finding (`stage:finding`, no `metadata.sanity_finding`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | the member the lead picks |
+| fix (`stage:fix`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | the member the lead picks for its `difficulty` |
+| important or minor finding (`stage:finding`, no `metadata.sanity_finding`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | an idle dev, by priority |
 | sanity finding (`stage:finding` with `metadata.sanity_finding`) | its checked bead's [`dev-fix.xml.j2`](templates/dev-fix.xml.j2), once per checked bead | the checked bead's assignee |
 | review (`stage:review`) | [`review-template.xml.j2`](templates/review-template.xml.j2) | the phase-end reviewer |
 
@@ -254,10 +256,10 @@ Then, on each task close:
 | plan-review PASS | nothing when the bead closed: the root sprints are now ready. With minor findings the bead is assigned to you still open: fix each listed bead with `bd update`, then `bd close <root>-plan-qa --reason "minor fixes applied"` |
 | plan-review FAIL | have the author fix the listed beads, run `validate-plan` again, then dispatch the next round |
 | dev-complete | nothing: the sanity check is now ready |
-| sanity check PASS | verify the branch base is its declared `pr_target`, then create and dispatch the QA bead from [`qa-bead.json.j2`](templates/qa-bead.json.j2) (a child of the checked bead). For a finding, the QA dispatch sets `checked_bead` = the finding (it carries its own requirements and ADRs), `sprint_bead` = its `metadata.sprint_bead`, `carry_forward` = the finding id, and `round` = the `metadata.round` of the QA bead it was `discovered-from`, + 1, or 1 when it came from the phase-end review |
-| sanity check FAIL | one coordinator runs LLM/JEV with shared lint, then `sanity-selected` chooses whole replies per deliverable and alone creates finding children. Sanity answers only whether a numbered deliverable is written; requirements and quality are QA. The sanity member creates one child finding bead for every selected undone deliverable under `<checked bead>` at `clamp(parent priority - 1, P1, P4)`, so it ranks ahead of the parent's peers, never one for lint; it does not edit the parent. It copies phase/sprint/stack/layer provenance and uses only `phase-<phase>`, `stage:finding`, and `stack:<stack>` labels. The hierarchy is the parent closure gate (`bd` rejects parent-to-child `blocks` edges); it adds `blocks` edges only between those new beads, where one fix depends on another. Each child stores the exact structured report data. On a first FAIL the lead reopens the checked bead and assigns it with [`dev-fix.xml.j2`](templates/dev-fix.xml.j2). When the children are excessive, the lead first verifies against the branch that each one's work is really not done and closes, with a reason, any that judges correctness or quality (that is QA). The lead may overrule, amend, split, or reassign children, but does not recreate them. After the second FAIL for the same checked bead, before dispatching a fix the lead diffs flagged files versus the last PASS, checks the branch base for foreign commits, then rules; report `SANITY.ROUND_CAP` with undone deliverable numbers and do not run a third round without that ruling. The parent cannot close until every child closes. This applies to a finding bead too: its task id is the finding, and it closes with `dev-complete.md.j2` |
-| qa-complete | quality-mgr files finding beads and applies the ceremony screen (round 1). |
-| fix-complete (`fixed`) | create the fix's sanity check bead (`atm-beads` [`dev-sanity-bead.json.j2`](../atm-beads/templates/dev-sanity-bead.json.j2), `dev_bead` and `parent` = the finding) |
+| sanity check PASS | verify the branch base is its declared `pr_target`; the group's poured QA bead is now ready: dispatch it with `checked_bead` = its `metadata.checked_bead` and `sprint_bead` = its `metadata.sprint_bead`. For a fix bead's QA, also `carry_forward` = the fix bead (it carries its own requirements and ADRs) and `round` = the fix bead's `metadata.round` + 1. For an important or minor finding bead, create its QA bead from [`qa-bead.json.j2`](templates/qa-bead.json.j2) with `checked_bead` and `carry_forward` = the finding |
+| sanity check FAIL | one coordinator runs LLM/JEV with shared lint, then `sanity-selected` chooses whole replies per deliverable and alone creates finding children. Sanity answers only whether a numbered deliverable is written; requirements and quality are QA. The sanity member creates one child finding bead for every selected undone deliverable under `<checked bead>` at `clamp(parent priority - 1, P1, P4)`, so it ranks ahead of the parent's peers, never one for lint; it does not edit the parent. It copies phase/sprint/stack/layer provenance and uses only `phase-<phase>`, `stage:finding`, and `stack:<stack>` labels. The hierarchy is the parent closure gate (`bd` rejects parent-to-child `blocks` edges); it adds `blocks` edges only between those new beads, where one fix depends on another. Each child stores the exact structured report data. dev-sanity has reopened the checked bead; on a first FAIL the lead assigns it with [`dev-fix.xml.j2`](templates/dev-fix.xml.j2). When the children are excessive, the lead first verifies against the branch that each one's work is really not done and closes, with a reason, any that judges correctness or quality (that is QA). The lead may overrule, amend, split, or reassign children, but does not recreate them. After the second FAIL for the same checked bead, before dispatching a fix the lead diffs flagged files versus the last PASS, checks the branch base for foreign commits, then rules; report `SANITY.ROUND_CAP` with undone deliverable numbers and do not run a third round without that ruling. The parent cannot close until every child closes. This applies to a finding bead too: its task id is the finding, and it closes with `dev-complete.md.j2` |
+| qa-complete | nothing: quality-mgr poured a fix group under the sprint per blocking finding (round n+1 for a failed fix verification) and filed the rest as finding beads before it closed the QA bead; the fix beads are now ready. When no step is open under the sprint, close it (below) |
+| fix-complete (`fixed`) | for a poured fix bead, nothing: its group's sanity check is now ready. For an important or minor finding bead, create its sanity check bead (`atm-beads` [`dev-sanity-bead.json.j2`](../atm-beads/templates/dev-sanity-bead.json.j2), `dev_bead` and `parent` = the finding) |
 | review-complete | file each finding with `finding-bead.json.j2` (`qa_bead` = the review bead) |
 | task-refused | read the reason and the bead state (`open`, or `blocked-failed` for a dev bead that declared failure). Reassign it, split it, or close the bead yourself with `bd close <bead> --force --reason "<why>"`. A `blocked` bead is never in `bd ready`: run `bd update <bead> --status open --assignee <new agent>` before you re-dispatch it |
 | fix-complete (`not_reproducible`) | nothing: no commit, no sanity check; the finding is closed |
@@ -266,10 +268,15 @@ Then, on each task close:
 Re-run `bd ready` after every close. Never cache the ready list. The open
 phase root also appears in it; it is never dispatched.
 
-After every bead write, run `validate-plan --root <root>`. On any problem,
+Close a sprint container when every child is closed: run
+`.claude/skills/atm-bd-orchestration/scripts/sprint-closable <sprint>`; on
+`closable`, `bd close <sprint> --reason "<n> fix groups closed; QA PASS"`. bd
+refuses the close while a child is open.
+
+After every bead write, run `validate-plan --phase <x>`. On any problem,
 stop dispatching and report it to the user; never repair the graph
 (`bd dep`, `--parent`). A DAG problem is fixed by replanning: edit
-`sprints.jsonl` in a `/sc-git-worktree` branch off the root's
+the plan file in a `/sc-git-worktree` branch off the root's
 `integration_branch` and merge the plan PR into it. While a phase is in motion its sprint DAG is frozen; only
 dependencies to fix beads created during the phase are added or changed.
 Verify branches read-only (`git -C <worktree> log`,
@@ -385,7 +392,7 @@ The assignee pairs every ATM step with its bead step:
 | ready check | `bd ready -n 0 --json` lists the bead | |
 | start | `bd update <bead> --claim` | then `atm task start <bead> "<one line>"` |
 | done | `bd close <bead> --reason "<why>"` | with `atm task close <bead> completed --template <complete> --vars <file>` |
-| refused | bead returned open with no assignee, or `blocked` with a `failed:` note for a dev bead | with `atm task close <bead> refused --template task-refused.md.j2 --vars <file>` |
+| refused | bead returned open with no assignee, or `blocked` with a `DEV_CANNOT_COMPLETE` note for a dev bead | with `atm task close <bead> refused --template task-refused.md.j2 --vars <file>` |
 
 - `bd update --claim` succeeds on a blocked bead, so the ready check comes
   first. A bead that is not ready is neither claimed nor started: the
@@ -425,17 +432,19 @@ written to beads with the `atm-beads` templates.
 | `dev-fix.xml.j2` | assignment | lead → dev, a dev bead reopened by a failed sanity check |
 | `dev-complete.md.j2` | close | dev, for `dev-template` and `dev-fix` |
 | `dev-sanity-template.xml.j2` | assignment | lead → dev-sanity member |
+| `dev-sanity-assignment.json.j2` | fenced JSON | dev-sanity (`sanity-split`) → one `sc-sanity-llm` or `sc-sanity-jev` subagent per numbered deliverable |
 | `dev-sanity-complete.md.j2` | close | dev-sanity member, PASS or FAIL |
 | `qa-template.xml.j2` | assignment | lead → quality-mgr |
 | `qa-complete.md.j2` | close | quality-mgr, and its PR comment |
-| `fix-assignment.xml.j2` | assignment | lead → dev, one finding bead |
+| `fix-assignment.xml.j2` | assignment | lead → dev, one poured fix bead or important or minor finding bead |
 | `fix-complete.md.j2` | close | dev, for `fix-assignment` |
 | `review-template.xml.j2` | assignment | lead → phase-end reviewer |
 | `review-complete.md.j2` | close | phase-end reviewer |
 | `task-refused.md.j2` | close | anyone who cannot do the whole assignment |
 | `req-qa`, `arch-qa`, `ruthless-boundary-qa`, `flaky-test-qa`, `schema-reviewer`, `plan-scope-reviewer` `-assignment.json.j2` | fenced JSON | quality-mgr → its background reviewers; `plan-scope-reviewer` on plan QA-1, then only for its carried findings, locked to each finding's original acceptance criterion |
-| `qa-bead.json.j2` | bead | lead, after a green sanity check |
-| `finding-bead.json.j2` | bead | quality-mgr (QA) and lead (review), one per finding |
+| `qa-bead.json.j2` | bead | lead, for a finding bead or a parallel quick fix (sprint and fix QA beads are poured) |
+| `finding-bead.json.j2` | bead | quality-mgr (QA, important and minor) and lead (review), one per finding |
+| `workflow-issue-bead.json.j2` | bead | anyone, a workflow class bead for a recurring failure signature |
 
 Bead templates render with `sc-compose render --file <t> --var-file <v>
 --strict`, then `jq -c .` into a JSONL file for `bd import`. Examples of every

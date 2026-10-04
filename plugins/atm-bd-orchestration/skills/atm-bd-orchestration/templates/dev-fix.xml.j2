@@ -1,6 +1,6 @@
 ---
 name: dev-fix
-version: 1.2.1
+version: 1.2.2
 description: lead dev-fix assignment for a dev bead reopened after a failed sanity check. Same bead (task_id), same branch; its open child finding beads are the work.
 format: xml
 required_variables:
@@ -33,7 +33,7 @@ metadata:
     transition: start
 ---
 <atm-task id="{{ task_id }}" sprint="{{ sprint }}" mode="dev-fix">
-  <description><![CDATA[{% if sanity_bead %}Sanity check `{{ sanity_bead | string | cdata_escape }}` failed dev bead `{{ task_id | string | cdata_escape }}` and {{ lead | string | cdata_escape }} reopened it.{% else %}{{ lead | string | cdata_escape }} reopened dev bead `{{ task_id | string | cdata_escape }}` after plan review.{% endif %} Its open child finding beads are the work. `bd show {{ task_id | string | cdata_escape }}` is still the assignment.]]></description>
+  <description><![CDATA[{% if sanity_bead %}Sanity check `{{ sanity_bead | string | cdata_escape }}` failed dev bead `{{ task_id | string | cdata_escape }}` and reopened it.{% else %}{{ lead | string | cdata_escape }} reopened dev bead `{{ task_id | string | cdata_escape }}` after plan review.{% endif %} Its open child finding beads are the work. `bd show {{ task_id | string | cdata_escape }}` is still the assignment.]]></description>
 
   <worktree><![CDATA[{{ worktree_path | string | cdata_escape }}]]></worktree>
   <branch><![CDATA[{{ branch | string | cdata_escape }}]]></branch>

@@ -66,6 +66,30 @@ class TemplateContractTests(unittest.TestCase):
         items = split.parse_deliverables(json.loads(result.stdout)["description"])
         self.assertEqual(len(items), 1)
 
+    def test_a_finding_bead_is_a_child_of_the_phase_or_feature_bead_not_the_sprint(self):
+        import json, subprocess
+        result = subprocess.run(["sc-compose", "render", "--file", str(ROOT / "templates/finding-bead.json.j2"),
+                                 "--var-file", str(ROOT / "examples/finding-bead-vars.json"), "--strict"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bead = json.loads(result.stdout)
+        edges = {d["type"]: d["depends_on_id"] for d in bead["dependencies"]}
+        self.assertTrue(edges["parent-child"].endswith("-phase-d"), edges)
+        self.assertEqual(edges["discovered-from"], bead["id"].rsplit("-f", 1)[0])
+        self.assertTrue(bead["metadata"]["sprint_bead"].endswith("-d-4"))
+
+    def test_every_dev_assignment_has_the_itemized_private_checklist(self):
+        for name in ("dev-template", "dev-fix", "fix-assignment"):
+            text = (ROOT / f"templates/{name}.xml.j2").read_text()
+            with self.subTest(template=name):
+                self.assertIn("create an itemized private checklist outside the tracked tree with every task identified, "
+                              "and work through the checklist one item at a time", text)
+                self.assertIn("go through the checklist again one item at a time", text)
+
+    def test_fix_assignment_takes_a_poured_fix_bead(self):
+        head = (ROOT / "templates/fix-assignment.xml.j2").read_text().split("---", 2)[1]
+        self.assertIn("task_id is a poured fix bead (`<sprint>.<ref>-r<n>-fix`", head)
+
     def test_dev_step_a_rebases_before_the_gate(self):
         for name in ("dev-template", "fix-assignment", "dev-fix"):
             text = (ROOT / f"templates/{name}.xml.j2").read_text()
@@ -239,6 +263,16 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertIn("`qa_round` = 2", qa.stdout)
         self.assertIn("`bd import <scratch>/", qa.stdout)
 
+    def test_a_sprint_review_pours_blocking_findings_and_files_the_rest_under_the_phase_feature(self):
+        qa = _render(self.QA, _example("qa-template-vars.json"))
+        self.assertEqual(qa.returncode, 0, qa.stderr)
+        step_g = qa.stdout[qa.stdout.index('<step id="g">'):qa.stdout.index('<step id="h">')]
+        self.assertIn("scripts/bead-groups --findings <scratch>/", step_g)
+        self.assertIn('"round": 1', step_g)
+        self.assertIn("File every other finding (important, minor, or screened `ceremony`)", step_g)
+        self.assertIn(f"`parent` = `{_example('qa-template-vars.json')['phase_feature']}`", step_g)
+        self.assertNotIn("sprints.jsonl", qa.stdout)
+
     def test_fix_verification_dispatches_only_the_filing_reviewer(self):
         import json
         result = self.rbqa(qa_round=2, carry_forward_findings_json='["RBQA-004"]')
@@ -249,7 +283,7 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         qa = _render(self.QA, _example("qa-template-fix-round-vars.json"))
         self.assertEqual(qa.returncode, 0, qa.stderr)
         out = qa.stdout
-        self.assertIn("This is fix verification of finding beads", out)
+        self.assertIn("This is fix verification of fix bead", out)
         self.assertIn("scripts/fix-round-scope owned --carried", out)
         self.assertIn("scripts/fix-round-scope check --carried", out)
         self.assertIn("Dispatch exactly those reviewers and no other", out)
@@ -262,8 +296,11 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         step_g = out[out.index('<step id="g">'):out.index('<step id="h">')]
         self.assertIn("Do not screen or file new findings", step_g)
         self.assertNotIn("bd import", step_g)
-        self.assertNotIn("bd close <finding>", step_g)  # the fixer closes; verification confirms or reopens
-        self.assertIn("PASS requires a PASS from the filing reviewer and every carried finding confirmed fixed and closed.", out)
+        self.assertNotIn("bd close <finding>", step_g)  # the fixer closes; verification confirms or pours round n+1
+        self.assertNotIn("bd reopen", step_g)          # a failed fix verification never reopens
+        self.assertIn("scripts/bead-groups --findings <scratch>/", step_g)
+        self.assertIn("<its metadata.round + 1>", step_g)
+        self.assertIn("PASS requires a PASS from the filing reviewer and the carried finding confirmed fixed.", out)
 
     def test_fix_round_with_empty_scope_fails(self):
         for scope in (None, "[]", "[ ]", "", "  ", "null"):
@@ -285,9 +322,9 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertNotIn("fix-round-scope", qa.stdout)
 
     def test_carried_finding_on_a_sprint_branch_is_fix_verification(self):
-        qa = _render(self.QA, {**_example("qa-template-vars.json"), "carry_forward": "x-d-4-qa1-f1"})
+        qa = _render(self.QA, {**_example("qa-template-vars.json"), "carry_forward": "x-d-4.qa1-f1-r1-fix"})
         self.assertEqual(qa.returncode, 0, qa.stderr)
-        self.assertIn("This is fix verification of finding beads `x-d-4-qa1-f1`", qa.stdout)
+        self.assertIn("This is fix verification of fix bead `x-d-4.qa1-f1-r1-fix`", qa.stdout)
 
 
     def test_every_assignment_taking_carried_ids_carries_the_scope_lock(self):
