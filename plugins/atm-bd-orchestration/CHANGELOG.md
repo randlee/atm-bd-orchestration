@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0] - 2026-10-04
+
+### Added
+- `prompt-rewrite-judge` skill: fresh subagents rewrite a prompt, `scripts/judge.py`
+  asks Jev (through `scripts/jev_client.py`) one keep question per requirement plus
+  `changes_rule`, `unnecessary`, `ambiguous` and `clearer_than_original`; planted
+  controls must be caught before a winner is picked.
+
 ## [0.8.2] - 2026-10-03
 
 ### Changed

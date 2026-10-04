@@ -27,6 +27,7 @@ SUITES = (
     ".claude/skills/atm-bd-orchestration/scripts/tests",
     ".claude/skills/atm-beads/tests",
     ".claude/skills/sprint-report/tests",
+    ".claude/skills/prompt-rewrite-judge/scripts/tests",
 )
 # Reads the source repository's own docs/plans/phase-d/sprints.jsonl, which no consuming repository has.
 REPO_DATA_TESTS = (
