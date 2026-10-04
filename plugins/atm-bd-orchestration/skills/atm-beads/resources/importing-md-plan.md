@@ -48,7 +48,9 @@ goes back to the plan's author to supply, with the exact list of gaps.
    A failed render must stop you: never pipe a render straight into `jq`,
    which exits 0 on empty input and drops the bead silently.
 
-5. **Gate** the rendered plan. Run from the repository root:
+5. **Gate** the rendered plan. Write the plan file `<plans_dir>/phase-<x>.jsonl`
+   and the phase file `.atm-bd/phase-<x>.toml` now (step 9 commits and pushes
+   them), then run from the repository root:
 
    ```bash
    .claude/skills/atm-beads/scripts/validate-plan --file <scratch>/plan.jsonl --phase <x> --index <plans_dir>/phase-<x>.jsonl

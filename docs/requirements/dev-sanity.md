@@ -44,7 +44,7 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 33. Copy only SEL vars to `<scratch>/sanity-<task>-vars.json`.
 34. Each checker defect: append the selection entry to the matching workflow class bead (or report to the task assigner); cite it in notes.
 35. PASS: `bd close <task> --reason "PASS at <sha>"`; `atm task close completed --template dev-sanity-complete.md.j2`.
-36. FAIL: `sanity-create-findings --reviewer sc-sanity-selected`; never edit or reopen the parent; `bd update <task> --status open --assignee "" --append-notes "FAIL at <sha>: <n> findings"`; task `completed`, same template; verdict line to `cc` when it differs from lead.
+36. FAIL: `sanity-create-findings --reviewer sc-sanity-selected`; never edit the parent; then `bd reopen <checked bead> --reason "sanity FAIL at <sha>: <n> findings"`; `bd update <task> --status open --assignee "" --append-notes "FAIL at <sha>: <n> findings"`; task `completed`, same template; verdict line to `cc` when it differs from lead.
 37. Finding handoff failure is cannot-run, not FAIL.
 38. Cannot run (unsplittable plan, missing worktree, unpushed commit, timeout, rejected twice): workflow class bead or task-assigner report as in 17; bead open, no assignee, note; task `refused` with `task-refused.md.j2`.
 39. Second FAIL on the same checked bead: report `SANITY.ROUND_CAP` with undone deliverable numbers to the task assigner; no third round without a ruling.
@@ -76,5 +76,3 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 ## Unresolved
 
 1. Clean tree: `assignment-gates.py` ignores untracked files and `.beads.gate.lock`/`.sc-compose/`; `sanity-split` and `sanity-merge` fail `COMMIT_MISMATCH` on any `git status --porcelain` output.
-2. Children: `atm-beads/resources/orchestrating.md` files "every reported failure"; `agents/dev-sanity.md` and `sanity-create-findings` create none for lint.
-3. FAIL parent: `formulas/README.md` has dev-sanity reopen the dev or fix bead on FAIL; `agents/dev-sanity.md` and `dev-sanity-template.xml.j2` e1 never reopen or edit the parent (the lead reopens it).

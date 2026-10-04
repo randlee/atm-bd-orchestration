@@ -32,7 +32,7 @@ is open.
 #}
 formula = "sprint-group"
 description = "Sprint {{{ sprint }}}: dev, sanity and QA under sprint container {{{ parent }}}."
-version = 3
+version = 4
 type = "workflow"
 
 [vars.parent]
@@ -64,7 +64,7 @@ sprint_bead = "{{{ parent }}}"
 [[steps]]
 id = "sanity"
 title = "{{{ sprint }}}: sanity check"
-description = "Sanity check of {{{ parent }}}.{{{ ref }}}-dev (sprint {{{ sprint }}}): nothing skipped, no obvious errors, lint passes. This is not QA. Close on PASS only; on FAIL reopen the dev bead and leave this bead open."
+description = "Sanity check of {{{ parent }}}.{{{ ref }}}-dev (sprint {{{ sprint }}}): each numbered deliverable is written and lint passes. This is not QA. Close on PASS only; on FAIL reopen the dev bead and leave this bead open."
 type = "task"
 priority = {{{ priority }}}
 labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:dev-sanity"]

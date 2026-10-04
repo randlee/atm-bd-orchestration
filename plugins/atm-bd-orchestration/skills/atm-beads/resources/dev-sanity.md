@@ -25,8 +25,8 @@ that `dev-sanity.md` spawns.
 
 ## Message
 
-The dev-sanity member sends the check this message with the dev bead in
-its fenced JSON payload (`.claude/agents/sc-sanity-llm.md` "Inputs"). The sanity check bead's description
+The dev-sanity member sends each check this message with one numbered
+deliverable of the checked bead in its fenced JSON payload (`.claude/agents/sc-sanity-llm.md` "Inputs"). The sanity check bead's description
 carries the same message, so the instruction can be taken from it:
 `bd show <dev-sanity-bead> --json | jq -r '.[0].description'`.
 

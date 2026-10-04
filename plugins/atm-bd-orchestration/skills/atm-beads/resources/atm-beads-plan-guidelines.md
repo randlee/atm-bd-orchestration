@@ -176,11 +176,11 @@ List each related sprint as `must_follow` or `parallel_safe` with a rationale.
 - "Both sprints edit the same file" is never a `must_follow` rationale. It is
   a split defect. Re-cut ownership so the file has one owner, move the shared
   file to the contract or integration sprint, or merge the two sprints.
-- A `must_follow` edge needs concrete coupling: the same files/crates/public
-  types, or the child consumes the parent's code. Shared release/version
-  baseline alone is not coupling; handle it with a final integration step.
-- Parallel tracks run as separate gh-stack stacks with named branches,
-  worktrees, and assigned agents.
+- A `must_follow` edge is a hard dependency: the child consumes the parent's
+  code. Shared release/version baseline alone is not coupling; handle it with
+  a final integration step.
+- Parallel tracks run as separate gh-stack stacks with named branches and
+  worktrees; the lead picks the agents at dispatch.
 
 The phase bead's design publishes a **wave table**: each track, its sprints by wave,
 their `target_boundary` and `owned_paths`, plus three numbers: **critical

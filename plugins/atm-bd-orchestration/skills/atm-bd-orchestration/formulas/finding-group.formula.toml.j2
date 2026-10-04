@@ -37,7 +37,7 @@ container and the repository configuration):
 #}
 formula = "finding-group"
 description = "Fix of blocking finding {{{ finding_ref }}}, round {{{ round }}}, in sprint {{{ sprint }}}."
-version = 4
+version = 5
 type = "workflow"
 
 [vars.parent]
@@ -77,7 +77,7 @@ adrs = [{% for r in adrs %}"{{{ r }}}"{% if not loop.last %}, {% endif %}{% endf
 [[steps]]
 id = "sanity"
 title = "{{{ sprint }}}: sanity check of the fix of {{{ finding_ref }}}"
-description = "Sanity check of {{{ parent }}}.{{{ ref }}}-fix: nothing skipped, no obvious errors, lint passes. This is not QA. Close on PASS only; on FAIL reopen the fix bead and leave this bead open."
+description = "Sanity check of {{{ parent }}}.{{{ ref }}}-fix: each numbered deliverable is written and lint passes. This is not QA. Close on PASS only; on FAIL reopen the fix bead and leave this bead open."
 type = "task"
 priority = {{{ priority }}}
 labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:dev-sanity"]

@@ -16,9 +16,9 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 #### Plan gate
 6. `bd doctor` error: report it; never import into or dispatch from that database.
 7. Import gaps reported to you: supply the branch or status rulings asked for; nothing imports on a blocking gap.
-8. Right after import, create `<root>-plan-qa` assigned to `<qa_member>`, blocking every root sprint (running phase: `<root>-plan-qa-<n>` blocking only the new dev beads).
-9. Plan on origin `integration_branch`: `sprints.jsonl` committed by hand, never exported from beads; `sprint-review --root <root>` writes `phase-<x>-dag.html` locally, never committed or pushed; no viewer without `--view`.
-10. Run `validate-plan --root <root>` from the repo root; exit 0 or stop.
+8. Right after import and the pour, create `<root>-plan-qa` with no assignee; every sprint container blocks on it (running phase: `<root>-plan-qa-<n>`, blocking only the new containers).
+9. Plan on origin `integration_branch`: the plan file `<plans_dir>/phase-<x>.jsonl` and `.atm-bd/phase-<x>.toml` committed by hand, never exported from beads; `sprint-review --root <root>` writes `phase-<x>-dag.html` locally, never committed or pushed; no viewer without `--view`.
+10. Run `validate-plan --phase <x>` from the repo root; exit 0 or stop.
 11. Check `bd ready -l phase-<x> -n 0` lists the plan-review bead and no dev bead; `bd ready --explain` shows the rest blocked.
 12. `bd sync`.
 13. Dispatch plan review (`plan-review-template.xml.j2`) to quality-mgr; no dev bead before it passes.
@@ -40,13 +40,13 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 
 #### On each close
 27. dev-complete: nothing.
-28. Sanity PASS: verify branch base = `pr_target`; open the PR against it; create the QA bead from `qa-bead.json.j2` (child of the checked bead) and dispatch it. Finding: `checked_bead` = finding, `sprint_bead` = its `metadata.sprint_bead`, `carry_forward` = finding id, `round` = discovering QA round + 1 (1 from phase-end review).
-29. Sanity FAIL (first): verify children against the branch; close with reason any that judge correctness or quality; overrule, amend, split or reassign, never recreate; `bd reopen` the checked bead; assign `dev-fix.xml.j2`.
+28. Sanity PASS: verify branch base = `pr_target`; open the PR against it; dispatch the group's poured QA bead (`checked_bead`, `sprint_bead` from its metadata; for a fix bead also `carry_forward` = the fix bead, `round` = its `metadata.round` + 1). Important or minor finding: create its QA bead from `qa-bead.json.j2` with `checked_bead` and `carry_forward` = the finding.
+29. Sanity FAIL (first): verify children against the branch; close with reason any that judge correctness or quality; overrule, amend, split or reassign, never recreate; dev-sanity has reopened the checked bead; assign `dev-fix.xml.j2`.
 30. Sanity FAIL (second, `SANITY.ROUND_CAP`): diff flagged files vs last PASS, check the base for foreign commits, then rule; no third round without it.
 31. `SANITY.PLAN_INVALID`: planning failed for that bead.
-32. qa-complete: nothing to file; reopen a ceremony closure you disagree with (`bd reopen`); pick the member for each finding.
+32. qa-complete: nothing to file or pour (quality-mgr poured the fix groups); reopen a ceremony closure you disagree with (`bd reopen`); pick the member for each finding.
 33. QA `ROUND_CAP` (FAIL at round 2): no further fix round.
-34. fix-complete `fixed`: create its sanity bead (`dev-sanity-bead.json.j2`, `dev_bead` and `parent` = the finding). `not_reproducible`: nothing.
+34. fix-complete `fixed`: a poured fix bead needs nothing; for an important or minor finding bead create its sanity bead (`dev-sanity-bead.json.j2`, `dev_bead` and `parent` = the finding). `not_reproducible`: nothing.
 35. review-complete: file each finding with `finding-bead.json.j2` (`qa_bead` = review bead; sprint, layer, requirements, adrs from the cited dev bead, root + union minus `NONE` when it spans sprints; `found_at_commit` = reviewed commit; `screen` = `keep` unless screened; `finding_ref` = `R-n`).
 36. task-refused: read reason and bead state; reassign, split or `bd close --force --reason`; `blocked` bead: `bd update --status open --assignee <new>` before re-dispatch.
 37. not-ready report: fix the named cause, tell the assignee to re-check; unwanted work: close the task `cancelled` with `task-refused.md.j2`.
@@ -96,12 +96,6 @@ None in the package.
 
 ## Unresolved
 
-1. Important-finding priority: `atm-bd-orchestration/SKILL.md` (Stack Discipline, Priority) P2 vs `atm-beads/resources/orchestrating.md` P3.
-2. QA bead parent: `SKILL.md`, `planning.md` child of the checked bead vs `orchestrating.md` parent the phase feature.
-3. Finding parent/edges: `planning.md` parent = `sprint_bead`, no `caused-by` to the sprint vs `orchestrating.md` parent the phase feature, `caused-by` dev N.
-4. Plan Gate order: `SKILL.md`, `planning.md` run `sprint-review` then `validate-plan` vs `importing-md-plan.md` step 9 the reverse.
-5. Integration branch timing: `SKILL.md` Dispatch creates it "before the first dispatch" vs Plan Gate, `sprint-review/SKILL.md`, `validate-plan` needing it on origin before plan review.
-6. Plan-review bead step: `importing-md-plan.md`, `planning.md` cite Plan Gate "step 2" vs `SKILL.md` step 1.
-7. Plan-review cap: `SKILL.md` three rounds "as in quality-mgr.md" vs `roles/quality-mgr.md` defining none.
-8. Blocking findings: `formulas/README.md` has no finding bead (a poured fix group under a sprint container the lead closes) vs `SKILL.md` Loop finding beads dispatched with `fix-assignment`; `bead-groups` not referenced from `SKILL.md`.
-9. PR timing: `SKILL.md` Stack Discipline has the lead open the PR after sanity PASS; `dev-sanity-template.xml.j2` and `agents/dev-sanity.md` refuse `SANITY.PR_REQUIRED` without a PR.
+1. Plan Gate order: `SKILL.md`, `planning.md` run `sprint-review` then `validate-plan` vs `importing-md-plan.md` step 9 the reverse.
+2. Integration branch timing: `SKILL.md` Dispatch creates it "before the first dispatch" vs Plan Gate, `sprint-review/SKILL.md`, `validate-plan` needing it on origin before plan review.
+3. PR timing: `SKILL.md` Stack Discipline has the lead open the PR after sanity PASS; `dev-sanity-template.xml.j2` and `agents/dev-sanity.md` refuse `SANITY.PR_REQUIRED` without a PR.

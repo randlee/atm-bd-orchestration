@@ -66,9 +66,8 @@ def test_dev_bead_ids_take_the_installed_prefix(installed):
 
 @pytest.mark.parametrize("example", ("sprint-bead-vars-d-4.json", "sprint-bead-vars-d-5.json"))
 def test_sprint_bead_template_renders_a_valid_sprint_bead(installed, example):
-    """A strict render of the sprint-bead template is a stage:sprint container carrying the SprintBead metadata (difficulty).
-
-    Metadata only: the example descriptions are not numbered Deliverables lists."""
+    """A strict render of the sprint-bead template is a valid SprintBead: a stage:sprint container with a numbered
+    Deliverables list and its metadata (difficulty)."""
     skill = installed / ".claude/skills/atm-beads"
     out = subprocess.run(["sc-compose", "render", "--file", str(skill / "templates/sprint-bead.json.j2"),
                           "--var-file", str(skill / "examples" / example), "--strict"],
@@ -77,7 +76,7 @@ def test_sprint_bead_template_renders_a_valid_sprint_bead(installed, example):
     bead = json.loads(out.stdout)
     sys.path.insert(0, str(skill / "scripts"))
     import bead_schema
-    bead_schema.SprintMetadata.model_validate(bead["metadata"])
+    assert bead_schema.problems(bead, bead_schema.SprintBead) == []
     assert "stage:sprint" in bead["labels"]
     # a container: not the dev task, and its only edge is to its parent (bead-groups adds the dev-bead edges)
     assert "stage:dev" not in bead["labels"]

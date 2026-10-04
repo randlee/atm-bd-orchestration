@@ -11,8 +11,8 @@ one or two fast agents keep up with the important and minor ones.
 ## Before Dispatch
 
 1. `.claude/skills/atm-beads/scripts/validate-plan --phase <x>` exits 0
-   (it runs `bd doctor` and every check in [`planning.md`](planning.md)
-   "Checks"), and the plan has passed plan review
+   (it runs `bd doctor` and the checks [`planning.md`](planning.md) "Checks"
+   assigns to it), and the plan has passed plan review
    (`atm-bd-orchestration` "Plan Gate").
 2. `bd ready -l phase-<x> -n 0` lists exactly the dev beads with no prerequisites.
 3. `bd ready --explain` shows every other dev bead blocked by the
@@ -53,8 +53,8 @@ bead and blocks every dev bead that requires it. Its assignment is
 1. The dev agent completes its dev task and closes it; lead receives the
    dev-task completion.
 2. Lead assigns the sanity check.
-3. If sanity check fails, the sanity member files every reported failure as a
-   child finding bead of the checked bead. It adds `blocks` edges only between those new beads, where one fix depends on another. It then reopens the checked
+3. If sanity check fails, the sanity member files every reported undone
+   deliverable (never lint) as a child finding bead of the checked bead. It adds `blocks` edges only between those new beads, where one fix depends on another. It then reopens the checked
    bead and leaves the sanity check open, re-blocked by its edge. Lead reviews
    those child findings and gives the dev agent a dev-fix assignment.
 
