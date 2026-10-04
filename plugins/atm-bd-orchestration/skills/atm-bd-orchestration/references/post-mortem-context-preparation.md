@@ -93,7 +93,7 @@ A fix only on the stack does not count as landed on the pinned integration head.
 SHA, evidence, disposition, and UTC timestamp in
 `.sc/qa-logs/post-mortem-jev-phase-<x>-investigation.jsonl`. Verify non-code
 obligations from receipts. File only confirmed, deduplicated defects; send them
-to the lead for fixes and verify only the carried gaps afterward.
+to the task assigner for fixes and verify only the carried gaps afterward.
 
 ## Completion evidence
 

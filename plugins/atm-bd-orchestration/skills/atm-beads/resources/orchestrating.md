@@ -50,7 +50,7 @@ Every dev bead is followed by a sanity check bead, which is blocked by the dev
 bead and blocks every dev bead that requires it. Its assignment is
 [`dev-sanity.md`](dev-sanity.md).
 
-1. The dev agent completes its dev task and closes it; lead receives the
+1. The dev agent completes its dev task and closes it; the task assigner receives the
    dev-task completion.
 2. Lead assigns the sanity check.
 3. If sanity check fails, the sanity member files every reported undone

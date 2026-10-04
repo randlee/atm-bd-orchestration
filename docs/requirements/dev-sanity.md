@@ -28,7 +28,7 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 17. Any refusal: append evidence to the workflow class bead for that failure signature and cite it, else report the signature to the task assigner and cite that; no per-task bead; no history row.
 18. Claim and `atm task start`; iteration = completed events in `atm task events <task> --all --json` + 1.
 19. Run `sanity-split` exactly once; save the manifest; its run_id, sha, reviewers, operational_reviewer apply to the whole run.
-20. Split failure: refuse with its actual code before dispatch; `SANITY.PLAN_INVALID`: tell the lead planning failed for that bead.
+20. Split failure: refuse with its actual code before dispatch; `SANITY.PLAN_INVALID`: tell the task assigner planning failed for that bead.
 21. Dispatch every deliverable's assignment unchanged as fenced JSON to one `sc-sanity-llm` and one `sc-sanity-jev` child, both families before waiting; record each family's `started_at` before its dispatch.
 22. Keep each fenced reply text unchanged, as a JSON string, in its own reviewer's array (`sanity-merge` parses the fence); never mix arrays.
 23. Record each family's `completed_at` when its last reply or timeout arrives, before merge or lint wait.
@@ -40,11 +40,11 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 29. Checker defect: only on a selected undone reply, with a reason; creates no child.
 30. Merge `--reviewer sanity-selected --llm-vars --jev-vars --selection`.
 31. Merge exit 4: retry with the same times, never rerun lint; exit 0: PASS/FAIL; exit 1/3 with a report: CANNOT_RUN, keep error and raw results; no report: coordinator error, never PASS.
-32. After the selected merge, append exactly two history rows, `sanity-llm` then `sanity-jev`, each with its own completion time, the same iteration and the selected verdict as `--final-verdict`; selection or selected merge cannot run: `CANNOT_RUN`, still append both; a reviewer merge with no report has no row: report it to the lead.
+32. After the selected merge, append exactly two history rows, `sanity-llm` then `sanity-jev`, each with its own completion time, the same iteration and the selected verdict as `--final-verdict`; selection or selected merge cannot run: `CANNOT_RUN`, still append both; a reviewer merge with no report has no row: report it to the task assigner.
 33. Copy only SEL vars to `<scratch>/sanity-<task>-vars.json`.
 34. Each checker defect: append the selection entry to the matching workflow class bead (or report to the task assigner); cite it in notes.
 35. PASS: `bd close <task> --reason "PASS at <sha>"`; `atm task close completed --template dev-sanity-complete.md.j2`.
-36. FAIL: `sanity-create-findings --reviewer sc-sanity-selected`; never edit the parent; then `bd reopen <checked bead> --reason "sanity FAIL at <sha>: <n> findings"`; `bd update <task> --status open --assignee "" --append-notes "FAIL at <sha>: <n> findings"`; task `completed`, same template; verdict line to `cc` when it differs from lead.
+36. FAIL: `sanity-create-findings --reviewer sc-sanity-selected`; never edit the parent; then `bd reopen <checked bead> --reason "sanity FAIL at <sha>: <n> findings"`; `bd update <task> --status open --assignee "" --append-notes "FAIL at <sha>: <n> findings"`; task `completed`, same template.
 37. Finding handoff failure is cannot-run, not FAIL.
 38. Cannot run (unsplittable plan, missing worktree, unpushed commit, timeout, rejected twice): workflow class bead or task-assigner report as in 17; bead open, no assignee, note; task `refused` with `task-refused.md.j2`.
 39. Second FAIL on the same checked bead: report `SANITY.ROUND_CAP` with undone deliverable numbers to the task assigner; no third round without a ruling.

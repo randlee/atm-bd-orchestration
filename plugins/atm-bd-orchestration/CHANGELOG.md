@@ -13,9 +13,17 @@
   fix, QA, plan-review and review templates drop the `lead` and `cc`
   variables and every named recipient (each template minor-bumped);
   `dev-sanity.md` 2.3.0 and `roles/quality-mgr.md` say "the task assigner".
-  A test fails any template that names a recipient.
+  A test fails any template containing `to the lead`, `to lead`,
+  `team-lead`, `{{ lead`, `{{ cc` or `atm send {{`.
 - `atm-bd-orchestration/SKILL.md` 0.4.0: the parallax role row; the
   work-orchestrator may write the stack in the lead's place.
+- Review round 1: the remaining report recipients and close readers in the
+  templates (patch-bumped), references and requirements say "the task
+  assigner"; `importing-md-plan.md` reports gaps to the plan's author only;
+  `SKILL.md` 0.5.2 drops the false "only the original assigner can
+  re-dispatch a closed task id" limit and has one stack writer at a time;
+  `agents/parallax.md` 0.1.0 lists what stays with the lead and points to
+  the Lead Role section for handover and the stack writer.
 
 ## [0.8.2] - 2026-10-03
 

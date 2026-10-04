@@ -453,8 +453,9 @@ class ConfigVariableTests(unittest.TestCase):
     def test_no_template_names_a_recipient(self):
         """Closes and reports go to the task assigner; no template names or computes a recipient."""
         for path in sorted((ROOT / "templates").glob("*.j2")):
-            text = path.read_text()
-            for needle in ("{{ lead", "{{ cc", "atm send {{", "\n  - lead\n", "\n  - cc\n"):
+            text = path.read_text().lower()
+            for needle in ("to the lead", "to lead", "team-lead", "{{ lead", "{{ cc", "atm send {{",
+                           "\n  - lead\n", "\n  - cc\n"):
                 with self.subTest(template=path.name, needle=needle):
                     self.assertNotIn(needle, text)
 

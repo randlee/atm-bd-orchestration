@@ -19,7 +19,7 @@ goes back to the plan's author to supply, with the exact list of gaps.
 ## Procedure
 
 0. **Check the database.** Run `bd doctor --json`. Any check with
-   `"status": "error"` stops the import: report it to lead. Do not import
+   `"status": "error"` stops the import: report it to the plan's author. Do not import
    into a database that doctor rejects. `validate-plan` runs doctor again at
    step 5 and step 10.
 1. **Find the root.** `bd list -l phase-<x> --type feature -n 0` (or `epic`). If
@@ -35,7 +35,7 @@ goes back to the plan's author to supply, with the exact list of gaps.
    - a one-plan import produces only the sprint container.
 3. **Check** the vars against every row in Checks except the id-exists row
    (step 6), and collect all the gaps before reporting any of them. If any blocking row fails, stop and send the
-   list to lead: `atm send <lead> --stdin` with the file, the field and what
+   list to the plan's author: `atm send <author> --stdin` with the file, the field and what
    is missing. Nothing is imported.
 4. **Render** each bead strictly and collect the result as JSONL:
 
@@ -170,7 +170,7 @@ does not stop it.
 | --- | --- | --- |
 | Any bead id already exists (step 6) | blocking | stop; update the existing bead instead |
 | One-plan import: the phase root does not exist, or is not a `feature` or `epic` | blocking | import the phase first |
-| A sprint's `status` is not `planned` (in progress, complete) | blocking | ask lead: finish it on the old workflow, or import it as closed |
+| A sprint's `status` is not `planned` (in progress, complete) | blocking | ask the author: finish it on the old workflow, or import it as closed |
 | `closure_type` or `target_boundary` missing | blocking | ask the author; do not infer them from the goal |
 | No owned code paths: no "Owned Paths" and no "Exact Targets" (`owned_docs` alone is not enough) | blocking | ask the author for the file fence |
 | Owned paths taken only from the Deliverables list (no "Owned Paths" or "Exact Targets" section) | warn | import them and list them for the author to confirm |
@@ -184,11 +184,11 @@ does not stop it.
 | `depends_on` names a sprint that is not in the plan or in beads | blocking | ask the author |
 | `must_follow` without a parent, or a dependency cycle | blocking | ask the author |
 | Sprint table, branch table and sprint docs disagree (missing doc, extra doc, different relation) | blocking | ask the author which is right |
-| The planned branch or worktree already exists (`git ls-remote`, `git worktree list`) | blocking | ask lead: rename it, or finish that sprint on the old workflow |
+| The planned branch or worktree already exists (`git ls-remote`, `git worktree list`) | blocking | ask the author: rename it, or finish that sprint on the old workflow |
 | Branch name is not `sprint/<p>-<n>-<slug>`, and no branch exists yet | warn | rename it at import and list the old and new names |
 | `difficulty` missing or not `hard`, `normal` or `fast` | blocking | ask the author |
 | Frontmatter `base` is not the phase's `integration_branch` | warn | ignore it; the stack's layer 1 targets the `integration_branch` |
 | Requirement or ADR ids named in the body but not in frontmatter | warn | add them to `requirements` / `adrs` and list them |
 
-The report to lead is one line per gap: `<doc>: <field>: <what is missing or
+The report to the plan's author is one line per gap: `<doc>: <field>: <what is missing or
 conflicting>`. It lists the blocking gaps first, then the warnings.

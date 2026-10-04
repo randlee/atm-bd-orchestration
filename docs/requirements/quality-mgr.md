@@ -51,7 +51,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 37. Round 1: run `req-qa` and `arch-qa` per dev bead file, `plan-scope-reviewer` in full over all files (report its `parallelism`), plus the other plan reviewers; screen findings except validate-plan and REQ/ADR ones, list each drop with reason.
 38. Fix round: only filing reviewers via `fix-round-scope --plan`, locked; `validate-plan` still runs; no screen, no new findings.
 39. Report findings one line each: `<bead> <severity> <reviewer> <field>: ...`; file no finding beads.
-40. PASS (no blocking/important open): no findings → close bead; minor → assign bead to lead with notes, leave open. FAIL → bead open, unassigned, notes. Fix-round PASS: every carried finding fixed and validate-plan clean.
+40. PASS (no blocking/important open): no findings → close bead; minor → assign bead to the task assigner with notes, leave open. FAIL → bead open, unassigned, notes. Fix-round PASS: every carried finding fixed and validate-plan clean.
 41. PASS or FAIL: close the task with `plan-review-complete.md.j2`.
 
 ### Phase-end review (`review-template`)

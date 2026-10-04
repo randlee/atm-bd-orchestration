@@ -26,7 +26,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 ### Dev (`dev-template`)
 
 17. Read the bead: scope, deliverables, deletion targets, validation, acceptance criteria; `metadata.owned_paths` is the fence.
-18. Read every `metadata.requirements` and `metadata.adrs` id; satisfy each; `NONE` but the work touches one: tell the lead before coding past it.
+18. Read every `metadata.requirements` and `metadata.adrs` id; satisfy each; `NONE` but the work touches one: tell the task assigner before coding past it.
 19. Read `policy_path` and every guideline it names for the languages touched.
 20. Read the complete plan and enumerate all tasks that must be completed in the primary and any child beads; create an itemized private checklist outside the tracked tree with every task identified; work through the checklist one item at a time; then go through it again one item at a time and confirm each is fully met; nothing outside the bead's scope.
 21. Close: `bd close --reason "dev complete at <short sha>"` + `dev-complete.md.j2` with deliverable inventory and gate output; deletion work adds `inventory_md`.
@@ -50,7 +50,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 
 ### Parallel quick fix (finder)
 
-33. A change other live branches need never goes in your layer: stop and tell the lead the change and the branches it breaks.
+33. A change other live branches need never goes in your layer: stop and tell the task assigner the change and the branches it breaks.
 34. Cut `fix/<thing>` from `origin/<base>` the lead picks, own worktree: only the change, compiler-forced implementors/call sites, one test for a bug; test passes; push; PR into `<base>`.
 35. Sprint task stays open; continue on the rebased layer.
 

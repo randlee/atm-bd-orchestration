@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.5.1
+version: 0.5.2
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -57,7 +57,7 @@ can move mid-phase: the outgoing lead sends the incoming lead the open task
 ids, open PRs and the stack number, and announces the new lead. In-flight
 tasks keep their assigner.
 
-The lead (or its work-orchestrator) is the only stack writer (`gh stack link`, `unstack`, `sync`,
+The lead (or its work-orchestrator) is the only stack writer, one at a time (`gh stack link`, `unstack`, `sync`,
 `rebase`, `merge`). quality-mgr files the finding beads from QA; the lead
 files those from a phase-end review.
 
@@ -159,7 +159,7 @@ change does not go into the finder's layer. Landed there, every other branch
 fails until that layer merges, and the cross-fence edits it forces conflict
 on every restack and show up as out-of-scope work in that sprint's PR.
 
-1. The finder stops the edit in the sprint worktree and tells the lead the
+1. The finder stops the edit in the sprint worktree and tells the task assigner the
    exact change and the branches it breaks.
 2. The lead picks the base: the lowest branch that already holds what the
    change needs. That is the phase's integration branch for a bug in merged code, or
@@ -398,7 +398,7 @@ The assignee pairs every ATM step with its bead step:
 - `bd update --claim` succeeds on a blocked bead, so the ready check comes
   first. A bead that is not ready is neither claimed nor started: the
   assignee finds the root cause (`bd blocked --json`, then `bd show` on each
-  blocker) and reports it to the lead.
+  blocker) and reports it to the task assigner.
 - A failed sanity check or plan review leaves its bead open, because closing
   it would release the beads it blocks (see
   `.claude/agents/dev-sanity.md` and "Plan Gate").
@@ -416,7 +416,6 @@ templates. Each is a requirement for the planned combined `atm bd claim` /
 | one active task per agent | ATM nudges one active task at a time; dev-sanity and quality-mgr execute every open task at once (`atm task start` for the active one, `bd update --claim` for all) and close a queued task without starting it | several active tasks for a coordinator role |
 | actor identity must be explicit | pass `--actor "$ATM_IDENTITY"` on every `bd` write | the actor is always `ATM_IDENTITY` |
 | claim fails when the bead is assigned to someone else | lead sets the assignee before `atm task assign`; returned beads clear it | claim reassigns the bead to the task's assignee |
-| only the original assigner can re-dispatch a closed task id | the lead that dispatched a bead re-dispatches it; after a lead handover, the outgoing lead re-dispatches the beads it had already dispatched | the current lead may take over closed tasks |
 | a bead can close with no task (ceremony finding) and a task can close with no bead change (cancel) | allowed; both carry a reason | a bead-only close and a task-only cancel |
 
 ## Templates
