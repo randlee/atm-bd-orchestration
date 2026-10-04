@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.1] - 2026-10-03
+
+### Fixed
+- `scripts/tests/test_bead_pour_mock.py` no longer imports pytest, so the
+  installed suite runs with `python3 -m unittest discover` and only the README
+  requirements (it failed to import there: errors=1). The module is plain
+  unittest: one class, `unittest.skipUnless` when bd, dolt or sc-compose is
+  missing, and the shared workspace built in `setUpClass` with class cleanups
+  that stop the dolt server and remove the temp dir even when setup fails.
+  Test cases and assertions are unchanged.
+
 ## [0.8.0] - 2026-10-03
 
 ### Added
