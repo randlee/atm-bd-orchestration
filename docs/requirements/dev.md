@@ -28,14 +28,14 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 17. Read the bead: scope, deliverables, deletion targets, validation, acceptance criteria; `metadata.owned_paths` is the fence.
 18. Read every `metadata.requirements` and `metadata.adrs` id; satisfy each; `NONE` but the work touches one: tell the lead before coding past it.
 19. Read `policy_path` and every guideline it names for the languages touched.
-20. Write a private checklist outside the tracked tree, one line per deliverable and acceptance criterion; work it one item at a time, finishing and ticking each before the next; then go through it again one item at a time and confirm each is fully met; nothing outside the bead's scope.
+20. Read the complete plan and enumerate all tasks that must be completed in the primary and any child beads; create an itemized private checklist outside the tracked tree with every task identified; work through the checklist one item at a time; then go through it again one item at a time and confirm each is fully met; nothing outside the bead's scope.
 21. Close: `bd close --reason "dev complete at <short sha>"` + `dev-complete.md.j2` with deliverable inventory and gate output; deletion work adds `inventory_md`.
 22. Cannot complete: class bead or escalation (9); `bd update --status blocked --assignee "" --append-notes "DEV_CANNOT_COMPLETE; ..."`; never `bd close`; task `refused` with `task-refused.md.j2`. Unfinished is a failure.
 
 ### Dev-fix (`dev-fix`)
 
 23. Not ready while `closed` means never reopened.
-24. Write a private checklist outside the tracked tree, one line per open child (`bd list --parent <bead> --status open --json`); fix and close each child before the next (`bd close <child> --reason "<short sha>: <fix>"`); then go through it again one item at a time and confirm each child is fixed.
+24. Read the complete plan and enumerate all tasks that must be completed in the primary and any child beads (`bd list --parent <bead> --status open --json`); create an itemized private checklist outside the tracked tree with every task identified; work through the checklist one item at a time, closing each child when fixed (`bd close <child> --reason "<short sha>: <fix>"`); then go through it again one item at a time and confirm each is done.
 25. Re-check the whole bead; re-read its requirements and ADRs.
 26. Close as Dev 21, `deliverables_md` listing each finding and its fix.
 27. Cannot complete: as Dev 22.
