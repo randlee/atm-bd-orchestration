@@ -207,8 +207,8 @@ A second round is the same formula poured again onto the sprint with
 `round = n+1` (04c). The dev closes the fix, dev-sanity closes the fix sanity
 on PASS only, and quality-mgr closes the fix qa. Important and minor findings
 get no pour; they are plain finding beads under the phase feature bead (Q2,
-02b). PR #19 currently takes `--finding ID --round N` and attaches under the
-finding; under this ruling its `parent` variable is the sprint. This flat
+02b). PR #19 (merged, 0.8.0) takes one QA round's blocking findings with
+`--findings FILE` and attaches each group to the sprint. This flat
 one-finding-one-fix shape is new structure relative to phase-d (03, 3c), and
 migrating the phase-d data is post-phase-d work.
 
