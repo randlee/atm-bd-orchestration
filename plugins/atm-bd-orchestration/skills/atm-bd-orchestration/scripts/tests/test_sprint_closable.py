@@ -83,6 +83,11 @@ class SprintClosableTests(unittest.TestCase):
         self.assertEqual(closable(rows), (1, [f"important finding {SPRINT}-qa-f2 is open (parent {SPRINT})",
                                               f"minor finding {SPRINT}-qa-f3 is open (parent {SPRINT})"]))
 
+    def test_open_restack_sanity_check_holds_the_sprint(self):  # waves.md, Stack Discipline step 3
+        rows = group() + [bead(f"{SPRINT}.group-dev-restack-1-sanity", SPRINT, status="open", labels=["stage:dev-sanity"],
+                               dev_bead=f"{SPRINT}.group-dev")]
+        self.assertEqual(closable(rows), (1, [f"sanity {SPRINT}.group-dev-restack-1-sanity is open (parent {SPRINT})"]))
+
     def test_sprint_without_a_group(self):
         self.assertEqual(closable([finding(f"{SPRINT}-qa-f1", SPRINT, "blocking")]), (1, ["no sprint group"]))
 
