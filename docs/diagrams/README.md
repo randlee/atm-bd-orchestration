@@ -67,20 +67,6 @@ Paths are under `plugins/atm-bd-orchestration/`.
   (`skills/atm-beads/scripts/sprint_index_common.py`), not
   `<plans_dir>/<phase>.jsonl` with `{"sprint", "depends_on"?}` lines;
   `bead-groups` refuses a planned sanity id that differs from the poured one.
-- `skills/atm-bd-orchestration/formulas/sprint-group.relations.json` puts the
-  cross-sprint `blocks` edge on the dependent sprint container, not its dev
-  bead, and adds a container-to-container edge when `metadata.coupling` is
-  `tight`.
-- Both formulas set `assignee` on every step (`dev_member`, `sanity_member`,
-  `qa_member`) instead of leaving it to the lead at dispatch, and their sanity
-  and qa steps carry no `difficulty`.
-- `skills/atm-bd-orchestration/scripts/bead-groups` refuses a sprint with no
-  dispatched dev assignee, so it cannot pour before plan review, and copies
-  that assignee onto the dev and fix beads.
-- `skills/atm-bd-orchestration/formulas/finding-group.relations.json` adds no
-  `discovered-from` edge from the fix bead to its `filed_by` qa bead.
-- The finding-group fix bead lacks the `requirements`, `adrs` and
-  `found_at_commit` metadata that `finding-bead.json.j2` carries.
 - `skills/atm-bd-orchestration/templates/fix-assignment.xml.j2` assigns a finding
   bead (`task_id` is the finding bead), not the poured fix bead.
 - `skills/atm-bd-orchestration/templates/qa-template.xml.j2` files every finding,

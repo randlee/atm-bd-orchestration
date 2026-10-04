@@ -50,5 +50,12 @@
       ]
     }
   },
-  "edges": []
+  "edges": [
+    {
+      "description": "the fix bead was found while working the QA bead that filed it",
+      "from": "{steps[fix]}",
+      "to": "{vars[filed_by]}",
+      "type": "discovered-from"
+    }
+  ]
 }
