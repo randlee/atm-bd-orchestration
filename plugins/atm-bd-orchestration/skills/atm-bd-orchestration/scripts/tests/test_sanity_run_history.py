@@ -188,10 +188,7 @@ class ShippedFlow(unittest.TestCase):
         self.manifest = self.root / "manifest.json"
         self.manifest.write_text(split.stdout)
         exit_file = Path(json.loads(split.stdout)["lint"]["exit_file"])
-        for _ in range(200):
-            if exit_file.exists():
-                break
-            time.sleep(0.05)
+        SPLIT_TESTS.wait_for(exit_file.exists, f"exit file {exit_file.name}")
         self.assertEqual(exit_file.read_text().strip(), "0")
 
     def merge(self, reviewer, *extra, stdin=None):
