@@ -34,9 +34,10 @@ each as soon as its verdict is ready, in any order.
 ## Pre-claim refusals
 
 Before claim, run `gh pr view "$PR_NUMBER" --json baseRefName,headRefOid`,
-read the pinned PASS commit with `bd show "$CHECKED_BEAD" --json | jq -r
-'.[0].metadata.sanity_pass_commit'`, and run `git rev-parse HEAD`. The PR base
-must equal `metadata.pr_target`, its head must equal the sanity PASS commit,
+read the sha of the checked bead's latest sanity PASS (the close reason
+`PASS at <sha>` of the closed `stage:dev-sanity` bead whose `metadata.dev_bead`
+is `$CHECKED_BEAD`), and run `git rev-parse HEAD`. The PR base
+must equal `metadata.pr_target`, its head must start with that sha,
 and the QA worktree HEAD must equal that PR head. Otherwise refuse
 `SANITY_STALE`; no layer or quick fix lacking QA PASS at that pinned head is
 mergeable. Reuse an existing workflow class bead for the same failure signature:
@@ -150,10 +151,13 @@ This section applies to round 1 only. A fix round (`carry_forward` set) screens 
 
 After the reviewers return, screen every finding with
 `ceremony-finding-screen`, which also runs as a background agent. Then file
-one finding bead per finding with `finding-bead.json.j2`, whatever the
-screen said. What happens next depends on the verdict:
+every finding, whatever the screen said: a blocking finding the screen keeps
+is poured as a fix ← sanity ← qa group under the sprint (`bead-groups
+--findings`, qa-template step g); every other finding is one finding bead
+(`finding-bead.json.j2`) under the phase or feature bead. What happens next
+depends on the verdict:
 
-| Screen verdict | Finding bead |
+| Screen verdict | Finding |
 | --- | --- |
 | `keep` | filed open as reported |
 | `not_applicable` | filed open as reported |
@@ -176,15 +180,16 @@ screen said. What happens next depends on the verdict:
   checked sprint/finding; never select a default. The dispatch report prints
   `UNCLASSIFIED` and no agent for a live bead missing it.
 - A blocking finding never adds a dependency to another planned sprint. The
-  canonical `sprints.jsonl` plan is the sole source of those edges; file and
+  plan file is the sole source of those edges; file and
   dispatch the finding's own remediation through its normal finding/fix flow.
 - Findings are `parallel_safe` by default. Set `blocked_by` only to another finding
   of this round, when its fix needs that one's fix first.
-- Ids are `<qa bead>-f<n>`, numbered in report order.
+- Ids are `<qa bead>-f<n>` for finding beads and `<sprint>.qa<round>-f<n>-r1-fix`
+  for poured fix beads, numbered in report order.
 - Every finding closes with a close reason. You close ceremony findings. The
   fixer closes the rest, as fixed or not reproducible. In a fix round you
-  note each confirmed fix and reopen each carried finding that regressed or
-  is still open (`bd reopen`).
+  note each confirmed fix and pour round n+1 for each carried fix that
+  regressed or is still open; you never reopen a fix bead.
 
 Do not assign findings. The lead picks the member for each one.
 
@@ -205,8 +210,9 @@ forward from a previous row.
 - `phase-<p>-stats.jsonl` — one row per round, a phase-wide snapshot queried
   live from `bd` at that same moment: `snapshot_at`, `snapshot_local`,
   `phase`, `trigger_task` (the round that produced this snapshot), `tot`
-  (all finding beads ever filed in the phase), `open`, and `blk`/`imp`/`min`
-  (open findings by severity). This is the same query used to answer "how
+  (every finding of the phase: finding beads that are not sanity findings, plus
+  each poured blocking finding counted once at its latest round), `open`, and
+  `blk`/`imp`/`min` (open findings by severity). This is the same query used to answer "how
   many findings are open" ad hoc; it gives velocity and a closure estimate
   across rounds, and ties out against `phase-<p>.jsonl` at phase end (sum of
   its `fnd` across all rounds reconciles with this log's final `tot`).

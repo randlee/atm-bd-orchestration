@@ -57,12 +57,10 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 ### Scripts
 
 36. `assignment-gates.py dev` prints one code; exit 0 `READY`, 2 `GATE_CANNOT_RUN`, 5 otherwise.
-37. Checks in order: `validate-plan` (`PLAN_INVALID`), in `bd ready` (`NOT_READY`), open and unassigned or self (`UNCLAIMABLE`), `pr_target` (`PR_TARGET_MISMATCH`), roster model fits `difficulty` (`DIFFICULTY_MISMATCH`), `origin/<pr_target>` ancestor of HEAD (`WRONG_BASE`).
+37. Checks in order: `validate-plan` (`PLAN_INVALID`), in `bd ready` (`NOT_READY`), open and unassigned or self (`UNCLAIMABLE`), `pr_target`, the sprint container's for a poured dev bead (`PR_TARGET_MISMATCH`), roster model fits `difficulty` (`DIFFICULTY_MISMATCH`), `origin/<pr_target>` ancestor of HEAD (`WRONG_BASE`).
 38. Difficulty models (substring): hard fable/opus/astra; normal terra/opus/sonnet; fast luna.
 39. `task-refused.md.j2`: `bead_state` `open` or `blocked-failed`.
 
 ## Unresolved
 
-1. Templates require `metadata.pr_target` to equal `pr_target`; `assignment-gates.py` passes when it is absent.
-2. `SKILL.md` refused row: failed dev bead gets a `failed:` note; dev-template/dev-fix write `DEV_CANNOT_COMPLETE; ...`.
-3. `SKILL.md` sanity-FAIL row: a finding bead closes with `dev-complete.md.j2`; `fix-assignment` closes with `fix-complete.md.j2`.
+1. `SKILL.md` sanity-FAIL row: a finding bead closes with `dev-complete.md.j2`; `fix-assignment` closes with `fix-complete.md.j2`.

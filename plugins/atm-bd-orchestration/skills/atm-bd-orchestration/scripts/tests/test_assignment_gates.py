@@ -62,9 +62,15 @@ def sanity_runner(overrides=None):
 def qa_runner(overrides=None):
     data = {
         ("bd", "show", "bead", "--json"): (0, dumped([{"metadata": {"checked_bead": "checked", "pr_target": "target"}}])),
-        ("bd", "show", "checked", "--json"): (0, dumped([{"metadata": {"sanity_pass_commit": "head"}}])),
-        ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefOid": "head"})),
-        ("git", "rev-parse", "HEAD"): (0, "head"),
+        ("bd", "list", "-l", "stage:dev-sanity", "--status", "closed", "-n", "0", "--json"): (0, dumped([
+            {"id": "checked-sanity-old", "close_reason": "PASS at 0ld0ld0", "closed_at": "2026-10-01T00:00:00Z",
+             "metadata": {"dev_bead": "checked"}},
+            {"id": "checked-sanity", "close_reason": "PASS at abc1234", "closed_at": "2026-10-02T00:00:00Z",
+             "metadata": {"dev_bead": "checked"}},
+            {"id": "other-sanity", "close_reason": "PASS at fff9999", "closed_at": "2026-10-03T00:00:00Z",
+             "metadata": {"dev_bead": "other"}}])),
+        ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefOid": "abc1234def"})),
+        ("git", "rev-parse", "HEAD"): (0, "abc1234def"),
     }; data.update(overrides or {}); return FakeRunner(data)
 
 
@@ -94,6 +100,18 @@ class AssignmentGateTests(unittest.TestCase):
         for fixture, runner in cases:
             with self.subTest(fixture=fixture): self.assert_fixture(fixture, ns("dev"), runner)
 
+    def test_a_poured_dev_bead_takes_its_sprint_containers_pr_target(self):
+        poured = {("bd", "show", "bead", "--json"): (0, dumped([{"status": "open", "assignee": "", "labels": ["stage:dev"],
+                  "metadata": {"difficulty": "normal", "sprint_bead": "container"}}]))}
+        for target, expected in (("target", "READY"), ("other", "PR_TARGET_MISMATCH")):
+            runner = dev_runner({**poured, ("bd", "show", "container", "--json"): (0, dumped([{"metadata": {"pr_target": target}}]))})
+            with self.subTest(container_target=target):
+                self.assertEqual(gates.evaluate(ns("dev"), runner), expected)
+        fix = {("bd", "show", "bead", "--json"): (0, dumped([{"status": "open", "assignee": "", "labels": ["stage:fix"],
+               "metadata": {"difficulty": "normal", "sprint_bead": "container"}}])),
+               ("bd", "show", "container", "--json"): (0, dumped([{"metadata": {"pr_target": "other"}}]))}
+        self.assertEqual(gates.evaluate(ns("dev"), dev_runner(fix)), "READY")  # a fix layer's target is set at dispatch
+
     def test_dev_gate_runs_validate_plan_in_primary_and_git_in_worktree(self):
         runner = dev_runner({("git", "-C", "/wt", "merge-base", "--is-ancestor", "origin/target", "HEAD"): (0, "")})
         self.assertEqual(gates.evaluate(ns("dev", worktree="/wt"), runner), "READY")
@@ -115,7 +133,9 @@ class AssignmentGateTests(unittest.TestCase):
 
     def test_qa_refusals_and_ready(self):
         cases = [
-            ("stale-sanity.json", qa_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefOid": "old"}))})),
+            ("stale-sanity.json", qa_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefOid": "0ld0ld0aaa"}))})),
+            ("stale-sanity.json", qa_runner({("bd", "list", "-l", "stage:dev-sanity", "--status", "closed", "-n", "0", "--json"): (0, dumped([
+                {"id": "checked-sanity", "close_reason": "FAIL at abc1234", "closed_at": "2026-10-02T00:00:00Z", "metadata": {"dev_bead": "checked"}}]))})),
             ("qa-head-mismatch.json", qa_runner({("git", "rev-parse", "HEAD"): (0, "other")})),
             ("qa-ready.json", qa_runner()),
         ]

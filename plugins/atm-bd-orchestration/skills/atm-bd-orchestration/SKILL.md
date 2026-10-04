@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.5.0
+version: 0.5.1
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -129,7 +129,9 @@ or ATM.
 
 ## Stack Discipline
 
-Every bead declares its immutable `metadata.pr_target`. A dev or fix branch
+Every sprint container declares its immutable `metadata.pr_target`, which its
+poured dev bead takes; a fix bead's target is the top of its stack, set at
+dispatch. A dev or fix branch
 is cut from `origin/<pr_target>` and rebases only onto that branch. The lead
 opens the PR against that same target after sanity PASS; a passed sanity is
 frozen and a later change is a new fix bead with its own sanity. Sprint work

@@ -65,6 +65,16 @@ def git_dir(args: argparse.Namespace) -> list[str]:
     return ["-C", worktree] if worktree else []
 
 
+def declared_pr_target(runner: Runner, bead: dict[str, Any]) -> str | None:
+    """The bead's own pr_target; a poured dev bead declares none and takes its sprint container's.
+    A fix bead's target (a new layer at the top of the stack) is set at dispatch."""
+    target = metadata(bead).get("pr_target")
+    container = metadata(bead).get("sprint_bead")
+    if target is None and container and "stage:dev" in (bead.get("labels") or []):
+        target = metadata(run_json(runner, "bd", "show", str(container), "--json")[0]).get("pr_target")
+    return target
+
+
 def dev_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     if runner([VALIDATE_PLAN, "--root", args.root], capture_output=True, text=True, cwd=str(PRIMARY)).returncode:
         return "PLAN_INVALID"
@@ -74,7 +84,7 @@ def dev_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     bead = run_json(runner, "bd", "show", args.bead, "--json")[0]
     if not claimable(bead, identity):
         return "UNCLAIMABLE"
-    if metadata(bead).get("pr_target") not in (None, args.pr_target):
+    if declared_pr_target(runner, bead) not in (None, args.pr_target):
         return "PR_TARGET_MISMATCH"
     if (reason := refusal_for_difficulty(bead, members_for(runner), identity)):
         return reason
@@ -100,6 +110,17 @@ def sanity_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     return "READY"
 
 
+def sanity_pass_commit(runner: Runner, checked: str) -> str | None:
+    """The sha in the close reason `PASS at <sha>` of the latest passed sanity check of `checked`."""
+    rows = run_json(runner, "bd", "list", "-l", "stage:dev-sanity", "--status", "closed", "-n", "0", "--json")
+    passes = [row for row in rows if metadata(row).get("dev_bead") == checked
+              and str(row.get("close_reason") or "").startswith("PASS at ")]
+    if not passes:
+        return None
+    reason = str(max(passes, key=lambda row: str(row.get("closed_at") or ""))["close_reason"])
+    return (reason[len("PASS at "):].split() or [""])[0].rstrip(".:;,")
+
+
 def qa_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     if not args.pr_number:
         return "PR_REQUIRED"
@@ -107,12 +128,11 @@ def qa_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     if metadata(qa_bead).get("pr_target") not in (None, args.pr_target):
         return "PR_TARGET_MISMATCH"
     checked = args.checked_bead or metadata(qa_bead).get("checked_bead")
-    checked_bead = run_json(runner, "bd", "show", str(checked), "--json")[0] if checked else qa_bead
-    pass_commit = metadata(checked_bead).get("sanity_pass_commit") or metadata(qa_bead).get("sanity_pass_commit")
+    pass_commit = sanity_pass_commit(runner, str(checked)) if checked else None
     pr = run_json(runner, "gh", "pr", "view", args.pr_number, "--json", "baseRefName,headRefOid")
     if pr.get("baseRefName") != args.pr_target:
         return "PR_TARGET_MISMATCH"
-    if not pass_commit or pr.get("headRefOid") != pass_commit:
+    if not pass_commit or len(pass_commit) < 7 or not str(pr.get("headRefOid") or "").startswith(pass_commit):
         return "SANITY_STALE"
     if run(runner, "git", "rev-parse", "HEAD") != pr.get("headRefOid"):
         return "QA_HEAD_MISMATCH"
