@@ -44,7 +44,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 ### Plan review (`plan-review-template`)
 
 32. Check readiness, claim, start; blocked: report the blocker to the lead and wait.
-33. Run `validate-plan --root <root>`: exit 5 every line blocking; exit 2 cannot-run (`PLAN_REVIEW_CANNOT_RUN`); missing DAG html or `sprints.jsonl` and `bd doctor` errors are blocking.
+33. Run `validate-plan --root <root>`: exit 5 every line blocking; exit 2 cannot-run (`PLAN_REVIEW_CANNOT_RUN`); a missing `sprints.jsonl` and `bd doctor` errors are blocking.
 34. Pipe each dev bead to `<scratch>/<bead>-plan.md` and the root to `<scratch>/<root>-plan.md`.
 35. Pin reviewers to `integration_branch` at `git rev-parse origin/<integration_branch>`.
 36. Round 1: missing/empty/mixed, unknown (outside New Ids), non-governing or unlisted touched requirement/ADR ids are blocking; never downgraded or screened out.
@@ -58,36 +58,31 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 
 42. Check readiness, claim, start; not ready: report blockers to the lead and wait.
 43. Require branch = root `integration_branch`, worktree HEAD = `<commit>`; read via `git show <commit>:<path>`; plan = `bd show <phase feature>` and children.
-44. JEV post-mortem per `post-mortem.md`: inventory every phase finding (closed, nested); investigate every flagged result; dedupe; append raw evaluations to the phase JSONL with UTC, SHA, run IDs.
-45. Record `post_mortem_jev`; model error is not PASS; no code findings: `not_applicable`; JEV unavailable: `unavailable`, review stays pending.
+44. JEV post-mortem per `post-mortem.md`: inventory every phase finding (closed, nested); investigate every flagged result; dedupe; report them to the lead, who files them as finding beads; append raw evaluations to the phase JSONL with UTC, SHA, run IDs.
+45. Record `post_mortem_jev`; model error is not PASS; no code findings: `not_applicable`; JEV unavailable: `unavailable`, review stays pending: bead returned open, task refused `REVIEW_PENDING_JEV`.
 46. Make no code changes.
 47. Re-verify every file:line at `<commit>`; report SUMMARY, FINDINGS, EXTRACTION-READINESS, RECOMMENDED-NEXT-SPRINTS, INTEGRATION POST-MORTEM.
-48. Run `check-review-completion.py` on the vars; require exit 0; close bead and task with `review-complete.md.j2`.
+48. Write to no bead except claiming, closing or returning the review bead. Run `check-review-completion.py` on the vars; require exit 0; close bead and task with `review-complete.md.j2`.
 
 ### Subagents
 
 49. Reviewers: background; get pinned `branch`, `commit`, `worktree_path`, `sprint_doc` where the template takes it; never run `bd` or write ATM.
 50. Render each assignment from `<reviewer>-assignment.json.j2` (else the input `.claude/agents/<reviewer>.md` names) with `--json-escape-mode auto`, gate with `jq -e .`, send as fenced JSON; no free-form prompts.
 51. `review_mode`: `arch-qa`/`schema-reviewer` `sprint_review` or `phase_end`; `ruthless-boundary-qa` maps itself.
-52. `carry_forward_findings_json` = the reviewer's own `finding_ref` ids; never empty string.
+52. `carry_forward_findings_json` = the reviewer's own `finding_ref` ids; never empty string; with ids, `req-qa`, `arch-qa`, `flaky-test-qa` and `ruthless-boundary-qa` notes carry the scope lock (a disposition for each id, no new findings).
 53. `ruthless-boundary-qa` with `qa_round` > 1 and `plan-scope-reviewer` with `round_index` > 1 fail to render without carried ids.
 54. `ceremony-finding-screen` gets `worktree_path`, `sprint_doc`, `findings`; returns `keep`, `not_applicable`, `concern_valid_remedy_ceremony` or `ceremony` per finding.
 
 ### Scripts
 
-55. `fix-round-scope owned|check|filter --carried <file> [--plan]`: filing-reviewer map; check exit 5 `FIX_ROUND_DISPATCH_MISMATCH`; filter keeps only dispositions on own ids, unreported = `fixed`.
+55. `fix-round-scope owned|check|filter --carried <file> [--plan]`: filing-reviewer map; check exit 5 `FIX_ROUND_DISPATCH_MISMATCH`; filter keeps only dispositions on own ids, unreported = `open`.
 56. `check-review-completion.py <vars>`: verdict PASS/FAIL agrees with `integration_review`; PASS needs zero blocking, important, unresolved; `integration_commit` = `commit` (40-hex); post-mortem counts sum to total; `post_mortem_md` non-empty.
 57. `assignment-gates.py qa --root --bead --pr-target --pr-number [--checked-bead]`: `READY`, `PR_REQUIRED`, `PR_TARGET_MISMATCH`, `SANITY_STALE`, `QA_HEAD_MISMATCH`, `GATE_CANNOT_RUN`; exit 0/5/2.
 
 ## Unresolved
 
-1. Only-minor round: `roles/quality-mgr.md` says PASS; `qa-template.xml.j2` step i requires no finding filed open.
-2. Phase-end findings: `roles/quality-mgr.md` says quality-mgr files them; `review-template.xml.j2` step c and `SKILL.md` say the lead files them.
-3. Review bead writes: `review-template.xml.j2` step c forbids writing to beads; step d requires `bd close`.
-4. Pending review: `roles/quality-mgr.md`/`review-template.xml.j2` b1 leave JEV-unavailable review pending; `check-review-completion.py` accepts only passed/failed.
-5. QA refusal codes: `qa-template.xml.j2` step a refuses every mismatch as `SANITY_STALE`; `assignment-gates.py` returns `PR_REQUIRED`/`PR_TARGET_MISMATCH`/`QA_HEAD_MISMATCH`, and no template invokes it.
-6. Metrics counts: `qa-template.xml.j2` step j reads top-level `.screen`/`.severity`; `finding-bead.json.j2` puts them under `metadata`, so counts are always 0.
-7. Plan-review cap: `SKILL.md` says three rounds "as in `quality-mgr.md`"; no package source defines it.
-8. Phase-end reviewer: `roles/quality-mgr.md`/`SKILL.md` say quality-mgr owns it; `SKILL.md` assigns `<reviewer>` and `review-template.xml.j2` is a single read-only reviewer with no reviewer set.
-9. `qa-template.xml.j2` passes `qa_round` to every reviewer; only `ruthless-boundary-qa-assignment.json.j2` declares it.
-10. Blocking findings: `roles/quality-mgr.md` and `qa-template.xml.j2` g file one finding bead per finding from `finding-bead.json.j2`; `formulas/README.md` has quality-mgr pour a finding-group per blocking finding (`bead-groups --findings`) with no finding bead.
+1. QA refusal codes: `qa-template.xml.j2` step a refuses every mismatch as `SANITY_STALE`; `assignment-gates.py` returns `PR_REQUIRED`/`PR_TARGET_MISMATCH`/`QA_HEAD_MISMATCH`, and no template invokes it.
+2. Plan-review cap: `SKILL.md` says three rounds "as in `quality-mgr.md`"; no package source defines it.
+3. Phase-end reviewer: `roles/quality-mgr.md`/`SKILL.md` say quality-mgr owns it; `SKILL.md` assigns `<reviewer>` and `review-template.xml.j2` is a single read-only reviewer with no reviewer set.
+4. `qa-template.xml.j2` passes `qa_round` to every reviewer; only `ruthless-boundary-qa-assignment.json.j2` declares it.
+5. Blocking findings: `roles/quality-mgr.md` and `qa-template.xml.j2` g file one finding bead per finding from `finding-bead.json.j2`; `formulas/README.md` has quality-mgr pour a finding-group per blocking finding (`bead-groups --findings`) with no finding bead.

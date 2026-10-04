@@ -143,10 +143,11 @@ See `CHANGELOG.md`.
 Changes below are not yet in the upstream source. The next sync keeps each one
 until upstream carries it, then drops it from this list.
 
-- Upstream PR #936 at d566149d (unmerged), applied verbatim ahead of its merge
-  (issue #8): `skills/atm-beads/templates/sprint-bead.json.j2` (version 0.3.0,
-  required `difficulty` rendered into `metadata`, `stage:sprint` label) and
+- Upstream PR #936 at d566149d (unmerged), applied ahead of its merge
+  (issue #8): `skills/atm-beads/templates/sprint-bead.json.j2` (required
+  `difficulty` rendered into `metadata`, `stage:sprint` label) and
   `skills/atm-beads/examples/sprint-bead-vars-d-{4,5}.json` (`difficulty`).
+  The package's version 0.3.1 also drops `assignee`.
 - Fix verification is upstream for QA (sc-observability 18d7158f) and for plan
   review (PR #967, carried by #966 at 05367233): a fix is verified only by its
   filing reviewer, locked to the original finding, with no req-qa/arch-qa
@@ -157,7 +158,7 @@ until upstream carries it, then drops it from this list.
     the plan-review bullets of `roles/quality-mgr.md`, and the reviewer column
     in `examples/plan-review-*-vars.json`.
   - `skills/atm-bd-orchestration/templates/plan-scope-reviewer-assignment.json.j2`
-    (1.1.0, ported from atm-core 2676a514): `round_index` above 1 refuses to
+    (1.1.1, ported from atm-core 2676a514): `round_index` above 1 refuses to
     render without the reviewer's own ids (`FIX_ROUND_SCOPE_LOCK_REQUIRED`);
     `findings_scope_locked` flag; `plan-review-template.xml.j2` step c passes it
     `round_index` and those ids.

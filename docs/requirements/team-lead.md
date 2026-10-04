@@ -15,9 +15,9 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 
 #### Plan gate
 6. `bd doctor` error: report it; never import into or dispatch from that database.
-7. Import gaps reported to you: supply the assignee, branch or status rulings asked for; nothing imports on a blocking gap.
+7. Import gaps reported to you: supply the branch or status rulings asked for; nothing imports on a blocking gap.
 8. Right after import, create `<root>-plan-qa` assigned to `<qa_member>`, blocking every root sprint (running phase: `<root>-plan-qa-<n>` blocking only the new dev beads).
-9. Plan on origin `integration_branch`: `sprints.jsonl` committed by hand, never exported from beads; `sprint-review --root <root>` publishes `phase-<x>-dag.html`; no viewer without `--view`.
+9. Plan on origin `integration_branch`: `sprints.jsonl` committed by hand, never exported from beads; `sprint-review --root <root>` writes `phase-<x>-dag.html` locally, never committed or pushed; no viewer without `--view`.
 10. Run `validate-plan --root <root>` from the repo root; exit 0 or stop.
 11. Check `bd ready -l phase-<x> -n 0` lists the plan-review bead and no dev bead; `bd ready --explain` shows the rest blocked.
 12. `bd sync`.
@@ -28,7 +28,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 #### Dispatch
 16. Before the first dispatch, create the root's `integration_branch` from the base branch and push it.
 17. Run `bd ready -l phase-<x> -n 0 --json` after every close; never cache it; never dispatch the phase root.
-18. Route: plan review and QA to quality-mgr; dev to its assignee; sanity to `resolve-role dev-sanity`; finding to the member you pick; review to the phase-end reviewer.
+18. Route: plan review and QA to quality-mgr; dev to the member you pick for its `difficulty`; sanity to `resolve-role dev-sanity`; finding to the member you pick; a sanity finding (`metadata.sanity_finding`) is never dispatched alone: its checked bead goes to that bead's assignee with `dev-fix.xml.j2`; review to the phase-end reviewer.
 19. Dev or finding bead: `git fetch origin && git worktree add -b <branch> <worktree> origin/<pr_target>`.
 20. `bd update <bead> --assignee <agent>` before assigning.
 21. Build vars from the template's `required_variables`, `task_id` = bead id, rest from bead metadata; vars files outside the repo.
@@ -82,7 +82,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 
 #### Reports
 59. Status: `sprint-report --table` (or `--detailed`); rows are never hand-typed.
-60. DAG refresh: `sprint-review` (pushes only the HTML on `integration_branch`; rejected push is failure; never force-push); Wyvern only with `--view`.
+60. DAG refresh: `sprint-review` (writes the HTML locally; never commits or pushes); Wyvern only with `--view`.
 61. QA metrics: `/qa-report [N|--all]`, both `.sc/qa-log/` tables in the reply, timestamps converted to local.
 
 #### Scripts
@@ -102,6 +102,6 @@ None in the package.
 4. Plan Gate order: `SKILL.md`, `planning.md` run `sprint-review` then `validate-plan` vs `importing-md-plan.md` step 9 the reverse.
 5. Integration branch timing: `SKILL.md` Dispatch creates it "before the first dispatch" vs Plan Gate, `sprint-review/SKILL.md`, `validate-plan` needing it on origin before plan review.
 6. Plan-review bead step: `importing-md-plan.md`, `planning.md` cite Plan Gate "step 2" vs `SKILL.md` step 1.
-7. Plan-review cap: `SKILL.md` three rounds "as in quality-mgr.md" vs `roles/quality-mgr.md` stating no plan-review cap.
+7. Plan-review cap: `SKILL.md` three rounds "as in quality-mgr.md" vs `roles/quality-mgr.md` defining none.
 8. Blocking findings: `formulas/README.md` has no finding bead (a poured fix group under a sprint container the lead closes) vs `SKILL.md` Loop finding beads dispatched with `fix-assignment`; `bead-groups` not referenced from `SKILL.md`.
 9. PR timing: `SKILL.md` Stack Discipline has the lead open the PR after sanity PASS; `dev-sanity-template.xml.j2` and `agents/dev-sanity.md` refuse `SANITY.PR_REQUIRED` without a PR.
