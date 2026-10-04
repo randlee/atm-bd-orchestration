@@ -65,7 +65,7 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 52. Never edit, commit, push, build, test, lint or run `bd`/`atm`; empty findings is success.
 
 ### Scripts
-53. `assignment-gates.py sanity`: READY, PR_REQUIRED, STALE_BASE, NOT_REBASED, ZERO_DELTA, DIRTY_TREE (ignores `.beads.gate.lock`, `.sc-compose/`), SANITY_FROZEN or GATE_CANNOT_RUN.
+53. `assignment-gates.py sanity`: READY, PR_REQUIRED, STALE_BASE, ZERO_DELTA, NOT_REBASED, DIRTY_TREE (ignores `.beads.gate.lock`, `.sc-compose/`), SANITY_FROZEN or GATE_CANNOT_RUN.
 54. `sanity-split`: one top-level `1.`..`N.` list under `## Deliverables` (else exit 2 `PLAN_INVALID`); exit 3 `TARGET_UNREADABLE`; exit 4 `COMMIT_MISMATCH` (HEAD, branch, any `git status` output, origin not at sha); exit 5 `RENDER_FAILED`; one assignment per deliverable with `context: []`; reviewers `[sanity-llm, sanity-jev, sanity-selected]`, operational `sanity-selected`; lint once, detached, 1800 s timeout.
 55. `sanity-merge`: replies are envelopes or fenced JSON strings; one valid result per deliverable at the pinned sha, at most one `skipped` each; worktree still at sha, branch, clean; exit 4 while lint runs; lint timeout/cancelled/error is `SANITY.LINT_UNAVAILABLE`; lint diagnostics fold in as `lint` findings; PASS only with no findings and lint exit 0; `--completed-at` finite, >= start, <= now+5 s.
 56. `sanity-merge` selected mode: verifies reply hashes, statuses, reasons, rerun context files at sha; a selected failure envelope is cannot-run; checker-defect deliverables count done; findings carry their selected reviewer.

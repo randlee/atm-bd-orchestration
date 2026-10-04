@@ -33,6 +33,7 @@ class TemplateContractTests(unittest.TestCase):
         self.assertIn("- pr_url", text)
         self.assertIn("gh pr view", text)
         self.assertIn("SANITY.ZERO_DELTA", text)
+        self.assertIn("SANITY.NOT_REBASED", text)
 
     def test_workflow_issue_template_exists(self):
         self.assertTrue((ROOT / "templates/workflow-issue-bead.json.j2").exists())
@@ -52,7 +53,7 @@ class TemplateContractTests(unittest.TestCase):
         self.assertIn("(else `SANITY.STALE_BASE`)", text)  # agents/dev-sanity.md and assignment-gates.py sanity
         self.assertNotIn("PR_TARGET_MISMATCH", text)
         self.assertLess(text.index("bd ready -n 0 --json"), text.index("Otherwise claim"))
-        self.assertIn("git fetch origin && git merge-base --is-ancestor origin/", text)  # the tracking ref is fresh before any origin/ check
+        self.assertLess(text.index("git fetch origin"), text.index("origin/{{"))  # the tracking ref is fresh before any origin/ check
 
     def test_finding_bead_deliverables_are_splittable(self):
         import importlib.machinery, importlib.util, json, subprocess

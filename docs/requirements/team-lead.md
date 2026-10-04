@@ -27,7 +27,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 
 #### Dispatch
 16. Before the first dispatch, create the root's `integration_branch` from the base branch and push it.
-17. Run `bd ready -l phase-<x> -n 0 --json` after every close; never cache it; never dispatch the phase root.
+17. Run `bd ready -l phase-<x> -n 0 --json` after every close, before any other work, and dispatch every ready bead; never cache it; never dispatch the phase root. The lead implements nothing.
 18. Route: plan review and QA to quality-mgr; dev to the member you pick for its `difficulty`; sanity to `resolve-role dev-sanity`; finding to the member you pick; a sanity finding (`metadata.sanity_finding`) is never dispatched alone: its checked bead goes to that bead's assignee with `dev-fix.xml.j2`; review to the phase-end reviewer.
 19. Dev or finding bead: `git fetch origin && git worktree add -b <branch> <worktree> origin/<pr_target>`.
 20. `bd update <bead> --assignee <agent>` before assigning.
@@ -45,7 +45,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 30. `SANITY.PLAN_INVALID`: planning failed for that bead.
 31. qa-complete: nothing to file or pour (quality-mgr poured the fix groups); reopen a ceremony closure you disagree with (`bd reopen`); pick the member for each finding.
 32. QA `ROUND_CAP` (FAIL at round 2): no further fix round.
-33. fix-complete `fixed`: a poured fix bead needs nothing; for an important or minor finding bead create its sanity bead (`dev-sanity-bead.json.j2`, `dev_bead` and `parent` = the finding). `not_reproducible`: nothing.
+33. fix-complete `fixed`: open (or confirm) the PR against `pr_target` and link it on the phase stack; then a poured fix bead needs nothing more; for an important or minor finding bead create its sanity bead (`dev-sanity-bead.json.j2`, `dev_bead` and `parent` = the finding). `not_reproducible`: nothing.
 34. review-complete: file each finding with `finding-bead.json.j2` (`qa_bead` = review bead; sprint, layer, requirements, adrs from the cited dev bead, root + union minus `NONE` when it spans sprints; `found_at_commit` = reviewed commit; `screen` = `keep` unless screened; `finding_ref` = `R-n`).
 35. task-refused: read reason and bead state; reassign, split or `bd close --force --reason`; `blocked` bead: `bd update --status open --assignee <new>` before re-dispatch.
 36. not-ready report: fix the named cause, tell the assignee to re-check; unwanted work: close the task `cancelled` with `task-refused.md.j2`.

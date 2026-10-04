@@ -132,6 +132,10 @@ class AssignmentGateTests(unittest.TestCase):
         for fixture, gate_args, runner in cases:
             with self.subTest(fixture=fixture): self.assert_fixture(fixture, gate_args, runner)
 
+    def test_sanity_rebase_check_that_cannot_run_is_not_a_refusal(self):
+        runner = sanity_runner({("git", "merge-base", "--is-ancestor", "origin/target", "head"): (128, "")})
+        self.assertEqual(gates.evaluate(ns("sanity"), runner), "GATE_CANNOT_RUN")
+
     def test_qa_refusals_and_ready(self):
         cases = [
             ("stale-sanity.json", qa_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefOid": "0ld0ld0aaa"}))})),

@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.4.0
+version: 2.4.1
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -71,10 +71,10 @@ failure is a refusal, not a best-effort check:
 2. `gh pr view "$PR_NUMBER" --json baseRefName,headRefOid --jq '.baseRefName + " " + .headRefOid'`
    must equal the declared `pr_target` and commit; otherwise refuse
    `SANITY.STALE_BASE`. Then `git fetch origin`.
-3. `git merge-base --is-ancestor "origin/$PR_TARGET" "$COMMIT"` must pass;
-   otherwise refuse `SANITY.NOT_REBASED`.
-4. `git log --format=%H "origin/$PR_TARGET..$COMMIT" | grep -q .` must pass;
+3. `git log --format=%H "origin/$PR_TARGET..$COMMIT" | grep -q .` must pass;
    otherwise refuse `SANITY.ZERO_DELTA`.
+4. `git merge-base --is-ancestor "origin/$PR_TARGET" "$COMMIT"` must pass;
+   otherwise refuse `SANITY.NOT_REBASED`.
 5. `test -z "$(git status --porcelain --untracked-files=no | grep -v -e ' \.beads\.gate\.lock$' -e ' \.sc-compose/')"`
    must pass; otherwise refuse `SANITY.DIRTY_TREE`.
 6. `bd history "$TASK_ID"` must contain no earlier PASS; otherwise refuse

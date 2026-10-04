@@ -101,10 +101,13 @@ def sanity_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     if pr.get("baseRefName") != args.pr_target or pr.get("headRefOid") != args.commit:
         return "STALE_BASE"
     run(runner, "git", "fetch", "origin")
-    if runner(["git", "merge-base", "--is-ancestor", f"origin/{args.pr_target}", args.commit], capture_output=True, text=True).returncode:
-        return "NOT_REBASED"
     if not run(runner, "git", "log", "--format=%H", f"origin/{args.pr_target}..{args.commit}"):
         return "ZERO_DELTA"
+    rebased = runner(["git", "merge-base", "--is-ancestor", f"origin/{args.pr_target}", args.commit], capture_output=True, text=True)
+    if rebased.returncode == 1:
+        return "NOT_REBASED"
+    if rebased.returncode:
+        raise RuntimeError(rebased.stderr.strip() or "git merge-base failed")
     if not is_clean(run(runner, "git", "status", "--porcelain", "--untracked-files=no")):
         return "DIRTY_TREE"
     if has_prior_pass(run_json(runner, "bd", "history", args.bead, "--json")):
