@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.0.0
+version: 2.1.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -23,9 +23,8 @@ commit; that evidence must let a luna-class agent answer
 `written: yes/no, file:line` correctly.
 
 Keep scratch outside the repository. Never edit code, commit, push, or mutate
-a stack. Use the `gh-stack-view` skill for a PR whose base is another stack
-layer (neither the repository's base branch nor the phase root's
-`integration_branch`); refuse an unregistered or unmergeable stack. Every `bd`
+a stack. Use the `gh-stack-view` skill for a PR targeting neither `develop`
+nor `integrate/*`; refuse an unregistered or unmergeable stack. Every `bd`
 and `atm` write is yours; subagents make none.
 
 ## Who Fills It
@@ -128,8 +127,9 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    envelope arrives, immediately record `completed_at=$(date +%s)`, before any
    merge or shared lint wait.
 3. Stop a child that does not respond within 30 minutes. Preserve its failure
-   envelope. If dispatch fails, a child times out, or the Jev startup probe
-   has not passed, put a coordinator-origin `success:false, data:null`
+   envelope. A failed child is yours: fix its assignment or context and rerun
+   it. If the rerun fails, dispatch fails, or the Jev startup probe has not
+   passed, put a coordinator-origin `success:false, data:null`
    envelope in that slot with an error containing `code`, the actual
    `message`, `recoverable`, `suggested_action`, and the `deliverable`
    number. Say explicitly that the reviewer could not run. Never substitute an
@@ -179,13 +179,13 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    and raw results. An invalid invocation/manifest with no report is a
    coordinator error to report, never a PASS. Do not run lint again to obtain
    the other reviewer's report.
-6. After the selected merge, append exactly three rows in order:
-   `sanity-llm`, `sanity-jev`, then `sanity-selected`. Each row keeps its
+6. After the selected merge, append exactly two rows in order:
+   `sanity-llm`, then `sanity-jev`. Each row keeps its
    own completed UTC timestamp (not time spent waiting for the other reviewer
    or task closure) but uses the selected vars' verdict as the shared required
    `--final-verdict`. If selection or selected merge cannot run, set
    `--final-verdict CANNOT_RUN` and still append the LLM/JEV rows. The same
-   task attempt/iteration applies to all three. `sanity-run-history` appends
+   task attempt/iteration applies to both. `sanity-run-history` appends
    to the same ignored phase JSONL, keyed by shared `run_id` and explicit
    reviewer: strict `sanity-run-record.json.j2` render through `sc-compose
    render`, typed JSON validation and UTC timestamps, compact serialization
@@ -197,8 +197,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    ```bash
    $S/sanity-run-history --vars "$scratch/$reviewer-vars.json" --task "$task" \
      --bead "$checked_bead" --pr-number "$pr_number" --iteration "$iteration" \
-     --final-verdict "$final_verdict" \
-     --output "$scratch/sanity-$task-table-vars.json" --limit 10
+     --final-verdict "$final_verdict"
    ```
 7. For each `checker_defect`, append the selection entry to the matching
    workflow class bead (or report it to the lead) and cite it in notes.
@@ -242,29 +241,17 @@ round is dispatched without the lead's ruling.
 
 ## Mandatory Console Report
 
-After the selected task closes, strictly render `sanity-run-table.md.j2`
-using the last history output:
+After the selected task closes, render the last ten runs (two rows each):
 
 ```bash
-sc-compose render --strict \
-  --file .claude/skills/atm-bd-orchestration/templates/sanity-run-table.md.j2 \
-  --var-file "$scratch/sanity-$task-table-vars.json" > "$scratch/sanity-$task-table.md"
+log="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.sc/sanity-log/phase-$phase.jsonl"
+tail -n 20 "$log" | jq -s '{runs: .}' | sc-compose render --strict \
+  --file .claude/skills/atm-bd-orchestration/templates/sanity-run-table.md.j2 --var-file /dev/stdin
 ```
 
-Include the entire rendered Markdown table in the user-visible completion
-reply before reading ATM again. It shows the newest ten **runs**: a run is one
-coordinator invocation at one pinned commit, with up to three rows (SEL, LLM,
-JEV) grouped by run_id, so ten runs can have thirty rows. The compact columns
-are `S | PR | R | Pick | Find | Result | Match | Done | Iter`; no full task
-IDs. `Pick` appears only for SEL as `=<agree> L<llm> J<jev> R<rerun>` with
-zero L/J/R counts omitted and `D<n>` for checker defects. `Match` is ✓ or ✗
-for LLM/JEV agreement with the selected final verdict, — for SEL and historical
-rows that predate `final_verdict`. `Done` contains local month-day/time and
-duration; ledger timestamps are UTC only and local display is derived from UTC
-when rendered. The renamed historical `.sc/sanity-log/sanity-llm.jsonl` is
-read alongside new `.sc/sanity-log/phase-<phase>.jsonl` records for that
-phase. Historical rows without reviewer are LLM by user attestation; never
-rewrite historical ledgers.
+Include the entire rendered table in the user-visible completion reply before
+reading ATM again. `Match` is ✓ or ✗ for the reviewer's agreement with your
+final verdict. Never rewrite the ledger.
 
 A ledger/render failure does not alter any verdict. Report
 `SANITY.STATUS_TABLE_UNAVAILABLE` with the error. `.sc/sanity-log/` is ignored

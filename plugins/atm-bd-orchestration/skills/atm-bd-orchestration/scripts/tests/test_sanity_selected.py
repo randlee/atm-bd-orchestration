@@ -140,7 +140,7 @@ class SelectedMergeTests(unittest.TestCase):
         with self.assertRaisesRegex(merge.Reject, "not a success or failure envelope"):
             merge.reply_status(extra, 0, self.manifest, "sanity", "dev")
 
-    def test_selected_missing_jev_result_cannot_runs_and_appends_three_rows(self):
+    def test_selected_missing_jev_result_cannot_runs_and_appends_two_rows(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest = {
@@ -174,21 +174,20 @@ class SelectedMergeTests(unittest.TestCase):
             selected = json.loads(output.getvalue())
             self.assertEqual((selected["verdict"], selected["selection"]), ("CANNOT_RUN", selection))
 
-            log, table = root / "ledger.jsonl", root / "table.json"
-            for reviewer, selection_value in (("sanity-llm", None), ("sanity-jev", None),
-                                              ("sanity-selected", selected["selection"])):
+            log = root / "ledger.jsonl"
+            for reviewer in ("sanity-llm", "sanity-jev"):
                 record = {
                     "run_id": "shared", "reviewer": reviewer, "commit": "a" * 40,
                     "task": "sanity", "sprint": "d", "phase": "d",
                     "started_at": "2026-01-01T00:00:00Z", "completed_at": "2026-01-01T00:00:01Z",
+                    "completed_local": "01-01 00:00",
                     "duration": "1s", "duration_seconds": 1, "pr_number": 1, "iteration": 1,
                     "verdict": "CANNOT_RUN", "final_verdict": "CANNOT_RUN", "findings": None,
                     "error": {"code": "SANITY.RESULT_INVALID", "message": "D2 missing"},
-                    "selection": selection_value,
                 }
-                history.append_record(log, history.render_record(record), table)
+                history.append_record(log, history.render_record(record))
             self.assertEqual([json.loads(line)["reviewer"] for line in log.read_text().splitlines()],
-                             ["sanity-llm", "sanity-jev", "sanity-selected"])
+                             ["sanity-llm", "sanity-jev"])
 
     def test_non_selected_merge_rejects_selection_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -205,30 +204,6 @@ class SelectedMergeTests(unittest.TestCase):
                                      "--llm-vars", str(root / "llm.json")])
             self.assertEqual(result, 1)
             self.assertIn("selection inputs are only valid for sanity-selected", stderr.getvalue())
-
-    def test_pick_counts_agreements_and_non_agreement_choices(self):
-        rows = history.display_runs([{
-            "run_id": "one", "reviewer": "sanity-selected", "sprint": "d", "pr_number": 1,
-            "completed_at": "2026-01-01T00:00:00Z", "duration": "1s", "iteration": 1,
-            "verdict": "PASS", "findings": 0,
-            "selection": [
-                {"llm": "done", "jev": "done", "selected": "llm", "checker_defect": False},
-                {"llm": "done", "jev": "undone", "selected": "llm", "checker_defect": False},
-                {"llm": "done", "jev": "undone", "selected": "rerun", "checker_defect": True},
-            ],
-        }], 10)
-        self.assertEqual(rows[0]["pick"], "=1 L1 R1 D1")
-
-    def test_selected_ledger_record_accepts_selection_list(self):
-        record = {
-            "run_id": "one", "reviewer": "sanity-selected", "commit": "a" * 40,
-            "task": "sanity", "sprint": "d", "phase": "d",
-            "started_at": "2026-01-01T00:00:00Z", "completed_at": "2026-01-01T00:00:01Z",
-            "duration": "1s", "duration_seconds": 1, "pr_number": 1, "iteration": 1,
-            "verdict": "PASS", "final_verdict": "PASS", "findings": 0, "error": None,
-            "selection": [{"deliverable": 1}],
-        }
-        self.assertEqual(history.validate_record(record), record)
 
     def merged(self, llm, jev, selection):
         with tempfile.TemporaryDirectory() as directory:
@@ -360,30 +335,16 @@ class SelectedMergeTests(unittest.TestCase):
                 self.assertEqual(findings.main(), 0)
         self.assertEqual([item["reviewer"] for item in created], ["sc-sanity-jev", "sc-sanity-llm"])
 
-    def test_history_rejects_invalid_selection_for_reviewer_kind(self):
-        base = {
-            "sprint": "d", "run_id": "run", "reviewer": "sanity-llm", "commit": "a" * 40,
-            "started_at": "2026-01-01T00:00:00Z", "completed_at": "2026-01-01T00:00:01Z",
-            "verdict": "PASS", "findings_count": 0, "error": None,
-        }
+    def test_history_rejects_selected_reviewer_row(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            comparison = root / "comparison.json"
-            comparison.write_text(json.dumps({**base, "selection": []}))
-            selected = root / "selected.json"
-            selected.write_text(json.dumps({**base, "reviewer": "sanity-selected", "selection": None}))
-            with self.assertRaisesRegex(SystemExit, "comparison reviewers require null selection"):
-                history.read_vars(comparison)
-            with self.assertRaisesRegex(SystemExit, "sanity-selected requires a selection list"):
+            selected = Path(directory) / "selected.json"
+            selected.write_text(json.dumps({
+                "sprint": "d", "run_id": "run", "reviewer": "sanity-selected", "commit": "a" * 40,
+                "started_at": "2026-01-01T00:00:00Z", "completed_at": "2026-01-01T00:00:01Z",
+                "verdict": "PASS", "findings_count": 0, "error": None, "selection": [],
+            }))
+            with self.assertRaisesRegex(SystemExit, "invalid reviewer"):
                 history.read_vars(selected)
-            selected.write_text(json.dumps({**base, "reviewer": "sanity-selected", "selection": []}))
-            with self.assertRaisesRegex(SystemExit, "empty selection only for CANNOT_RUN"):
-                history.read_vars(selected)
-            selected.write_text(json.dumps({**base, "reviewer": "sanity-selected", "verdict": "CANNOT_RUN",
-                                            "findings_count": None,
-                                            "error": {"code": "SANITY.RESULT_INVALID", "message": "selection failed"},
-                                            "selection": []}))
-            self.assertEqual(history.read_vars(selected)["selection"], [])
 
     def test_mixed_checker_defect_and_real_finding_only_emits_real_finding(self):
         defective = reply(1, [{"kind": "skipped", "file": "a.rs", "line": 1, "issue": "wrong"}])

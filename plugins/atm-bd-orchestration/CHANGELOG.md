@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.2] - 2026-10-03
+
+### Changed
+- Sanity ledger: two rows per run (`sanity-llm`, `sanity-jev`); the
+  `sanity-selected` row and `Pick` column are removed (Rand 2026-10-03). The
+  selection stays dev-sanity's verdict, carried as `final_verdict` on both rows.
+- Console report is `tail -n 20 <ledger> | jq -s '{runs: .}' | sc-compose
+  render`; rows carry `completed_local`. `sanity-run-history` drops
+  `--output`, `--limit` and the `sanity-llm.jsonl` merge.
+- dev-sanity reruns a failed child after fixing its assignment or context, and
+  uses the original wording "a PR targeting neither `develop` nor
+  `integrate/*`".
+
 ## [0.8.1] - 2026-10-03
 
 ### Fixed
