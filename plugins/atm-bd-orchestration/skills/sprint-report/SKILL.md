@@ -16,7 +16,7 @@ Run the repository-local report command from the checkout or worktree being used
 ```
 
 Use `--detailed` for one block per sprint. The command reads the committed
-`<plans_dir>/phase-<p>/sprints.jsonl`, then refreshes bead state and PR/CI state.
+plan file `<plans_dir>/phase-<p>.jsonl`, then refreshes bead state and PR/CI state.
 Rows are never hand-typed.
 
 ## Dependency diagram
@@ -37,7 +37,7 @@ a log, so the agent remains available. Missing or failing Wyvern does not
 prevent writing the HTML; no alternative viewer is launched automatically.
 
 By default, DAG generation writes `<plans_dir>/phase-<p>/phase-<p>-dag.html`
-locally; it never commits or pushes. It reads the committed canonical `sprints.jsonl` and
+locally; it never commits or pushes. It reads the committed plan file and
 never rewrites it from Beads state. The HTML embeds the SVG directly, including
 state tooltips and zoom controls, without external dependencies.
 
@@ -54,9 +54,8 @@ and `--detailed`. `--root` and `--index` work in every mode. Diagram generation
 requires Python, Node, `bd` and `atm`;
 it does not query GitHub PRs or invoke `sc-compose`.
 
-The index explicitly records `dev_bead_id` and `sanity_bead_id` for each sprint
-only. Both are verified against live
-`blocks` edges, which also select upstream plan-review gates. No finding, fix, or sprint QA beads
+Each sprint's poured `<container>.group-dev` and `<container>.group-sanity`
+are verified against live `blocks` edges. No finding, fix, or sprint QA beads
 are drawn, and no dependency is inferred from index order or PR stacks. Every
 displayed arrow is a real bead dependency, drawn **prerequisite → dependent**:
 work → its sanity gate → downstream work. Missing or duplicate sanity gates
@@ -81,17 +80,18 @@ validates that gate. QA badges are overlays and do not change the DAG layout.
 
 ## Data sources
 
-The canonical phase plan is the source of graph truth. Each `sprints.jsonl`
-line is `[sprint_name, sanity_bead_id, depends_on_sprint_names]`; the dev ID
-is derived as `{{ bead_prefix }}-<sprint_name>`. Beads supply only live state and content.
+The plan file is the source of graph truth. Each line is
+`{"sprint": "<name>", "depends_on"?: [...]}`; the sprint container is
+`{{ bead_prefix }}-<sprint>` and its poured dev and sanity beads
+`<container>.group-dev` and `<container>.group-sanity`. Beads supply only live state and content.
 The report never derives or persists plan edges from a Beads snapshot.
 
 The report reads phase identity and integration branch from the root bead,
-and sprint names, titles, stack layers, and branches from live sprint beads.
+and sprint names, titles, stack layers, and branches from live sprint containers.
 Dependency order comes from the canonical plan. Table ordering follows current bead layer then sprint
 number. It verifies the indexed sanity pairing, derives QA beads from live
 graph edges, and counts open findings across QA rounds. Paginated `gh api`
-pull-request results match each dev bead's branch, then `gh pr view` fetches
+pull-request results match each sprint container's branch, then `gh pr view` fetches
 selected PR checks. The integration row matches the root bead's integration
 branch; the detailed block names the integration PR's own base (`→ <base>`),
 and no target when there is no PR.
@@ -158,7 +158,7 @@ temporary file and run the same command from the repository root.
 ```json
 {
   "mode": "detailed",
-  "sprint_rows": "Sprint: d-12  types 2.0 contract\nDEV: ✅\nQA: R1 FAIL (16 open)\nCI: 🏁\nPR: #233",
+  "sprint_rows": "Sprint: d-12  types 2.0 contract\nDEV: ✅ (closed)\nS: 3\nQA: R1 FAIL (16 open)\nFIND: 2:10:4\nCI: 🏁\nPR: #233",
   "integration_row": "Integration: integrate/phase-d → main\nCI: 🌀\nPR: #240"
 }
 ```

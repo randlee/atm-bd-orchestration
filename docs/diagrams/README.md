@@ -60,8 +60,6 @@ user's request.
 
 Paths are under `plugins/atm-bd-orchestration/`.
 
-- `skills/atm-beads/templates/sprint-bead.json.j2` labels the sprint `stage:dev`: the
-  sprint bead is still the dev task, not a container.
 - `skills/atm-bd-orchestration/templates/fix-assignment.xml.j2` assigns a finding
   bead (`task_id` is the finding bead), not the poured fix bead.
 - `skills/atm-bd-orchestration/templates/qa-template.xml.j2` files every finding,

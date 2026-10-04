@@ -66,7 +66,7 @@ def test_dev_bead_ids_take_the_installed_prefix(installed):
 
 @pytest.mark.parametrize("example", ("sprint-bead-vars-d-4.json", "sprint-bead-vars-d-5.json"))
 def test_sprint_bead_template_renders_a_valid_sprint_bead(installed, example):
-    """A strict render of the sprint-bead template carries the SprintBead metadata (difficulty) and stage:sprint.
+    """A strict render of the sprint-bead template is a stage:sprint container carrying the SprintBead metadata (difficulty).
 
     Metadata only: the example descriptions are not numbered Deliverables lists."""
     skill = installed / ".claude/skills/atm-beads"
@@ -79,3 +79,6 @@ def test_sprint_bead_template_renders_a_valid_sprint_bead(installed, example):
     import bead_schema
     bead_schema.SprintMetadata.model_validate(bead["metadata"])
     assert "stage:sprint" in bead["labels"]
+    # a container: not the dev task, and its only edge is to its parent (bead-groups adds the dev-bead edges)
+    assert "stage:dev" not in bead["labels"]
+    assert [d["type"] for d in bead["dependencies"]] == ["parent-child"]

@@ -25,14 +25,14 @@ goes back to the plan's author to supply, with the exact list of gaps.
 1. **Find the root.** `bd list -l phase-<x> --type feature -n 0` (or `epic`). If
    the phase root already exists, do not render a new one. Import the
    sprints under it, and gate them with
-   `--root <id> --phase <x>` (step 5). Check that its description,
+   `--phase <x>` (step 5). Check that its description,
    design and acceptance criteria hold what the phase plan says; report
    anything missing.
 2. **Read** the phase plan (whole-phase import) and each sprint doc to import.
    Build one vars file per bead from the mapping below:
    - a whole-phase import produces the root (`plan-root.json.j2`), plus
-     `sprint-bead.json.j2` and `dev-sanity-bead.json.j2` for each sprint;
-   - a one-plan import produces only the sprint's two beads.
+     `sprint-bead.json.j2` for each sprint container;
+   - a one-plan import produces only the sprint container.
 3. **Check** the vars against every row in Checks except the id-exists row
    (step 6), and collect all the gaps before reporting any of them. If any blocking row fails, stop and send the
    list to lead: `atm send <lead> --stdin` with the file, the field and what
@@ -51,7 +51,7 @@ goes back to the plan's author to supply, with the exact list of gaps.
 5. **Gate** the rendered plan. Run from the repository root:
 
    ```bash
-   .claude/skills/atm-beads/scripts/validate-plan --file <scratch>/plan.jsonl --root <id> --index <plans_dir>/phase-<x>/sprints.jsonl
+   .claude/skills/atm-beads/scripts/validate-plan --file <scratch>/plan.jsonl --phase <x> --index <plans_dir>/phase-<x>.jsonl
    ```
 
    Exit 5 lists the problems (`SKILL.md`, Validation), and every one of
@@ -76,16 +76,17 @@ goes back to the plan's author to supply, with the exact list of gaps.
 
 8. **Record the source** on each imported sprint bead:
    `bd update <bead> --append-notes "imported from <doc path>@<git short sha>"`.
+   Then pour the groups: `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <x>`.
 9. **Wire the plan gate** right away, before any readiness check. Nothing
    is dispatched until this is done. Create the plan-review bead as in
-   `atm-bd-orchestration` "Plan Gate", step 2:
+   `atm-bd-orchestration` "Plan Gate", step 1:
    - whole phase: `<root>-plan-qa`, blocking every root sprint;
    - one plan into a running phase: `<root>-plan-qa` is already closed, so
      create `<root>-plan-qa-<n>` (the next free number), blocking every new
-     dev bead.
-   **Mandatory:** write the phase definition `<plans_dir>/phase-<x>/sprints.jsonl` by hand (one `[sprint_name, sanity_bead_id, depends_on_sprint_names]` tuple per imported sprint; `resources/planning.md` "Phase definition") in the same commit as the plan, push it to the root's `integration_branch`, then run `.claude/skills/atm-beads/scripts/validate-plan --root <root>` followed by `.claude/skills/sprint-review/scripts/sprint-review --root <root>`. It writes `<plans_dir>/phase-<x>/phase-<x>-dag.html` locally; it never commits or pushes. Do not open a viewer unless `--view` is requested. The plan is never exported from Beads.
-10. **Verify** with `.claude/skills/atm-beads/scripts/validate-plan --root
-    <root>`, then check the graph:
+     sprint container.
+   **Mandatory:** write the plan file `<plans_dir>/phase-<x>.jsonl` (one `{"sprint", "depends_on"?}` line per imported sprint) and the phase file `.atm-bd/phase-<x>.toml` by hand (`resources/planning.md` "Phase definition") in the same commit as the plan, push it to the root's `integration_branch`, then run `.claude/skills/atm-beads/scripts/validate-plan --phase <x>` followed by `.claude/skills/sprint-review/scripts/sprint-review --root <root>`. It writes `<plans_dir>/phase-<x>/phase-<x>-dag.html` locally; it never commits or pushes. Do not open a viewer unless `--view` is requested. The plan is never exported from Beads.
+10. **Verify** with `.claude/skills/atm-beads/scripts/validate-plan --phase
+    <x>`, then check the graph:
     - `bd ready -l phase-<x> -n 0` lists the plan-review bead and no dev bead
       from this import;
     - `bd ready --explain` shows every other dev bead blocked by the
