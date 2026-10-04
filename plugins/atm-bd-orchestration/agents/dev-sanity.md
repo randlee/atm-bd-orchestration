@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.1.0
+version: 2.2.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -73,7 +73,7 @@ failure is a refusal, not a best-effort check:
    `SANITY.STALE_BASE`. Then `git fetch origin`.
 3. `git log --format=%H "origin/$PR_TARGET..$COMMIT" | grep -q .` must pass;
    otherwise refuse `SANITY.ZERO_DELTA`.
-4. `test -z "$(git status --porcelain --untracked-files=no | grep -v '^?? \.beads\.gate\.lock$')"`
+4. `test -z "$(git status --porcelain --untracked-files=no | grep -v -e ' \.beads\.gate\.lock$' -e ' \.sc-compose/')"`
    must pass; otherwise refuse `SANITY.DIRTY_TREE`.
 5. `bd history "$TASK_ID"` must contain no earlier PASS; otherwise refuse
    `SANITY_FROZEN`.
@@ -122,17 +122,19 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    assignment and result contract is the subagent's `## Inputs` and
    `## Output Format` (`.claude/agents/sc-sanity-llm.md`; `sc-sanity-jev.md`
    keeps the same contract). Children never run lint or write `bd`/`atm`.
-   Keep each fenced JSON reply unchanged in that reviewer's results array;
+   Keep each fenced JSON reply text unchanged, as a JSON string, in that
+   reviewer's results array (`sanity-merge` parses the fence);
    never mix reviewer arrays. When that reviewer's last child reply or timeout
    envelope arrives, immediately record `completed_at=$(date +%s)`, before any
    merge or shared lint wait.
 3. Stop a child that does not respond within 30 minutes. Preserve its failure
    envelope. A failed child is yours: fix its assignment or context and rerun
-   it. If the rerun fails, dispatch fails, or the Jev startup probe has not
-   passed, put a coordinator-origin `success:false, data:null`
-   envelope in that slot with an error containing `code`, the actual
-   `message`, `recoverable`, `suggested_action`, and the `deliverable`
-   number. Say explicitly that the reviewer could not run. Never substitute an
+   it; the rerun reply replaces the failed envelope in that reviewer's results
+   array before its merge, and the replaced envelope goes in notes. If the
+   rerun fails, dispatch fails, or the Jev startup probe has not passed, put a
+   coordinator-origin `success:false, data:null` envelope in that slot with
+   an error containing `code`, the actual `message`, `recoverable`,
+   `suggested_action`, and the `deliverable` number. Say explicitly that the reviewer could not run. Never substitute an
    LLM result for unavailable JEV (or vice versa).
 4. Merge each LLM/JEV result array as soon as that reviewer finishes.
    `sanity-merge` accepts exactly one result per deliverable at the pinned
@@ -158,9 +160,9 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    undone reply, needs its reason, and creates no child; its selection record
    and workflow-issue class bead carry the evidence. A rerun supplies one
    unchanged reply, its reviewer, and nonempty repo-relative missing-context
-   paths; it renders the same assignment from the per-deliverable split vars
-   written by `sanity-split` (plus those `context` objects) with
-   `sc-compose render --strict --file .claude/skills/atm-bd-orchestration/templates/dev-sanity-assignment.json.j2 --var-file <split-vars-plus-context>`;
+   paths; its assignment is the manifest's assignment with `context` set to
+   those `{path, why}` objects:
+   `jq --argjson n <n> --argjson context '<objects>' '.assignments[] | select(.number == $n) | .assignment | .context = $context' "$manifest"`;
    `rerun.context` lists those same paths.
 
 5. Merge the selected report from the raw files and selection array:
@@ -184,7 +186,8 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    own completed UTC timestamp (not time spent waiting for the other reviewer
    or task closure) but uses the selected vars' verdict as the shared required
    `--final-verdict`. If selection or selected merge cannot run, set
-   `--final-verdict CANNOT_RUN` and still append the LLM/JEV rows. The same
+   `--final-verdict CANNOT_RUN` and still append the LLM/JEV rows; a reviewer
+   whose merge printed no report has no row, so report that to the lead. The same
    task attempt/iteration applies to both. `sanity-run-history` appends
    to the same ignored phase JSONL, keyed by shared `run_id` and explicit
    reviewer: strict `sanity-run-record.json.j2` render through `sc-compose
@@ -195,10 +198,12 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    PASS or FAIL:
 
    ```bash
-   $S/sanity-run-history --vars "$scratch/$reviewer-vars.json" --task "$task" \
+   log=$($S/sanity-run-history --vars "$scratch/$reviewer-vars.json" --task "$task" \
      --bead "$checked_bead" --pr-number "$pr_number" --iteration "$iteration" \
-     --final-verdict "$final_verdict"
+     --final-verdict "$final_verdict")
    ```
+
+   It prints the ledger path; keep it as `$log`.
 7. For each `checker_defect`, append the selection entry to the matching
    workflow class bead (or report it to the lead) and cite it in notes.
    Complete the selected lifecycle (Verdicts below) using its vars copied to
@@ -244,8 +249,8 @@ round is dispatched without the lead's ruling.
 After the selected task closes, render the last ten runs (two rows each):
 
 ```bash
-log="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.sc/sanity-log/phase-$phase.jsonl"
-tail -n 20 "$log" | jq -s '{runs: .}' | sc-compose render --strict \
+set -o pipefail
+test -s "$log" && tail -n 20 "$log" | jq -s '{runs: .}' | sc-compose render --strict \
   --file .claude/skills/atm-bd-orchestration/templates/sanity-run-table.md.j2 --var-file /dev/stdin
 ```
 

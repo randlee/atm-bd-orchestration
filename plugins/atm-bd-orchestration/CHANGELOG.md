@@ -13,6 +13,21 @@
   uses the original wording "a PR targeting neither `develop` nor
   `integrate/*`".
 
+### Fixed
+- `dev-sanity-template.xml.j2` 2.4.0: step a checks `bd ready -n 0 --json`
+  before any claim and refuses a base mismatch as `SANITY.STALE_BASE`; step b
+  appends `sanity-llm` then `sanity-jev` (no SEL row); e1 states the
+  `clamp(parent priority - 1, P1, P4)` blocking priority; e3 only renders.
+- `sanity-merge` parses fenced JSON reply strings, so replies are kept as
+  received. `sanity-run-history` prints the ledger path, ignores
+  `completed_local` on an identical retry and drops `--started-at`; the
+  console command reads that path under `set -o pipefail; test -s "$log"`.
+- A rerun's assignment is the manifest assignment with `context` set (`jq`);
+  its reply replaces the failed envelope before the reviewer merge.
+- `sanity-run-table.md.j2` 2.1.0 skips rows of other reviewers.
+- Ledger and console tests run real fenced replies through sanity-split,
+  sanity-merge (LLM, JEV, selected) and sanity-run-history.
+
 ## [0.8.1] - 2026-10-03
 
 ### Fixed

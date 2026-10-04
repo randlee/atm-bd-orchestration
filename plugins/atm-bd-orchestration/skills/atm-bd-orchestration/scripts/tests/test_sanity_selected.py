@@ -140,7 +140,8 @@ class SelectedMergeTests(unittest.TestCase):
         with self.assertRaisesRegex(merge.Reject, "not a success or failure envelope"):
             merge.reply_status(extra, 0, self.manifest, "sanity", "dev")
 
-    def test_selected_missing_jev_result_cannot_runs_and_appends_two_rows(self):
+    def test_selected_missing_jev_result_cannot_runs(self):
+        # Its two ledger rows: test_sanity_run_history.ShippedFlow.test_selected_merge_cannot_run_keeps_reviewer_verdicts.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest = {
@@ -173,21 +174,6 @@ class SelectedMergeTests(unittest.TestCase):
                 self.assertEqual(merge.main(argv), 1)
             selected = json.loads(output.getvalue())
             self.assertEqual((selected["verdict"], selected["selection"]), ("CANNOT_RUN", selection))
-
-            log = root / "ledger.jsonl"
-            for reviewer in ("sanity-llm", "sanity-jev"):
-                record = {
-                    "run_id": "shared", "reviewer": reviewer, "commit": "a" * 40,
-                    "task": "sanity", "sprint": "d", "phase": "d",
-                    "started_at": "2026-01-01T00:00:00Z", "completed_at": "2026-01-01T00:00:01Z",
-                    "completed_local": "01-01 00:00",
-                    "duration": "1s", "duration_seconds": 1, "pr_number": 1, "iteration": 1,
-                    "verdict": "CANNOT_RUN", "final_verdict": "CANNOT_RUN", "findings": None,
-                    "error": {"code": "SANITY.RESULT_INVALID", "message": "D2 missing"},
-                }
-                history.append_record(log, history.render_record(record))
-            self.assertEqual([json.loads(line)["reviewer"] for line in log.read_text().splitlines()],
-                             ["sanity-llm", "sanity-jev"])
 
     def test_non_selected_merge_rejects_selection_inputs(self):
         with tempfile.TemporaryDirectory() as directory:

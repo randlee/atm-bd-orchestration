@@ -35,8 +35,7 @@ carries the same message, so the instruction can be taken from it:
 
 Verify that the work is done:
 
-- the agent did not skip anything;
-- there are no obvious errors;
+- each numbered deliverable is written;
 - lint passes.
 
 This is not QA.

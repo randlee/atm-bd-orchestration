@@ -157,6 +157,32 @@ class SanitySplit(unittest.TestCase):
         self.assertEqual(merged.returncode, 0, merged.stderr)
         self.assertEqual(json.loads(merged.stdout)["verdict"], "FAIL")   # the fake lint exits 1
 
+    def test_rerun_assignment_is_the_manifest_assignment_with_context(self):
+        out = self.run_split()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        manifest_file = self.root / "manifest.json"
+        manifest_file.write_text(out.stdout)
+        assignment = json.loads(out.stdout)["assignments"][1]["assignment"]
+        context = [{"path": "crates/types/src/lib.rs", "why": "declares the module"}]
+        # agents/dev-sanity.md step 4, rerun
+        rerun = subprocess.run(["jq", "--argjson", "n", "2", "--argjson", "context", json.dumps(context),
+                                ".assignments[] | select(.number == $n) | .assignment | .context = $context",
+                                str(manifest_file)], capture_output=True, text=True)
+        self.assertEqual(rerun.returncode, 0, rerun.stderr)
+        variables = {"sanity_bead": assignment["sanity_bead"], "dev_bead_id": assignment["dev_bead"]["id"],
+                     "dev_bead_title": assignment["dev_bead"]["title"],
+                     "deliverable_number": 2, "deliverable_text": assignment["deliverable"]["text"],
+                     **{key: assignment[key] for key in ("deliverables_total", "owned_paths", "changed_files",
+                                                         "files_outside_owned_paths", "worktree_path", "branch",
+                                                         "commit", "base_sha")},
+                     "context": context}
+        rendered = subprocess.run(["sc-compose", "render", "--strict", "--root", str(SCRIPTS.parent / "templates"),
+                                   "--file", "dev-sanity-assignment.json.j2", "--var-file", "/dev/stdin"],
+                                  input=json.dumps(variables), capture_output=True, text=True)
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        self.assertEqual(json.loads(rerun.stdout), json.loads(rendered.stdout))
+        self.assertEqual(json.loads(rerun.stdout)["context"], context)
+
     def test_plan_invalid(self):
         cases = {
             "no section": DESCRIPTION.replace("## Deliverables", "## Things"),

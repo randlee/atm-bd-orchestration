@@ -8,8 +8,8 @@ Usage:
     --jev-vars <file> --selection <file>
 
 `manifest.json` is what `sanity-split` printed. stdin is a JSON array holding
-the unchanged JSON reply of every child of one reviewer (LLM or JEV), one per
-deliverable. Run once per reviewer against the same manifest/lint. New manifests
+the unchanged reply of every child of one reviewer (LLM or JEV), one per
+deliverable: the parsed envelope, or the fenced JSON reply text as a string. Run once per reviewer against the same manifest/lint. New manifests
 require explicit reviewer and its dispatch start and completion times; old manifests retain the
 legacy invocation contract. New reviewer reports include shared run_id, commit,
 reviewer, UTC timing and raw reviewer_results. Cannot-run emits CANNOT_RUN JSON
@@ -47,6 +47,7 @@ import sys
 CHECKER_KIND = "skipped"
 RUSTC = re.compile(r"^\s*-->\s+(?P<file>[^:\s]+):(?P<line>\d+):\d+", re.M)
 RUSTFMT = re.compile(r"^Diff in (?P<file>[^:\s]+)(?: at line |:)(?P<line>\d+)", re.M)
+FENCED_REPLY = re.compile(r"\s*```(?:json)?[ \t]*\n(.*?)\n```\s*", re.S)
 
 
 class Reject(Exception):
@@ -75,7 +76,18 @@ def read_results():
         raise Reject(f"stdin is not JSON: {exc}")
     if not isinstance(results, list):
         raise Reject("stdin must be a JSON array of results")
-    return results
+    return [parse_reply(result, index) for index, result in enumerate(results)]
+
+
+def parse_reply(reply, index):
+    """A fenced JSON reply string becomes its envelope; any other value is kept as is."""
+    if not isinstance(reply, str):
+        return reply
+    match = FENCED_REPLY.fullmatch(reply)
+    try:
+        return json.loads(match.group(1) if match else reply)
+    except ValueError as exc:
+        raise Reject(f"result {index}: reply is not fenced JSON: {exc}")
 
 
 def failure_envelope(result, index, total):
@@ -237,10 +249,11 @@ def selected_results(args, manifest, sanity_bead, dev_bead):
             for path in rerun["context"]:
                 if not context_path_exists(manifest, path):
                     raise Reject(f"deliverable {number}: rerun context path is not a file at manifest sha: {path}")
-            reply_number, status = reply_status(rerun["reply"], number, manifest, sanity_bead, dev_bead)
+            reply = parse_reply(rerun["reply"], number)
+            reply_number, status = reply_status(reply, number, manifest, sanity_bead, dev_bead)
             if reply_number != number:
                 raise Reject(f"deliverable {number}: rerun reply names another deliverable")
-            reply, source = rerun["reply"], rerun["reviewer"]
+            source = rerun["reviewer"]
         elif entry["selected"] == "llm":
             reply, status, source = *llm_by[number], "sanity-llm"
         else:

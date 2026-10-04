@@ -1,13 +1,11 @@
 """Exercise the installed sc-compose -> typed JSON -> locked append pipeline."""
 import concurrent.futures
-import contextlib
-import io
 import importlib.machinery
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
-import re
 import subprocess
 import tempfile
 import time
@@ -19,13 +17,9 @@ SCRIPTS = ROOT / "scripts"
 LOADER = importlib.machinery.SourceFileLoader("sanity_history", str(SCRIPTS / "sanity-run-history"))
 HISTORY = importlib.util.module_from_spec(importlib.util.spec_from_loader(LOADER.name, LOADER))
 LOADER.exec_module(HISTORY)
-MERGE_LOADER = importlib.machinery.SourceFileLoader("sanity_merge", str(SCRIPTS / "sanity-merge"))
-MERGE = importlib.util.module_from_spec(importlib.util.spec_from_loader(MERGE_LOADER.name, MERGE_LOADER))
-MERGE_LOADER.exec_module(MERGE)
-FENCED = """```json
-{"success": true, "data": {"deliverable": 1, "sanity_bead": "task-1", "dev_bead": "dev",
- "commit_checked": "%s", "findings": %s}, "error": null}
-```"""
+SPLIT_LOADER = importlib.machinery.SourceFileLoader("sanity_split_tests", str(Path(__file__).parent / "test_sanity_split.py"))
+SPLIT_TESTS = importlib.util.module_from_spec(importlib.util.spec_from_loader(SPLIT_LOADER.name, SPLIT_LOADER))
+SPLIT_LOADER.exec_module(SPLIT_TESTS)
 
 
 def record(**changes):
@@ -136,47 +130,142 @@ class SanityHistory(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(log.read_text().splitlines()), 12)
 
-    def test_console_table_is_tail_of_ledger_piped_to_sc_compose(self):
-        """Fenced replies -> sanity-merge -> sanity-run-history -> tail | jq | sc-compose."""
-        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+    def test_retry_under_another_time_zone_is_the_same_row(self):
+        HISTORY.append_record(self.log, record())
+        HISTORY.append_record(self.log, record(completed_local="09-30 18:01"))
+        self.assertEqual(len(self.log.read_text().splitlines()), 1)
+
+    def test_table_skips_pre_0_8_2_rows(self):
+        legacy = {key: value for key, value in record().items() if key not in ("completed_local", "final_verdict")}
+        runs = [dict(legacy, reviewer="sanity-selected"), legacy]
+        table = subprocess.run(["sc-compose", "render", "--strict", "--root", str(SCRIPTS.parent),
+                                "--file", str(SCRIPTS.parent / "templates/sanity-run-table.md.j2"),
+                                "--var-file", "/dev/stdin"],
+                               input=json.dumps({"runs": runs}), capture_output=True, text=True)
+        self.assertEqual(table.returncode, 0, table.stderr)
+        self.assertEqual(table.stdout.splitlines()[2:],
+                         ["| d-4 | #42 | LLM | 0 | ✅ | — | 2026-09-30T16:01:05Z · 1m05s | 1 |"])
+
+
+CONSOLE = (  # agents/dev-sanity.md "Mandatory Console Report"
+    "set -o pipefail\n"
+    'test -s "$log" && tail -n 20 "$log" | jq -s \'{runs: .}\' | sc-compose render --strict '
+    "--file .claude/skills/atm-bd-orchestration/templates/sanity-run-table.md.j2 --var-file /dev/stdin")
+
+
+def fenced(task, bead, number, sha, findings=()):
+    return "```json\n" + json.dumps({"success": True, "data": {
+        "deliverable": number, "sanity_bead": task, "dev_bead": bead, "commit_checked": sha,
+        "findings": list(findings)}, "error": None}, indent=2) + "\n```"
+
+
+class ShippedFlow(unittest.TestCase):
+    """Fenced replies -> sanity-split manifest -> sanity-merge (LLM, JEV, selected) ->
+    sanity-run-history -> the console command, all shipped scripts on a real pushed repo."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.repo = SPLIT_TESTS.Repo(self.root)
+        with (self.repo.wt / ".git/info/exclude").open("a") as exclude:
+            exclude.write(".sc/\n")
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
-        (bin_dir / "bd").write_text("#!/bin/sh\nexit 1\n")
+        (bin_dir / "bd").write_text("#!/bin/sh\nexit 1\n")  # absent bead -> phase from the sprint
         (bin_dir / "bd").chmod(0o755)
-        env = dict(os.environ, TZ="America/Los_Angeles",
-                   PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
-        manifest = self.root / "manifest.json"
-        manifest.write_text(json.dumps({"run_id": "run", "reviewers": ["sanity-llm", "sanity-jev"],
-                                        "operational_reviewer": "sanity-llm", "deliverables_total": 1,
-                                        "sha": "a" * 40, "branch": "b", "lint": {"command": "lint"}}))
-        finding = '[{"kind": "skipped", "file": "a.rs", "line": 3, "issue": "not written"}]'
-        replies = {"sanity-llm": FENCED % ("a" * 40, "[]"), "sanity-jev": FENCED % ("a" * 40, finding)}
-        for reviewer, started, completed in (("sanity-llm", 1790000000, 1790000065),
-                                             ("sanity-jev", 1790000000, 1790000130)):
-            body = re.fullmatch(r"```json\n(.*)\n```", replies[reviewer], re.S).group(1)
-            output = io.StringIO()
-            with patch.object(MERGE, "lint_result", return_value=(0, [], "")), \
-                 patch.object(MERGE, "verify_worktree"), \
-                 patch("sys.stdin", io.StringIO(json.dumps([json.loads(body)]))), \
-                 contextlib.redirect_stdout(output):
-                code = MERGE.main(["sanity-merge", str(manifest), "task-1", "dev", "d-4", "--reviewer", reviewer,
-                            "--started-at", str(started), "--completed-at", str(completed)])
-            self.assertEqual(code, 0, output.getvalue())
-            var_file = self.root / f"{reviewer}-vars.json"
-            var_file.write_text(output.getvalue())
-            result = subprocess.run([str(SCRIPTS / "sanity-run-history"), "--vars", str(var_file),
-                                     "--task", "task-1", "--bead", "dev", "--pr-number", "42",
-                                     "--iteration", "1", "--final-verdict", "PASS"],
-                                    cwd=self.root, env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-        table = subprocess.run(
-            "tail -n 20 .sc/sanity-log/phase-d.jsonl | jq -s '{runs: .}' | sc-compose render --strict "
-            f"--root {SCRIPTS.parent} --file {SCRIPTS.parent / 'templates/sanity-run-table.md.j2'} "
-            "--var-file /dev/stdin",
-            shell=True, cwd=self.root, env=env, capture_output=True, text=True)
+        self.env = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
+        self.primary = self.root / "primary"  # where the console command runs: .claude/skills/... resolves
+        shutil.copytree(ROOT / "templates", self.primary / ".claude/skills/atm-bd-orchestration/templates")
+        bead = SPLIT_TESTS.bead()
+        self.bead, self.task = bead[0]["id"], "t-1-sanity"
+        (self.root / "bead.json").write_text(json.dumps(bead))
+        split = subprocess.run([str(SCRIPTS / "sanity-split"), "--task", self.task, "--bead", self.bead,
+                                "--worktree", str(self.repo.wt), "--branch", "sprint/x", "--commit", self.repo.sha,
+                                "--base", "develop", "--lint-command", "true", "--scratch", str(self.root / "scratch"),
+                                "--bead-json", str(self.root / "bead.json")], capture_output=True, text=True)
+        self.assertEqual(split.returncode, 0, split.stderr)
+        self.manifest = self.root / "manifest.json"
+        self.manifest.write_text(split.stdout)
+        exit_file = Path(json.loads(split.stdout)["lint"]["exit_file"])
+        for _ in range(200):
+            if exit_file.exists():
+                break
+            time.sleep(0.05)
+        self.assertEqual(exit_file.read_text().strip(), "0")
+
+    def merge(self, reviewer, *extra, stdin=None):
+        now = time.time()
+        return subprocess.run([str(SCRIPTS / "sanity-merge"), str(self.manifest), self.task, self.bead, "d-4",
+                               "--reviewer", reviewer, "--started-at", str(now - 60), "--completed-at", str(now),
+                               *extra], input=stdin, capture_output=True, text=True)
+
+    def run_flow(self, select):
+        sha = self.repo.sha
+        skipped = {"kind": "skipped", "file": "crates/types/src/retry.rs", "line": 1, "issue": "404 test not written"}
+        replies = {"sanity-llm": [fenced(self.task, self.bead, 1, sha), fenced(self.task, self.bead, 2, sha)],
+                   "sanity-jev": [fenced(self.task, self.bead, 1, sha), fenced(self.task, self.bead, 2, sha, [skipped])]}
+        reviewer_vars = {}
+        for reviewer, texts in replies.items():
+            merged = self.merge(reviewer, stdin=json.dumps(texts))  # reply text kept unchanged as strings
+            self.assertEqual(merged.returncode, 0, merged.stderr)
+            reviewer_vars[reviewer] = self.root / f"{reviewer}-vars.json"
+            reviewer_vars[reviewer].write_text(merged.stdout)
+        digests = {r: json.loads(v.read_text())["reviewer_results_sha256"] for r, v in reviewer_vars.items()}
+        selection = [{"deliverable": n, "llm": "done", "jev": "done" if n == 1 else "undone", "selected": "llm",
+                      "reason": "" if n == 1 else "retry.rs tests cover 404", "rerun": None, "checker_defect": False,
+                      "llm_sha256": digests["sanity-llm"], "jev_sha256": digests["sanity-jev"]} for n in (1, 2)]
+        select(selection)
+        (self.root / "selection.json").write_text(json.dumps(selection))
+        selected = self.merge("sanity-selected", "--llm-vars", str(reviewer_vars["sanity-llm"]),
+                              "--jev-vars", str(reviewer_vars["sanity-jev"]),
+                              "--selection", str(self.root / "selection.json"))
+        final = json.loads(selected.stdout)["verdict"]
+        logs = set()
+        for reviewer in ("sanity-llm", "sanity-jev"):
+            history = subprocess.run([str(SCRIPTS / "sanity-run-history"), "--vars", str(reviewer_vars[reviewer]),
+                                      "--task", self.task, "--bead", self.bead, "--pr-number", "42",
+                                      "--iteration", "1", "--final-verdict", final],
+                                     cwd=self.repo.wt, env=self.env, capture_output=True, text=True)
+            self.assertEqual(history.returncode, 0, history.stderr)
+            logs.add(history.stdout.strip())
+        self.assertEqual(len(logs), 1)
+        log = logs.pop()
+        self.assertEqual(Path(log), self.repo.wt.resolve() / ".sc/sanity-log/phase-d.jsonl")
+        rows = [json.loads(line) for line in Path(log).read_text().splitlines()]
+        table = subprocess.run(["bash", "-c", CONSOLE], cwd=self.primary, env=dict(self.env, log=log),
+                               capture_output=True, text=True)
         self.assertEqual(table.returncode, 0, table.stderr)
-        self.assertEqual(table.stdout, (
-            "| S | PR | R | Find | Result | Match | Done | Iter |\n"
-            "|:--|:--|:--|---:|:--|:--|:--|---:|\n"
-            "| d-4 | #42 | LLM | 0 | ✅ | ✓ | 09-21 07:14 · 1m05s | 1 |\n"
-            "| d-4 | #42 | JEV | 1 | ❌ | ✗ | 09-21 07:15 · 2m10s | 1 |\n"))
+        return final, rows, table.stdout, log
+
+    def expected_table(self, rows, cells):
+        return ("| S | PR | R | Find | Result | Match | Done | Iter |\n"
+                "|:--|:--|:--|---:|:--|:--|:--|---:|\n" + "".join(
+                    f"| d-4 | #42 | {cell} | {row['completed_local']} · {row['duration']} | 1 |\n"
+                    for row, cell in zip(rows, cells)))
+
+    def test_selected_verdict_differs_from_one_reviewer(self):
+        final, rows, table, _ = self.run_flow(lambda selection: None)
+        self.assertEqual(final, "PASS")
+        self.assertEqual([(r["reviewer"], r["verdict"], r["final_verdict"]) for r in rows],
+                         [("sanity-llm", "PASS", "PASS"), ("sanity-jev", "FAIL", "PASS")])
+        self.assertEqual(table, self.expected_table(rows, ["LLM | 0 | ✅ | ✓", "JEV | 1 | ❌ | ✗"]))
+
+    def test_selected_merge_cannot_run_keeps_reviewer_verdicts(self):
+        def invalid(selection):
+            selection[1]["reason"] = ""  # a disagreement without a reason: selected merge rejects it
+        final, rows, table, _ = self.run_flow(invalid)
+        self.assertEqual(final, "CANNOT_RUN")
+        self.assertEqual([(r["reviewer"], r["verdict"], r["final_verdict"]) for r in rows],
+                         [("sanity-llm", "PASS", "CANNOT_RUN"), ("sanity-jev", "FAIL", "CANNOT_RUN")])
+        self.assertEqual(table, self.expected_table(rows, ["LLM | 0 | ✅ | ✗", "JEV | 1 | ❌ | ✗"]))
+
+    def test_console_fails_on_a_wrong_ledger_path(self):
+        doc = (ROOT.parents[1] / "agents/dev-sanity.md").read_text()
+        self.assertIn(CONSOLE.replace("--strict --file", "--strict \\\n  --file"), doc)
+        *_, log = self.run_flow(lambda selection: None)
+        for wrong in (log + ".missing", str(self.root / "empty.jsonl")):
+            Path(self.root / "empty.jsonl").touch()
+            table = subprocess.run(["bash", "-c", CONSOLE], cwd=self.primary, env=dict(self.env, log=wrong),
+                                   capture_output=True, text=True)
+            self.assertNotEqual(table.returncode, 0, table.stdout)

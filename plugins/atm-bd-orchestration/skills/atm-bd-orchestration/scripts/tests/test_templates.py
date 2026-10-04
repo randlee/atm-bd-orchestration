@@ -47,9 +47,11 @@ class TemplateContractTests(unittest.TestCase):
                 if name != "dev-sanity-template":
                     self.assertIn("--root {{ phase_root | string | cdata_escape }}", text)
 
-    def test_sanity_template_has_no_stale_base_check(self):
+    def test_sanity_template_base_mismatch_code_matches_the_coordinator(self):
         text = (ROOT / "templates/dev-sanity-template.xml.j2").read_text()
-        self.assertNotIn("STALE_BASE", text)  # sanity-split pins origin/<base> itself (three-dot diff)
+        self.assertIn("(else `SANITY.STALE_BASE`)", text)  # agents/dev-sanity.md and assignment-gates.py sanity
+        self.assertNotIn("PR_TARGET_MISMATCH", text)
+        self.assertLess(text.index("bd ready -n 0 --json"), text.index("Otherwise claim"))
         self.assertIn("git fetch origin && git log --format=%H origin/", text)  # but the tracking ref must be fresh
 
     def test_finding_bead_deliverables_are_splittable(self):
