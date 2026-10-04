@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.4.0
+version: 0.5.0
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -51,14 +51,13 @@ before proceeding.**
 ## Lead Role
 
 The orchestrator is the **lead**: the identity that dispatches beads, creates
-QA beads, links layers into the stack and receives every task close. Templates
-address it through the `lead` variable and copy reports to `cc` (empty
-switches copies off); both are filled from the repository configuration. The role
+QA beads, links layers into the stack and receives every task close: a close
+returns to the task's assigner. The role
 can move mid-phase: the outgoing lead sends the incoming lead the open task
 ids, open PRs and the stack number, and announces the new lead. In-flight
 tasks keep their assigner.
 
-The lead is the only stack writer (`gh stack link`, `unstack`, `sync`,
+The lead (or its work-orchestrator) is the only stack writer (`gh stack link`, `unstack`, `sync`,
 `rebase`, `merge`). quality-mgr files the finding beads from QA; the lead
 files those from a phase-end review.
 
@@ -82,7 +81,7 @@ one fails the render.
 | Key | Consumed by |
 | --- | --- |
 | `bead_prefix` | `sprint_index_common.py` when no root id is given (a root id `<prefix>-phase-<x>` wins) |
-| `lead` | every assignment template (`lead`, `cc`) |
+| `lead` | `roles.lead` and the install-time lead placeholders |
 | `dev_sanity_member` | the `dev-sanity` role (`resolve-role dev-sanity`); a team member, which may have no `.claude/agents/<name>.md` |
 | `qa_member` | `qa-bead.json.j2` (`qa_member`), a parallel quick fix's QA bead |
 | `worktree_base` | sprint bead `worktree` = `<worktree_base>/<branch>` |
@@ -105,6 +104,7 @@ There is no base-branch key: `validate-plan` reads the plan file from the
 | dev | frontier / high-value devs; fast agents for important and minor findings | the assignment templates |
 | dev-sanity | the member the repository maps to the role, never a dev or fix agent | `.claude/agents/dev-sanity.md` |
 | quality-mgr | the long-running QA agent | [`roles/quality-mgr.md`](roles/quality-mgr.md) |
+| parallax | optional work-orchestrator: runs the lead's routine orchestration | `.claude/agents/parallax.md` |
 
 This skill names roles, not members or agents. A repository maps a role to
 its team-unique member in `roles:` of `.claude/agents/registry.yaml`, and
@@ -268,10 +268,9 @@ Then, on each task close:
 Re-run `bd ready` after every close. Never cache the ready list. The open
 phase root also appears in it; it is never dispatched.
 
-Close a sprint container when every child is closed: run
-`.claude/skills/atm-bd-orchestration/scripts/sprint-closable <sprint>`; on
-`closable`, `bd close <sprint> --reason "<n> fix groups closed; QA PASS"`. bd
-refuses the close while a child is open.
+Close a sprint container when every child is closed (`bd children <sprint>
+--json | jq -e 'all(.[]; .status == "closed")'`): `bd close <sprint> --reason
+"<n> fix groups closed; QA PASS"`. bd refuses the close while a child is open.
 
 After every bead write, run `validate-plan --phase <x>`. On any problem,
 stop dispatching and report it to the user; never repair the graph

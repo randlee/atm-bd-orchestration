@@ -13,14 +13,14 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 5. Rebase onto `origin/<pr_target>`; a conflict is part of the work.
 6. Run `assignment-gates.py dev` from the worktree.
 7. `READY`: `bd update <bead> --claim`, then `atm task start <bead> "<one line>"`.
-8. `NOT_READY`: do not claim or start; find the blockers (`bd show`, `bd blocked --json`); report bead, cause and who must move to the lead; wait.
-9. Any other code: reuse a matching workflow class bead (append task id, head, command, evidence) and cite it in the refusal; none matches: report the signature to the lead and cite that message; never create a per-task bead.
+8. `NOT_READY`: do not claim or start; find the blockers (`bd show`, `bd blocked --json`); report bead, cause and who must move to the task assigner; wait.
+9. Any other code: reuse a matching workflow class bead (append task id, head, command, evidence) and cite it in the refusal; none matches: report the signature to the task assigner and cite that message; never create a per-task bead.
 10. Commit as items land and push early (`git push -u origin <branch>` first); a push or `atm send` closes nothing.
 11. Never weaken a test, skip a criterion, or leave a placeholder.
 12. Run `<test_command>` (and the bead's validation commands) to zero failures.
 13. Rebase onto `origin/<pr_target>`, re-run `<test_command>`, `git push --force-with-lease origin <branch>`.
 14. Close bead and task together with the close template; vars from its `required_variables`, `task_id`/`sprint` unchanged, `commit` = pushed head, `rebased_onto` = rebase target; vars file outside the repo.
-15. `cc` differs from `lead`: send `cc` a one-line summary.
+15. The task close is the report; it returns to the task assigner. No copies.
 16. After the close, read ATM; only then does the next task start.
 
 ### Dev (`dev-template`)

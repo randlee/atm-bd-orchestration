@@ -5,8 +5,6 @@
   "pr_target": "integrate/phase-d",
   "worktree_path": "{{ worktree_base }}/fix/d-4-qa1-f1-retry-jitter",
   "branch": "fix/d-4-qa1-f1-retry-jitter",
-  "lead": "{{ bead_prefix }}-lead",
-  "cc": "",
   "primary_checkout": "{{ repo_root }}",
   "phase_root": "{{ bead_prefix }}-phase-d",
   "test_command": "make test",

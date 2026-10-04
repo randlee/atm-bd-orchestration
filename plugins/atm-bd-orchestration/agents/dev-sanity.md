@@ -80,7 +80,7 @@ failure is a refusal, not a best-effort check:
 
 For every refusal, reuse an existing workflow class bead for the same failure
 signature: append the task id, head, command and failure evidence, and cite the
-class id in the refusal. If no class matches, report the signature to the lead
+class id in the refusal. If no class matches, report the signature to the task assigner
 for classification and cite that message instead; do not create a per-task
 shadow or delay the refusal. Pre-dispatch refusals have no reviewer result
 and append no history row.
@@ -111,7 +111,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
 
    There is no fallback. A split failure refuses the task before reviewer
    dispatch; report its actual code. A bead whose `## Deliverables` is not a
-   numbered list gives `SANITY.PLAN_INVALID`: tell the lead that planning
+   numbered list gives `SANITY.PLAN_INVALID`: tell the task assigner that planning
    failed for that bead.
 
 2. Launch both reviewer families as background work concurrently: dispatch
@@ -187,7 +187,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    or task closure) but uses the selected vars' verdict as the shared required
    `--final-verdict`. If selection or selected merge cannot run, set
    `--final-verdict CANNOT_RUN` and still append the LLM/JEV rows; a reviewer
-   whose merge printed no report has no row, so report that to the lead. The same
+   whose merge printed no report has no row, so report that to the task assigner. The same
    task attempt/iteration applies to both. `sanity-run-history` appends
    to the same ignored phase JSONL, keyed by shared `run_id` and explicit
    reviewer: strict `sanity-run-record.json.j2` render through `sc-compose
@@ -205,7 +205,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
 
    It prints the ledger path; keep it as `$log`.
 7. For each `checker_defect`, append the selection entry to the matching
-   workflow class bead (or report it to the lead) and cite it in notes.
+   workflow class bead (or report it to the task assigner) and cite it in notes.
    Complete the selected lifecycle (Verdicts below) using its vars copied to
    `sanity-$task-vars.json`. Retain LLM, JEV, selection, and rerun evidence in
    completion notes.
@@ -241,7 +241,7 @@ bead, and the lead assigns the dev fix. The parent cannot close until all childr
 the same sanity check bead ready again.
 
 After the second operational FAIL for the same checked bead, report
-`SANITY.ROUND_CAP` to the lead with the undone deliverable numbers. No third
+`SANITY.ROUND_CAP` to the task assigner with the undone deliverable numbers. No third
 round is dispatched without the lead's ruling.
 
 ## Mandatory Console Report

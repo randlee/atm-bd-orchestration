@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0] - 2026-10-04
+
+### Added
+- Optional parallax mode: `agents/parallax.md`, a work-orchestrator teammate
+  that runs the lead's routine orchestration under the same skill, so the
+  lead keeps `bv`, monitoring and rulings and receives only its summaries and
+  escalations. No formula or script changes.
+
+### Changed
+- Closes and reports go to the task assigner: the dev, dev-fix, dev-sanity,
+  fix, QA, plan-review and review templates drop the `lead` and `cc`
+  variables and every named recipient (each template minor-bumped);
+  `dev-sanity.md` 2.3.0 and `roles/quality-mgr.md` say "the task assigner".
+  A test fails any template that names a recipient.
+- `atm-bd-orchestration/SKILL.md` 0.4.0: the parallax role row; the
+  work-orchestrator may write the stack in the lead's place.
+
 ## [0.8.2] - 2026-10-03
 
 ### Changed

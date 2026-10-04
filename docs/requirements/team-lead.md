@@ -9,7 +9,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 #### Startup
 1. Verify `bd` (>=1.3.0), `atm`, `sc-compose`, `jq`, `gh` + `gh stack`; missing or old: stop, tell the user the install line; never work around it.
 2. Check `ATM_IDENTITY` = `BEADS_ACTOR` (bare identity); mismatch or wrong value: no bead writes until fixed; empty: pass `--actor "$ATM_IDENTITY"` on every write.
-3. Fill `lead`, `cc` and every repository value from `.claude/project/atm-bd-orchestration.yaml` (start vars from `repo_config.py json`); never default one.
+3. Fill every repository value from `.claude/project/atm-bd-orchestration.yaml` (start vars from `repo_config.py json`); never default one.
 4. Resolve each role member with `resolve-role <role>`; exit 2: role unmapped.
 5. Put each long-running agent under its role: `atm send <agent> "Operate under <prompt> ..."` (`roles/quality-mgr.md`, `.claude/agents/dev-sanity.md`).
 

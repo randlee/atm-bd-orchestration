@@ -7,7 +7,5 @@
   "review_focus": "- OTLP exporter boundaries (SDK vs sync path)",
   "review_questions": "- Is example-otlp extractable without {{ repo_name }} internals?",
   "references": "- bd show {{ bead_prefix }}-phase-d\n- docs/architecture.md",
-  "lead": "{{ bead_prefix }}-lead",
-  "cc": "",
   "integration_branch": "integrate/phase-d"
 }

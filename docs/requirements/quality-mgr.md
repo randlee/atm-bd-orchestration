@@ -10,8 +10,8 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 2. Run every open task at once, each with its own background reviewers; close each when its verdict is ready, in any order.
 3. After task start, run `atm task list --json`; treat every open task assigned to you as live.
 4. One active ATM task: for the others, claim the bead, do the work, close the task without starting it.
-5. Address the template's `lead`; copy a one-line summary to `cc` with `atm send --stdin` when it differs.
-6. Cannot run: reuse a workflow class bead for the failure signature (append task, head, command, evidence), else report the signature to the lead; no per-task bead; return the bead open, unassigned, and close the task `refused` with `task-refused.md.j2`.
+5. The task close is the report; it returns to the task assigner. No copies.
+6. Cannot run: reuse a workflow class bead for the failure signature (append task, head, command, evidence), else report the signature to the task assigner; no per-task bead; return the bead open, unassigned, and close the task `refused` with `task-refused.md.j2`.
 7. Build completion vars from the template's `required_variables`, this run only, outside the repo.
 
 ### QA round (`qa-template`)
@@ -43,7 +43,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 
 ### Plan review (`plan-review-template`)
 
-32. Check readiness, claim, start; blocked: report the blocker to the lead and wait.
+32. Check readiness, claim, start; blocked: report the blocker to the task assigner and wait.
 33. Run `validate-plan --root <root>`: exit 5 every line blocking; exit 2 cannot-run (`PLAN_REVIEW_CANNOT_RUN`); a missing `sprints.jsonl` and `bd doctor` errors are blocking.
 34. Pipe each dev bead to `<scratch>/<bead>-plan.md` and the root to `<scratch>/<root>-plan.md`.
 35. Pin reviewers to `integration_branch` at `git rev-parse origin/<integration_branch>`.
@@ -56,9 +56,9 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 
 ### Phase-end review (`review-template`)
 
-42. Check readiness, claim, start; not ready: report blockers to the lead and wait.
+42. Check readiness, claim, start; not ready: report blockers to the task assigner and wait.
 43. Require branch = root `integration_branch`, worktree HEAD = `<commit>`; read via `git show <commit>:<path>`; plan = `bd show <phase feature>` and children.
-44. JEV post-mortem per `post-mortem.md`: inventory every phase finding (closed, nested); investigate every flagged result; dedupe; report them to the lead, who files them as finding beads; append raw evaluations to the phase JSONL with UTC, SHA, run IDs.
+44. JEV post-mortem per `post-mortem.md`: inventory every phase finding (closed, nested); investigate every flagged result; dedupe; report them to the task assigner, who files them as finding beads; append raw evaluations to the phase JSONL with UTC, SHA, run IDs.
 45. Record `post_mortem_jev`; model error is not PASS; no code findings: `not_applicable`; JEV unavailable: `unavailable`, review stays pending: bead returned open, task refused `REVIEW_PENDING_JEV`.
 46. Make no code changes.
 47. Re-verify every file:line at `<commit>`; report SUMMARY, FINDINGS, EXTRACTION-READINESS, RECOMMENDED-NEXT-SPRINTS, INTEGRATION POST-MORTEM.
