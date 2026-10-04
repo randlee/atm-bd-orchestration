@@ -52,7 +52,7 @@ class TemplateContractTests(unittest.TestCase):
         self.assertIn("(else `SANITY.STALE_BASE`)", text)  # agents/dev-sanity.md and assignment-gates.py sanity
         self.assertNotIn("PR_TARGET_MISMATCH", text)
         self.assertLess(text.index("bd ready -n 0 --json"), text.index("Otherwise claim"))
-        self.assertIn("git fetch origin && git log --format=%H origin/", text)  # but the tracking ref must be fresh
+        self.assertIn("git fetch origin && git merge-base --is-ancestor origin/", text)  # the tracking ref is fresh before any origin/ check
 
     def test_finding_bead_deliverables_are_splittable(self):
         import importlib.machinery, importlib.util, json, subprocess

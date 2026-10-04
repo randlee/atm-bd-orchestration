@@ -38,8 +38,8 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 25. Dispatch the next sprint once its sanity blockers PASS; never wait on QA.
 
 #### On each close
-26. dev-complete: nothing.
-27. Sanity PASS: verify branch base = `pr_target`; open the PR against it; dispatch the group's poured QA bead (`checked_bead`, `sprint_bead` from its metadata; for a fix bead also `carry_forward` = the fix bead, `round` = its `metadata.round` + 1). Important or minor finding: create its QA bead from `qa-bead.json.j2` with `checked_bead` and `carry_forward` = the finding.
+26. dev-complete: open the PR against `pr_target` and link it on the phase stack, then assign the sanity check.
+27. Sanity PASS: verify branch base = `pr_target`; dispatch the group's poured QA bead (`checked_bead`, `sprint_bead` from its metadata; for a fix bead also `carry_forward` = the fix bead, `round` = its `metadata.round` + 1). Important or minor finding: create its QA bead from `qa-bead.json.j2` with `checked_bead` and `carry_forward` = the finding.
 28. Sanity FAIL (first): verify children against the branch; close with reason any that judge correctness or quality; overrule, amend, split or reassign, never recreate; dev-sanity has reopened the checked bead; assign `dev-fix.xml.j2`.
 29. Sanity FAIL (second, `SANITY.ROUND_CAP`): diff flagged files vs last PASS, check the base for foreign commits, then rule; no third round without it.
 30. `SANITY.PLAN_INVALID`: planning failed for that bead.
@@ -97,4 +97,3 @@ None in the package.
 
 1. Plan Gate order: `SKILL.md`, `planning.md` run `sprint-review` then `validate-plan` vs `importing-md-plan.md` step 9 the reverse.
 2. Integration branch timing: `SKILL.md` Dispatch creates it "before the first dispatch" vs Plan Gate, `sprint-review/SKILL.md`, `validate-plan` needing it on origin before plan review.
-3. PR timing: `SKILL.md` Stack Discipline has the lead open the PR after sanity PASS; `dev-sanity-template.xml.j2` and `agents/dev-sanity.md` refuse `SANITY.PR_REQUIRED` without a PR.

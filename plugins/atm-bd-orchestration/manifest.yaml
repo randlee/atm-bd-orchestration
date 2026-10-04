@@ -76,6 +76,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/fixtures/difficulty-mismatch.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/dirty-tree.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/not-ready.json
+    - skills/atm-bd-orchestration/scripts/tests/fixtures/not-rebased.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/plan-invalid.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/pr-required.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/qa-head-mismatch.json

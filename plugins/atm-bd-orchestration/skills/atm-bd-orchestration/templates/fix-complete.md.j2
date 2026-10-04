@@ -1,6 +1,6 @@
 ---
 name: fix-complete
-version: 2.1.1
+version: 2.2.0
 description: Developer completion report for one finding bead (fix-task); the body of `atm task close <task-id> completed`. The task assigner reads `commit` and `rebased_onto` (required when `outcome` is `fixed`) for the fix's sanity check and link.
 format: markdown
 required_variables:
@@ -42,7 +42,11 @@ Branch: `{{ branch }}`
 {% if commit %}Commit: `{{ commit }}`
 Rebased onto: `{{ rebased_onto }}`
 {% endif %}Outcome: **{{ outcome }}**
-
+{% if outcome == "fixed" %}
+## Next (task assigner)
+1. Open the PR for `{{ branch }}` against `{{ rebased_onto }}` and link it on the phase stack (`/sc-gh-stack`), then run `/sc-gh-stack-view`.
+2. `atm task assign` the next ready check (`bd ready`): the sanity check, or QA when the bead has none.
+{% endif %}
 ## Machine Status (JSON)
 ```json
 {

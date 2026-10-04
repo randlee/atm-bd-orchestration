@@ -9,6 +9,7 @@
   escalations. No formula or script changes.
 
 ### Changed
+- The lead opens and stacks the PR at dev-complete (before sanity); dev-complete and fix-complete tell the task assigner to open and link the PR and assign the next check; sanity refuses `SANITY.NOT_REBASED` when the commit does not contain `origin/<pr_target>`.
 - Closes and reports go to the task assigner: the dev, dev-fix, dev-sanity,
   fix, QA, plan-review and review templates drop the `lead` and `cc`
   variables and every named recipient (each template minor-bumped);
