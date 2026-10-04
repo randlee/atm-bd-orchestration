@@ -9,3 +9,4 @@ One file per agent, with its subagents and scripts: what it does, when, in what 
 | [quality-mgr.md](quality-mgr.md) | QA, plan review, phase-end review; reviewers, ceremony screen |
 | [planner.md](planner.md) | design to beads; `validate-plan` |
 | [team-lead.md](team-lead.md) | sequencer; swarm-master (none in the package) |
+| [parallax.md](parallax.md) | work-orchestrator teammate (optional) |

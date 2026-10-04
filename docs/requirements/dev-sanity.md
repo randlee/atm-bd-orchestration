@@ -18,14 +18,14 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 
 ### Per assignment (task id = sanity bead id)
 9. Start every open sanity task at once (`bd update --claim` all, `atm task start` the active one); close each when its verdict arrives.
-10. Not ready (`bd ready -n 0 --json` omits it): do not claim or start; find the root cause; report bead, why, who must move to the lead; wait.
+10. Not ready (`bd ready -n 0 --json` omits it): do not claim or start; find the root cause; report bead, why, who must move to the task assigner; wait.
 11. Refuse `SANITY.PR_REQUIRED` without `pr_number` and `pr_url`.
 12. PR base must equal `pr_target` and head equal `commit`, else refuse; then `git fetch origin`.
 13. Refuse `SANITY.ZERO_DELTA` when `origin/<target>..<commit>` is empty.
 14. Refuse `SANITY.DIRTY_TREE` on tracked changes beyond the ignored paths.
 15. Refuse `SANITY_FROZEN` when `bd history <task>` records a prior PASS.
 16. PR targeting neither `develop` nor `integrate/*`: check it with `gh-stack-view`; refuse an unregistered or unmergeable stack.
-17. Any refusal: append evidence to the workflow class bead for that failure signature and cite it, else report the signature to the lead and cite that; no per-task bead; no history row.
+17. Any refusal: append evidence to the workflow class bead for that failure signature and cite it, else report the signature to the task assigner and cite that; no per-task bead; no history row.
 18. Claim and `atm task start`; iteration = completed events in `atm task events <task> --all --json` + 1.
 19. Run `sanity-split` exactly once; save the manifest; its run_id, sha, reviewers, operational_reviewer apply to the whole run.
 20. Split failure: refuse with its actual code before dispatch; `SANITY.PLAN_INVALID`: tell the lead planning failed for that bead.
@@ -42,12 +42,12 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 31. Merge exit 4: retry with the same times, never rerun lint; exit 0: PASS/FAIL; exit 1/3 with a report: CANNOT_RUN, keep error and raw results; no report: coordinator error, never PASS.
 32. After the selected merge, append exactly two history rows, `sanity-llm` then `sanity-jev`, each with its own completion time, the same iteration and the selected verdict as `--final-verdict`; selection or selected merge cannot run: `CANNOT_RUN`, still append both; a reviewer merge with no report has no row: report it to the lead.
 33. Copy only SEL vars to `<scratch>/sanity-<task>-vars.json`.
-34. Each checker defect: append the selection entry to the matching workflow class bead (or report to the lead); cite it in notes.
+34. Each checker defect: append the selection entry to the matching workflow class bead (or report to the task assigner); cite it in notes.
 35. PASS: `bd close <task> --reason "PASS at <sha>"`; `atm task close completed --template dev-sanity-complete.md.j2`.
 36. FAIL: `sanity-create-findings --reviewer sc-sanity-selected`; never edit or reopen the parent; `bd update <task> --status open --assignee "" --append-notes "FAIL at <sha>: <n> findings"`; task `completed`, same template; verdict line to `cc` when it differs from lead.
 37. Finding handoff failure is cannot-run, not FAIL.
-38. Cannot run (unsplittable plan, missing worktree, unpushed commit, timeout, rejected twice): workflow class bead or lead report as in 17; bead open, no assignee, note; task `refused` with `task-refused.md.j2`.
-39. Second FAIL on the same checked bead: report `SANITY.ROUND_CAP` with undone deliverable numbers to the lead; no third round without a ruling.
+38. Cannot run (unsplittable plan, missing worktree, unpushed commit, timeout, rejected twice): workflow class bead or task-assigner report as in 17; bead open, no assignee, note; task `refused` with `task-refused.md.j2`.
+39. Second FAIL on the same checked bead: report `SANITY.ROUND_CAP` with undone deliverable numbers to the task assigner; no third round without a ruling.
 40. Keep LLM, JEV, selection and rerun evidence in completion notes.
 41. After the selected task closes, render the last ten runs: `set -o pipefail; test -s "$log" && tail -n 20 "$log" | jq -s '{runs: .}' | sc-compose render --strict --file sanity-run-table.md.j2 --var-file /dev/stdin`, `$log` being the path `sanity-run-history` printed.
 42. Put the whole table (`S | PR | R | Find | Result | Match | Done | Iter`; `Match` = reviewer verdict equals final verdict; rows of other reviewers are skipped) in the user-visible reply before reading ATM again; never rewrite the ledger.
