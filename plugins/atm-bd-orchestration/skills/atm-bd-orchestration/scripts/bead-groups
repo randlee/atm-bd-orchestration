@@ -5,7 +5,7 @@
 
   TARGET (any mix, at least one):
     --sprint ID[,ID...]    sprint containers (repeatable)
-    --phase P              every sprint in <plans_dir>/phase-P/sprints.jsonl
+    --phase P              every sprint in the plan file `.atm-bd/phase-P.toml` names
     --findings FILE        the blocking findings one QA round raised on one sprint (repeatable):
                              {"sprint": "<sprint container id>", "round": N, "filed_by": "<QA bead id>",
                               "found_at_commit": "<reviewed commit>",
@@ -25,7 +25,7 @@ For every target it pours the group's formula with the sc-compose beads pour
 (today `sc-compose-pour-mock`; POUR below is the one line to change), then
 adds the edges the pour cannot make, from `<formula>.relations.json`:
 `validates` (E1 option); for a sprint, its dev bead `blocks` on the initial
-sanity bead of each predecessor named in the phase's sprints.jsonl; for a
+sanity bead of each predecessor in the phase's plan file depends_on; for a
 fix, `discovered-from` its `filed_by` QA bead. All targets are poured before
 any is related, so a predecessor in the same run is found.
 
@@ -40,7 +40,7 @@ bead, missing edge, conflicting edge and SanityBead schema problem.
 
 No poured bead gets an assignee: each carries `difficulty`, and the lead
 picks the agent at dispatch. Variables come from the target beads, the
-repository configuration (bead_prefix, plans_dir) and the relations file.
+phase file `.atm-bd/phase-<p>.toml` (plan file, root) and the relations file.
 Requests and receipts are written to <repo>/.atm-bd/pour/.
 
 Exit: 0 succeeded (validate: nothing missing or wrong), 5 validate found
@@ -110,18 +110,22 @@ class Run:
         return self.sidecars[formula]
 
     def plan(self, phase: str) -> dict:
-        """sprint name -> (container id, sanity id, predecessor sprint names), from the phase's sprints.jsonl."""
+        """sprint name -> (container id, initial sanity id, predecessor sprint names), from the phase's plan file."""
         if phase not in self.plans:
-            path = sprint_index_common.phase_path(self.repo, phase)
+            try:
+                config = sprint_index_common.load_phase_config(self.repo, phase)
+            except RuntimeError as exc:
+                raise TargetError("BEAD_GROUPS_PLAN_NOT_FOUND", str(exc)) from exc
+            path = self.repo / config["plan"]
             if not path.is_file():
                 raise TargetError("BEAD_GROUPS_PLAN_NOT_FOUND", f"{path} does not exist")
-            try:
-                sprint_index_common.load_phase_plan(path)  # the plan's own validation
-            except RuntimeError as exc:
-                raise TargetError("BEAD_GROUPS_PLAN_INVALID", str(exc)) from exc
-            prefix = str(self.config["bead_prefix"])
-            rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-            self.plans[phase] = {s: (f"{prefix}-{s}", sanity, deps) for s, sanity, deps in rows}
+            rows, problems = sprint_index_common.parse_plan(path.read_text(), str(path))
+            if problems:
+                raise TargetError("BEAD_GROUPS_PLAN_INVALID", "; ".join(problems))
+            prefix = sprint_index_common.bead_prefix(config["root"], self.repo)
+            ref = self.sidecar("sprint-group")["ref"]
+            self.plans[phase] = {r["sprint"]: (f"{prefix}-{r['sprint']}", attach_id(f"{prefix}-{r['sprint']}", ref, "sanity"), r["depends_on"])
+                                 for r in rows}
         return self.plans[phase]
 
     def show(self, bead: str) -> dict:
@@ -146,15 +150,12 @@ class Run:
         option = self.option_for(sidecar)
         plan = self.plan(str(meta["phase"]))
         if meta["sprint"] not in plan or plan[meta["sprint"]][0] != bead:
-            raise TargetError("BEAD_GROUPS_PLAN_MISMATCH", f"{bead} is not sprint {meta['sprint']} of phase {meta['phase']}'s sprints.jsonl")
-        _, planned_sanity, deps = plan[meta["sprint"]]
+            raise TargetError("BEAD_GROUPS_PLAN_MISMATCH", f"{bead} is not sprint {meta['sprint']} of phase {meta['phase']}'s plan file")
+        deps = plan[meta["sprint"]][2]
         compose = {"parent": bead, "phase": meta["phase"], "sprint": meta["sprint"], "stack": meta["stack"],
                    "layer": meta["layer"], "difficulty": meta["difficulty"], "priority": container.get("priority", 2),
                    "edge_option": option}
         compose["ref"] = fmt(sidecar["ref"], {"vars": compose})
-        if option != "A" and planned_sanity != attach_id(bead, compose["ref"], "sanity"):
-            raise TargetError("BEAD_GROUPS_PLAN_MISMATCH",
-                              f"sprints.jsonl names sanity {planned_sanity}; the pour makes {attach_id(bead, compose['ref'], 'sanity')}")
         relate_vars = {**sidecar.get("defaults", {}), "predecessor_sanity": [plan[d][1] for d in deps]}
         return {"kind": "sprint", "id": bead, "formula": "sprint-group", "option": option, "compose": compose, "vars": relate_vars}
 

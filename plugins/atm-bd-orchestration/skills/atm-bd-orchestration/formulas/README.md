@@ -19,7 +19,8 @@ Important and minor findings are not poured; QA files them as plain finding
 beads against the phase or feature.
 
 No poured bead has an assignee: each carries `difficulty`, and the lead picks
-the agent at dispatch.
+the agent at dispatch. Each carries its stage label (`stage:dev` or
+`stage:fix`, `stage:dev-sanity`, `stage:qa`), which routes it in the lead's Loop.
 
 ## Closers
 

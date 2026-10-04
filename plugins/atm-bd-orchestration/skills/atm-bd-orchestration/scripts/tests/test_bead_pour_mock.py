@@ -83,17 +83,20 @@ class Workspace:
         return self.bd("close", bead, "--reason", reason, "--actor", actor, check=check)
 
     def sprint(self, phase: str, n: int, deps: tuple[int, ...] = ()) -> str:
-        """Stage 3 (plan import): a sprint container, with no assignee, and its sprints.jsonl row."""
+        """Stage 3 (plan import): a sprint container, with no assignee, its plan file line and the phase file."""
         name = f"{phase}-{n}"
         bead = f"t-{name}"
         meta = {"phase": phase, "sprint": name, "stack": f"phase-{phase}", "layer": n, "difficulty": "normal",
                 "requirements": ["REQ-1"], "adrs": ["NONE"]}
         self.bd("create", f"{name}: sprint", "--id", bead, "--type", "feature",
                 "--metadata", json.dumps(meta), "--silent")
-        plan = self.root / "docs/plans" / f"phase-{phase}" / "sprints.jsonl"
+        plan = self.root / "docs/plans" / f"phase-{phase}.jsonl"
         plan.parent.mkdir(parents=True, exist_ok=True)
         with plan.open("a") as fh:
-            fh.write(json.dumps([name, f"{bead}.group-sanity", [f"{phase}-{d}" for d in deps]]) + "\n")
+            fh.write(json.dumps({"sprint": name, **({"depends_on": [f"{phase}-{d}" for d in deps]} if deps else {})}) + "\n")
+        toml = self.root / ".atm-bd" / f"phase-{phase}.toml"
+        toml.parent.mkdir(exist_ok=True)
+        toml.write_text(f'plan = "docs/plans/phase-{phase}.jsonl"\nroot = "t-phase-{phase}"\nintegration_branch = "integrate/phase-{phase}"\n')
         return bead
 
     def groups(self, *args, expect: int = 0) -> dict:
@@ -184,6 +187,9 @@ class BeadPourMockTests(unittest.TestCase):
         # no assignment in advance: every poured bead carries difficulty, the lead picks the agent at dispatch
         assert [ws.show(b).get("assignee") for b in (dev, sanity, qa)] == [None] * 3
         assert [ws.show(b)["metadata"]["difficulty"] for b in (dev, sanity, qa)] == ["normal"] * 3
+        # stage labels route each poured bead in the lead's Loop
+        assert [sorted(l for l in ws.show(b)["labels"] if l.startswith("stage:")) for b in (dev, sanity, qa)] == [
+            ["stage:dev"], ["stage:dev-sanity"], ["stage:qa"]]
         assert target(ws.groups("--validate", "--sprint", sprint), sprint)["problems"] == []   # SanityBead schema included
 
         ready = ws.ready()
@@ -381,6 +387,8 @@ class BeadPourMockTests(unittest.TestCase):
         assert ws.show(fix_sanity)["metadata"]["dev_bead"] == fix
         assert ws.show(fix_qa)["metadata"]["checked_bead"] == fix
         assert [ws.show(b).get("assignee") for b in (fix, fix_sanity, fix_qa)] == [None] * 3
+        assert [sorted(l for l in ws.show(b)["labels"] if l.startswith("stage:")) for b in (fix, fix_sanity, fix_qa)] == [
+            ["stage:fix"], ["stage:dev-sanity"], ["stage:qa"]]
         assert ws.groups("--validate", "--findings", path)["outcome"] == "succeeded"
 
         # Idempotent: the same file again creates and changes nothing.

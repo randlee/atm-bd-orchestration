@@ -62,11 +62,6 @@ Paths are under `plugins/atm-bd-orchestration/`.
 
 - `skills/atm-beads/templates/sprint-bead.json.j2` labels the sprint `stage:dev`: the
   sprint bead is still the dev task, not a container.
-- The plan file is `<plans_dir>/phase-<x>/sprints.jsonl` with
-  `[sprint, sanity_bead, [prerequisites]]` tuples
-  (`skills/atm-beads/scripts/sprint_index_common.py`), not
-  `<plans_dir>/<phase>.jsonl` with `{"sprint", "depends_on"?}` lines;
-  `bead-groups` refuses a planned sanity id that differs from the poured one.
 - `skills/atm-bd-orchestration/templates/fix-assignment.xml.j2` assigns a finding
   bead (`task_id` is the finding bead), not the poured fix bead.
 - `skills/atm-bd-orchestration/templates/qa-template.xml.j2` files every finding,
@@ -82,9 +77,6 @@ Paths are under `plugins/atm-bd-orchestration/`.
   not dev-sanity, reopen the checked bead on a sanity FAIL.
 - `skills/atm-bd-orchestration/SKILL.md` has no step where the lead closes a sprint
   container; the sprint bead is closed by the dev as the dev task.
-- Nothing reads `.atm-bd/<phase>.toml`; `validate-plan` takes the integration
-  branch from the root's `metadata.integration_branch` alone, so nothing checks
-  that the two agree. Scripts take `--root` or `--phase`.
 - `skills/atm-bd-orchestration/templates/fix-assignment.xml.j2` has no
   itemized private checklist step; `dev-template.xml.j2` and `dev-fix.xml.j2`
   do.

@@ -37,7 +37,7 @@ container and the repository configuration):
 #}
 formula = "finding-group"
 description = "Fix of blocking finding {{{ finding_ref }}}, round {{{ round }}}, in sprint {{{ sprint }}}."
-version = 3
+version = 4
 type = "workflow"
 
 [vars.parent]
@@ -54,7 +54,7 @@ title = "{{{ sprint }}}: fix {{{ finding_ref }}}: {{{ finding_title }}}"
 description = "Fix blocking finding {{{ finding_ref }}} (round {{{ round }}}), filed by {{{ reviewer }}} in {{{ filed_by }}}.\n\nRemedy: {{{ remedy }}}\n\nCommit the fix on the sprint's stack, then close this bead. A dev-sanity check and the filing reviewer's verification follow."
 type = "task"
 priority = {{{ priority }}}
-labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}"]
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:fix"]
 
 [steps.metadata]
 role = "fix"
@@ -80,7 +80,7 @@ title = "{{{ sprint }}}: sanity check of the fix of {{{ finding_ref }}}"
 description = "Sanity check of {{{ parent }}}.{{{ ref }}}-fix: nothing skipped, no obvious errors, lint passes. This is not QA. Close on PASS only; on FAIL reopen the fix bead and leave this bead open."
 type = "task"
 priority = {{{ priority }}}
-labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}"]
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:dev-sanity"]
 {% if edge_option == "C" %}needs = ["fix"]
 {% endif %}
 [steps.metadata]
@@ -93,7 +93,7 @@ title = "{{{ sprint }}}: verify the fix of {{{ finding_ref }}}"
 description = "Fix verification of {{{ parent }}}.{{{ ref }}}-fix for finding {{{ finding_ref }}}, by its filing reviewer {{{ reviewer }}} only, after its sanity check passes."
 type = "task"
 priority = {{{ priority }}}
-labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}"]
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:qa"]
 needs = ["sanity"]
 
 [steps.metadata]
