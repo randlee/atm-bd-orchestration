@@ -1,6 +1,6 @@
 ---
 name: sprint-report
-description: Generate a sprint status table or dependency DAG from live beads. DAG artifacts are published on integration; --view optionally opens Wyvern.
+description: Generate a sprint status table or dependency DAG from live beads. The DAG HTML is written locally; --view optionally opens Wyvern.
 ---
 
 # Sprint Report Skill
@@ -21,7 +21,7 @@ Rows are never hand-typed.
 
 ## Dependency diagram
 
-Use `--dag` to refresh and publish the diagram without opening a viewer, or
+Use `--dag` to refresh the diagram without opening a viewer, or
 `--view` to also open its HTML artifact in Wyvern when available:
 
 ```bash
@@ -31,32 +31,27 @@ npm ci --prefix .claude/skills/sprint-report/renderer --ignore-scripts
 ```
 
 The dedicated [`sprint-review`](../sprint-review/SKILL.md) command always
-publishes; its `--view` flag is the only way it opens the diagram. No viewer is
+writes the HTML; its `--view` flag is the only way it opens the diagram. No viewer is
 opened by default. Wyvern runs detached in the background, with output sent to
 a log, so the agent remains available. Missing or failing Wyvern does not
-prevent publication; no alternative viewer is launched automatically.
+prevent writing the HTML; no alternative viewer is launched automatically.
 
-By default, DAG generation commits and pushes only
-`<plans_dir>/phase-<p>/phase-<p>-dag.html` to the root bead's
-`integration_branch`. It reads the committed canonical `sprints.jsonl` and
+By default, DAG generation writes `<plans_dir>/phase-<p>/phase-<p>-dag.html`
+locally; it never commits or pushes. It reads the committed canonical `sprints.jsonl` and
 never rewrites it from Beads state. The HTML embeds the SVG directly, including
-state tooltips and zoom controls, without external dependencies. Each refresh
-leaves a permanent Git record. Both artifacts are required before plan review.
-A temporary detached worktree stages only the HTML artifact; publication never
-changes an existing checkout or force-pushes over concurrent work.
+state tooltips and zoom controls, without external dependencies.
 
 Local render intermediates live under
 `scratchpad/phase-<p>-dag/phase-<p>-dag`: `.svg`, `.html`, `.png`, `.dot`,
-`-layout.svg`, `-data.json`, `-state.json`, and `-icons.json`. Publication writes
-`-published.json` with its branch, commit and paths. These scratch files are
+`-layout.svg`, `-data.json`, `-state.json`, and `-icons.json`. These scratch files are
 not committed. State-only refreshes reuse the existing layout.
 
-For a local export without publishing, pass `--output <prefix>` to
+To skip writing next to the plan, pass `--output <prefix>` to
 `sprint-report --dag` or `--view`. The legacy `--dag --open` option explicitly
 opens the PNG in Preview on macOS (default image viewer elsewhere); do not use
 it for `/sprint-review`. Diagram modes are mutually exclusive with `--table`
 and `--detailed`. `--root` and `--index` work in every mode. Diagram generation
-requires Python, Node, `bd`, `atm`, and Git access to the integration branch;
+requires Python, Node, `bd` and `atm`;
 it does not query GitHub PRs or invoke `sc-compose`.
 
 The index explicitly records `dev_bead_id` and `sanity_bead_id` for each sprint

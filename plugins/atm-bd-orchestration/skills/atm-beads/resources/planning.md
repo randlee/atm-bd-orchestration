@@ -57,9 +57,8 @@ rather than reaching an agent:
    (`atm-bd-orchestration` "Plan Gate", step 2). Commit `sprints.jsonl` and
    push it to the root bead's `integration_branch`. Then run
    `.claude/skills/sprint-review/scripts/sprint-review --root <root>`, which
-   renders the required initial `<plans_dir>/phase-<x>/phase-<x>-dag.html`
-   with embedded SVG and commits/pushes the HTML on the root bead's integration
-   branch. No viewer opens without `--view`. Then run `validate-plan --root <root>`
+   writes `<plans_dir>/phase-<x>/phase-<x>-dag.html` locally; it never commits
+   or pushes. No viewer opens without `--view`. Then run `validate-plan --root <root>`
    on the imported beads; without `--index` it reads `sprints.jsonl` from
    that integration branch.
 
@@ -107,12 +106,8 @@ Hierarchy:
   sanity beads. No `validates` or `caused-by` edge to the sprint: bd allows one
   edge type per pair, and the parent link is the membership.
 
-The initial `phase-<x>-dag.html` is a required plan-review artifact alongside
-`sprints.jsonl`. Live-root validation verifies both files on the remote
-integration branch and checks that the HTML embeds SVG for this phase root.
-Later `/sprint-review` runs refresh and push the same page; `--view` only
-controls optional background viewing in Wyvern. Import JSONL validation runs
-before beads exist, so it does not require this generated artifact yet.
+`phase-<x>-dag.html` is written locally; it is never committed or pushed.
+`--view` only controls optional background viewing in Wyvern.
 
 ## Phase Root
 

@@ -200,11 +200,11 @@ No dev bead is dispatched until the plan passes review.
      --title "phase-<x>: plan review" --deps blocks:<root sprint>,blocks:<root sprint>
    ```
 
-2. Generate and publish the initial phase diagram before review:
-   `.claude/skills/sprint-review/scripts/sprint-review --root <root>`.
+2. Generate the initial phase diagram before review:
+   `.claude/skills/sprint-review/scripts/sprint-review --root <root>`
+   writes the HTML locally; it never commits or pushes.
    The phase integration branch must contain the committed/pushed
-   `<plans_dir>/phase-<x>/sprints.jsonl` canonical dependency tuples and
-   `<plans_dir>/phase-<x>/phase-<x>-dag.html` with embedded SVG. Do not open the
+   `<plans_dir>/phase-<x>/sprints.jsonl` canonical dependency tuples. Do not open the
    diagram unless `--view` was requested and Wyvern is available.
    Then run `.claude/skills/atm-beads/scripts/validate-plan --root <root>`
    from the repository root; its header lists what it checks. Exit 0 or stop.

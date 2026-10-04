@@ -83,7 +83,7 @@ goes back to the plan's author to supply, with the exact list of gaps.
    - one plan into a running phase: `<root>-plan-qa` is already closed, so
      create `<root>-plan-qa-<n>` (the next free number), blocking every new
      dev bead.
-   **Mandatory:** write the phase definition `<plans_dir>/phase-<x>/sprints.jsonl` by hand (one `[sprint_name, sanity_bead_id, depends_on_sprint_names]` tuple per imported sprint; `resources/planning.md` "Phase definition") in the same commit as the plan, push it to the root's `integration_branch`, then run `.claude/skills/atm-beads/scripts/validate-plan --root <root>` followed by `.claude/skills/sprint-review/scripts/sprint-review --root <root>`. It publishes the required initial `<plans_dir>/phase-<x>/phase-<x>-dag.html` on the root bead's integration branch. Do not open a viewer unless `--view` is requested. The plan is never exported from Beads.
+   **Mandatory:** write the phase definition `<plans_dir>/phase-<x>/sprints.jsonl` by hand (one `[sprint_name, sanity_bead_id, depends_on_sprint_names]` tuple per imported sprint; `resources/planning.md` "Phase definition") in the same commit as the plan, push it to the root's `integration_branch`, then run `.claude/skills/atm-beads/scripts/validate-plan --root <root>` followed by `.claude/skills/sprint-review/scripts/sprint-review --root <root>`. It writes `<plans_dir>/phase-<x>/phase-<x>-dag.html` locally; it never commits or pushes. Do not open a viewer unless `--view` is requested. The plan is never exported from Beads.
 10. **Verify** with `.claude/skills/atm-beads/scripts/validate-plan --root
     <root>`, then check the graph:
     - `bd ready -l phase-<x> -n 0` lists the plan-review bead and no dev bead
