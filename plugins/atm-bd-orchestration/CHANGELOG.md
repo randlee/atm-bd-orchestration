@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.8.0] - 2026-10-03
+
+### Added
+- Bead groups poured from formulas, with a mock of the sc-compose beads
+  attach-pour (sc-compose #551, #613; ADR-0021) until sc-compose ships it.
+  Additive: no template, mandatory log or schema changes.
+  - `formulas/sprint-group.formula.toml.j2`: dev <- sanity <- qa under the
+    sprint container. `formulas/finding-group.formula.toml.j2`: for each
+    blocking finding, fix <- sanity <- qa as siblings under the same sprint
+    container (flat model, Rand 2026-10-03); the fix bead carries the finding.
+    Each has a `.relations.json` with the attach ref and post-pour edges; the
+    E1 option (A, B or C; default C) is data there. `formulas/README.md`
+    documents shapes and closers. A same-named file in
+    `<repo>/.atm-bd/formula/` overrides the package formula.
+  - `scripts/sc-compose-pour-mock`: `bead {render,validate,preview-pour,pour}
+    --request R.json [--json]` with the sc-compose request, receipt, envelope
+    and exit codes; render and validate run the real sc-compose. Pours attach
+    directly under an existing parent at stable ids `<parent>.<ref>-<step>`,
+    create only what is missing and never edit an existing bead.
+  - `scripts/bead-groups`: pours and relates `--sprint ID[,ID]`, `--phase P`
+    or `--findings FILE` (one QA round's blocking findings on one sprint); adds
+    `validates` and cross-sprint `blocks` (normal: predecessor's sanity bead;
+    tight: its sprint container); fills in only what is missing; refuses a
+    second dependency type on a pair, a non-blocking finding, and a finding
+    pour after the filing QA bead closed; `--validate` reports without writing.
+  - `scripts/tests/test_bead_pour_mock.py`: runs both against a real bd 1.3.0
+    proxied-server database; skipped when bd, dolt or sc-compose is missing.
+    CI installs dolt 2.3.1.
 ## [0.7.0] - 2026-10-03
 
 ### Changed
