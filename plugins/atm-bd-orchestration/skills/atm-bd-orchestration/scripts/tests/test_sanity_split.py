@@ -357,46 +357,59 @@ class SanitySplit(unittest.TestCase):
                 self.assertEqual(out.returncode, 0, out.stderr)
                 self.assertEqual(self.wait_lint(json.loads(out.stdout)["lint"]["exit_file"]), expected)
 
+    def owned_group(self, command):
+        """Prefix the lint command so its shell, the group leader, publishes its process group id atomically."""
+        marker = self.root / "lint.pgid"
+        return f"echo $$ > {marker}.tmp && mv {marker}.tmp {marker} && {command}", marker
+
+    def read_marker(self, marker, seconds=10):
+        for _ in range(int(seconds / 0.05)):
+            if marker.exists():
+                return int(marker.read_text().split()[0])
+            time.sleep(0.05)
+        self.fail(f"{marker.name} was never written")
+
+    def assert_group_gone(self, pgid, message):
+        """Only this test's lint process group is inspected, never processes of concurrent runs."""
+        with self.assertRaises(ProcessLookupError, msg=message):
+            os.killpg(pgid, 0)
+
     def test_lint_supervisor_times_out_and_kills_the_command(self):
-        out = self.run_split(None, None, None, "sprint/x", "develop", "--lint-timeout-seconds", "1", lint="sleep 3017")
+        lint, group = self.owned_group("exec sleep 3017")
+        out = self.run_split(None, None, None, "sprint/x", "develop", "--lint-timeout-seconds", "1", lint=lint)
         self.assertEqual(out.returncode, 0, out.stderr)
         manifest = json.loads(out.stdout)
         self.assertEqual(manifest["lint"]["timeout_seconds"], 1)
         self.assertEqual(self.wait_lint(manifest["lint"]["exit_file"]), "timeout")
-        time.sleep(0.2)
-        leftover = subprocess.run(["pgrep", "-f", "sleep 3017"], capture_output=True, text=True)
-        self.assertEqual(leftover.stdout.strip(), "", "the lint command survived its timeout")
+        self.assert_group_gone(self.read_marker(group), "the lint command survived its timeout")
         merged = self.merge(manifest, [result(1, self.repo.sha), result(2, self.repo.sha)])
         self.assertEqual(merged.returncode, 3, merged.stderr)
         self.assertEqual(json.loads(merged.stdout)["error"]["code"], "SANITY.LINT_UNAVAILABLE")
         self.assertEqual(json.loads(merged.stdout)["verdict"], "CANNOT_RUN")
 
     def test_lint_supervisor_is_stopped_with_its_process_group(self):
-        out = self.run_split(lint="sleep 3018")
+        lint, group = self.owned_group("exec sleep 3018")
+        out = self.run_split(lint=lint)
         self.assertEqual(out.returncode, 0, out.stderr)
         manifest = json.loads(out.stdout)
-        time.sleep(0.3)
+        pgid = self.read_marker(group)          # the lint command is running before the supervisor is stopped
         os.killpg(manifest["lint"]["pid"], signal.SIGTERM)
         self.assertEqual(self.wait_lint(manifest["lint"]["exit_file"]), "cancelled")
-        time.sleep(0.2)
-        leftover = subprocess.run(["pgrep", "-f", "sleep 3018"], capture_output=True, text=True)
-        self.assertEqual(leftover.stdout.strip(), "", "the lint command survived the cancellation")
+        self.assert_group_gone(pgid, "the lint command survived the cancellation")
 
     def test_lint_supervisor_cancellation_kills_a_term_resistant_command(self):
         marker = self.root / "resistant.pid"
         script = self.root / "resistant.py"
         script.write_text("import os, pathlib, signal, time\n"
                           "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-                          f"pathlib.Path({str(marker)!r}).write_text(str(os.getpid()))\n"
+                          f"pathlib.Path({str(marker)!r} + '.tmp').write_text(str(os.getpid()) + ' ' + str(os.getpgid(0)))\n"
+                          f"os.replace({str(marker)!r} + '.tmp', {str(marker)!r})\n"
                           "time.sleep(3019)\n")
         out = self.run_split(lint=f"{sys.executable} {script}")
         self.assertEqual(out.returncode, 0, out.stderr)
         manifest = json.loads(out.stdout)
-        for _ in range(200):
-            if marker.exists():
-                break
-            time.sleep(0.05)
-        child_pid = int(marker.read_text())
+        child_pid = self.read_marker(marker)
+        pgid = int(marker.read_text().split()[1])
         os.killpg(manifest["lint"]["pid"], signal.SIGTERM)
         self.assertEqual(self.wait_lint(manifest["lint"]["exit_file"]), "cancelled")
         for _ in range(100):   # the supervisor exits right after writing the exit file
@@ -406,8 +419,7 @@ class SanitySplit(unittest.TestCase):
         self.assertNotEqual(subprocess.run(["kill", "-0", str(manifest["lint"]["pid"])], capture_output=True).returncode, 0)
         self.assertNotEqual(subprocess.run(["kill", "-0", str(child_pid)], capture_output=True).returncode, 0,
                             "the TERM-resistant lint command survived the cancellation")
-        leftover = subprocess.run(["pgrep", "-f", "resistant.py"], capture_output=True, text=True)
-        self.assertEqual(leftover.stdout.strip(), "")
+        self.assert_group_gone(pgid, "a member of the lint process group survived the cancellation")
 
     def resistant_descendant(self):
         """A lint command whose shell backgrounds a SIGTERM-ignoring python and waits on it."""
@@ -415,7 +427,8 @@ class SanitySplit(unittest.TestCase):
         helper = self.root / "descendant.py"
         helper.write_text("import os, pathlib, signal, time\n"
                           "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-                          f"pathlib.Path({str(marker)!r}).write_text(str(os.getpid()))\n"
+                          f"pathlib.Path({str(marker)!r} + '.tmp').write_text(str(os.getpid()) + ' ' + str(os.getpgid(0)))\n"
+                          f"os.replace({str(marker)!r} + '.tmp', {str(marker)!r})\n"
                           "time.sleep(3020)\n")
         return f"{sys.executable} {helper} & wait", marker
 
@@ -434,16 +447,13 @@ class SanitySplit(unittest.TestCase):
         out = self.run_split(lint=lint)
         self.assertEqual(out.returncode, 0, out.stderr)
         manifest = json.loads(out.stdout)
-        for _ in range(200):
-            if marker.exists():
-                break
-            time.sleep(0.05)
-        descendant = int(marker.read_text())
+        descendant = self.read_marker(marker)
+        pgid = int(marker.read_text().split()[1])
         os.killpg(manifest["lint"]["pid"], signal.SIGTERM)
         self.assertEqual(self.wait_lint(manifest["lint"]["exit_file"]), "cancelled")
         self.wait_gone(manifest["lint"]["pid"])
         self.assertFalse(self.alive(descendant), "the TERM-ignoring descendant survived the cancellation")
-        self.assertEqual(subprocess.run(["pgrep", "-f", "descendant.py"], capture_output=True, text=True).stdout, "")
+        self.assert_group_gone(pgid, "a member of the lint process group survived the cancellation")
 
     def test_lint_supervisor_timeout_kills_a_term_resistant_descendant(self):
         lint, marker = self.resistant_descendant()
@@ -451,7 +461,7 @@ class SanitySplit(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stderr)
         manifest = json.loads(out.stdout)
         self.assertEqual(self.wait_lint(manifest["lint"]["exit_file"]), "timeout")
-        descendant = int(marker.read_text())
+        descendant = self.read_marker(marker)
         self.wait_gone(manifest["lint"]["pid"])
         self.assertFalse(self.alive(descendant), "the TERM-ignoring descendant survived the timeout")
 
