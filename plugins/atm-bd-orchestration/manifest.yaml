@@ -55,10 +55,13 @@ artifacts:
     - skills/atm-bd-orchestration/formulas/finding-group.relations.json
     - skills/atm-bd-orchestration/formulas/sprint-group.formula.toml.j2
     - skills/atm-bd-orchestration/formulas/sprint-group.relations.json
+    - skills/atm-bd-orchestration/parallax-lifecycle.md
     - skills/atm-bd-orchestration/references/post-mortem-context-preparation.md
     - skills/atm-bd-orchestration/references/post-mortem-jev.md
     - skills/atm-bd-orchestration/references/post-mortem.md
+    - skills/atm-bd-orchestration/roles/parallax.md
     - skills/atm-bd-orchestration/roles/quality-mgr.md
+    - skills/atm-bd-orchestration/scripts/.sc-compose/logs/sc-compose.log.jsonl
     - skills/atm-bd-orchestration/scripts/assignment-gates.py
     - skills/atm-bd-orchestration/scripts/bd_commands.py
     - skills/atm-bd-orchestration/scripts/bead-groups
@@ -72,6 +75,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/sanity-run-history
     - skills/atm-bd-orchestration/scripts/sanity-split
     - skills/atm-bd-orchestration/scripts/sc-compose-pour-mock
+    - skills/atm-bd-orchestration/scripts/sprint-closable
     - skills/atm-bd-orchestration/scripts/tests/fixtures/dev-ready.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/difficulty-mismatch.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/dirty-tree.json
@@ -103,9 +107,12 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_run_history.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_selected.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_split.py
+    - skills/atm-bd-orchestration/scripts/tests/test_sprint_closable.py
     - skills/atm-bd-orchestration/scripts/tests/test_templates.py
     - skills/atm-bd-orchestration/scripts/tests/test_transitions.py
+    - skills/atm-bd-orchestration/scripts/tests/test_wave_monitor.py
     - skills/atm-bd-orchestration/scripts/transitions.py
+    - skills/atm-bd-orchestration/scripts/wave-monitor
     - skills/atm-bd-orchestration/templates/arch-qa-assignment.json.j2
     - skills/atm-bd-orchestration/templates/dev-complete.md.j2
     - skills/atm-bd-orchestration/templates/dev-fix.xml.j2
@@ -132,6 +139,8 @@ artifacts:
     - skills/atm-bd-orchestration/templates/schema-reviewer-assignment.json.j2
     - skills/atm-bd-orchestration/templates/task-refused.md.j2
     - skills/atm-bd-orchestration/templates/workflow-issue-bead.json.j2
+    - skills/atm-bd-orchestration/wave-loop.md
+    - skills/atm-bd-orchestration/waves.md
     - skills/atm-beads/SKILL.md
     - skills/atm-beads/examples/dev-sanity-bead-vars-d-4.json
     - skills/atm-beads/examples/plan-root-vars.json
@@ -179,6 +188,7 @@ artifacts:
     - skills/sprint-review/scripts/sprint-review
   agents:
     - agents/dev-sanity.md
+    - agents/parallax.md
     - agents/sc-sanity-jev.md
     - agents/sc-sanity-llm.md
 # ARTIFACTS-END
