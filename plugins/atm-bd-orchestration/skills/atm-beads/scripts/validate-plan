@@ -6,7 +6,8 @@
 #   3. every sanity bead validates against SanityBead, its metadata.dev_bead is its sprint, and it has a blocks edge to it;
 #   4. bd doctor reports no error (skipped with --no-doctor);
 #   5. only epics live at the top level: no open bead created since the phase root has no parent
-#      (with --file, the file's beads, their parent taken from the parent-child dependency).
+#      (with --file, the file's beads, their parent taken from the parent-child dependency);
+#   6. with --file, a bead with an assignee is a stderr warning (planning carries difficulty only).
 # Every sprint and sanity bead named in sprints.jsonl must exist. This header is the one list of
 # what validate-plan checks; the skill docs point here.
 #
@@ -74,6 +75,8 @@ elif [ -n "$file" ]; then
       && mv "$scratch/both.json" "$scratch/live.json"
   done
   jq -s '.[0] + .[1]' "$scratch/plan.json" "$scratch/live.json" > "$scratch/beads.json"
+  # 6. planning carries difficulty only; the lead sets the assignee at dispatch
+  jq -r '.[] | select((.assignee // "") != "") | "validate-plan: warning: \(.id): assignee set at plan time; planning carries difficulty only"' "$scratch/plan.json" >&2
 else
   # shellcheck disable=SC2046
   bd show $(jq -r --arg p "$prefix" '"\($p)\(.[0])", .[1]' "$index") --json > "$scratch/beads.json" 2>"$scratch/bd.err" \

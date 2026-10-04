@@ -82,14 +82,16 @@ class Workspace:
         actor = (self.show(bead) or {}).get("assignee") or self.env["BEADS_ACTOR"]
         return self.bd("close", bead, "--reason", reason, "--actor", actor, check=check)
 
-    def sprint(self, phase: str, n: int, deps: tuple[int, ...] = (), *, coupling: str = "") -> str:
-        """Stage 3 (plan import): a sprint container and its sprints.jsonl row."""
+    def sprint(self, phase: str, n: int, deps: tuple[int, ...] = (), *, coupling: str = "", dispatch: bool = True) -> str:
+        """Stage 3 (plan import): a sprint container, with no assignee, and its sprints.jsonl row; then the dispatch assignee."""
         name = f"{phase}-{n}"
         bead = f"t-{name}"
         meta = {"phase": phase, "sprint": name, "stack": f"phase-{phase}", "layer": n, "difficulty": "normal",
                 **({"coupling": coupling} if coupling else {})}
-        self.bd("create", f"{name}: sprint", "--id", bead, "--type", "feature", "--assignee", "arch-dev",
+        self.bd("create", f"{name}: sprint", "--id", bead, "--type", "feature",
                 "--metadata", json.dumps(meta), "--silent")
+        if dispatch:
+            self.bd("update", bead, "--assignee", "arch-dev")
         plan = self.root / "docs/plans" / f"phase-{phase}" / "sprints.jsonl"
         plan.parent.mkdir(parents=True, exist_ok=True)
         with plan.open("a") as fh:
@@ -420,6 +422,20 @@ class BeadPourMockTests(unittest.TestCase):
             ws.close(bead, "done")
         ws.close(sprint, "all fix groups closed")
         assert ws.show(sprint)["status"] == "closed"
+
+
+    def test_dev_member_is_the_dispatched_dev_beads_assignee(self):
+        ws = self.ws
+        sprint = ws.sprint("k", 1, dispatch=False)
+        dev, _, qa = group(sprint)
+        assert target(ws.groups("--sprint", sprint, expect=2), sprint)["error"]["code"] == "BEAD_GROUPS_TARGET_INVALID"
+        assert ws.show(dev) is None
+        ws.bd("update", sprint, "--assignee", "arch-dev")      # dispatch
+        ws.groups("--sprint", sprint)
+        ws.bd("update", sprint, "--assignee", "")              # only the poured dev bead keeps the assignee
+        path = findings_file(ws, sprint, qa, 1, {"ref": "qa1-f1"})
+        ws.groups("--findings", path)
+        assert ws.show(fix_group(sprint, "qa1-f1")[0])["assignee"] == "arch-dev"
 
 
     def test_only_blocking_findings_are_poured(self):

@@ -1,6 +1,6 @@
 ---
 name: sprint-bead
-version: 0.3.0
+version: 0.3.1
 description: One sprint bead of a plan written to beads. Every mandatory plan field is a required variable, so a strict render fails when one is missing. `requirements` and `adrs` are lists of governing ids, or exactly ["NONE"] when the sprint has none. `difficulty` is hard, normal or fast. Render strictly, then `jq -c .` into the import JSONL.
 format: json
 required_variables:
@@ -9,7 +9,6 @@ required_variables:
   - phase
   - sprint
   - title
-  - assignee
   - stack
   - layer
   - branch
@@ -42,7 +41,6 @@ defaults:
   "issue_type": "task",
   "status": "open",
   "priority": {{ priority }},
-  "assignee": {{ assignee | tojson }},
   "description": {{ description | tojson }},
   "design": {{ design | tojson }},
   "acceptance_criteria": {{ acceptance_criteria | tojson }},

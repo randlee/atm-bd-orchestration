@@ -36,6 +36,8 @@ refuses that target, with a typed code, before its edges are written.
 --validate writes nothing: it previews each pour and reports every missing
 bead, missing edge, conflicting edge and SanityBead schema problem.
 
+dev_member is the assignee the lead set at dispatch: on the sprint bead
+for --sprint; on its poured dev bead, else the sprint bead, for --findings.
 Variables come from the target beads, the repository configuration
 (dev_sanity_member, qa_member, bead_prefix, plans_dir) and the relations file.
 Requests and receipts are written to <repo>/.atm-bd/pour/.
@@ -136,12 +138,24 @@ class Run:
     def members(self) -> dict:
         return {"sanity_member": str(self.config["dev_sanity_member"]), "qa_member": str(self.config["qa_member"])}
 
+    def dev_member(self, container: dict, *, poured_dev: bool) -> str:
+        """The dispatched dev bead's assignee: the poured sprint dev bead when asked and it exists, else the sprint bead."""
+        dev = None
+        if poured_dev:
+            ref = fmt(self.sidecar("sprint-group")["ref"], {"vars": container.get("metadata") or {}})
+            dev = self.bd.show(attach_id(container["id"], ref, "dev"))
+        member = (dev or {}).get("assignee") or container.get("assignee")
+        if not member:
+            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{container['id']} has no dispatched dev assignee; group after `bd update <bead> --assignee <dev>`")
+        return member
+
     def sprint_target(self, bead: str) -> dict:
         container = self.show(bead)
         meta = container.get("metadata") or {}
         missing = [k for k in SPRINT_KEYS if meta.get(k) in (None, "")]
-        if missing or not container.get("assignee"):
-            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{bead} lacks {', '.join(missing or ['assignee'])}")
+        if missing:
+            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{bead} lacks {', '.join(missing)}")
+        dev_member = self.dev_member(container, poured_dev=False)
         sidecar = self.sidecar("sprint-group")
         option = self.option_for(sidecar)
         plan = self.plan(str(meta["phase"]))
@@ -150,7 +164,7 @@ class Run:
         _, planned_sanity, deps = plan[meta["sprint"]]
         compose = {"parent": bead, "phase": meta["phase"], "sprint": meta["sprint"], "stack": meta["stack"],
                    "layer": meta["layer"], "difficulty": meta["difficulty"], "priority": container.get("priority", 2),
-                   "dev_member": container["assignee"], **self.members(), "edge_option": option}
+                   "dev_member": dev_member, **self.members(), "edge_option": option}
         compose["ref"] = fmt(sidecar["ref"], {"vars": compose})
         if option != "A" and planned_sanity != attach_id(bead, compose["ref"], "sanity"):
             raise TargetError("BEAD_GROUPS_PLAN_MISMATCH",
@@ -171,8 +185,9 @@ class Run:
         container = self.show(sprint)
         meta = container.get("metadata") or {}
         missing = [k for k in ("phase", "sprint", "stack", "difficulty") if meta.get(k) in (None, "")]
-        if missing or not container.get("assignee"):
-            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{sprint} lacks {', '.join(missing or ['assignee'])}")
+        if missing:
+            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{sprint} lacks {', '.join(missing)}")
+        dev_member = self.dev_member(container, poured_dev=True)
         qa_closed = self.show(filed_by).get("status") == "closed"
         sidecar = self.sidecar("finding-group")
         option = self.option_for(sidecar)
@@ -191,7 +206,7 @@ class Run:
                            "reviewer": finding["reviewer"], "finding_title": finding["title"], "remedy": finding["remedy"],
                            "filed_by": filed_by, "phase": meta["phase"], "sprint": meta["sprint"], "stack": meta["stack"],
                            "difficulty": meta["difficulty"], "priority": finding.get("priority", 1),
-                           "dev_member": container["assignee"], **self.members(), "edge_option": option}
+                           "dev_member": dev_member, **self.members(), "edge_option": option}
                 compose["ref"] = fmt(sidecar["ref"], {"vars": compose})
                 out.append({"kind": "finding", "id": f"{sprint}.{compose['ref']}", "formula": "finding-group", "option": option,
                             "compose": compose, "vars": dict(sidecar.get("defaults", {})), "qa_closed": qa_closed})

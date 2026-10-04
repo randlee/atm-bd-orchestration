@@ -43,7 +43,6 @@ class Dependency(BaseModel):
 class Bead(BaseModel):
     model_config = ConfigDict(extra="allow")
     id: NonEmpty
-    assignee: NonEmpty
     dependencies: list[Dependency] = []
 
     def blocks(self) -> list[str]:

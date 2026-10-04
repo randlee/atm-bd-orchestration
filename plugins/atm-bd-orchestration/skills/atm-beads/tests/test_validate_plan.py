@@ -15,7 +15,7 @@ PLAN = [["t-1", "x-t-1-sanity", []], ["t-2", "x-t-2-sanity", ["t-1"]]]
 
 
 def sprint(bid: str, blocks: list[str]) -> dict:
-    return {"id": bid, "parent": "x-phase-t", "assignee": "dev", "acceptance_criteria": "- [ ] #1: done",
+    return {"id": bid, "parent": "x-phase-t", "acceptance_criteria": "- [ ] #1: done",
             "description": "Goal.\n\n## Deliverables\n1. the thing\n",
             "dependencies": [{"type": "blocks", "depends_on_id": b} for b in blocks],
             "metadata": {"requirements": ["NONE"], "adrs": ["ADR-1"], "worktree": "wt", "branch": f"sprint/{bid}",
@@ -23,7 +23,7 @@ def sprint(bid: str, blocks: list[str]) -> dict:
 
 
 def sanity(bid: str, dev: str) -> dict:
-    return {"id": bid, "parent": "x-phase-t", "assignee": "sanity", "metadata": {"dev_bead": dev},
+    return {"id": bid, "parent": "x-phase-t", "metadata": {"dev_bead": dev},
             "dependencies": [{"dependency_type": "blocks", "id": dev}]}
 
 
@@ -62,7 +62,6 @@ class ValidatePlan(unittest.TestCase):
             "x-t-1: description: ": ("x-t-1", lambda b: b.update(description="none")),
             "x-t-1: acceptance_criteria: ": ("x-t-1", lambda b: b.update(acceptance_criteria="")),
             "x-t-1: metadata.difficulty: ": ("x-t-1", lambda b: b["metadata"].update(difficulty="medium")),
-            "x-t-1-sanity: assignee: ": ("x-t-1-sanity", lambda b: b.update(assignee="")),
             "x-t-1-sanity: metadata.dev_bead is \"x-t-2\", not x-t-1": ("x-t-1-sanity", lambda b: b.update(metadata={"dev_bead": "x-t-2"}, dependencies=[{"type": "blocks", "depends_on_id": "x-t-2"}])),
             "x-t-1-sanity: missing blocks edge to its sprint x-t-1": ("x-t-1-sanity", lambda b: b.update(dependencies=[])),
         }
@@ -205,6 +204,11 @@ class FilePlan(LivePlan):
     def test_one_plan_import_passes(self):
         out = self.run_file([self.rendered(VALID[3]), self.rendered(VALID[4])])
         self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
+
+    def test_a_plan_bead_with_an_assignee_is_a_warning(self):
+        out = self.run_file([{**self.rendered(VALID[3]), "assignee": "my-dev"}, self.rendered(VALID[4])])
+        self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
+        self.assertIn("validate-plan: warning: x-t-2: assignee set at plan time", out.stderr)
 
     def test_a_parentless_plan_bead_is_still_caught(self):
         orphan = {**{k: v for k, v in VALID[3].items() if k != "parent"}, "issue_type": "task"}

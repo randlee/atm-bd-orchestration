@@ -133,7 +133,6 @@ before beads exist, so it does not require this generated artifact yet.
 | `description` | goal, deliverables, required work, and what the sprint does not close |
 | `design` | public contract, types, code samples, exact targets |
 | `acceptance_criteria` | acceptance criteria and the validation commands |
-| `assignee` | the ATM identity that owns it (`my-dev`); must be in `atm members` |
 | `parent` | the phase root |
 | `blocked_by` | the **sanity check** bead of each prerequisite sprint (`{{ bead_prefix }}-d-4-sanity`), never its dev bead |
 
@@ -154,6 +153,7 @@ set) and metadata come from these required vars:
 | `owned_paths` | files and crates the sprint owns: its file fence |
 | `requirements` | every REQ id that governs the work (`LOG-001`, `OTLP-008`, `ATM-BASE-3`, `NFR-…`), or exactly `["NONE"]` |
 | `adrs` | every ADR that governs the work (`ADR-011`), or exactly `["NONE"]` |
+| `difficulty` | `hard`, `normal` or `fast`; the plan names no agent |
 
 Optional: `model_class` (`astra`, `terra`, `luna`), `release_train`,
 `priority`.
@@ -185,8 +185,7 @@ Branch and id naming follows the repository's "Plan Naming" in its QA policy
 
 ## Dev Sanity Check Bead
 
-One per sprint: `dev_bead` = the sprint's dev bead, `assignee` = the
-member of the `dev-sanity` role (`scripts/resolve-role dev-sanity`). It is blocked by its dev bead, and later sprints
+One per sprint: `dev_bead` = the sprint's dev bead, no assignee. It is blocked by its dev bead, and later sprints
 wait on it rather than on the dev bead, so a sprint's dependents start only
 after its work passes the sanity check. See [`dev-sanity.md`](dev-sanity.md).
 
@@ -213,5 +212,5 @@ until it exits 0. What it checks is listed once, in the header of
 [`scripts/validate-plan`](../scripts/validate-plan), and the field rules are
 the models in [`scripts/bead_schema.py`](../scripts/bead_schema.py). Everything
 else in this file (governing ids exist and govern the work, `owned_paths`
-of concurrent sprints are disjoint, `relation`, `layer` and `pr_target` agree,
-assignees are ATM members) is checked by plan review, not by the script.
+of concurrent sprints are disjoint, `relation`, `layer` and `pr_target` agree)
+is checked by plan review, not by the script.

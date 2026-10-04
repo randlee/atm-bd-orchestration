@@ -4,6 +4,5 @@
   "dev_bead": "{{ bead_prefix }}-d-4",
   "phase": "d",
   "sprint": "d-4",
-  "stack": "phase-d",
-  "assignee": "{{ dev_sanity_member }}"
+  "stack": "phase-d"
 }

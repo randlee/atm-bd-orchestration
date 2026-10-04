@@ -83,11 +83,6 @@
       "title": "Id",
       "type": "string"
     },
-    "assignee": {
-      "minLength": 1,
-      "title": "Assignee",
-      "type": "string"
-    },
     "dependencies": {
       "default": [],
       "items": {
@@ -112,7 +107,6 @@
   },
   "required": [
     "id",
-    "assignee",
     "description",
     "acceptance_criteria",
     "metadata"

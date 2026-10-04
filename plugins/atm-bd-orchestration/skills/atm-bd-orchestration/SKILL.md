@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.3.7
+version: 0.3.8
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -240,7 +240,7 @@ whose dev bead closed, QA beads and open findings. For each ready bead:
 | Ready bead | Template | To |
 | --- | --- | --- |
 | plan review (`stage:plan-review`) | [`plan-review-template.xml.j2`](templates/plan-review-template.xml.j2) | quality-mgr |
-| dev (`stage:dev`) | [`dev-template.xml.j2`](templates/dev-template.xml.j2) | its assignee |
+| dev (`stage:dev`) | [`dev-template.xml.j2`](templates/dev-template.xml.j2) | the member the lead picks for its `difficulty` |
 | sanity check (`stage:dev-sanity`) | [`dev-sanity-template.xml.j2`](templates/dev-sanity-template.xml.j2) | `resolve-role dev-sanity` |
 | QA (`stage:qa`) | [`qa-template.xml.j2`](templates/qa-template.xml.j2) | quality-mgr |
 | finding (`stage:finding`, no `metadata.sanity_finding`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | the member the lead picks |
@@ -369,7 +369,7 @@ atm task assign <agent> --task-id <bead> \
   origin/<pr_target>`.
 - Set the bead's assignee to the recipient first:
   `bd update <bead> --assignee <agent>`. For a role, the recipient is
-  `resolve-role <role>` (a sanity check bead is already assigned to it). A claim fails when the bead is
+  `resolve-role <role>`. A claim fails when the bead is
   assigned to anyone else.
 - Build vars from the template's `required_variables`, with `task_id` = the
   bead id; the bead supplies most of the rest
