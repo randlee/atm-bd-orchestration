@@ -1,6 +1,6 @@
 ---
 name: atm-beads
-version: 0.3.0
+version: 0.3.1
 description: Plans written as beads. Use when writing, validating or importing a phase plan into beads, or when pairing an ATM task with its bead (claim, start, close).
 requires:
   cli:
@@ -38,7 +38,7 @@ before proceeding.**
 - `ATM_IDENTITY` and `BEADS_ACTOR` are already in every agent's environment
   and are equal: the bare pane name (`{{ lead }}`), never an alias (`{{ bead_prefix }}-lead`) and
   never a model class (`terra`).
-- A bead's assignee is the recipient's `ATM_IDENTITY`.
+- A bead's assignee is the recipient's `ATM_IDENTITY`, set at dispatch; a planned bead carries only `difficulty`.
 
 ## Lifecycle
 
@@ -64,9 +64,9 @@ Read only the one the current job needs.
 
 Every phase plan must include a committed `<plans_dir>/phase-<x>/sprints.jsonl`
 (the plan format, and how dev bead ids are derived from it: `resources/planning.md`
-"Phase definition"). It and the initial `<plans_dir>/phase-<x>/phase-<x>-dag.html`
-(embedded SVG) are committed and pushed on the phase root's `integration_branch`
-before plan review. `sprint-review --root <root>` refreshes the HTML without a
+"Phase definition"), committed and pushed on the phase root's `integration_branch`
+before plan review. `sprint-review --root <root>` writes
+`<plans_dir>/phase-<x>/phase-<x>-dag.html` locally (never commits or pushes) without a
 viewer; `--view` optionally opens Wyvern in the background. `plans_dir` and
 the other repository values come from the repository configuration
 (`atm-bd-orchestration` SKILL.md, "Repository configuration").

@@ -229,7 +229,8 @@ class SanityMerge(unittest.TestCase):
             "success 1": ([self.result(1), {**self.result(2), "success": 1}], "result 1: not a success or failure envelope"),
             "success without error key": ([self.result(1), without(self.result(2), "error")], "result 1: not a success or failure envelope"),
             "failure without data key": ([self.result(1), without(self.failure(), "data")], "result 1: not a success or failure envelope"),
-            "not a result": (["not a result"], "result 0: not a success or failure envelope"),
+            "not a result": (["```json\n\"not a result\"\n```"], "result 0: not a success or failure envelope"),
+            "reply text not JSON": (["not a result"], "result 0: reply is not fenced JSON"),
             "not an array": ({"success": True}, "JSON array"),
             "not json": ("PASS", "not JSON"),
         }

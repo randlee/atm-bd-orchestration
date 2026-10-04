@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.3.7
+version: 0.3.8
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -200,11 +200,11 @@ No dev bead is dispatched until the plan passes review.
      --title "phase-<x>: plan review" --deps blocks:<root sprint>,blocks:<root sprint>
    ```
 
-2. Generate and publish the initial phase diagram before review:
-   `.claude/skills/sprint-review/scripts/sprint-review --root <root>`.
+2. Generate the initial phase diagram before review:
+   `.claude/skills/sprint-review/scripts/sprint-review --root <root>`
+   writes the HTML locally; it never commits or pushes.
    The phase integration branch must contain the committed/pushed
-   `<plans_dir>/phase-<x>/sprints.jsonl` canonical dependency tuples and
-   `<plans_dir>/phase-<x>/phase-<x>-dag.html` with embedded SVG. Do not open the
+   `<plans_dir>/phase-<x>/sprints.jsonl` canonical dependency tuples. Do not open the
    diagram unless `--view` was requested and Wyvern is available.
    Then run `.claude/skills/atm-beads/scripts/validate-plan --root <root>`
    from the repository root; its header lists what it checks. Exit 0 or stop.
@@ -240,10 +240,11 @@ whose dev bead closed, QA beads and open findings. For each ready bead:
 | Ready bead | Template | To |
 | --- | --- | --- |
 | plan review (`stage:plan-review`) | [`plan-review-template.xml.j2`](templates/plan-review-template.xml.j2) | quality-mgr |
-| dev (`stage:dev`) | [`dev-template.xml.j2`](templates/dev-template.xml.j2) | its assignee |
+| dev (`stage:dev`) | [`dev-template.xml.j2`](templates/dev-template.xml.j2) | the member the lead picks for its `difficulty` |
 | sanity check (`stage:dev-sanity`) | [`dev-sanity-template.xml.j2`](templates/dev-sanity-template.xml.j2) | `resolve-role dev-sanity` |
 | QA (`stage:qa`) | [`qa-template.xml.j2`](templates/qa-template.xml.j2) | quality-mgr |
-| finding (`stage:finding`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | the member the lead picks |
+| finding (`stage:finding`, no `metadata.sanity_finding`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | the member the lead picks |
+| sanity finding (`stage:finding` with `metadata.sanity_finding`) | its checked bead's [`dev-fix.xml.j2`](templates/dev-fix.xml.j2), once per checked bead | the checked bead's assignee |
 | review (`stage:review`) | [`review-template.xml.j2`](templates/review-template.xml.j2) | the phase-end reviewer |
 
 Then, on each task close:
@@ -368,7 +369,7 @@ atm task assign <agent> --task-id <bead> \
   origin/<pr_target>`.
 - Set the bead's assignee to the recipient first:
   `bd update <bead> --assignee <agent>`. For a role, the recipient is
-  `resolve-role <role>` (a sanity check bead is already assigned to it). A claim fails when the bead is
+  `resolve-role <role>`. A claim fails when the bead is
   assigned to anyone else.
 - Build vars from the template's `required_variables`, with `task_id` = the
   bead id; the bead supplies most of the rest

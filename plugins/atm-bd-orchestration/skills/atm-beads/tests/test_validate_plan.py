@@ -15,7 +15,7 @@ PLAN = [["t-1", "x-t-1-sanity", []], ["t-2", "x-t-2-sanity", ["t-1"]]]
 
 
 def sprint(bid: str, blocks: list[str]) -> dict:
-    return {"id": bid, "parent": "x-phase-t", "assignee": "dev", "acceptance_criteria": "- [ ] #1: done",
+    return {"id": bid, "parent": "x-phase-t", "acceptance_criteria": "- [ ] #1: done",
             "description": "Goal.\n\n## Deliverables\n1. the thing\n",
             "dependencies": [{"type": "blocks", "depends_on_id": b} for b in blocks],
             "metadata": {"requirements": ["NONE"], "adrs": ["ADR-1"], "worktree": "wt", "branch": f"sprint/{bid}",
@@ -23,7 +23,7 @@ def sprint(bid: str, blocks: list[str]) -> dict:
 
 
 def sanity(bid: str, dev: str) -> dict:
-    return {"id": bid, "parent": "x-phase-t", "assignee": "sanity", "metadata": {"dev_bead": dev},
+    return {"id": bid, "parent": "x-phase-t", "metadata": {"dev_bead": dev},
             "dependencies": [{"dependency_type": "blocks", "id": dev}]}
 
 
@@ -62,7 +62,6 @@ class ValidatePlan(unittest.TestCase):
             "x-t-1: description: ": ("x-t-1", lambda b: b.update(description="none")),
             "x-t-1: acceptance_criteria: ": ("x-t-1", lambda b: b.update(acceptance_criteria="")),
             "x-t-1: metadata.difficulty: ": ("x-t-1", lambda b: b["metadata"].update(difficulty="medium")),
-            "x-t-1-sanity: assignee: ": ("x-t-1-sanity", lambda b: b.update(assignee="")),
             "x-t-1-sanity: metadata.dev_bead is \"x-t-2\", not x-t-1": ("x-t-1-sanity", lambda b: b.update(metadata={"dev_bead": "x-t-2"}, dependencies=[{"type": "blocks", "depends_on_id": "x-t-2"}])),
             "x-t-1-sanity: missing blocks edge to its sprint x-t-1": ("x-t-1-sanity", lambda b: b.update(dependencies=[])),
         }
@@ -182,6 +181,40 @@ class LivePlan(unittest.TestCase):
         self.assertEqual(out.returncode, 2)
         self.assertIn("bd doctor produced no JSON", out.stderr)
         self.assertIn(why, out.stderr)
+
+
+class FilePlan(LivePlan):
+    """--file before import: a one-plan import reads the index's other beads live; check 5 covers only the file."""
+
+    def rendered(self, bead: dict) -> dict:
+        out = {k: v for k, v in copy.deepcopy(bead).items() if k != "parent"}
+        out["dependencies"] = out.get("dependencies", []) + [{"type": "parent-child", "depends_on_id": bead["parent"]}]
+        return out
+
+    def run_file(self, plan: list[dict]) -> subprocess.CompletedProcess:
+        unrelated = {"id": "x-old", "issue_type": "task", "status": "open", "created_at": "2025-01-01T00:00:00Z"}
+        self.beads.write_text(json.dumps(VALID[:3] + [unrelated]))  # live: the root, t-1 and its sanity check
+        base = Path(self.tmp.name)
+        (base / "plan.jsonl").write_text("".join(json.dumps(b) + "\n" for b in plan))
+        (base / "sprints.jsonl").write_text("".join(json.dumps(r) + "\n" for r in PLAN))
+        return subprocess.run([str(SCRIPT), "--file", str(base / "plan.jsonl"), "--root", "x-phase-t",
+                               "--index", str(base / "sprints.jsonl"), "--no-doctor"],
+                              cwd=self.repo, env=self.env, capture_output=True, text=True)
+
+    def test_one_plan_import_passes(self):
+        out = self.run_file([self.rendered(VALID[3]), self.rendered(VALID[4])])
+        self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
+
+    def test_a_plan_bead_with_an_assignee_is_a_warning(self):
+        out = self.run_file([{**self.rendered(VALID[3]), "assignee": "my-dev"}, self.rendered(VALID[4])])
+        self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
+        self.assertIn("validate-plan: warning: x-t-2: assignee set at plan time", out.stderr)
+
+    def test_a_parentless_plan_bead_is_still_caught(self):
+        orphan = {**{k: v for k, v in VALID[3].items() if k != "parent"}, "issue_type": "task"}
+        out = self.run_file([orphan, self.rendered(VALID[4])])
+        self.assertEqual(out.returncode, 5)
+        self.assertEqual(out.stdout.splitlines(), ["x-t-2: task at the top level; only epics live at the top level, parent it under its epic"])
 
 
 if __name__ == "__main__":

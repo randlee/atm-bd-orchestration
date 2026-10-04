@@ -83,7 +83,7 @@ goes back to the plan's author to supply, with the exact list of gaps.
    - one plan into a running phase: `<root>-plan-qa` is already closed, so
      create `<root>-plan-qa-<n>` (the next free number), blocking every new
      dev bead.
-   **Mandatory:** write the phase definition `<plans_dir>/phase-<x>/sprints.jsonl` by hand (one `[sprint_name, sanity_bead_id, depends_on_sprint_names]` tuple per imported sprint; `resources/planning.md` "Phase definition") in the same commit as the plan, push it to the root's `integration_branch`, then run `.claude/skills/atm-beads/scripts/validate-plan --root <root>` followed by `.claude/skills/sprint-review/scripts/sprint-review --root <root>`. It publishes the required initial `<plans_dir>/phase-<x>/phase-<x>-dag.html` on the root bead's integration branch. Do not open a viewer unless `--view` is requested. The plan is never exported from Beads.
+   **Mandatory:** write the phase definition `<plans_dir>/phase-<x>/sprints.jsonl` by hand (one `[sprint_name, sanity_bead_id, depends_on_sprint_names]` tuple per imported sprint; `resources/planning.md` "Phase definition") in the same commit as the plan, push it to the root's `integration_branch`, then run `.claude/skills/atm-beads/scripts/validate-plan --root <root>` followed by `.claude/skills/sprint-review/scripts/sprint-review --root <root>`. It writes `<plans_dir>/phase-<x>/phase-<x>-dag.html` locally; it never commits or pushes. Do not open a viewer unless `--view` is requested. The plan is never exported from Beads.
 10. **Verify** with `.claude/skills/atm-beads/scripts/validate-plan --root
     <root>`, then check the graph:
     - `bd ready -l phase-<x> -n 0` lists the plan-review bead and no dev bead
@@ -123,8 +123,9 @@ Keep `<scratch>` outside the repository.
 | `id` | `<prefix>-<sprint>` (`{{ bead_prefix }}-d-4`); its sanity check is `<id>-sanity` |
 | `parent` | the phase root's id |
 | `title` | H1 without the `<id> — ` prefix |
-| `assignee`, `model_class` | frontmatter `assignee`, `model_class` (or the sprint table's `agent:model`) |
+| `model_class` | frontmatter `model_class` (or the model of the sprint table's `agent:model`) |
 | `relation` | frontmatter `relation` (`root`, `must_follow`, `parallel_safe`) |
+| `difficulty` | frontmatter `difficulty` (`hard`, `normal`, `fast`) |
 | `blocked_by` | for each `must_follow` parent in `depends_on`: that parent's sanity check bead (`{{ bead_prefix }}-d-5-sanity`), never the parent's dev bead |
 | `closure_type`, `target_boundary` | frontmatter or the "Closure" section |
 | `owned_paths` | the "Owned Paths" section, else "Exact Targets", plus `owned_docs` (see Checks) |
@@ -139,7 +140,7 @@ Keep `<scratch>` outside the repository.
 | `worktree` | `<worktree_base>/<branch>` |
 | `stack` | `phase-<x>`: the phase is one append-only stack |
 | `layer`, `pr_target` | planned order: layer 1 targets the phase's `integration_branch`, and layer n targets the branch of layer n−1. Number the layers in the sprint table's order among sprints of the same dependency depth, and by sprint number within a row. These are the plan's intent: layers really stack in completion order, and lead records the actual values at link time |
-| sanity check bead | `id` = `<sprint id>-sanity`, `dev_bead` = the sprint id, `assignee` = `scripts/resolve-role dev-sanity` (ask lead when the role is not mapped or the member is not in `atm members`) |
+| sanity check bead | `id` = `<sprint id>-sanity`, `dev_bead` = the sprint id |
 
 Section headings vary between plans. Map a section by what it holds, not by
 its exact title: "Goal and dependency" is the Goal plus the dependency
@@ -151,6 +152,7 @@ Markdown-only mechanics are dropped rather than carried over:
 - merge-forward triggers;
 - "PR-completion trigger";
 - the per-sprint `base`;
+- frontmatter `assignee` (the plan names no agent);
 - `status`.
 
 The dependency edges replace them.
@@ -178,11 +180,10 @@ does not stop it.
 | No design content (no code samples, no exact targets) | blocking | ask the author; "no contract change" must be stated by the author with a reason |
 | `depends_on` names a sprint that is not in the plan or in beads | blocking | ask the author |
 | `must_follow` without a parent, or a dependency cycle | blocking | ask the author |
-| Sprint table, branch table and sprint docs disagree (missing doc, extra doc, different agent or relation) | blocking | ask the author which is right |
-| `assignee` is not an ATM identity on the team (`atm members`) | blocking | ask lead for the assignee |
+| Sprint table, branch table and sprint docs disagree (missing doc, extra doc, different relation) | blocking | ask the author which is right |
 | The planned branch or worktree already exists (`git ls-remote`, `git worktree list`) | blocking | ask lead: rename it, or finish that sprint on the old workflow |
 | Branch name is not `sprint/<p>-<n>-<slug>`, and no branch exists yet | warn | rename it at import and list the old and new names |
-| `model_class` missing | warn | import without it; lead picks at dispatch |
+| `difficulty` missing or not `hard`, `normal` or `fast` | blocking | ask the author |
 | Frontmatter `base` is not the phase's `integration_branch` | warn | ignore it; the stack's layer 1 targets the `integration_branch` |
 | Requirement or ADR ids named in the body but not in frontmatter | warn | add them to `requirements` / `adrs` and list them |
 

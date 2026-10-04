@@ -83,8 +83,8 @@ behavior, and do not expand a carried finding into a new whole-sprint review.
 
 Investigate every uncertain or flagged result before accepting it or filing
 anything. Confirm defects against the original obligation and current source,
-deduplicate them, then file finding beads and report them to the lead for fix
-assignment. You verify these carried gaps after the fixes; the lead coordinates
+deduplicate them, then report them to the lead, who files them as finding beads
+for fix assignment. You verify these carried gaps after the fixes; the lead coordinates
 development. Keep unchecked cases unresolved rather than sampling them away.
 
 Append raw evaluations and linked investigation dispositions to the phase's
@@ -93,7 +93,7 @@ attempts. The review completion includes `post_mortem_jev` with run IDs, JSONL
 path, integration SHA and status, plus the complete inventory dispositions.
 A model error is not PASS. If no code findings exist, record `not_applicable`
 with the inventory reason; if JEV is unavailable, record `unavailable` and
-leave integration review pending. Quality scores are advisory, not closures.
+leave integration review pending (review-template step d1, `REVIEW_PENDING_JEV`). Quality scores are advisory, not closures.
 
 ## Reviewers
 

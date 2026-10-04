@@ -31,8 +31,9 @@ was killed), `cancelled` (the supervisor received SIGTERM or SIGINT) or `error`.
 On timeout and on cancellation the supervisor sends SIGTERM to the command's
 whole process group, waits up to 2 seconds, SIGKILLs every survivor and
 confirms the group is empty before writing; a group that still survives is
-written as `error`. `kill -- -<pid>` or `kill <pid>` stops the supervisor and
-the lint command with all its descendants.
+written as `error`. The exit file appears atomically, complete or not at all.
+`kill -- -<pid>` or `kill <pid>` stops the supervisor and the lint command
+with all its descendants.
 
 `## Deliverables` must be one top-level numbered list `1.` .. `X.`; wrapped
 lines, indented sub-bullets and blank lines belong to the item above them,
@@ -331,8 +332,10 @@ def supervise(argv):
         outcome = "error"
         if child is not None:
             stop_group(child.pid, child)
-    finally:
-        exit_file.write_text(outcome + "\n")
+    finally:                                        # written whole, then renamed: a reader never sees it partial
+        partial = exit_file.with_name(exit_file.name + ".tmp")
+        partial.write_text(outcome + "\n")
+        os.replace(partial, exit_file)
     return 0 if outcome not in ("cancelled", "error") else 1
 
 

@@ -13,10 +13,8 @@ role to a team-unique member in `roles:` of `.claude/agents/registry.yaml`
 is the whole role and spawns the `sc-sanity-llm` and `sc-sanity-jev`
 subagents).
 
-The sanity check bead's `assignee` is that member:
-`.claude/skills/atm-beads/scripts/resolve-role dev-sanity`. Plan review
-rejects any other assignee, and a member that is not in `atm members`
-(`validate-plan` checks only that the assignee is set). If the team has no
+The plan names no assignee; at dispatch the lead assigns the sanity check bead to that member:
+`.claude/skills/atm-beads/scripts/resolve-role dev-sanity`. If the team has no
 such member, lead adds one before the plan is imported.
 
 Here the member runs a normal-class model. Its checks run a fast-class model
@@ -35,8 +33,7 @@ carries the same message, so the instruction can be taken from it:
 
 Verify that the work is done:
 
-- the agent did not skip anything;
-- there are no obvious errors;
+- each numbered deliverable is written;
 - lint passes.
 
 This is not QA.

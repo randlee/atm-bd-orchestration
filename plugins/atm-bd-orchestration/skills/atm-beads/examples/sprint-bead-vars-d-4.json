@@ -3,7 +3,6 @@
   "phase": "d",
   "sprint": "d-4",
   "title": "Error enums",
-  "assignee": "{{ lead }}",
   "stack": "phase-d",
   "layer": 1,
   "branch": "sprint/d-4-error-enums",
