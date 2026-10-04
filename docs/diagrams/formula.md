@@ -17,7 +17,7 @@ Pouring has three stages:
 
 `scripts/bead-groups` runs stages 1 and 2. Targets: one sprint (`--sprint`), a
 list (`--sprint a,b`), a whole phase (`--phase`), or one QA round's blocking
-findings (`--findings FILE`). `--validate` writes nothing and reports what is
+findings (`--findings FILE`). `--validate` changes no bead and reports what is
 missing or wrong. It creates only what is missing, so it is safe to re-run
 after sprints are added. Requests and receipts go to `.atm-bd/pour/`
 (ignored).
@@ -33,12 +33,12 @@ flowchart TB
 
   PKG[/"package formulas/<br/>sprint-group, finding-group"/]:::file
   OVR[/".atm-bd/formula/ (tracked)<br/>repo override"/]:::file
-  PLAN["planning: sprint containers by bd import,<br/>sprints.jsonl committed"]:::tmpl
+  PLAN["planning: sprint containers by bd import,<br/>plan file #lt;plans_dir#gt;/#lt;phase#gt;.jsonl committed"]:::tmpl
   QM["quality-mgr at QA FAIL, before closing qa:<br/>bead-groups --findings"]:::tmpl
   BG["scripts/bead-groups<br/>one sprint, a list, a phase, or findings<br/>--validate, idempotent"]:::post
   REQ[/"request: sc-compose/beads/v1<br/>compose_variables, bead_variables: parent, ref"/]:::file
   POUR["stage 1: pour (sc-compose-pour-mock)<br/>beads, parent-child to the parent,<br/>blocks between its own steps"]:::poured
-  PP["stage 2: validates, discovered-from,<br/>cross-sprint blocks (from sprints.jsonl)"]:::post
+  PP["stage 2: validates, discovered-from,<br/>cross-sprint blocks (from the plan file)"]:::post
   REVIEW["plan review"]:::tmpl
 
   PLAN --> BG
@@ -69,7 +69,7 @@ flowchart TB
     SAN["sanity: p-x-2.group-sanity, needs dev<br/>metadata.dev_bead"]:::poured
     QA["qa: p-x-2.group-qa, needs sanity<br/>metadata: checked_bead, round = 1"]:::poured
   end
-  PRED["predecessor sanity or sprint container"]:::tmpl
+  PRED["predecessor's initial sanity bead"]:::tmpl
 
   DEV ==>|parent-child| SPR
   SAN ==>|parent-child| SPR
@@ -77,11 +77,8 @@ flowchart TB
   SAN ==>|blocks| DEV
   QA ==>|blocks| SAN
   QA -.->|validates| DEV
-  SPR -.->|"blocks (normal or tight)"| PRED
+  DEV -.->|blocks| PRED
 ```
-
-The sanity id `sprints.jsonl` names at plan time must equal the poured
-`<sprint>.group-sanity`; `bead-groups` refuses a mismatch.
 
 ## Finding formula: one blocking finding
 

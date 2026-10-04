@@ -7,15 +7,17 @@ and carries the finding's metadata. bd refuses to close a parent with open
 children, and the team lead closes the sprint when every blocking fix group is
 closed. Important and minor findings are plain finding beads against the phase
 or feature bead, picked up by idle devs by priority; they never block a
-sprint. A dependent sprint blocks on the predecessor's initial sanity bead
-("normal") or on its sprint bead ("tight").
+sprint. Dependencies are only hard (the dependent sprint needs the
+predecessor's API): the dependent dev bead blocks on the predecessor's initial
+sanity bead; an edge to the predecessor's sprint bead is added only on the
+user's request.
 
 | File | Level | Shows |
 | --- | --- | --- |
-| [phase.md](phase.md) | phase | root, sprint containers, poured groups, normal and tight edges, phase-wide beads, non-blocking findings |
+| [phase.md](phase.md) | phase | root, sprint containers, poured groups, cross-sprint edges, phase-wide beads, non-blocking findings |
 | [sprint.md](sprint.md) | sprint | the sprint group, fix groups per blocking finding, a second fix round, sanity FAIL, closers |
 | [lifecycle.md](lifecycle.md) | sprint | ready, claim and close order; where results and logs are written |
-| [correlation.md](correlation.md) | phase | bead id equals ATM task id, `current-phase.toml`, who holds each task |
+| [correlation.md](correlation.md) | phase | bead id equals ATM task id, `.atm-bd/<phase>.toml`, who holds each task |
 | [formula.md](formula.md) | detail | pour stages, formula location and override, the beads and edges each formula pours, idempotent attach |
 
 ## Conventions
@@ -43,15 +45,14 @@ sprint. A dependent sprint blocks on the predecessor's initial sanity bead
     `bd ready`;
   - `bd close` refuses a parent with open children.
 - No assignment in advance: planned and poured beads carry `difficulty`
-  (`hard`, `normal`, `fast`); the claim at dispatch sets the assignee.
+  (`hard`, `normal`, `fast`) and no assignee; the lead picks the agent at
+  dispatch.
 - Bead id = ATM task id.
 
 ## Open
 
 - Verdict and round: required metadata on a closed qa bead, or read from its
   close reason.
-- Integration branch: `current-phase.toml` or root
-  `metadata.integration_branch` is the authority.
 - Classification of sprint container, finding and workflow-issue beads:
   `issue_type` (built-in or custom) or schema metadata.
 
@@ -59,18 +60,23 @@ sprint. A dependent sprint blocks on the predecessor's initial sanity bead
 
 Paths are under `plugins/atm-bd-orchestration/`.
 
-- `skills/atm-beads/scripts/bead_schema.py`: `Bead.assignee` is required, so
-  `SprintBead` and `SanityBead` reject an unassigned bead.
-- `skills/atm-beads/templates/sprint-bead.json.j2` and `dev-sanity-bead.json.j2`
-  require `assignee`.
 - `skills/atm-beads/templates/sprint-bead.json.j2` labels the sprint `stage:dev`: the
   sprint bead is still the dev task, not a container.
-- `skills/atm-beads/templates/sprint-bead.json.j2` has no `coupling` variable; a tight
-  dependency needs `metadata.coupling` set by hand.
+- The plan file is `<plans_dir>/phase-<x>/sprints.jsonl` with
+  `[sprint, sanity_bead, [prerequisites]]` tuples
+  (`skills/atm-beads/scripts/sprint_index_common.py`), not
+  `<plans_dir>/<phase>.jsonl` with `{"sprint", "depends_on"?}` lines;
+  `bead-groups` refuses a planned sanity id that differs from the poured one.
+- `skills/atm-bd-orchestration/formulas/sprint-group.relations.json` puts the
+  cross-sprint `blocks` edge on the dependent sprint container, not its dev
+  bead, and adds a container-to-container edge when `metadata.coupling` is
+  `tight`.
 - Both formulas set `assignee` on every step (`dev_member`, `sanity_member`,
-  `qa_member`), and their sanity and qa steps carry no `difficulty`.
-- `skills/atm-bd-orchestration/scripts/bead-groups` refuses a sprint container with
-  no `assignee` and copies it onto the dev and fix beads.
+  `qa_member`) instead of leaving it to the lead at dispatch, and their sanity
+  and qa steps carry no `difficulty`.
+- `skills/atm-bd-orchestration/scripts/bead-groups` refuses a sprint with no
+  dispatched dev assignee, so it cannot pour before plan review, and copies
+  that assignee onto the dev and fix beads.
 - `skills/atm-bd-orchestration/formulas/finding-group.relations.json` adds no
   `discovered-from` edge from the fix bead to its `filed_by` qa bead.
 - The finding-group fix bead lacks the `requirements`, `adrs` and
@@ -90,5 +96,9 @@ Paths are under `plugins/atm-bd-orchestration/`.
   not dev-sanity, reopen the checked bead on a sanity FAIL.
 - `skills/atm-bd-orchestration/SKILL.md` has no step where the lead closes a sprint
   container; the sprint bead is closed by the dev as the dev task.
-- Nothing reads `.atm-bd/current-phase.toml`; scripts take `--root` or
-  `--phase`.
+- Nothing reads `.atm-bd/<phase>.toml`; `validate-plan` takes the integration
+  branch from the root's `metadata.integration_branch` alone, so nothing checks
+  that the two agree. Scripts take `--root` or `--phase`.
+- `skills/atm-bd-orchestration/templates/fix-assignment.xml.j2` has no
+  itemized private checklist step; `dev-template.xml.j2` and `dev-fix.xml.j2`
+  do.

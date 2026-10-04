@@ -17,7 +17,7 @@ sequenceDiagram
   L->>B: bd ready
   B-->>L: dev (sanity and qa are blocked)
   L->>A: atm task assign D --task-id dev-bead-id
-  D->>B: claim dev (sets the assignee)
+  D->>B: claim dev
   D->>A: atm task start dev-bead-id
   D->>B: bd close dev
   D->>A: atm task close dev-bead-id completed

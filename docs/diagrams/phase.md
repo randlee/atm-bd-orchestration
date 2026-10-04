@@ -6,7 +6,7 @@ post-pour edges (formula.md); it runs after planning and before plan review.
 When QA fails, quality-mgr pours one fix group per blocking finding under the
 sprint before it closes qa. Important and minor findings sit at phase level.
 
-## Root, sprint containers, normal and tight
+## Root, sprint containers and cross-sprint edges
 
 ```mermaid
 flowchart TB
@@ -28,12 +28,11 @@ flowchart TB
     FQA["p-x-1.qa1-f3-r1-qa"]:::poured
   end
 
-  SB["p-x-2 sprint container<br/>normal dependency on p-x-1"]:::tmpl
-  SC["p-x-3 sprint container<br/>tight dependency on p-x-1"]:::tmpl
+  SB["p-x-2 sprint container<br/>depends on p-x-1"]:::tmpl
+  DB["p-x-2.group-dev"]:::poured
 
   SA -->|parent-child| ROOT
   SB -->|parent-child| ROOT
-  SC -->|parent-child| ROOT
   PQA -->|parent-child| ROOT
   SA -->|blocks| PQA
   DA ==>|parent-child| SA
@@ -47,21 +46,16 @@ flowchart TB
   FSA ==>|blocks| FXA
   FQA ==>|blocks| FSA
 
-  SB -.->|"blocks (normal)"| NA
-  SC -.->|"blocks (tight)"| SA
+  DB ==>|parent-child| SB
+  DB -.->|blocks| NA
 ```
 
-- **normal**: the dependent container `blocks` on the predecessor's initial
-  sanity bead, so it starts once the predecessor's code passes its first
-  sanity check. Fix groups do not affect it.
-- **tight**: the dependent container `blocks` on the predecessor's sprint
-  container, so it waits until the team lead closes it, after every blocking
-  fix group is closed.
-
-A `blocks` edge on a container hides all its children from `bd ready`, so both
-cross-sprint edges sit on the dependent container. `bead-groups` reads the
-predecessors from the phase's `sprints.jsonl` and the choice from the
-container's `metadata.coupling` (default `normal`).
+A dependency is drawn only where the dependent sprint needs the
+predecessor's API. The dependent dev bead `blocks` on the predecessor's
+initial sanity bead, so it starts once the predecessor's code passes its first
+sanity check; fix groups do not affect it. An edge to the predecessor's sprint
+container is added only on the user's request. `bead-groups` reads the
+predecessors from the phase's plan file `<plans_dir>/<phase>.jsonl`.
 
 ## Phase-wide beads and non-blocking findings
 
@@ -79,8 +73,8 @@ flowchart TB
   RF["phase-end finding"]:::tmpl
   WFR["p-workflow-issues<br/>outside the phase"]:::tmpl
   WF["workflow-issue class bead"]:::tmpl
-  TOML[/".atm-bd/current-phase.toml (untracked)<br/>root, sprints, integration_branch"/]:::file
-  SJ[/"sprints.jsonl<br/>on the integration branch"/]:::file
+  TOML[/".atm-bd/#lt;phase#gt;.toml (tracked)<br/>plan file, phase root, integration_branch"/]:::file
+  SJ[/"#lt;plans_dir#gt;/#lt;phase#gt;.jsonl<br/>on the integration branch"/]:::file
 
   SPR -->|parent-child| ROOT
   QA ==>|parent-child| SPR
@@ -92,8 +86,8 @@ flowchart TB
   RF -->|discovered-from| REV
   WF -->|parent-child| WFR
 
-  TOML -. "root" .-> ROOT
-  TOML -. "sprints" .-> SJ
+  TOML -. "equals (validate-plan)" .-> ROOT
+  TOML -. "integration_branch" .-> SJ
 ```
 
 quality-mgr creates important and minor finding beads from
