@@ -54,7 +54,6 @@ render:
   - skills/atm-beads/examples/sprint-bead-vars-d-5.json
   - skills/atm-beads/resources/dev-sanity.md
   - skills/atm-beads/resources/importing-md-plan.md
-  - skills/atm-beads/resources/planning.md
   - skills/atm-beads/resources/troubleshooting.md
   - skills/sprint-report/SKILL.md
   - skills/sprint-report/tests/test_sprint_report.py
