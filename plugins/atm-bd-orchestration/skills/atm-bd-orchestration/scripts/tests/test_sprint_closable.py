@@ -154,19 +154,23 @@ class SprintClosableRealBdTests(unittest.TestCase):
 
     def sprint(self, phase: str) -> str:
         bead = f"t-{phase}-1"
-        meta = {"phase": phase, "sprint": f"{phase}-1", "stack": f"phase-{phase}", "layer": 1, "difficulty": "normal"}
+        meta = {"phase": phase, "sprint": f"{phase}-1", "stack": f"phase-{phase}", "layer": 1, "difficulty": "normal",
+                "requirements": ["NONE"], "adrs": ["NONE"]}
         self.bd("create", f"{phase}-1: sprint", "--id", bead, "--type", "feature",
                 "--metadata", json.dumps(meta), "--silent")          # planned: difficulty, no assignee
         self.bd("update", bead, "--assignee", "arch-dev")           # dispatch picks the dev
-        plan = self.root / "docs/plans" / f"phase-{phase}" / "sprints.jsonl"
+        plan = self.root / "docs/plans" / f"phase-{phase}.jsonl"
         plan.parent.mkdir(parents=True, exist_ok=True)
-        plan.write_text(json.dumps([f"{phase}-1", f"{bead}.group-sanity", []]) + "\n")
+        plan.write_text(json.dumps({"sprint": f"{phase}-1"}) + "\n")
+        (self.root / ".atm-bd").mkdir(exist_ok=True)
+        (self.root / ".atm-bd" / f"phase-{phase}.toml").write_text(
+            f'plan = "docs/plans/phase-{phase}.jsonl"\nroot = "t-phase-{phase}"\nintegration_branch = "integrate/phase-{phase}"\n')
         self.run_cmd(sys.executable, self.scripts / "bead-groups", "--json", "--sprint", bead)
         return bead
 
     def pour_finding(self, sprint: str, ref: str) -> list[str]:
         path = self.root / f"findings-{sprint}-{ref}.json"
-        path.write_text(json.dumps({"sprint": sprint, "round": 1, "filed_by": f"{sprint}.group-qa", "findings": [
+        path.write_text(json.dumps({"sprint": sprint, "round": 1, "filed_by": f"{sprint}.group-qa", "found_at_commit": "abc1234", "findings": [
             {"ref": ref, "severity": "blocking", "reviewer": "rbp", "title": "unchecked error",
              "remedy": "return the typed error", "priority": 1}]}))
         self.run_cmd(sys.executable, self.scripts / "bead-groups", "--json", "--findings", path)

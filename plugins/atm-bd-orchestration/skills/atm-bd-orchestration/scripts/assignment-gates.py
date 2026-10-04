@@ -66,7 +66,7 @@ def git_dir(args: argparse.Namespace) -> list[str]:
 
 
 def dev_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
-    if runner([VALIDATE_PLAN, "--root", args.root, "--scope", args.bead], capture_output=True, text=True, cwd=str(PRIMARY)).returncode:
+    if runner([VALIDATE_PLAN, "--root", args.root], capture_output=True, text=True, cwd=str(PRIMARY)).returncode:
         return "PLAN_INVALID"
     ready = run_json(runner, "bd", "ready", "-n", "0", "--json")
     if not any(row.get("id") == args.bead for row in ready):
