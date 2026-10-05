@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.0] - 2026-10-05
+
+### Added
+- `scripts/bv-analyze` and `references/bv.md`: the lead's read-only BV graph analysis of a fresh `bd --readonly export` (or a rendered plan file before import), fail-closed on any incomplete or stale load. bd 1.3 memory rows are dropped (raw export in `export.jsonl`, issues in `issues.jsonl`); `--target`'s blocker chain runs on the target and everything it transitively waits on (`prerequisites.jsonl`), so an unrelated bad row cannot fail it; a partial load names the rejected bead ids and BV's warnings. `bv.md` says when the lead runs it and what it decides: plan shape only before import, only added edges in motion, priority with a reason, staffing to the user (`SKILL.md` 0.6.20 links it from Lead Role).
+
 ## [0.9.0] - 2026-10-04
 
 ### Added
