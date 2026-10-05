@@ -64,7 +64,7 @@ agent not to run a queued task.
 | a claimed or in-progress bead that is blocked | the assignee refuses it (the template's not-ready refusal); the lead re-assigns the same task id once `bd ready` lists it |
 | a blocker chain ending at a missing prerequisite edge | `bd dep add <bead> --blocked-by <blocker>` |
 | a slack-0 bead behind same-priority work, or a `priority_mismatch` | a lead decision: `bd update <bead> --priority <n>` with the reason in notes; finding priority comes from severity (`SKILL.md`, Priority) |
-| an open sanity bead (`<sprint>.group-sanity`) whose dev bead closed | dispatch it if `bd ready` lists it, else re-assign the same task id |
+| an open sanity bead (`<sprint>.group-sanity`) whose dev bead closed | the `bd ready` loop missed it: dispatch it once `bd ready` lists it, re-using its task id if one exists |
 | the plan-review bead, or a `bd gate` bead | the plan gate has not passed, or the user holds the gate; say what it holds |
 | a blocker outside the phase (`excluded_dependencies`) | report it to that phase's lead or the user; never pull it in |
 | sanity beads stacking up as bottlenecks | tell the user; staffing is the user's call |
