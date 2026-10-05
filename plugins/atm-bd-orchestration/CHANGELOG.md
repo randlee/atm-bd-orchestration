@@ -13,6 +13,7 @@
   controls must be caught before a winner is picked.
 
 ### Changed
+- Stack #66 review fixes: every fallback use is logged with its verbatim error; a failed `judge.py` row carries the Jev client's exit code, JSON error, stdout and stderr verbatim; the dev-sanity probe-failed JEV slot carries the probe's own code and message; `plan_docs` are the piped sprint containers; `importing-md-plan.md` names the sanity bead `<id>.group-sanity` and maps `depends_on` (`SKILL.md` 0.6.19, `dev-sanity` 2.16.1, `plan-scope-reviewer-assignment` 1.1.2, `atm-beads` 0.3.3).
 - Jev-judged prompt rewrite of `plan-review-template` (3.8.0): the fix-verification precedence and steps a, b, c, e and f say the same requirements in fewer or clearer words; no rule changed.
 - Prompt rewrite with the Jev judge: `dev-sanity-template` steps a, a1, b, e, e1, e2 and e3 tightened with no requirement dropped (`dev-sanity-template` 2.17.0).
 - A failed quick-fix QA gets one more quick-fix QA bead once every finding from it has closed, not one per finding, and the fix-complete `fixed` and `not_reproducible` Loop rows say so for a quick-fix finding (`SKILL.md` 0.6.18).

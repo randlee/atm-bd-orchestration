@@ -123,13 +123,13 @@ Keep `<scratch>` outside the repository.
 | Bead var | Markdown source |
 | --- | --- |
 | `sprint` | frontmatter `id`, lower-cased with `.` → `-` (`D.4` → `d-4`) |
-| `id` | `<prefix>-<sprint>` (`{{ bead_prefix }}-d-4`); its sanity check is `<id>-sanity` |
+| `id` | `<prefix>-<sprint>` (`{{ bead_prefix }}-d-4`); its sanity check is `<id>.group-sanity` |
 | `parent` | the phase root's id |
 | `title` | H1 without the `<id> — ` prefix |
 | `model_class` | frontmatter `model_class` (or the model of the sprint table's `agent:model`) |
 | `relation` | frontmatter `relation` (`root`, `must_follow`, `parallel_safe`) |
 | `difficulty` | frontmatter `difficulty` (`hard`, `normal`, `fast`) |
-| `blocked_by` | for each `must_follow` parent in `depends_on`: that parent's sanity check bead (`{{ bead_prefix }}-d-5-sanity`), never the parent's dev bead |
+| `depends_on` (plan file line) | each `must_follow` parent's sprint (`d-5`); `bead-groups` blocks this sprint's dev bead on that parent's sanity check bead (`{{ bead_prefix }}-d-5.group-sanity`), never the parent's dev bead |
 | `closure_type`, `target_boundary` | frontmatter or the "Closure" section |
 | `owned_paths` | the "Owned Paths" section, else "Exact Targets", plus `owned_docs` (see Checks) |
 | `description` | Goal, Deliverables, Required Work, and Non-closure, in that order, as markdown |
@@ -143,7 +143,7 @@ Keep `<scratch>` outside the repository.
 | `worktree` | `<worktree_base>/<branch>` |
 | `stack` | `phase-<x>`: the phase is one append-only stack |
 | `layer`, `pr_target` | `pr_target` is the branch of the sprint's nearest `must_follow` prerequisite, the one it builds on, or the phase's `integration_branch` when it has none; never a parallel sibling. Number the layers in the sprint table's order among sprints of the same dependency depth, and by sprint number within a row. `layer` is the plan's intent: layers really stack in completion order, and lead records the actual `layer` at link time |
-| sanity check bead | `id` = `<sprint id>-sanity`, `dev_bead` = the sprint id |
+| sanity check bead | not imported: `bead-groups` pours `<id>.group-sanity`, `dev_bead` = `<id>.group-dev` |
 
 Section headings vary between plans. Map a section by what it holds, not by
 its exact title: "Goal and dependency" is the Goal plus the dependency

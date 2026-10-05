@@ -80,4 +80,4 @@ Sources: `plugins/atm-bd-orchestration/skills/`: `atm-beads/` (SKILL.md, resourc
 
 ## Unresolved
 
-1. `importing-md-plan.md` still names a sanity bead `<id>-sanity` and maps `blocked_by`; planning pours `<container>.group-sanity` and orders by `depends_on`.
+None.
