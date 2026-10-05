@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.14.0
+version: 2.15.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -68,7 +68,8 @@ probe-failed mode, run the probe again at the start of each sanity task; when
 it passes, close `-jev-outage` if open with `bd close <bead> --reason "probe PASS"`
 and leave probe-failed mode. A class bead a JEV child opened closes only when a
 later JEV child reply passes the `sanity-jev` merge: `bd close <bead> --reason
-"Jev child PASS in <task>"`.
+"Jev child PASS in <task>"`, or when no sanity task is ready or open, on the
+lead's passing Loop re-test probe (the skill's Loop).
 
 ## Tasks
 

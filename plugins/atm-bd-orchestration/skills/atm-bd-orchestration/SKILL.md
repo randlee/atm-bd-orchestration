@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.11
+version: 0.6.12
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -288,8 +288,10 @@ While a workflow outage class bead is open, re-test its cause on each pass
 (Jev: `python3 scripts/jev_client.py --startup`; any other cause: the command
 named in the bead) and on success close it (`bd close <bead> --reason
 "re-test PASS"`), which releases the re-dispatches held on it. A passing probe
-does not close a Jev class bead a JEV child opened; dev-sanity closes it on its
-next passing JEV child (`.claude/agents/dev-sanity.md` Startup).
+does not close a Jev class bead a JEV child opened while a sanity task is ready
+or open; dev-sanity closes it on its next passing JEV child
+(`.claude/agents/dev-sanity.md` Startup). When none is, the passing probe
+closes it too.
 For each ready bead:
 
 | Ready bead | Template | To |
