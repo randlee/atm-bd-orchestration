@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.10.0
+version: 2.11.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -44,19 +44,25 @@ wait behind their work.
 ## Startup
 
 At session start, and again whenever credentials change, prove Jev access:
-`python3 scripts/jev_client.py --startup --lead <lead>`. Exit 0: JEV
-children may run. Exit 2: keep taking tasks, but dispatch no `sc-sanity-jev`
+`python3 scripts/jev_client.py --startup`. Exit 0: JEV children may run.
+Exit 2 is probe-failed mode, and so is a JEV child failing with
+`SANITY.JEV_UNAVAILABLE`: keep taking tasks, but dispatch no `sc-sanity-jev`
 child until a later probe passes; every JEV slot gets the coordinator-origin
-`SANITY.JEV_UNAVAILABLE` envelope of step 3 below. If the probe's stderr asks
-you to report, send its stdout to the lead with `atm send <lead> --stdin`.
-Announce a persistent reviewer outage (Jev out of tokens or quota, missing or
-invalid key, retry budget exhausted, probe exit 2), a serious failure in the
-skill's Lead Role, once per outage, not per task, with the stdout or error to
-each oversight recipient,
-`atm send <recipient> --stdin`. The oversight recipients are ATM's escalation
-recipients: `atm escalation list --team "$ATM_TEAM" --json | jq -r '.recipients[]'`,
-if empty `atm escalation list --json | jq -r '.recipients[]'`, if both empty
-the lead, saying in the message that no escalation recipient is set.
+`SANITY.JEV_UNAVAILABLE` envelope of step 3 below.
+
+A Jev outage (out of tokens or quota, missing or invalid key, retry budget
+exhausted, probe exit 2) is a serious failure, announced once per outage as in
+the skill's Lead Role (`.claude/skills/atm-bd-orchestration/SKILL.md`) through
+its class bead `{{ workflow_issues_root }}-jev-outage`. When the bead does not
+exist, create it from `workflow-issue-bead.json.j2` with the error as
+description; when it is closed, `bd reopen` it. In either case announce:
+`python3 scripts/jev_client.py --startup --announce --lead {{ lead }}` sends
+its error to the escalation recipients (else to `{{ lead }}`, saying no
+escalation recipient is set). When it is open, append the task id and the
+error to it (`bd update <bead> --append-notes`) and announce nothing. While in
+probe-failed mode, run the probe again at the start of each sanity task; when
+it passes, close the class bead with `bd close <bead> --reason "probe PASS"`
+and leave probe-failed mode.
 
 ## Tasks
 
@@ -96,6 +102,10 @@ failure is a refusal, not a best-effort check:
    must pass; otherwise refuse `SANITY.DIRTY_TREE`.
 6. `bd history "$TASK_ID"` must contain no earlier PASS; otherwise refuse
    `SANITY_FROZEN`.
+
+Only a mismatch is one of these codes. A command that fails to run (`gh`,
+`git fetch`, `bd`: a nonzero exit or error, not an answer) refuses
+`GATE_CANNOT_RUN`, a serious failure announced as in the skill's Lead Role.
 
 For every refusal, reuse an existing workflow class bead for the same failure
 signature: append the task id, head, command and failure evidence, and cite the

@@ -94,8 +94,10 @@ JSONL evidence, with UTC timestamps, pinned SHA and run IDs. Preserve prior
 attempts. The review completion includes `post_mortem_jev` with run IDs, JSONL
 path, integration SHA and status, plus the complete inventory dispositions.
 A model error is not PASS. If no code findings exist, record `not_applicable`
-with the inventory reason; if JEV is unavailable, record `unavailable` and
-leave integration review pending (review-template step d1, `REVIEW_PENDING_JEV`); announce a persistent Jev outage as a serious failure (`.claude/skills/atm-bd-orchestration/SKILL.md`, Lead Role). Quality scores are advisory, not closures.
+with the inventory reason; if JEV is unavailable, leave integration review
+pending: refuse `REVIEW_PENDING_JEV` (review-template steps b1 and d1) with the
+code findings and `post_mortem_jev` (status `unavailable`) in the refusal notes;
+`check-review-completion.py` accepts no `unavailable` completion; announce a persistent Jev outage as a serious failure (`.claude/skills/atm-bd-orchestration/SKILL.md`, Lead Role). Quality scores are advisory, not closures.
 
 ## Reviewers
 

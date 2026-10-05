@@ -26,16 +26,40 @@ class JevClientTests(unittest.TestCase):
                 client.evaluate(client.startup_request())
             http.assert_not_called()
 
-    def test_startup_notifies_lead_without_key(self):
-        with patch.dict(client.os.environ, {}, clear=True), patch.object(client.subprocess, "run") as send:
-            send.return_value.returncode = 0
+    def startup(self, argv, team, daemon, environ=None):
+        """Run the startup probe without a key; `atm escalation list` answers with `team` / `daemon` recipients."""
+        def run(cmd, **kwargs):
+            listed = {"--team": team} if "--team" in cmd else {"": daemon}
+            recipients = next(iter(listed.values()))
+            return MagicMock(returncode=0 if recipients is not None else 1, stdout=json.dumps({"recipients": recipients or []}))
+        with patch.dict(client.os.environ, environ if environ is not None else {"ATM_TEAM": "t"}, clear=True), \
+             patch.object(client.subprocess, "run", side_effect=run) as send:
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                rc = client.main(["--startup", "--lead", "appointed-lead"])
-            self.assertEqual(rc, 2)
-            self.assertTrue(json.loads(output.getvalue())["error"]["recoverable"])
-            self.assertEqual(send.call_args.args[0], ["atm", "send", "appointed-lead", "--stdin"])
-            self.assertEqual(set(json.loads(output.getvalue())["error"]), {"code", "message", "recoverable", "suggested_action"})
+                rc = client.main(argv)
+        sends = [(c.args[0][2], c.kwargs["input"]) for c in send.call_args_list if c.args[0][:2] == ["atm", "send"]]
+        return rc, json.loads(output.getvalue()), sends
+
+    def test_startup_announces_to_escalation_recipients_else_lead(self):
+        rc, result, sends = self.startup(["--startup", "--announce", "--lead", "appointed-lead"], ["oversight@team"], ["daemon@host"])
+        self.assertEqual(rc, 2)
+        self.assertTrue(result["error"]["recoverable"])
+        self.assertEqual(set(result["error"]), {"code", "message", "recoverable", "suggested_action"})
+        self.assertEqual([to for to, _ in sends], ["oversight@team"])
+        self.assertIn(result["error"]["message"], sends[0][1])
+        _, _, sends = self.startup(["--startup", "--announce", "--lead", "appointed-lead"], [], ["daemon@host"])
+        self.assertEqual([to for to, _ in sends], ["daemon@host"])
+        _, _, sends = self.startup(["--startup", "--announce", "--lead", "appointed-lead"], [], None)
+        self.assertEqual([to for to, _ in sends], ["appointed-lead"])
+        self.assertTrue(sends[0][1].endswith("No escalation recipient is set."))
+        _, _, sends = self.startup(["--startup", "--announce", "--lead", "appointed-lead"], None, ["daemon@host"], environ={})
+        self.assertEqual([to for to, _ in sends], ["daemon@host"])
+
+    def test_startup_without_announce_sends_nothing(self):
+        rc, _, sends = self.startup(["--startup"], ["oversight@team"], ["daemon@host"])
+        self.assertEqual((rc, sends), (2, []))
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            client.main(["--startup", "--announce"])
 
     def test_successful_transport(self):
         conn = MagicMock()

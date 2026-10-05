@@ -15,4 +15,4 @@ Sources: `plugins/atm-bd-orchestration/`: `agents/parallax.md`, `skills/atm-bd-o
 
 ## Unresolved
 
-1. `agents/dev-sanity.md` sends the Jev startup probe report to `<lead>` (`jev_client.py --startup --lead <lead>`); it runs at session start, outside any task, so it has no task assigner.
+None. The Jev startup probe failure, which runs outside any task, goes to the ATM escalation recipients (`SKILL.md` Lead Role), else the lead.

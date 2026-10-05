@@ -131,15 +131,32 @@ def startup_request():
     }}
 
 
+def escalation_recipients():
+    """ATM's escalation recipients: the team's (`ATM_TEAM`), else the daemon default; [] when neither is set or readable."""
+    team = os.environ.get("ATM_TEAM", "")
+    for argv in ([["atm", "escalation", "list", "--team", team, "--json"]] if team else []) + [["atm", "escalation", "list", "--json"]]:
+        try:
+            listed = subprocess.run(argv, text=True, capture_output=True, timeout=15)
+            value = json.loads(listed.stdout) if listed.returncode == 0 else {}
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            value = {}
+        found = [r for r in (value.get("recipients") or []) if isinstance(r, str) and r] if isinstance(value, dict) else []
+        if found:
+            return found
+    return []
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--startup", action="store_true")
     mode.add_argument("--request", type=Path)
-    parser.add_argument("--lead", help="ATM lead identity; required with --startup")
+    parser.add_argument("--announce", action="store_true",
+                        help="with --startup: send a failure to ATM's escalation recipients (else --lead)")
+    parser.add_argument("--lead", help="ATM lead identity; required with --announce, the fallback recipient")
     args = parser.parse_args(argv)
-    if args.startup and (not args.lead or args.lead.startswith("-")):
-        parser.error("--startup requires an explicit --lead identity")
+    if args.announce and (not args.startup or not args.lead or args.lead.startswith("-")):
+        parser.error("--announce requires --startup and an explicit --lead identity")
     try:
         request = startup_request() if args.startup else json.loads(args.request.read_text())
         data = evaluate(request)
@@ -152,16 +169,20 @@ def main(argv=None):
         result = failure(exc)
     except (OSError, ValueError, UnicodeError):
         result = failure(JevError("VALIDATION.INPUT", "Request file unavailable or invalid JSON"))
-    if args.startup and not result["success"]:
+    if args.announce and not result["success"]:
         error = result["error"]
         message = f"dev-sanity Jev startup failed: {error['code']}: {error['message']}. No sc-sanity-jev checks run; dev-sanity records every JEV slot as unavailable until a startup probe passes."
-        try:
-            sent = subprocess.run(["atm", "send", args.lead, "--stdin"], input=message,
-                                  text=True, capture_output=True, timeout=15)
-            if sent.returncode:
-                print("Lead notification failed; coordinator must report the startup error via ATM.", file=sys.stderr)
-        except (OSError, subprocess.TimeoutExpired):
-            print("Lead notification unavailable; coordinator must report the startup error via ATM.", file=sys.stderr)
+        recipients = escalation_recipients()
+        if not recipients:
+            recipients, message = [args.lead], message + " No escalation recipient is set."
+        for recipient in recipients:
+            try:
+                sent = subprocess.run(["atm", "send", recipient, "--stdin"], input=message,
+                                      text=True, capture_output=True, timeout=15)
+                if sent.returncode:
+                    print(f"Announcement to {recipient} failed; coordinator must report the startup error via ATM.", file=sys.stderr)
+            except (OSError, subprocess.TimeoutExpired):
+                print(f"Announcement to {recipient} unavailable; coordinator must report the startup error via ATM.", file=sys.stderr)
     print(json.dumps(result, allow_nan=False))
     return 0 if result["success"] else 2
 

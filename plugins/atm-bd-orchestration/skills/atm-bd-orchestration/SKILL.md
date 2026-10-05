@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.6
+version: 0.6.7
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -68,11 +68,18 @@ or their delegate; conservative, reversible provisional choices keep independent
 work moving. Unresolved decision beads block phase closure, not development.
 
 A serious infrastructure failure an agent cannot fix itself (missing or
-invalid API key, out of tokens or quota, provider auth failure and the like)
-is announced once per outage to the oversight recipients, resolved as in
-`.claude/agents/dev-sanity.md` Startup. When a backup or fallback exists, use
-it so work moves forward, never silently: record each use in the log or
-evidence and announce it the same way, once per cause, not per task.
+invalid API key, out of tokens or quota, provider auth failure, a failing
+`gh` or `atm` command and the like) is announced once per cause to the
+oversight recipients: ATM's escalation recipients,
+`atm escalation list --team "$ATM_TEAM" --json | jq -r '.recipients[]'`, if
+empty `atm escalation list --json | jq -r '.recipients[]'`, if both empty the
+task assigner, saying in the message that no escalation recipient is set;
+`atm send <recipient> --stdin` to each. Once per cause is the cause's workflow
+class bead (`workflow-issue-bead.json.j2`, `parent` as in
+`examples/workflow-issue-bead-vars.json`): announce only when you create it,
+append each later occurrence to it, and close it when the cause clears. When a
+backup or fallback exists, use it so work moves forward, never silently: record
+each use in the log or evidence and announce it the same way.
 
 ## Repository configuration
 
@@ -296,7 +303,7 @@ Then, on each task close:
 | qa-complete | nothing: quality-mgr poured a fix group under the sprint per blocking finding (round n+1 for a failed fix verification) and filed the rest as finding beads before it closed the QA bead; the fix beads are now ready. When no step is open under the sprint, close it (below) |
 | fix-complete (`fixed`) | verify the dev's PR and link it on top of the phase stack, fixing any stack problem yourself (Stack Discipline). For a poured fix bead, nothing more: its group's sanity check is now ready. For an important or minor finding bead, create its sanity check bead (`atm-beads` [`dev-sanity-bead.json.j2`](../atm-beads/templates/dev-sanity-bead.json.j2), `dev_bead` and `parent` = the finding) |
 | review-complete | file each finding with `finding-bead.json.j2` (`qa_bead` = the review bead) |
-| task-refused | read the reason and the bead state (`open`, or `blocked-failed` for a dev bead that declared failure). Reassign it, split it, or close the bead yourself with `bd close <bead> --force --reason "<why>"`. A `blocked` bead is never in `bd ready`: run `bd update <bead> --status open --assignee <new agent>` before you re-dispatch it. A sanity refusal for no PR, not stacked or not rebased is yours as stack writer (Stack Discipline) |
+| task-refused | read the reason and the bead state (`open`, or `blocked-failed` for a dev bead that declared failure). Reassign it, split it, or close the bead yourself with `bd close <bead> --force --reason "<why>"`. A `blocked` bead is never in `bd ready`: run `bd update <bead> --status open --assignee <new agent>` before you re-dispatch it. A sanity refusal for no PR, not stacked or not rebased is yours as stack writer (Stack Discipline). A cannot-run caused by an announced outage (its workflow class bead is open) is not re-dispatched until the cause clears and that bead closes; never force-close the bead meanwhile. `REVIEW_PENDING_JEV`: file each code finding in its notes with `finding-bead.json.j2` (`qa_bead` = the review bead) and re-dispatch the review only after the Jev outage clears, with the prior `post_mortem_jev` run IDs in its notes so they are reused |
 | fix-complete (`not_reproducible`) | no commit, no sanity check; the finding is closed. For a poured fix bead, close its group's sanity bead, then its QA bead, each with `bd close <bead> --reason "not_reproducible: <fix bead>"` |
 | not-ready report | the task is still open and queued. Fix the cause it names (usually a blocker still open) and tell the assignee to run the ready check again. If the work is no longer wanted, close the task `cancelled` with `task-refused.md.j2` (`bead_state` open) |
 

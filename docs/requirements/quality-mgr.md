@@ -59,7 +59,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 42. Check readiness, claim, start; not ready: report blockers to the task assigner and wait.
 43. Require branch = root `integration_branch`, worktree HEAD = `<commit>`; read via `git show <commit>:<path>`; plan = `bd show <phase feature>` and children.
 44. JEV post-mortem per `post-mortem.md`: inventory every phase finding (closed, nested); investigate every flagged result; dedupe; report them to the task assigner, who files them as finding beads; append raw evaluations to the phase JSONL with UTC, SHA, run IDs.
-45. Record `post_mortem_jev`; model error is not PASS; no code findings: `not_applicable`; JEV unavailable: `unavailable`, review stays pending: bead returned open, task refused `REVIEW_PENDING_JEV`.
+45. Record `post_mortem_jev`; model error is not PASS; no code findings: `not_applicable`; JEV unavailable: `unavailable`, review stays pending: bead returned open, task refused `REVIEW_PENDING_JEV` with the code findings and `post_mortem_jev` in the refusal notes, which the lead files; never a completion.
 46. Make no code changes.
 47. Re-verify every file:line at `<commit>`; report SUMMARY, FINDINGS, EXTRACTION-READINESS, RECOMMENDED-NEXT-SPRINTS, INTEGRATION POST-MORTEM.
 48. Write to no bead except claiming, closing or returning the review bead. Run `check-review-completion.py` on the vars; require exit 0; close bead and task with `review-complete.md.j2`.
@@ -76,7 +76,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 ### Scripts
 
 55. `fix-round-scope owned|check|filter --carried <file> [--plan]`: filing-reviewer map; check exit 5 `FIX_ROUND_DISPATCH_MISMATCH`; filter keeps only dispositions on own ids, unreported = `open`.
-56. `check-review-completion.py <vars>`: verdict PASS/FAIL agrees with `integration_review`; PASS needs zero blocking, important, unresolved; `integration_commit` = `commit` (40-hex); post-mortem counts sum to total; `post_mortem_md` non-empty.
+56. `check-review-completion.py <vars>`: verdict PASS/FAIL agrees with `integration_review`; PASS needs zero blocking, important, unresolved; `integration_commit` = `commit` (40-hex); post-mortem counts sum to total; `post_mortem_jev.status` is `completed` or `not_applicable`; `post_mortem_md` non-empty.
 57. `assignment-gates.py qa --root --bead --pr-target --pr-number [--checked-bead]`: `READY`, `PR_REQUIRED`, `PR_TARGET_MISMATCH`, `SANITY_STALE`, `QA_HEAD_MISMATCH`, `GATE_CANNOT_RUN`; exit 0/5/2.
 
 ## Unresolved
