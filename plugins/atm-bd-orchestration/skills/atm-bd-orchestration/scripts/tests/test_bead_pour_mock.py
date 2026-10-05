@@ -484,6 +484,49 @@ class BeadPourMockTests(unittest.TestCase):
         assert target(result, f"{sprint}.qa1-f3-r1")["nodes"][0]["action"] == "created"   # the valid finding still pours
         assert ws.show(fix_group(sprint, "qa1-f1")[0]) is None
 
+    def render(self, template: Path, values: dict) -> dict:
+        path = self.ws.root / f"vars-{values['id']}.json"
+        path.write_text(json.dumps(values))
+        out = self.ws.run("sc-compose", "render", "--file", template, "--var-file", path, "--strict").stdout
+        return json.loads(out)
+
+    def test_an_assigned_important_finding_gets_its_sanity_and_qa_beads(self):
+        """F1: assigning an important finding creates its sanity and QA beads in one import, finding <- sanity <- qa."""
+        ws = self.ws
+        sprint = ws.sprint("m", 1)
+        _, _, sprint_qa = group(sprint)
+        ws.groups("--sprint", sprint)
+        ws.bd("create", "phase m", "--id", "t-phase-m", "--type", "epic", "--silent")
+        templates = ws.root / ".claude/skills/atm-bd-orchestration/templates"
+        example = json.loads((templates.parent / "examples/finding-bead-vars.json").read_text())
+        finding = "t-m-1-qa1-f1"
+        rows = [self.render(templates / "finding-bead.json.j2", {
+            **example, "id": finding, "qa_bead": sprint_qa, "phase": "m", "sprint": "m-1", "stack": "phase-m",
+            "parent": "t-phase-m", "sprint_bead": sprint})]
+        found = ws.root / "finding.jsonl"
+        found.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        ws.bd("import", "-i", found)
+        # The assignment: one import of both beads.
+        sanity, qa = f"{finding}-sanity", f"{finding}-qa"
+        rows = [self.render(ws.root / ".claude/skills/atm-beads/templates/dev-sanity-bead.json.j2", {
+                    "id": sanity, "parent": "t-phase-m", "dev_bead": finding, "phase": "m", "sprint": "m-1", "stack": "phase-m"}),
+                self.render(templates / "qa-bead.json.j2", {
+                    "id": qa, "checked_bead": finding, "parent": "t-phase-m", "blocked_by": sanity, "phase": "m", "sprint": "m-1",
+                    "stack": "phase-m", "round": 1, "qa_member": "quality-mgr"})]
+        assigned = ws.root / "assigned.jsonl"
+        assigned.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        ws.bd("import", "-i", assigned)
+        # Its parent is the finding's parent: bd keeps one edge type per pair, so a child of the finding would lose `blocks`.
+        assert ws.deps(sanity) == {"t-phase-m": "parent-child", finding: "blocks"}, ws.deps(sanity)
+        assert ws.deps(qa) == {"t-phase-m": "parent-child", sanity: "blocks"}, ws.deps(qa)
+        assert ws.show(qa)["metadata"]["checked_bead"] == finding
+        ws.bd("update", finding, "--status", "in_progress", "--assignee", "pour-test")
+        assert not {sanity, qa} & ws.ready()
+        ws.close(finding, "fixed at abc1234")
+        assert sanity in ws.ready() and qa not in ws.ready()
+        ws.close(sanity, "PASS at abc1234")
+        assert qa in ws.ready()
+
 
 if __name__ == "__main__":
     unittest.main()

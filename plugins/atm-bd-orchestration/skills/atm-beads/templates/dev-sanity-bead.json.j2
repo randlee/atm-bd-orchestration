@@ -1,7 +1,7 @@
 ---
 name: dev-sanity-bead
-version: 0.2.0
-description: The sanity check bead the lead creates for a fixed important or minor finding bead (sprint and fix groups pour their own). It is blocked by the bead it checks. Recipient and message are in resources/dev-sanity.md. Render strictly, then `jq -c .` into the import JSONL.
+version: 0.3.0
+description: The sanity check bead the lead creates when it assigns an important or minor finding bead, with the finding's QA bead (sprint and fix groups pour their own); its `parent` is the finding's parent, since bd keeps one edge type per bead pair and a child of the finding would lose the `blocks` edge. It is blocked by the bead it checks. Recipient and message are in resources/dev-sanity.md. Render strictly, then `jq -c .` into the import JSONL.
 format: json
 required_variables:
   - id
