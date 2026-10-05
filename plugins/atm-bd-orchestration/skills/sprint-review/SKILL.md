@@ -15,17 +15,16 @@ Run from the working repository or worktree:
 
 `--root <bead-id>` and `--index <path>` select a phase when needed.
 
-Every run reads the canonical tuples in `<plans_dir>/phase-<p>/sprints.jsonl`,
+Every run reads the plan file `<plans_dir>/phase-<p>.jsonl`,
 uses them for the dependency graph, queries Beads/ATM only for current state,
 and regenerates the SVG inside a self-contained HTML page.
 
 It writes `<plans_dir>/phase-<p>/phase-<p>-dag.html` locally; it never commits
-or pushes, and never rewrites `sprints.jsonl`.
+or pushes, and never rewrites the plan file.
 
 Without `--view`, do not launch a viewer, render an inline image, or otherwise
 show the diagram. Report only the saved path. With `--view`,
-open the HTML in Wyvern if available, initially sized to 80% of the screen's
-logical width and height. Missing or failing Wyvern must not prevent
+open the HTML in Wyvern if available. Missing or failing Wyvern must not prevent
 writing the HTML. Do not substitute Preview or a browser without a request.
 
 The page embeds SVG directly with zoom controls and state tooltips; it needs no

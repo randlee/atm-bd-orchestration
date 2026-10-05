@@ -1,9 +1,9 @@
 # Planning in Beads
 
 The plan is written to beads, not to markdown files. The phase is a root
-bead (an epic, or a feature under the Development epic). Every sprint is two
-beads under it: a dev bead, and the sanity check bead that follows it. The
-dependency edges are the order. There is no phase plan or sprint doc to keep
+bead (an epic, or a feature under the Development epic). Every sprint is a
+sprint container under it; `bead-groups` pours its dev, sanity and qa beads
+under the container. The dependency edges are the order. There is no phase plan or sprint doc to keep
 in sync: `bd show <bead>` is the plan.
 
 Shape the sprints with
@@ -22,8 +22,7 @@ rather than reaching an agent:
 | Bead | Template | Id |
 | --- | --- | --- |
 | phase root | [`plan-root.json.j2`](../templates/plan-root.json.j2) | `<prefix>-phase-<x>` |
-| sprint dev bead | [`sprint-bead.json.j2`](../templates/sprint-bead.json.j2) | `<prefix>-<x>-<n>` |
-| sprint sanity check | [`dev-sanity-bead.json.j2`](../templates/dev-sanity-bead.json.j2) | `<dev id>-sanity` |
+| sprint container | [`sprint-bead.json.j2`](../templates/sprint-bead.json.j2) | `<prefix>-<x>-<n>` |
 
 1. Run `bd doctor --json`. Any check with `"status": "error"` stops the
    plan; report it to lead.
@@ -39,27 +38,26 @@ rather than reaching an agent:
    Stop on any failure; never pipe a render straight into `jq`, which drops
    a failed bead silently.
 
-3. Write the phase definition by hand:
-   `<plans_dir>/phase-<x>/sprints.jsonl` has one
-   `[sprint_name, sanity_bead_id, depends_on_sprint_names]` tuple per sprint
-   (see "Phase definition" below).
+3. Write the plan file `<plans_dir>/phase-<x>.jsonl` and the phase file
+   `.atm-bd/phase-<x>.toml` by hand (see "Phase definition" below).
 4. Validate the rendered plan against it. This step is mandatory:
 
    ```bash
    .claude/skills/atm-beads/scripts/validate-plan --file <scratch>/plan.jsonl \
-     --root <prefix>-phase-<x> --index <plans_dir>/phase-<x>/sprints.jsonl
+     --phase <x> --index <plans_dir>/phase-<x>.jsonl
    ```
 
-   `--root` is the id of the phase root in `plan.jsonl`. Exit 5 lists every
-   problem. Fix them all and render again.
+   Exit 5 lists every problem. Fix them all and render again.
 5. `bd import --dry-run -i <scratch>/plan.jsonl`, then `bd import -i
-   <scratch>/plan.jsonl`. Right away, create the plan-review bead
-   (`atm-bd-orchestration` "Plan Gate", step 2). Commit `sprints.jsonl` and
-   push it to the root bead's `integration_branch`. Then run
+   <scratch>/plan.jsonl`. Pour every sprint's group:
+   `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <x>`.
+   Right away, create the plan-review bead
+   (`atm-bd-orchestration` "Plan Gate", step 1). Commit the plan file and the
+   phase file and push them to the root bead's `integration_branch`. Then run
    `.claude/skills/sprint-review/scripts/sprint-review --root <root>`, which
    writes `<plans_dir>/phase-<x>/phase-<x>-dag.html` locally; it never commits
-   or pushes. No viewer opens without `--view`. Then run `validate-plan --root <root>`
-   on the imported beads; without `--index` it reads `sprints.jsonl` from
+   or pushes. No viewer opens without `--view`. Then run `validate-plan --phase <x>`
+   on the imported beads; without `--index` it reads the plan file from
    that integration branch.
 
 The plan then goes to plan review (`atm-bd-orchestration` "Plan Gate").
@@ -67,44 +65,46 @@ Nothing is dispatched until it passes.
 
 Keep `<scratch>` outside the repository.
 
-## Phase definition (`sprints.jsonl`)
+## Phase definition (plan file and phase file)
 
-`<plans_dir>/phase-<x>/sprints.jsonl` is the authored, committed graph authority.
-Planning five sprints creates five dev beads and five sanity beads through the
-validated import JSONL. The planner records one compact tuple for each sprint;
-the dev bead ID is derived as `<prefix>-<sprint_name>`, so it cannot be
-duplicated or drift from the sprint name. It is authored, never exported: the
-planner edits it in the same commit as the bead changes. Sprint content (title, deliverables, acceptance, REQ/ADR,
-ownership, and state) lives only in Beads.
+The plan file `<plans_dir>/phase-<x>.jsonl` is the authored, committed sprint
+set: one line per sprint, the sprint container id is `<prefix>-<sprint>`.
+Sprint content (title, deliverables, acceptance, REQ/ADR, ownership, and
+state) lives only in Beads.
 
 ```jsonl
-["d-12", "{{ bead_prefix }}-d-12-sanity", []]
-["d-13", "{{ bead_prefix }}-d-13-sanity", ["d-12"]]
+{"sprint": "d-12"}
+{"sprint": "d-13", "depends_on": ["d-12"]}
 ```
 
-Each tuple is exactly `(sprint_name, sanity_bead_id, depends_on[])`.
-`depends_on[]` names direct prerequisite sprints; validation resolves each
-name to that sprint's sanity bead and requires the direct `blocks` edge on the
-dependent dev bead. `<prefix>` is taken from the phase root id
-(`<prefix>-phase-<x>`); a script given only the file uses `bead_prefix` from the
-repository configuration and names the root `<prefix>-phase-<x>`. No finding, fix, QA, task, branch, or runtime gate appears in
-this file.
+`depends_on` names hard prerequisite sprints only; `bead-groups` adds the
+`blocks` edge from the dependent's dev bead (`<container>.group-dev`) to the
+predecessor's sanity bead (`<pred>.group-sanity`). `<prefix>` is taken from the
+phase root id (`<prefix>-phase-<x>`). No finding, fix, QA, task, branch, or
+runtime gate appears in this file.
+
+The tracked phase file `.atm-bd/phase-<x>.toml` holds exactly:
+
+```toml
+plan = "<plans_dir>/phase-<x>.jsonl"
+root = "<prefix>-phase-<x>"
+integration_branch = "integrate/phase-<x>"
+```
 
 The file is never generated from beads and beads are never generated from the
 file. A plan change is one planner transaction: change the beads, edit the
-file, commit both. `validate-plan --root <root>` checks the sprint and
-sanity beads against it (see `SKILL.md`, Validation). It must stay green from
-plan approval to phase end; every template runs it before a claim.
+file, commit both. `validate-plan --phase <x>` checks the sprint containers
+and poured beads against it (see `SKILL.md`, Validation). It must stay green from
+plan approval to phase end; the dev and fix templates run it before a claim.
 
 Hierarchy:
 
 - top level: epics only; the phase root is an epic or a `feature` under epics;
-- children of the root: exactly the listed pairs, plus `stage:plan*` beads,
+- children of the root: exactly the listed sprint containers, plus `stage:plan*` beads,
   `bd gate` beads and sprints closed "folded into ...";
-- under the sprint dev bead: its QA beads (parent = `checked_bead`), findings
-  (parent = `sprint_bead`, `discovered-from` the QA bead), fixes and their
-  sanity beads. No `validates` or `caused-by` edge to the sprint: bd allows one
-  edge type per pair, and the parent link is the membership.
+- under the sprint container: its poured `dev ← sanity ← qa` group and one
+  poured `fix ← sanity ← qa` group per blocking finding. Important and minor
+  findings are plain finding beads under the phase or feature bead.
 
 `phase-<x>-dag.html` is written locally; it is never committed or pushed.
 `--view` only controls optional background viewing in Wyvern.
@@ -120,7 +120,7 @@ Hierarchy:
 | `plan_scope`, `parent` | `feature` under the Development epic, or `epic` with no parent |
 | `integration_branch` | required: `integration_branch_pattern` from the repository configuration with `{phase}` = `<x>`; validate-plan, sprint-review and every gate read the plan from this branch |
 
-## Sprint Dev Bead
+## Sprint Container
 
 | Var | Content |
 | --- | --- |
@@ -129,9 +129,8 @@ Hierarchy:
 | `design` | public contract, types, code samples, exact targets |
 | `acceptance_criteria` | acceptance criteria and the validation commands |
 | `parent` | the phase root |
-| `blocked_by` | the **sanity check** bead of each prerequisite sprint (`{{ bead_prefix }}-d-4-sanity`), never its dev bead |
 
-Its labels (`phase-<x>`, `stage:dev`, `stack:<stack>`, `train:<t>` when
+Its labels (`phase-<x>`, `stage:sprint`, `stack:<stack>`, `train:<t>` when
 set) and metadata come from these required vars:
 
 | Var | Value |
@@ -140,7 +139,7 @@ set) and metadata come from these required vars:
 | `stack` | `phase-<x>`: the phase is one stack |
 | `layer` | planned position, 1 = bottom |
 | `branch` | `sprint/<phase>-<n>-<slug>` |
-| `pr_target` | planned: branch of layer n−1, or the root's `integration_branch` for layer 1 |
+| `pr_target` | planned: branch of its nearest `must_follow` prerequisite, the one it builds on, or the root's `integration_branch` when it has none; never a parallel sibling; a lower bound: the PR's actual base is it or a descendant of it |
 | `worktree` | `<worktree_base>/<branch>` |
 | `relation` | `root`, `must_follow` or `parallel_safe` |
 | `closure_type` | from the guidelines' closure types |
@@ -180,7 +179,8 @@ Branch and id naming follows the repository's "Plan Naming" in its QA policy
 
 ## Dev Sanity Check Bead
 
-One per sprint: `dev_bead` = the sprint's dev bead, no assignee. It is blocked by its dev bead, and later sprints
+Not planned: `bead-groups` pours it as `<container>.group-sanity`
+(`dev_bead` = the group's dev bead, no assignee). It is blocked by its dev bead, and later sprints
 wait on it rather than on the dev bead, so a sprint's dependents start only
 after its work passes the sanity check. See [`dev-sanity.md`](dev-sanity.md).
 
@@ -188,16 +188,16 @@ after its work passes the sanity check. See [`dev-sanity.md`](dev-sanity.md).
 
 - The phase is one append-only `gh stack` on the root's `integration_branch`.
   Only the final phase PR leaves it, for the repository's base branch.
-- `layer` and `pr_target` are the plan's intent. Layers really stack in the
-  order they complete, and the lead records the actual values when it links
-  each one (`atm-bd-orchestration` "Stack Discipline").
+- `layer` is the plan's intent. Layers really stack in the
+  order they complete, and the lead records the actual `layer` when it links
+  each one (`atm-bd-orchestration` "Stack Discipline"); `pr_target` stays the planned lower bound until a dev-fix records the sprint's first layer's branch there.
 - Sprints that can run at once must have disjoint `owned_paths`. Sprints that
   share a path must be ordered: one's sanity bead in the other's blocker closure.
 
 The stack table is a query, not a document:
 
 ```bash
-bd list -l phase-d,stage:dev -n 0 --json | jq -r '.[] | [.metadata.stack, .metadata.layer, .metadata.sprint, .metadata.branch, .metadata.pr_target, .assignee] | @tsv' | sort
+bd list -l phase-d,stage:sprint -n 0 --json | jq -r '.[] | [.metadata.stack, .metadata.layer, .metadata.sprint, .metadata.branch, .metadata.pr_target, .assignee] | @tsv' | sort
 ```
 
 ## Checks

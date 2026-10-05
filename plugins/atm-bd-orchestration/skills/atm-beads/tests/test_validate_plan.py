@@ -1,4 +1,4 @@
-"""validate-plan's checks on a two-sprint plan (t-2 depends on t-1), and the published bead schemas."""
+"""validate-plan on a two-sprint plan (t-2 depends on t-1), the phase file, and the published bead schemas."""
 from __future__ import annotations
 
 import copy
@@ -11,35 +11,69 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "validate-plan"
-PLAN = [["t-1", "x-t-1-sanity", []], ["t-2", "x-t-2-sanity", ["t-1"]]]
+PLAN = [{"sprint": "t-1"}, {"sprint": "t-2", "depends_on": ["t-1"]}]
+TOML = 'plan = "plans/phase-t.jsonl"\nroot = "x-phase-t"\nintegration_branch = "integrate/phase-t"\n'
 
 
-def sprint(bid: str, blocks: list[str]) -> dict:
-    return {"id": bid, "parent": "x-phase-t", "acceptance_criteria": "- [ ] #1: done",
-            "description": "Goal.\n\n## Deliverables\n1. the thing\n",
-            "dependencies": [{"type": "blocks", "depends_on_id": b} for b in blocks],
+def container(bid: str) -> dict:
+    return {"id": bid, "parent": "x-phase-t", "issue_type": "task", "status": "open", "labels": ["phase-t", "stage:sprint"],
+            "acceptance_criteria": "- [ ] #1: done", "description": "Goal.\n\n## Deliverables\n1. the thing\n",
+            "created_at": "2026-09-26T00:00:00Z",
             "metadata": {"requirements": ["NONE"], "adrs": ["ADR-1"], "worktree": "wt", "branch": f"sprint/{bid}",
                          "pr_target": "integrate/phase-t", "difficulty": "normal"}}
 
 
-def sanity(bid: str, dev: str) -> dict:
-    return {"id": bid, "parent": "x-phase-t", "metadata": {"dev_bead": dev},
-            "dependencies": [{"dependency_type": "blocks", "id": dev}]}
+def poured(container_id: str, step: str, blocks: list[str]) -> dict:
+    bead = {"id": f"{container_id}.group-{step}", "issue_type": "task", "status": "open", "labels": ["phase-t", f"stage:{step}"],
+            "created_at": "2026-09-26T00:00:00Z",
+            "dependencies": [{"dependency_type": "parent-child", "id": container_id}] + [{"dependency_type": "blocks", "id": b} for b in blocks],
+            "metadata": {"difficulty": "normal"}}
+    if step == "sanity":
+        bead["metadata"]["dev_bead"] = f"{container_id}.group-dev"
+    return bead
 
 
-ROOT_EPIC = {"id": "x-phase-t", "issue_type": "epic", "status": "open", "created_at": "2026-09-25T00:00:00Z"}
-VALID = [ROOT_EPIC, sprint("x-t-1", []), sanity("x-t-1-sanity", "x-t-1"),
-         sprint("x-t-2", ["x-t-1-sanity"]), sanity("x-t-2-sanity", "x-t-2")]
+ROOT_EPIC = {"id": "x-phase-t", "issue_type": "epic", "status": "open", "created_at": "2026-09-25T00:00:00Z",
+             "metadata": {"phase": "t", "integration_branch": "integrate/phase-t"}}
+VALID = [ROOT_EPIC,
+         container("x-t-1"), poured("x-t-1", "dev", []), poured("x-t-1", "sanity", ["x-t-1.group-dev"]),
+         container("x-t-2"), poured("x-t-2", "dev", ["x-t-1.group-sanity"]), poured("x-t-2", "sanity", ["x-t-2.group-dev"])]
 
 
-def run(beads: list[dict]) -> tuple[int, list[str]]:
-    with tempfile.TemporaryDirectory() as d:
-        index, data = Path(d) / "sprints.jsonl", Path(d) / "beads.json"
-        index.write_text("".join(json.dumps(r) + "\n" for r in PLAN))
-        data.write_text(json.dumps(beads))
-        out = subprocess.run([str(SCRIPT), "--root", "x-phase-t", "--index", str(index), "--beads", str(data), "--no-doctor"],
-                             capture_output=True, text=True)
-    return out.returncode, out.stdout.splitlines()
+def git(cwd: Path, *args: str) -> str:
+    return subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args], cwd=cwd, check=True,
+                          capture_output=True, text=True).stdout
+
+
+def lines(plan: list) -> str:
+    return "".join((r if isinstance(r, str) else json.dumps(r)) + "\n" for r in plan)
+
+
+class Repo(unittest.TestCase):
+    """A repository holding the phase file; the plan file is passed with --index unless a test pushes it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        self.repo = self.base / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True)
+        config = self.repo / ".claude/project/atm-bd-orchestration.yaml"
+        config.parent.mkdir(parents=True)
+        config.write_text("plans_dir: plans\nbead_prefix: x\n")
+        (self.repo / ".atm-bd").mkdir()
+        (self.repo / ".atm-bd/phase-t.toml").write_text(TOML)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_vp(self, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run([str(SCRIPT), *args], cwd=self.repo, capture_output=True, text=True, env=env)
+
+    def run_beads(self, beads: list[dict], plan: list = PLAN, *extra: str) -> subprocess.CompletedProcess:
+        (self.base / "plan.jsonl").write_text(lines(plan))
+        (self.base / "beads.json").write_text(json.dumps(beads))
+        return self.run_vp("--root", "x-phase-t", "--index", str(self.base / "plan.jsonl"),
+                           "--beads", str(self.base / "beads.json"), "--no-doctor", *extra)
 
 
 def broken(bid: str, change) -> list[dict]:
@@ -48,42 +82,78 @@ def broken(bid: str, change) -> list[dict]:
     return beads
 
 
-class ValidatePlan(unittest.TestCase):
+class ValidatePlan(Repo):
     def test_valid(self):
-        self.assertEqual(run(VALID), (0, ["plan valid: 2 sprints"]))
+        out = self.run_beads(VALID)
+        self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
+        self.assertEqual(out.stderr, "")
+        out = self.run_beads(VALID, PLAN, "--phase", "t")
+        self.assertEqual(out.returncode, 0, out.stderr)
 
     def test_each_problem(self):
         cases = {
-            "x-t-2: missing blocks edge to x-t-1-sanity": ("x-t-2", lambda b: b.update(dependencies=[])),
-            "x-t-1: metadata.requirements: ": ("x-t-1", lambda b: b["metadata"].update(requirements=[])),
-            "x-t-1: metadata.adrs: mixes NONE with ids": ("x-t-1", lambda b: b["metadata"].update(adrs=["NONE", "ADR-1"])),
-            "x-t-1: metadata.worktree: ": ("x-t-1", lambda b: b["metadata"].pop("worktree")),
-            "x-t-1: metadata.branch: ": ("x-t-1", lambda b: b["metadata"].update(branch="")),
-            "x-t-1: description: ": ("x-t-1", lambda b: b.update(description="none")),
-            "x-t-1: acceptance_criteria: ": ("x-t-1", lambda b: b.update(acceptance_criteria="")),
-            "x-t-1: metadata.difficulty: ": ("x-t-1", lambda b: b["metadata"].update(difficulty="medium")),
-            "x-t-1-sanity: metadata.dev_bead is \"x-t-2\", not x-t-1": ("x-t-1-sanity", lambda b: b.update(metadata={"dev_bead": "x-t-2"}, dependencies=[{"type": "blocks", "depends_on_id": "x-t-2"}])),
-            "x-t-1-sanity: missing blocks edge to its sprint x-t-1": ("x-t-1-sanity", lambda b: b.update(dependencies=[])),
+            "x-t-2.group-dev: missing blocks edge to x-t-1.group-sanity or x-t-1": (VALID, PLAN, "x-t-2.group-dev", lambda b: b.update(dependencies=[])),
+            "x-t-1: metadata.requirements: ": (VALID, PLAN, "x-t-1", lambda b: b["metadata"].update(requirements=[])),
+            "x-t-1: metadata.adrs: mixes NONE with ids": (VALID, PLAN, "x-t-1", lambda b: b["metadata"].update(adrs=["NONE", "ADR-1"])),
+            "x-t-1: metadata.worktree: ": (VALID, PLAN, "x-t-1", lambda b: b["metadata"].pop("worktree")),
+            "x-t-1: description: ": (VALID, PLAN, "x-t-1", lambda b: b.update(description="none")),
+            "x-t-1: metadata.difficulty: ": (VALID, PLAN, "x-t-1", lambda b: b["metadata"].update(difficulty="medium")),
+            "x-t-1.group-sanity: missing blocks edge to its sprint x-t-1.group-dev": (VALID, PLAN, "x-t-1.group-sanity", lambda b: b.update(dependencies=[])),
+            "x-phase-t: metadata.integration_branch is \"integrate/other\"": (VALID, PLAN, "x-phase-t", lambda b: b["metadata"].update(integration_branch="integrate/other")),
         }
-        for want, (bid, change) in cases.items():
+        for want, (beads, plan, bid, change) in cases.items():
             with self.subTest(problem=want):
-                rc, lines = run(broken(bid, change))
-                self.assertEqual(rc, 5)
-                self.assertEqual(len(lines), 1, lines)
-                self.assertTrue(lines[0].startswith(want), lines)
+                out = self.run_beads(broken(bid, change) if bid else beads, plan)
+                got = out.stdout.splitlines()
+                self.assertEqual(out.returncode, 5, out.stderr)
+                self.assertEqual(len(got), 1, got)
+                self.assertTrue(got[0].startswith(want), got)
 
-    def test_missing_bead(self):
-        rc, lines = run(VALID[:4])
-        self.assertEqual((rc, lines), (5, ["x-t-2-sanity: sanity bead of x-t-2 is not in beads"]))
+    def test_plan_file_schema(self):
+        cases = {
+            ":1: each line is": ['["t-1", "x-t-1-sanity", []]', {"sprint": "t-2"}],
+            ":2: each line is": [{"sprint": "t-1"}, {"sprint": "t-2", "after": ["t-1"]}],
+            "t-2 depends_on unknown sprint(s): t-9": [{"sprint": "t-1"}, {"sprint": "t-2", "depends_on": ["t-9"]}],
+            ":2: sprint t-1 is listed twice": [{"sprint": "t-1"}, {"sprint": "t-1"}, {"sprint": "t-2", "depends_on": ["t-1"]}],
+        }
+        for want, plan in cases.items():
+            with self.subTest(problem=want):
+                out = self.run_beads(VALID, plan)
+                self.assertEqual(out.returncode, 5, out.stderr)
+                self.assertTrue(any(want in line for line in out.stdout.splitlines()), out.stdout)
 
+    def test_missing_and_extra_sprint_beads(self):
+        out = self.run_beads([b for b in VALID if not b["id"].startswith("x-t-2")])
+        self.assertEqual((out.returncode, out.stdout), (5, "x-t-2: sprint t-2 is in the plan file but has no sprint bead\n"))
+        out = self.run_beads(VALID + [container("x-t-3")])
+        self.assertEqual((out.returncode, out.stdout), (5, "x-t-3: stage:sprint bead of phase-t that the plan file does not list\n"))
 
-    def test_only_epics_at_the_top_level(self):
+    def test_an_edge_to_the_predecessor_sprint_bead_also_satisfies_depends_on(self):
+        beads = broken("x-t-2.group-dev", lambda b: b.update(dependencies=[{"dependency_type": "blocks", "id": "x-t-1"}]))
+        self.assertEqual(self.run_beads(beads).returncode, 0)
+
+    def test_everything_else_warns(self):
         stray = {"id": "x-stray", "issue_type": "task", "status": "open", "created_at": "2026-09-26T00:00:00Z"}
-        rc, lines = run(VALID + [stray])
-        self.assertEqual((rc, lines), (5, ["x-stray: task at the top level; only epics live at the top level, parent it under its epic"]))
-        for ok in ({**stray, "status": "closed"}, {**stray, "created_at": "2026-09-24T00:00:00Z"}, {**stray, "issue_type": "epic"}):
-            with self.subTest(bead=ok):
-                self.assertEqual(run(VALID + [ok])[0], 0)
+        out = self.run_beads(VALID + [stray])
+        self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"))
+        self.assertIn("warning: x-stray: task at the top level", out.stderr)
+        beads = broken("x-t-1.group-sanity", lambda b: b.update(metadata={"dev_bead": "x-t-2.group-dev"},
+                                                                dependencies=[{"dependency_type": "blocks", "id": "x-t-2.group-dev"}]))
+        out = self.run_beads(beads)
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("warning: x-t-1.group-sanity: metadata.dev_bead is not x-t-1.group-dev", out.stderr)
+
+    def test_cannot_run(self):
+        out = self.run_beads(VALID, PLAN)
+        self.assertEqual(out.returncode, 0)
+        (self.base / "beads.json").write_text(json.dumps(VALID))
+        out = self.run_vp("--root", "y-phase-t", "--index", str(self.base / "plan.jsonl"), "--beads", str(self.base / "beads.json"), "--no-doctor")
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("phase-t.toml names x-phase-t", out.stderr)
+        (self.repo / ".atm-bd/phase-t.toml").unlink()
+        out = self.run_beads(VALID)
+        self.assertEqual(out.returncode, 2)
+        self.assertIn(".atm-bd/phase-t.toml does not exist", out.stderr)
 
     def test_published_schemas_are_exported_from_the_models(self):
         with tempfile.TemporaryDirectory() as d:
@@ -100,45 +170,38 @@ beads = json.load(open(os.environ["FAKE_BD_BEADS"]))
 args = sys.argv[1:]
 if args[:1] == ["show"]:
     ids = [a for a in args[1:] if not a.startswith("--")]
-    print(json.dumps([b for b in beads if b["id"] in ids]))
+    found = [b for b in beads if b["id"] in ids]
+    if not found:
+        sys.exit("Error: no issue found matching " + " ".join(ids))
+    print(json.dumps(found))
 elif args[:1] == ["list"]:
-    print(json.dumps(beads))
+    labels = [args[i + 1] for i, a in enumerate(args) if a == "-l"]
+    print(json.dumps([b for b in beads if set(labels) <= set(b.get("labels") or [])]))
 elif args[:1] == ["doctor"]:
     if os.environ.get("FAKE_BD_DOCTOR_ERR"):
         sys.stderr.write(os.environ["FAKE_BD_DOCTOR_ERR"] + "\\n")
         sys.exit(1)
-    print(json.dumps({"checks": [{"name": "ok", "status": "ok"}]}))
+    print(json.dumps({"checks": [{"name": "dolt", "status": os.environ.get("FAKE_BD_DOCTOR_STATUS", "ok"), "message": "m"}]}))
 else:
     sys.exit("fake bd: unsupported " + " ".join(args))
 """
 
 
-def git(cwd: Path, *args: str) -> str:
-    return subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args], cwd=cwd, check=True,
-                          capture_output=True, text=True).stdout
-
-
-class LivePlan(unittest.TestCase):
-    """Without --index the plan comes from the root bead's integration branch, never from a fixed base."""
+class LivePlan(Repo):
+    """Without --index the plan file comes from the phase file's integration branch, never from a fixed base."""
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        base = Path(self.tmp.name)
-        origin, self.repo, bin_dir = base / "origin.git", base / "repo", base / "bin"
+        super().setUp()
+        origin, bin_dir = self.base / "origin.git", self.base / "bin"
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
-        subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True)
         git(self.repo, "remote", "add", "origin", str(origin))
-        config = self.repo / ".claude/project/atm-bd-orchestration.yaml"
-        config.parent.mkdir(parents=True)
-        config.write_text("plans_dir: plans\n")
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-qm", "config")
         git(self.repo, "push", "-q", "origin", "main")
-        # the plan exists only on the integration branch; there is no develop branch anywhere
         git(self.repo, "checkout", "-qb", "integrate/phase-t")
-        plan = self.repo / "plans/phase-t/sprints.jsonl"
+        plan = self.repo / "plans/phase-t.jsonl"
         plan.parent.mkdir(parents=True)
-        plan.write_text("".join(json.dumps(r) + "\n" for r in PLAN))
+        plan.write_text(lines(PLAN))
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-qm", "plan")
         git(self.repo, "push", "-q", "origin", "integrate/phase-t")
@@ -146,75 +209,65 @@ class LivePlan(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "bd").write_text(FAKE_BD)
         (bin_dir / "bd").chmod(0o755)
-        self.beads = base / "beads.json"
+        self.beads = self.base / "live.json"
         self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FAKE_BD_BEADS": str(self.beads)}
 
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def run_live(self, root_metadata: dict, **env: str) -> subprocess.CompletedProcess:
-        beads = copy.deepcopy(VALID)
-        beads[0]["metadata"] = root_metadata
+    def live(self, beads: list[dict] = VALID, *args: str, **env: str) -> subprocess.CompletedProcess:
         self.beads.write_text(json.dumps(beads))
-        return subprocess.run([str(SCRIPT), "--root", "x-phase-t"], cwd=self.repo, env={**self.env, **env},
-                              capture_output=True, text=True)
+        return self.run_vp(*(args or ("--phase", "t")), env={**self.env, **env})
 
-    def test_reads_the_plan_from_the_root_integration_branch(self):
-        out = self.run_live({"phase": "t", "integration_branch": "integrate/phase-t"})
+    def test_reads_the_plan_from_the_integration_branch(self):
+        out = self.live()
         self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
-        self.assertNotIn("develop", out.stderr)
+        self.assertEqual(self.live(VALID, "--root", "x-phase-t").returncode, 0)
 
-    def test_root_without_integration_branch_cannot_run(self):
-        out = self.run_live({"phase": "t"})
-        self.assertEqual(out.returncode, 2)
-        self.assertIn("x-phase-t has no metadata.integration_branch", out.stderr)
-
-    def test_plan_missing_on_the_branch_is_a_problem(self):
+    def test_plan_missing_on_the_branch_cannot_run(self):
+        (self.repo / ".atm-bd/phase-t.toml").write_text(TOML.replace("integrate/phase-t", "integrate/phase-u"))
         git(self.repo, "push", "-q", "origin", "main:refs/heads/integrate/phase-u")
-        out = self.run_live({"phase": "t", "integration_branch": "integrate/phase-u"})
-        self.assertEqual(out.returncode, 5)
-        self.assertIn("origin/integrate/phase-u:plans/phase-t/sprints.jsonl is missing", out.stdout)
-
-    def test_doctor_stderr_is_surfaced(self):
-        why = "proxy.doctor.unsupported: doctor is not supported in proxied-server mode"
-        out = self.run_live({"phase": "t", "integration_branch": "integrate/phase-t"}, FAKE_BD_DOCTOR_ERR=why)
+        out = self.live()
         self.assertEqual(out.returncode, 2)
+        self.assertIn("origin/integrate/phase-u:plans/phase-t.jsonl is missing", out.stderr)
+
+    def test_doctor_problems_are_warnings(self):
+        why = "proxy.doctor.unsupported: doctor is not supported in proxied-server mode"
+        out = self.live(VALID, FAKE_BD_DOCTOR_ERR=why)
+        self.assertEqual(out.returncode, 0, out.stderr)
         self.assertIn("bd doctor produced no JSON", out.stderr)
         self.assertIn(why, out.stderr)
+        out = self.live(VALID, FAKE_BD_DOCTOR_STATUS="error")
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("warning: bd doctor: dolt: m", out.stderr)
+
+    def test_a_missing_live_edge_is_a_problem(self):
+        beads = broken("x-t-2.group-dev", lambda b: b.update(dependencies=[]))
+        out = self.live(beads)
+        self.assertEqual(out.returncode, 5)
+        self.assertEqual(out.stdout.splitlines(), ["x-t-2.group-dev: missing blocks edge to x-t-1.group-sanity or x-t-1 (plan file: t-2 depends on t-1)"])
 
 
 class FilePlan(LivePlan):
-    """--file before import: a one-plan import reads the index's other beads live; check 5 covers only the file."""
+    """--file before import: the containers are rendered, their groups not yet poured."""
 
-    def rendered(self, bead: dict) -> dict:
-        out = {k: v for k, v in copy.deepcopy(bead).items() if k != "parent"}
-        out["dependencies"] = out.get("dependencies", []) + [{"type": "parent-child", "depends_on_id": bead["parent"]}]
-        return out
+    def run_file(self, plan_beads: list[dict], live: list[dict]) -> subprocess.CompletedProcess:
+        self.beads.write_text(json.dumps(live))
+        (self.base / "beads.jsonl").write_text("".join(json.dumps(b) + "\n" for b in plan_beads))
+        return self.run_vp("--phase", "t", "--file", str(self.base / "beads.jsonl"), "--no-doctor", env=self.env)
 
-    def run_file(self, plan: list[dict]) -> subprocess.CompletedProcess:
-        unrelated = {"id": "x-old", "issue_type": "task", "status": "open", "created_at": "2025-01-01T00:00:00Z"}
-        self.beads.write_text(json.dumps(VALID[:3] + [unrelated]))  # live: the root, t-1 and its sanity check
-        base = Path(self.tmp.name)
-        (base / "plan.jsonl").write_text("".join(json.dumps(b) + "\n" for b in plan))
-        (base / "sprints.jsonl").write_text("".join(json.dumps(r) + "\n" for r in PLAN))
-        return subprocess.run([str(SCRIPT), "--file", str(base / "plan.jsonl"), "--root", "x-phase-t",
-                               "--index", str(base / "sprints.jsonl"), "--no-doctor"],
-                              cwd=self.repo, env=self.env, capture_output=True, text=True)
-
-    def test_one_plan_import_passes(self):
-        out = self.run_file([self.rendered(VALID[3]), self.rendered(VALID[4])])
+    def test_a_new_plan_passes_before_its_groups_are_poured(self):
+        out = self.run_file([ROOT_EPIC, container("x-t-1"), container("x-t-2")], [])
         self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
+        self.assertIn("warning: x-t-2: not poured yet", out.stderr)
 
-    def test_a_plan_bead_with_an_assignee_is_a_warning(self):
-        out = self.run_file([{**self.rendered(VALID[3]), "assignee": "my-dev"}, self.rendered(VALID[4])])
-        self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
-        self.assertIn("validate-plan: warning: x-t-2: assignee set at plan time", out.stderr)
+    def test_a_plan_bead_with_an_assignee_or_no_parent_is_a_warning(self):
+        orphan = {**{k: v for k, v in container("x-t-2").items() if k != "parent"}, "assignee": "my-dev"}
+        out = self.run_file([ROOT_EPIC, container("x-t-1"), orphan], [])
+        self.assertEqual(out.returncode, 0, out.stdout)
+        self.assertIn("warning: x-t-2: assignee set at plan time", out.stderr)
+        self.assertIn("warning: x-t-2: task at the top level", out.stderr)
 
-    def test_a_parentless_plan_bead_is_still_caught(self):
-        orphan = {**{k: v for k, v in VALID[3].items() if k != "parent"}, "issue_type": "task"}
-        out = self.run_file([orphan, self.rendered(VALID[4])])
-        self.assertEqual(out.returncode, 5)
-        self.assertEqual(out.stdout.splitlines(), ["x-t-2: task at the top level; only epics live at the top level, parent it under its epic"])
+    def test_an_import_into_a_running_phase_reads_the_rest_live(self):
+        out = self.run_file([container("x-t-2")], [b for b in VALID if not b["id"].startswith("x-t-2")])
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
 
 
 if __name__ == "__main__":

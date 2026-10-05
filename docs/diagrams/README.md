@@ -58,47 +58,4 @@ user's request.
 
 ## Not yet implemented
 
-Paths are under `plugins/atm-bd-orchestration/`.
-
-- `skills/atm-beads/templates/sprint-bead.json.j2` labels the sprint `stage:dev`: the
-  sprint bead is still the dev task, not a container.
-- The plan file is `<plans_dir>/phase-<x>/sprints.jsonl` with
-  `[sprint, sanity_bead, [prerequisites]]` tuples
-  (`skills/atm-beads/scripts/sprint_index_common.py`), not
-  `<plans_dir>/<phase>.jsonl` with `{"sprint", "depends_on"?}` lines;
-  `bead-groups` refuses a planned sanity id that differs from the poured one.
-- `skills/atm-bd-orchestration/formulas/sprint-group.relations.json` puts the
-  cross-sprint `blocks` edge on the dependent sprint container, not its dev
-  bead, and adds a container-to-container edge when `metadata.coupling` is
-  `tight`.
-- Both formulas set `assignee` on every step (`dev_member`, `sanity_member`,
-  `qa_member`) instead of leaving it to the lead at dispatch, and their sanity
-  and qa steps carry no `difficulty`.
-- `skills/atm-bd-orchestration/scripts/bead-groups` refuses a sprint with no
-  dispatched dev assignee, so it cannot pour before plan review, and copies
-  that assignee onto the dev and fix beads.
-- `skills/atm-bd-orchestration/formulas/finding-group.relations.json` adds no
-  `discovered-from` edge from the fix bead to its `filed_by` qa bead.
-- The finding-group fix bead lacks the `requirements`, `adrs` and
-  `found_at_commit` metadata that `finding-bead.json.j2` carries.
-- `skills/atm-bd-orchestration/templates/fix-assignment.xml.j2` assigns a finding
-  bead (`task_id` is the finding bead), not the poured fix bead.
-- `skills/atm-bd-orchestration/templates/qa-template.xml.j2` files every finding,
-  blocking included, with `finding-bead.json.j2` and never runs `bead-groups`.
-- `skills/atm-bd-orchestration/templates/finding-bead.json.j2` makes every finding a
-  child of `sprint_bead`, not of the phase or feature bead.
-- `qa-template.xml.j2` handles a failed fix verification with `bd reopen` of
-  the finding, not a round n+1 fix group.
-- `skills/atm-bd-orchestration/SKILL.md` (sanity check PASS) has the lead create the
-  qa bead from `qa-bead.json.j2` as a child of the checked bead instead of
-  dispatching the poured qa bead.
-- `skills/atm-bd-orchestration/SKILL.md` and `agents/dev-sanity.md` have the lead,
-  not dev-sanity, reopen the checked bead on a sanity FAIL.
-- `skills/atm-bd-orchestration/SKILL.md` has no step where the lead closes a sprint
-  container; the sprint bead is closed by the dev as the dev task.
-- Nothing reads `.atm-bd/<phase>.toml`; `validate-plan` takes the integration
-  branch from the root's `metadata.integration_branch` alone, so nothing checks
-  that the two agree. Scripts take `--root` or `--phase`.
-- `skills/atm-bd-orchestration/templates/fix-assignment.xml.j2` has no
-  itemized private checklist step; `dev-template.xml.j2` and `dev-fix.xml.j2`
-  do.
+None: the package code matches these diagrams.

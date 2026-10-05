@@ -10,18 +10,22 @@ A file of the same name in `<repo>/.atm-bd/formula/` overrides the one here.
 | `finding-group` | the same sprint container | `<sprint>.<finding_ref>-r<round>-{fix,sanity,qa}` | fix <- sanity <- qa |
 
 Under the default E1 option C, sanity blocks on dev (or fix) and qa blocks on
-sanity; qa also `validates` dev (or fix). A blocking finding has no bead of its
-own: its fix bead is the dev's task and carries `finding_ref`, `severity`,
-`reviewer`, `remedy` and `filed_by`. Important and minor findings are not
-poured; QA files them as plain finding beads against the phase or feature.
+sanity; qa also `validates` dev (or fix). A sprint's dev bead `blocks` on the
+initial sanity bead of each predecessor in the plan file. A blocking finding
+has no bead of its own: its fix bead is the dev's task, carries `finding_ref`,
+`severity`, `reviewer`, `remedy`, `filed_by`, `found_at_commit`,
+`requirements` and `adrs`, and is `discovered-from` its `filed_by` qa bead.
+Important and minor findings are not poured; QA files them as plain finding
+beads against the phase or feature.
+
+No poured bead has an assignee: each carries `difficulty`, and the lead picks
+the agent at dispatch. Each carries its stage label (`stage:dev` or
+`stage:fix`, `stage:dev-sanity`, `stage:qa`), which routes it in the lead's Loop.
 
 ## Closers
 
-bd refuses a close by anyone but the assignee, and refuses to close a bead
-with an open blocker or open child, so the poured assignees and edges enforce:
-
-The sanity assignee is the single dev-sanity teammate (`.claude/agents/dev-sanity.md`;
-config key `dev_sanity_member`), which spawns the sanity subagents itself.
+bd refuses to close a bead with an open blocker or open child, so the edges
+enforce:
 
 | Bead | Closed by | When |
 |---|---|---|

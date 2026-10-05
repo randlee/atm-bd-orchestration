@@ -26,16 +26,59 @@ class JevClientTests(unittest.TestCase):
                 client.evaluate(client.startup_request())
             http.assert_not_called()
 
-    def test_startup_notifies_lead_without_key(self):
-        with patch.dict(client.os.environ, {}, clear=True), patch.object(client.subprocess, "run") as send:
-            send.return_value.returncode = 0
+    def startup(self, argv, team, daemon, environ=None):
+        """Run the startup probe without a key; `atm escalation list` answers with `team` / `daemon` recipients."""
+        def run(cmd, **kwargs):
+            listed = {"--team": team} if "--team" in cmd else {"": daemon}
+            recipients = next(iter(listed.values()))
+            return MagicMock(returncode=0 if recipients is not None else 1, stdout=json.dumps({"recipients": recipients or []}))
+        with patch.dict(client.os.environ, environ if environ is not None else {"ATM_TEAM": "t"}, clear=True), \
+             patch.object(client.subprocess, "run", side_effect=run) as send:
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                rc = client.main(["--startup", "--lead", "appointed-lead"])
-            self.assertEqual(rc, 2)
-            self.assertTrue(json.loads(output.getvalue())["error"]["recoverable"])
-            self.assertEqual(send.call_args.args[0], ["atm", "send", "appointed-lead", "--stdin"])
-            self.assertEqual(set(json.loads(output.getvalue())["error"]), {"code", "message", "recoverable", "suggested_action"})
+                rc = client.main(argv)
+        sends = [(c.args[0][2], c.kwargs["input"]) for c in send.call_args_list if c.args[0][:2] == ["atm", "send"]]
+        return rc, json.loads(output.getvalue()), sends
+
+    def test_startup_announces_to_escalation_recipients_else_lead(self):
+        rc, result, sends = self.startup(["--startup", "--announce", "--lead", "appointed-lead"], ["oversight@team"], ["daemon@host"])
+        self.assertEqual(rc, 2)
+        self.assertTrue(result["error"]["recoverable"])
+        self.assertEqual(set(result["error"]), {"code", "message", "recoverable", "suggested_action"})
+        self.assertEqual([to for to, _ in sends], ["oversight@team"])
+        self.assertIn(result["error"]["message"], sends[0][1])
+        _, _, sends = self.startup(["--startup", "--announce", "--lead", "appointed-lead"], [], ["daemon@host"])
+        self.assertEqual([to for to, _ in sends], ["daemon@host"])
+        _, _, sends = self.startup(["--startup", "--announce", "--lead", "appointed-lead"], [], None)
+        self.assertEqual([to for to, _ in sends], ["appointed-lead"])
+        self.assertTrue(sends[0][1].endswith("No escalation recipient is set."))
+        _, _, sends = self.startup(["--startup", "--announce", "--lead", "appointed-lead"], None, ["daemon@host"], environ={})
+        self.assertEqual([to for to, _ in sends], ["daemon@host"])
+
+    def test_startup_without_announce_sends_nothing(self):
+        rc, _, sends = self.startup(["--startup"], ["oversight@team"], ["daemon@host"])
+        self.assertEqual((rc, sends), (2, []))
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            client.main(["--startup", "--announce"])
+
+    def test_error_announces_a_child_failure_verbatim_without_probing(self):
+        error = "SANITY.JEV_UNAVAILABLE: Jev HTTP 503; response body withheld"
+        with patch.object(client.http.client, "HTTPSConnection") as http:
+            rc, result, sends = self.startup(["--announce", "--error", error, "--lead", "appointed-lead"], ["oversight@team"], ["daemon@host"],
+                                             environ={"ATM_TEAM": "t", "TYPESAFE_API_KEY": "test-only-key"})
+            http.assert_not_called()
+        self.assertEqual((rc, result), (0, {"success": True, "data": {"announced": error}, "error": None}))
+        self.assertEqual([to for to, _ in sends], ["oversight@team"])
+        self.assertIn(error, sends[0][1])
+        _, _, sends = self.startup(["--announce", "--error", error, "--lead", "appointed-lead"], [], None)
+        self.assertEqual([to for to, _ in sends], ["appointed-lead"])
+        self.assertIn(error, sends[0][1])
+        self.assertTrue(sends[0][1].endswith("No escalation recipient is set."))
+        for argv in (["--error", error], ["--announce", "--error", "", "--lead", "appointed-lead"],
+                     ["--announce", "--error", error], ["--startup", "--error", error, "--announce", "--lead", "appointed-lead"],
+                     ["--request", "r.json", "--announce", "--lead", "appointed-lead"]):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                client.main(argv)
 
     def test_successful_transport(self):
         conn = MagicMock()
@@ -90,6 +133,42 @@ class JevClientTests(unittest.TestCase):
         request["state"] = {"bad": float("inf")}
         with self.assertRaises(client.JevError):
             client.validate_request(request)
+
+    def test_request_prints_a_receipt_only_the_call_can_write(self):
+        request = {"model": client.MODEL, "state": {"deliverable": "d", "evidence": "e"}, "questions": {"written": {
+            "type": "choice", "instructions": "Delivered?", "criteria": {"yes": "delivered", "no": "not delivered"}}}}
+        response = {"model": client.MODEL, "id": "resp-1", "answers": {"written": {
+            "type": "choice", "choice": "no", "confidence": 0.9, "probabilities": {"yes": 0.1, "no": 0.9}}}}
+        conn = MagicMock()
+        conn.getresponse.return_value.status = 200
+        conn.getresponse.return_value.read.return_value = json.dumps(response).encode()
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as file:
+            json.dump(request, file)
+            file.flush()
+            output = io.StringIO()
+            with patch.dict(client.os.environ, {"TYPESAFE_API_KEY": "test-only-key"}), \
+                 patch.object(client.http.client, "HTTPSConnection", return_value=conn), contextlib.redirect_stdout(output):
+                self.assertEqual(client.main(["--request", file.name]), 0)
+        receipt = json.loads(output.getvalue())["data"]["receipt"]
+        self.assertEqual({k: receipt[k] for k in ("model", "question", "choice", "probabilities", "response_id")},
+                         {"model": client.MODEL, "question": "written", "choice": "no",
+                          "probabilities": {"yes": 0.1, "no": 0.9}, "response_id": "resp-1"})
+        self.assertEqual(receipt["request_sha256"], client.hashlib.sha256(client.canonical(request)).hexdigest())
+        self.assertTrue(client.verify_receipt(receipt, "test-only-key"))
+        self.assertFalse(client.verify_receipt(receipt, "another-key"))
+        self.assertFalse(client.verify_receipt(dict(receipt, choice="yes"), "test-only-key"))
+        self.assertFalse(client.verify_receipt({k: v for k, v in receipt.items() if k != "mac"}, "test-only-key"))
+
+    def test_every_failure_message_the_client_writes_is_recognised(self):
+        source = (Path(__file__).parents[1] / "jev_client.py").read_text()
+        import re
+        literals = re.findall(r'JevError\("[A-Z_.]+", f?"([^"]+)"', source)
+        self.assertGreaterEqual(len(literals), 15)
+        for literal in literals:
+            with self.subTest(message=literal):
+                self.assertTrue(client.is_client_message(literal.replace("{status}", "503")))
+        self.assertFalse(client.is_client_message("Selected model is at capacity"))
 
 
 if __name__ == "__main__":

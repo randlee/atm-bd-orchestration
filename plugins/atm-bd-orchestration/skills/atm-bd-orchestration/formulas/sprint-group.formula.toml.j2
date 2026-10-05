@@ -14,23 +14,25 @@ repository configuration and sprint-group.relations.json):
   parent         the sprint container id (also the Beads variable `parent`)
   ref            attach reference, "group"
   phase, sprint, stack, layer, difficulty, priority
-  dev_member, sanity_member, qa_member
   edge_option    E1: "C" sanity needs dev (poured `blocks`; the default),
                  "B" no sanity -> dev edge in the pour (bead-groups adds
                  `validates`), "A" only dev is poured
-The sanity step carries only metadata.dev_bead (N9: it signals that the
-sanity agent runs on this sprint).
+The sanity step carries metadata.dev_bead (N9: it signals that the sanity
+agent runs on this sprint) and difficulty.
 
-Closers (bd refuses a close by anyone but the assignee): the dev closes dev;
-dev-sanity closes sanity on PASS only, and on FAIL reopens dev and leaves
-sanity open, which re-blocks it through `needs dev`; quality-mgr closes qa
-after pouring a finding-group for each blocking finding and filing the
-important and minor ones; the team lead closes the sprint container, which
-bd refuses while any group bead under it is open.
+No step sets an assignee: every poured bead carries `difficulty` and the lead
+picks the agent at dispatch (`bd update <bead> --assignee <agent>`).
+
+Closers: the dev closes dev; dev-sanity closes sanity on PASS only, and on
+FAIL reopens dev and leaves sanity open, which re-blocks it through
+`needs dev`; quality-mgr closes qa after pouring a finding-group for each
+blocking finding and filing the important and minor ones; the team lead
+closes the sprint container, which bd refuses while any group bead under it
+is open.
 #}
 formula = "sprint-group"
 description = "Sprint {{{ sprint }}}: dev, sanity and QA under sprint container {{{ parent }}}."
-version = 1
+version = 4
 type = "workflow"
 
 [vars.parent]
@@ -46,9 +48,8 @@ id = "dev"
 title = "{{{ sprint }}}: dev"
 description = "Dev work for sprint {{{ sprint }}}. The deliverables and acceptance criteria are on the sprint container {{{ parent }}}."
 type = "task"
-assignee = "{{{ dev_member }}}"
 priority = {{{ priority }}}
-labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}"]
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:dev"]
 
 [steps.metadata]
 role = "dev"
@@ -63,24 +64,23 @@ sprint_bead = "{{{ parent }}}"
 [[steps]]
 id = "sanity"
 title = "{{{ sprint }}}: sanity check"
-description = "Sanity check of {{{ parent }}}.{{{ ref }}}-dev (sprint {{{ sprint }}}): nothing skipped, no obvious errors, lint passes. This is not QA. Close on PASS only; on FAIL reopen the dev bead and leave this bead open."
+description = "Sanity check of {{{ parent }}}.{{{ ref }}}-dev (sprint {{{ sprint }}}): each numbered deliverable is written and lint passes. This is not QA. Close on PASS only; on FAIL reopen the dev bead and leave this bead open."
 type = "task"
-assignee = "{{{ sanity_member }}}"
 priority = {{{ priority }}}
-labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}"]
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:dev-sanity"]
 {% if edge_option == "C" %}needs = ["dev"]
 {% endif %}
 [steps.metadata]
 dev_bead = "{{{ parent }}}.{{{ ref }}}-dev"
+difficulty = "{{{ difficulty }}}"
 
 [[steps]]
 id = "qa"
 title = "{{{ sprint }}}: QA round 1"
 description = "QA round 1 of {{{ parent }}}.{{{ ref }}}-dev (sprint {{{ sprint }}}), after its sanity check passes."
 type = "task"
-assignee = "{{{ qa_member }}}"
 priority = {{{ priority }}}
-labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}"]
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:qa"]
 needs = ["sanity"]
 
 [steps.metadata]
@@ -89,6 +89,7 @@ phase = "{{{ phase }}}"
 sprint = "{{{ sprint }}}"
 stack = "{{{ stack }}}"
 round = 1
+difficulty = "{{{ difficulty }}}"
 checked_bead = "{{{ parent }}}.{{{ ref }}}-dev"
 sprint_bead = "{{{ parent }}}"
 {% endif %}

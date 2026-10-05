@@ -36,7 +36,7 @@
     }
   },
   "additionalProperties": true,
-  "description": "A stage:dev-sanity bead: it blocks on the bead it checks.",
+  "description": "A sanity bead: it blocks on the bead it checks.",
   "properties": {
     "id": {
       "minLength": 1,

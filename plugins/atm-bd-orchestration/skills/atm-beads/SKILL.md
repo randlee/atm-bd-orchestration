@@ -1,6 +1,6 @@
 ---
 name: atm-beads
-version: 0.3.1
+version: 0.3.2
 description: Plans written as beads. Use when writing, validating or importing a phase plan into beads, or when pairing an ATM task with its bead (claim, start, close).
 requires:
   cli:
@@ -62,8 +62,8 @@ Read only the one the current job needs.
 | [`resources/dev-sanity.md`](resources/dev-sanity.md) | writing or sending the sanity check assignment (recipient and message) |
 | [`resources/troubleshooting.md`](resources/troubleshooting.md) | a claim, close or assignee looks wrong, or `bd ready` misses assigned work |
 
-Every phase plan must include a committed `<plans_dir>/phase-<x>/sprints.jsonl`
-(the plan format, and how dev bead ids are derived from it: `resources/planning.md`
+Every phase plan must include the plan file `<plans_dir>/phase-<x>.jsonl` and the
+tracked phase file `.atm-bd/phase-<x>.toml` (format: `resources/planning.md`
 "Phase definition"), committed and pushed on the phase root's `integration_branch`
 before plan review. `sprint-review --root <root>` writes
 `<plans_dir>/phase-<x>/phase-<x>-dag.html` locally (never commits or pushes) without a
@@ -77,8 +77,8 @@ Validation is mandatory before a plan is imported, before plan review and
 before the first dispatch. Run it from the repository root:
 
 ```bash
-.claude/skills/atm-beads/scripts/validate-plan --file <plan.jsonl> --root <root id> --index <sprints.jsonl>   # before import
-.claude/skills/atm-beads/scripts/validate-plan --root <root id>   # live beads; plan from origin/<root integration_branch>
+.claude/skills/atm-beads/scripts/validate-plan --file <plan.jsonl> --phase <x> --index <plans_dir>/phase-<x>.jsonl   # before import
+.claude/skills/atm-beads/scripts/validate-plan --phase <x>   # live beads; plan file from origin/<integration_branch>
 ```
 
 What it checks is listed once, in the header of

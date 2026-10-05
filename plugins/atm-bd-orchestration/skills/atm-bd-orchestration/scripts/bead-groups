@@ -5,11 +5,14 @@
 
   TARGET (any mix, at least one):
     --sprint ID[,ID...]    sprint containers (repeatable)
-    --phase P              every sprint in <plans_dir>/phase-P/sprints.jsonl
+    --phase P              every sprint in the plan file `.atm-bd/phase-P.toml` names
     --findings FILE        the blocking findings one QA round raised on one sprint (repeatable):
                              {"sprint": "<sprint container id>", "round": N, "filed_by": "<QA bead id>",
+                              "found_at_commit": "<reviewed commit>",
                               "findings": [{"ref": "qa1-f1", "severity": "blocking", "reviewer": "...",
                                             "title": "...", "remedy": "...", "priority": 1}]}
+                           a finding may also carry requirements, adrs and difficulty; they default to the
+                           sprint container's metadata
 
 A sprint pours dev <- sanity <- qa under its container. Each blocking finding
 pours fix <- sanity <- qa as siblings under the same container, at
@@ -21,11 +24,10 @@ quality-mgr pours the groups first, then closes its QA bead.
 For every target it pours the group's formula with the sc-compose beads pour
 (today `sc-compose-pour-mock`; POUR below is the one line to change), then
 adds the edges the pour cannot make, from `<formula>.relations.json`:
-`validates` (E1 option), and for a sprint the cross-sprint `blocks` on each
-predecessor named in the phase's sprints.jsonl (normal: the predecessor's
-sanity bead; tight, when the container's metadata.coupling is "tight": its
-sprint container). All targets are poured before any is related, so a
-predecessor in the same run is found.
+`validates` (E1 option); for a sprint, its dev bead `blocks` on the initial
+sanity bead of each predecessor in the phase's plan file depends_on; for a
+fix, `discovered-from` its `filed_by` QA bead. All targets are poured before
+any is related, so a predecessor in the same run is found.
 
 Both steps create only what is missing and never edit an existing bead, so
 running it again after sprints are added to the plan fills in only the new
@@ -36,10 +38,9 @@ refuses that target, with a typed code, before its edges are written.
 --validate writes nothing: it previews each pour and reports every missing
 bead, missing edge, conflicting edge and SanityBead schema problem.
 
-dev_member is the assignee the lead set at dispatch: on the sprint bead
-for --sprint; on its poured dev bead, else the sprint bead, for --findings.
-Variables come from the target beads, the repository configuration
-(dev_sanity_member, qa_member, bead_prefix, plans_dir) and the relations file.
+No poured bead gets an assignee: each carries `difficulty`, and the lead
+picks the agent at dispatch. Variables come from the target beads, the
+phase file `.atm-bd/phase-<p>.toml` (plan file, root) and the relations file.
 Requests and receipts are written to <repo>/.atm-bd/pour/.
 
 Exit: 0 succeeded (validate: nothing missing or wrong), 5 validate found
@@ -109,18 +110,22 @@ class Run:
         return self.sidecars[formula]
 
     def plan(self, phase: str) -> dict:
-        """sprint name -> (container id, sanity id, predecessor sprint names), from the phase's sprints.jsonl."""
+        """sprint name -> (container id, initial sanity id, predecessor sprint names), from the phase's plan file."""
         if phase not in self.plans:
-            path = sprint_index_common.phase_path(self.repo, phase)
+            try:
+                config = sprint_index_common.load_phase_config(self.repo, phase)
+            except RuntimeError as exc:
+                raise TargetError("BEAD_GROUPS_PLAN_NOT_FOUND", str(exc)) from exc
+            path = self.repo / config["plan"]
             if not path.is_file():
                 raise TargetError("BEAD_GROUPS_PLAN_NOT_FOUND", f"{path} does not exist")
-            try:
-                sprint_index_common.load_phase_plan(path)  # the plan's own validation
-            except RuntimeError as exc:
-                raise TargetError("BEAD_GROUPS_PLAN_INVALID", str(exc)) from exc
-            prefix = str(self.config["bead_prefix"])
-            rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-            self.plans[phase] = {s: (f"{prefix}-{s}", sanity, deps) for s, sanity, deps in rows}
+            rows, problems = sprint_index_common.parse_plan(path.read_text(), str(path))
+            if problems:
+                raise TargetError("BEAD_GROUPS_PLAN_INVALID", "; ".join(problems))
+            prefix = sprint_index_common.bead_prefix(config["root"], self.repo)
+            ref = self.sidecar("sprint-group")["ref"]
+            self.plans[phase] = {r["sprint"]: (f"{prefix}-{r['sprint']}", attach_id(f"{prefix}-{r['sprint']}", ref, "sanity"), r["depends_on"])
+                                 for r in rows}
         return self.plans[phase]
 
     def show(self, bead: str) -> dict:
@@ -135,42 +140,23 @@ class Run:
             raise TargetError("BEAD_GROUPS_OPTION_UNKNOWN", f"option {option!r} is not in {sorted(sidecar['options'])}")
         return option
 
-    def members(self) -> dict:
-        return {"sanity_member": str(self.config["dev_sanity_member"]), "qa_member": str(self.config["qa_member"])}
-
-    def dev_member(self, container: dict, *, poured_dev: bool) -> str:
-        """The dispatched dev bead's assignee: the poured sprint dev bead when asked and it exists, else the sprint bead."""
-        dev = None
-        if poured_dev:
-            ref = fmt(self.sidecar("sprint-group")["ref"], {"vars": container.get("metadata") or {}})
-            dev = self.bd.show(attach_id(container["id"], ref, "dev"))
-        member = (dev or {}).get("assignee") or container.get("assignee")
-        if not member:
-            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{container['id']} has no dispatched dev assignee; group after `bd update <bead> --assignee <dev>`")
-        return member
-
     def sprint_target(self, bead: str) -> dict:
         container = self.show(bead)
         meta = container.get("metadata") or {}
         missing = [k for k in SPRINT_KEYS if meta.get(k) in (None, "")]
         if missing:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{bead} lacks {', '.join(missing)}")
-        dev_member = self.dev_member(container, poured_dev=False)
         sidecar = self.sidecar("sprint-group")
         option = self.option_for(sidecar)
         plan = self.plan(str(meta["phase"]))
         if meta["sprint"] not in plan or plan[meta["sprint"]][0] != bead:
-            raise TargetError("BEAD_GROUPS_PLAN_MISMATCH", f"{bead} is not sprint {meta['sprint']} of phase {meta['phase']}'s sprints.jsonl")
-        _, planned_sanity, deps = plan[meta["sprint"]]
+            raise TargetError("BEAD_GROUPS_PLAN_MISMATCH", f"{bead} is not sprint {meta['sprint']} of phase {meta['phase']}'s plan file")
+        deps = plan[meta["sprint"]][2]
         compose = {"parent": bead, "phase": meta["phase"], "sprint": meta["sprint"], "stack": meta["stack"],
                    "layer": meta["layer"], "difficulty": meta["difficulty"], "priority": container.get("priority", 2),
-                   "dev_member": dev_member, **self.members(), "edge_option": option}
+                   "edge_option": option}
         compose["ref"] = fmt(sidecar["ref"], {"vars": compose})
-        if option != "A" and planned_sanity != attach_id(bead, compose["ref"], "sanity"):
-            raise TargetError("BEAD_GROUPS_PLAN_MISMATCH",
-                              f"sprints.jsonl names sanity {planned_sanity}; the pour makes {attach_id(bead, compose['ref'], 'sanity')}")
-        relate_vars = {**sidecar.get("defaults", {}), **({"coupling": meta["coupling"]} if meta.get("coupling") else {}),
-                       "predecessor": [plan[d][0] for d in deps], "predecessor_sanity": [plan[d][1] for d in deps]}
+        relate_vars = {**sidecar.get("defaults", {}), "predecessor_sanity": [plan[d][1] for d in deps]}
         return {"kind": "sprint", "id": bead, "formula": "sprint-group", "option": option, "compose": compose, "vars": relate_vars}
 
     def finding_targets(self, path: Path) -> list[dict | TargetError]:
@@ -178,16 +164,18 @@ class Run:
         try:
             doc = json.loads(Path(path).read_text())
             sprint, round_, filed_by, findings = doc["sprint"], doc["round"], doc["filed_by"], doc["findings"]
+            found_at = doc["found_at_commit"]
         except (OSError, ValueError, KeyError, TypeError) as exc:
-            raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"{path}: {exc!r}; expected sprint, round, filed_by, findings") from exc
+            raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"{path}: {exc!r}; expected sprint, round, filed_by, found_at_commit, findings") from exc
         if not isinstance(round_, int) or round_ < 1 or not isinstance(findings, list):
             raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"{path}: round must be an integer >= 1 and findings a list")
+        if not isinstance(found_at, str) or not re.fullmatch(r"[0-9a-f]{7,40}", found_at):
+            raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"{path}: found_at_commit must be a commit sha")
         container = self.show(sprint)
         meta = container.get("metadata") or {}
         missing = [k for k in ("phase", "sprint", "stack", "difficulty") if meta.get(k) in (None, "")]
         if missing:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{sprint} lacks {', '.join(missing)}")
-        dev_member = self.dev_member(container, poured_dev=True)
         qa_closed = self.show(filed_by).get("status") == "closed"
         sidecar = self.sidecar("finding-group")
         option = self.option_for(sidecar)
@@ -202,11 +190,16 @@ class Run:
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} lacks {', '.join(lacking)}")
                 if finding["severity"] != "blocking":
                     raise TargetError("BEAD_GROUPS_NOT_BLOCKING", f"finding {ref} is {finding['severity']}; only blocking findings are poured, file it as a finding bead")
+                ids = {k: finding[k] if k in finding else meta.get(k) for k in ("requirements", "adrs")}
+                bad = [k for k, v in ids.items() if not isinstance(v, list) or not v or not all(isinstance(i, str) and i for i in v)]
+                if bad:
+                    raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref}: {', '.join(bad)} must be a nonempty list of ids (from the finding or {sprint}'s metadata)")
                 compose = {"parent": sprint, "finding_ref": ref, "round": round_, "severity": finding["severity"],
                            "reviewer": finding["reviewer"], "finding_title": finding["title"], "remedy": finding["remedy"],
-                           "filed_by": filed_by, "phase": meta["phase"], "sprint": meta["sprint"], "stack": meta["stack"],
-                           "difficulty": meta["difficulty"], "priority": finding.get("priority", 1),
-                           "dev_member": dev_member, **self.members(), "edge_option": option}
+                           "filed_by": filed_by, "found_at_commit": found_at, **ids,
+                           "phase": meta["phase"], "sprint": meta["sprint"], "stack": meta["stack"],
+                           "difficulty": finding.get("difficulty") or meta["difficulty"], "priority": finding.get("priority", 1),
+                           "edge_option": option}
                 compose["ref"] = fmt(sidecar["ref"], {"vars": compose})
                 out.append({"kind": "finding", "id": f"{sprint}.{compose['ref']}", "formula": "finding-group", "option": option,
                             "compose": compose, "vars": dict(sidecar.get("defaults", {})), "qa_closed": qa_closed})

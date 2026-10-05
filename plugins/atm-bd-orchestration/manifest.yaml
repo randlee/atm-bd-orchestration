@@ -1,5 +1,5 @@
 name: atm-bd-orchestration
-version: 0.8.2
+version: 0.9.0
 description: >
   Bead-driven phase orchestration for ATM agent teams: the phase plan as a
   beads graph (atm-beads), dispatch, dev-sanity, QA and stack landing driven
@@ -76,13 +76,15 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/fixtures/difficulty-mismatch.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/dirty-tree.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/not-ready.json
+    - skills/atm-bd-orchestration/scripts/tests/fixtures/not-rebased.json
+    - skills/atm-bd-orchestration/scripts/tests/fixtures/not-stacked.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/plan-invalid.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/pr-required.json
+    - skills/atm-bd-orchestration/scripts/tests/fixtures/pr-target-mismatch.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/qa-head-mismatch.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/qa-ready.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/sanity-frozen.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/sanity-ready.json
-    - skills/atm-bd-orchestration/scripts/tests/fixtures/stale-base.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/stale-sanity.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/transition-first-fail.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/transition-minor-pass.json
@@ -91,6 +93,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/fixtures/unclaimable.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/wrong-base.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/zero-delta.json
+    - skills/atm-bd-orchestration/scripts/tests/jev_receipts.py
     - skills/atm-bd-orchestration/scripts/tests/test_assignment_gates.py
     - skills/atm-bd-orchestration/scripts/tests/test_atomic.py
     - skills/atm-bd-orchestration/scripts/tests/test_bead_pour_mock.py
@@ -179,6 +182,7 @@ artifacts:
     - skills/sprint-review/scripts/sprint-review
   agents:
     - agents/dev-sanity.md
+    - agents/parallax.md
     - agents/sc-sanity-jev.md
     - agents/sc-sanity-llm.md
 # ARTIFACTS-END

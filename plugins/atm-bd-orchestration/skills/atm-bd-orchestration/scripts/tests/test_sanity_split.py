@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 
 SCRIPTS = Path(__file__).parents[1]
 SCRIPT = SCRIPTS / "sanity-split"
@@ -337,6 +338,14 @@ class SanitySplit(unittest.TestCase):
                 self.assertEqual(texts, expected)
 
     def test_commit_mismatch(self):
+        with self.subTest("tool lock and log files are not dirt"):
+            (self.repo.wt / ".beads.gate.lock").write_text("")
+            (self.repo.wt / ".sc-compose").mkdir()
+            (self.repo.wt / ".sc-compose" / "log.jsonl").write_text("{}")
+            out = self.run_split()
+            self.assertEqual(out.returncode, 0, out.stderr)
+            (self.repo.wt / ".beads.gate.lock").unlink()
+            shutil.rmtree(self.repo.wt / ".sc-compose")
         with self.subTest("dirty tree"):
             (self.repo.wt / "scratch.txt").write_text("x")
             out = self.run_split()
@@ -373,6 +382,40 @@ class SanitySplit(unittest.TestCase):
         self.assertEqual(manifest["files_outside_owned_paths"], ["docs/other.md"])
         self.assertEqual(manifest["assignments"][0]["assignment"]["files_outside_owned_paths"], ["docs/other.md"])
         self.wait_lint(manifest["lint"]["exit_file"])
+
+    def test_layer_prs_diff_only_the_sprints_own_layers(self):
+        """After a dev-fix with another sprint's layer between, the changed files are the sprint's layer ranges only."""
+        la = (self.repo.base_sha, self.repo.sha)
+        git(self.repo.wt, "checkout", "-q", "-b", "sprint/y")
+        self.repo.commit("docs/other-sprint.md", "other sprint\n", "other sprint")
+        git(self.repo.wt, "push", "-q", "-u", "origin", "sprint/y")
+        lb_head = git(self.repo.wt, "rev-parse", "HEAD")
+        git(self.repo.wt, "checkout", "-q", "-b", "fix/x")
+        self.repo.commit("crates/types/src/retry_tests.rs", "// 503\n", "fix")
+        git(self.repo.wt, "push", "-q", "-u", "origin", "fix/x")
+        f_head = git(self.repo.wt, "rev-parse", "HEAD")
+        prs = self.root / "prs.json"
+        prs.write_text(json.dumps({"1": {"baseRefOid": la[0], "headRefOid": la[1]}, "3": {"baseRefOid": lb_head, "headRefOid": f_head}}))
+        fake = self.root / "bin"
+        fake.mkdir()
+        (fake / "gh").write_text(f"#!{sys.executable}\nimport json, sys\nprs = json.load(open({str(prs)!r}))\n"
+                                 "sys.exit(1) if sys.argv[3] not in prs else print(json.dumps(prs[sys.argv[3]]))\n")
+        (fake / "gh").chmod(0o755)
+        path = f"{fake}{os.pathsep}{os.environ['PATH']}"
+        with unittest.mock.patch.dict(os.environ, {"PATH": path}):
+            whole = self.run_split(None, None, f_head, "fix/x", "develop")
+            own = self.run_split(None, None, f_head, "fix/x", "sprint/y", "--layer-pr", "1", "--layer-pr", "3")
+            stale = self.run_split(None, None, f_head, "fix/x", "sprint/y", "--layer-pr", "3", "--layer-pr", "1")
+            missing = self.run_split(None, None, f_head, "fix/x", "sprint/y", "--layer-pr", "1", "--layer-pr", "9")
+        self.assertIn("docs/other-sprint.md", json.loads(whole.stdout)["changed_files"])  # one span carries the other sprint
+        self.assertEqual(own.returncode, 0, own.stderr)
+        manifest = json.loads(own.stdout)
+        self.assertEqual(manifest["changed_files"], ["crates/types/src/retry.rs", "crates/types/src/retry_tests.rs"])
+        self.assertEqual(manifest["files_outside_owned_paths"], [])
+        self.assertEqual(stale.returncode, 4, stale.stderr)  # the checked PR goes last and must be at the pinned sha
+        self.assertEqual(missing.returncode, 3, missing.stderr)
+        for out in (whole, own):
+            self.wait_lint(json.loads(out.stdout)["lint"]["exit_file"])
 
     def test_renames_list_source_and_destination(self):
         with self.subTest("outside -> inside the fence"):

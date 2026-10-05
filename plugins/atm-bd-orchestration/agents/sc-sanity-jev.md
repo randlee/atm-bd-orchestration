@@ -1,6 +1,6 @@
 ---
 name: sc-sanity-jev
-version: 0.6.0
+version: 0.7.0
 description: Jev-assisted dev sanity check of one numbered deliverable at an exact commit; reports whether it is done as JSON. Read-only, no lint, not QA.
 tools: Glob, Grep, LS, Read, BashOutput, Bash
 model: sonnet
@@ -51,9 +51,8 @@ Every field is present. `deliverable.text` is the only requirement you judge.
    commit only.
    Decide whether the committed tree at `commit` delivers `deliverable.text`.
    Existing code may satisfy it; downstream PR, QA, linking, and merging work
-   does not count. If it is unfinished, use Jev to confirm that conclusion
-   from the committed evidence and return exactly one `skipped` finding.
-   Write the request to a file outside the worktree and run `python3
+   does not count. Ask Jev for every deliverable, done or not: write the
+   request to a file outside the worktree and run `python3
    scripts/jev_client.py --request <file>` from the repository root. The
    request is one Choice question, at most 24000 bytes:
 
@@ -65,8 +64,11 @@ Every field is present. `deliverable.text` is the only requirement you judge.
       "criteria": {"yes": "delivered", "no": "not delivered"}}}}
    ```
 
-   Its answer is `data.answers.written.choice`.
-4. Return the result with `commit_checked` exactly equal to `commit`.
+   Its answer is `data.answers.written.choice`. Choice `no` means exactly one
+   `skipped` finding; `yes` means none.
+4. Return the result with `commit_checked` exactly equal to `commit` and
+   `jev` = the client's `data.receipt`, copied verbatim from its stdout. The
+   receipt is keyed by the client; one you write or edit fails the merge.
 
 ## Output Format
 
@@ -79,7 +81,10 @@ Every field is present. `deliverable.text` is the only requirement you judge.
     "deliverable": 2,
     "commit_checked": "<full 40-char sha>",
     "findings": [{"kind": "skipped", "file": "crates/x/src/lib.rs", "line": 42,
-                  "issue": "One sentence: why this deliverable is not done."}]
+                  "issue": "One sentence: why this deliverable is not done."}],
+    "jev": {"model": "jev-1.13.0", "question": "written", "choice": "no",
+            "probabilities": {"yes": 0.08, "no": 0.92}, "response_id": null,
+            "request_sha256": "<from the client>", "mac": "<from the client>"}
   },
   "error": null
 }
@@ -95,7 +100,8 @@ An unfinished check returns `success: false`, `data: null`, and
 `error: {code, message, recoverable, suggested_action, deliverable}`. When
 `jev_client.py` exits 2, copy its `error` (`SANITY.JEV_UNAVAILABLE`,
 `SANITY.JEV_RESPONSE_INVALID`, `SANITY.JEV_INCONCLUSIVE` or
-`VALIDATION.INPUT`) and add `deliverable` = `deliverable.number`.
+`VALIDATION.INPUT`) verbatim, `message` included, and add `deliverable` =
+`deliverable.number`. A message the client did not write fails the merge.
 
 ## Constraints
 
@@ -106,4 +112,6 @@ An unfinished check returns `success: false`, `data: null`, and
 
 If Jev is unavailable, times out, or returns invalid output, return the failure
 envelope with the actual error and deliverable number. Never label an unaided
-LLM conclusion as a Jev result. The coordinator logs this as CANNOT_RUN.
+LLM conclusion as a Jev result. The coordinator keeps the envelope in its slot,
+logs its error, and selects the LLM reply for that deliverable; only a
+deliverable neither reviewer could check is CANNOT_RUN.

@@ -179,26 +179,27 @@ class PlanCheckTests(unittest.TestCase):
             config = repo / '.claude/project/atm-bd-orchestration.yaml'
             config.parent.mkdir(parents=True)
             config.write_text('plans_dir: work/plans\n')
-            plan = repo / 'work/plans/phase-test/sprints.jsonl'
+            (repo / '.atm-bd').mkdir()
+            (repo / '.atm-bd/phase-test.toml').write_text(
+                'plan = "work/plans/phase-test.jsonl"\nroot = "tp-phase-test"\nintegration_branch = "integrate/phase-test"\n')
+            plan = repo / 'work/plans/phase-test.jsonl'
             plan.parent.mkdir(parents=True)
-            plan.write_text('["test-1", "gate", []]\n')
+            plan.write_text('{"sprint": "test-1"}\n')
             run('add', 'README', cwd=repo)
             run('commit', '-m', 'base', cwd=repo)
             run('remote', 'add', 'origin', str(remote), cwd=repo)
             run('push', '-u', 'origin', 'integrate/phase-test', cwd=repo)
-            root = [{'id': 'tp-phase-test', 'metadata': {'phase': 'test', 'integration_branch': 'integrate/phase-test'}}]
-            with patch.object(artifact_check, 'run_json', return_value=root):
-                with self.assertRaisesRegex(RuntimeError, 'required phase index missing'):
-                    artifact_check.check_artifact(repo, 'tp-phase-test', plan)
+            with self.assertRaisesRegex(RuntimeError, 'plan file work/plans/phase-test.jsonl missing'):
+                artifact_check.check_artifact(repo, 'tp-phase-test', plan)
             run('add', str(plan.relative_to(repo)), cwd=repo)
             run('commit', '-m', 'plan', cwd=repo)
             run('push', 'origin', 'integrate/phase-test', cwd=repo)
-            with patch.object(artifact_check, 'run_json', return_value=root):
+            artifact_check.check_artifact(repo, 'tp-phase-test', plan)
+            plan.write_text('{"sprint": "test-2"}\n')
+            with self.assertRaisesRegex(RuntimeError, 'published plan file differs'):
                 artifact_check.check_artifact(repo, 'tp-phase-test', plan)
-                plan.write_text('["test-2", "other-gate", []]\n')
-                with self.assertRaisesRegex(RuntimeError, 'phase plan differs'):
-                    artifact_check.check_artifact(repo, 'tp-phase-test', plan)
-
+            with self.assertRaisesRegex(RuntimeError, 'the phase file names tp-phase-test'):
+                artifact_check.check_artifact(repo, 'other-phase-test', plan)
 
 if __name__ == '__main__':
     unittest.main()

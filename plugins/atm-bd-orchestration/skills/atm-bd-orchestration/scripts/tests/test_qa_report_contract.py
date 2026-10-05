@@ -27,7 +27,7 @@ def _step_j(values: dict) -> str:
 
 
 def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
-             bd_rows: list[dict] | None = None) -> tuple[dict, dict]:
+             bd_rows: list[dict] | None = None, blocking: dict | None = None) -> tuple[dict, dict]:
     """Run step j's count lines and two row writers on real finding rows (bd replaced by `bd_rows`)."""
     counts = step[step.index("FNDFILE="):step.index("TESTED=")].replace("<scratch>", str(workdir))
     round_cmd = step[step.index("jq -nc"):step.index("\n\nbd list")]
@@ -37,6 +37,9 @@ def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
     if findings:
         task = step[step.index("FNDFILE=<scratch>/") + len("FNDFILE=<scratch>/"):step.index("-findings.jsonl")]
         (workdir / f"{task}-findings.jsonl").write_text("".join(json.dumps(f) + "\n" for f in findings))
+    if blocking:
+        task = step[step.index("BLKFILE=<scratch>/") + len("BLKFILE=<scratch>/"):step.index("-blocking.json")]
+        (workdir / f"{task}-blocking.json").write_text(json.dumps(blocking))
     env = {**os.environ, "NOW": "2026-10-02T12:00:00Z", "LOCAL": "05:00", "DURATION": "3m",
            "VERDICT": "PASS", "TESTED": "x"}
     script = "set -eu\nmkdir -p .sc/qa-log\n" + counts + "\n" + round_cmd + "\n" + stats_cmd + "\n"
@@ -110,16 +113,27 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
 
 
     def test_counts_come_from_real_finding_rows(self):
-        findings = [_finding(1, "blocking", "keep"), _finding(2, "minor", "not_applicable"),
-                    _finding(3, "important", "ceremony")]
-        closed = {**findings[2], "status": "closed"}
+        # step g: the blocking finding is poured (blocking file), the others are finding beads
+        findings = [_finding(2, "minor", "not_applicable"), _finding(3, "important", "ceremony")]
+        blocking = {"sprint": "p-d-4", "round": 1, "filed_by": "p-d-4.group-qa", "found_at_commit": "abc1234",
+                    "findings": [{"ref": "qa1-f1", "severity": "blocking", "reviewer": "r", "title": "t",
+                                  "remedy": "m", "priority": 1}]}
+        closed = {**findings[1], "status": "closed"}
         sanity_child = {**_finding(1, "blocking", "keep"), "id": "p-d-4.1"}  # a sanity child of the dev bead
+        sanity_child["metadata"] = {**sanity_child["metadata"], "sanity_finding": True}
         other_phase = {**_finding(4, "blocking", "keep"), "metadata": {**findings[0]["metadata"], "phase": "e"}}
+
+        def fix(n: int, status: str) -> dict:   # a poured fix bead of finding qa1-f1, round n
+            return {"id": f"p-d-4.qa1-f1-r{n}-fix", "status": status, "labels": ["phase-d", "stage:fix"],
+                    "metadata": {"phase": "d", "sprint_bead": "p-d-4", "finding_ref": "qa1-f1", "round": n,
+                                 "severity": "blocking"}}
         workdir = Path(self.tmp.name) / "real"
         workdir.mkdir()
         round_row, stats_row = _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir, findings,
-                                        [findings[0], findings[1], closed, sanity_child, other_phase])
+                                        [findings[0], closed, sanity_child, other_phase, fix(1, "closed"), fix(2, "open")],
+                                        blocking)
         self.assertEqual((round_row["fnd"], round_row["blk"], round_row["imp"], round_row["min"]), (2, 1, 0, 1))
+        # one finding per poured fix lineage (its latest round decides open), plus the finding beads
         self.assertEqual({k: stats_row[k] for k in ("tot", "open", "blk", "imp", "min")},
                          {"tot": 3, "open": 2, "blk": 1, "imp": 0, "min": 1})
 

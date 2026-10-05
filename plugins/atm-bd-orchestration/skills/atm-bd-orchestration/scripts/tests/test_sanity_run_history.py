@@ -12,6 +12,8 @@ import time
 import unittest
 from unittest.mock import patch
 
+from jev_receipts import CLIENT, env as receipt_env, receipted
+
 ROOT = Path(__file__).parents[2]
 SCRIPTS = ROOT / "scripts"
 LOADER = importlib.machinery.SourceFileLoader("sanity_history", str(SCRIPTS / "sanity-run-history"))
@@ -27,8 +29,16 @@ def record(**changes):
                  task='task-"quote"\nnext', sprint="d-4", phase="d", started_at="2026-09-30T16:00:00Z",
                  completed_at="2026-09-30T16:01:05Z", duration="1m05s", duration_seconds=65,
                  pr_number=42, iteration=1, verdict="PASS", final_verdict="PASS", findings=0,
-                 error=None, completed_local="09-30 09:01")
+                 error=None, errors=[], jev_receipts=[], completed_local="09-30 09:01")
     return dict(value, **changes)
+
+
+def jev_reply(number, findings=()):
+    return receipted({"success": True, "error": None, "data": {
+        "sanity_bead": "s", "dev_bead": "d", "deliverable": number, "commit_checked": "a" * 40, "findings": list(findings)}})
+
+
+RECEIPT = jev_reply(1)["data"]["jev"]
 
 
 class SanityHistory(unittest.TestCase):
@@ -87,7 +97,7 @@ class SanityHistory(unittest.TestCase):
     def test_conflicting_identity_or_truncated_log_is_not_appended(self):
         HISTORY.append_record(self.log, record())
         before = self.log.read_bytes()
-        for conflict in (record(commit="b" * 40, reviewer="sanity-jev"), record(findings=1, verdict="FAIL")):
+        for conflict in (record(commit="b" * 40, reviewer="sanity-jev", jev_receipts=[RECEIPT]), record(findings=1, verdict="FAIL")):
             with self.assertRaises(SystemExit):
                 HISTORY.append_record(self.log, conflict)
             self.assertEqual(self.log.read_bytes(), before)
@@ -109,6 +119,8 @@ class SanityHistory(unittest.TestCase):
 
         def run(index):
             values = record(run_id=f"run-{index // 2}", reviewer="sanity-llm" if index % 2 == 0 else "sanity-jev")
+            values["reviewer_results"] = [jev_reply(1)]
+            del values["jev_receipts"]
             values["findings_count"] = values.pop("findings")
             del values["completed_local"]
             var_file = self.root / f"vars-{index}.json"
@@ -135,6 +147,51 @@ class SanityHistory(unittest.TestCase):
         HISTORY.append_record(self.log, record(completed_local="09-30 18:01"))
         self.assertEqual(len(self.log.read_text().splitlines()), 1)
 
+    def test_retry_of_a_row_logged_before_errors_existed_is_the_same_row(self):
+        failed = record(errors=[{"code": "SANITY.JEV_UNAVAILABLE", "message": "Jev retry budget exhausted",
+                                 "recoverable": True, "deliverable": 1}])
+        legacy = {key: value for key, value in failed.items() if key != "errors"}
+        self.log.write_text(json.dumps(legacy) + "\n")
+        HISTORY.append_record(self.log, HISTORY.render_record(failed))
+        self.assertEqual([json.loads(line) for line in self.log.read_text().splitlines()], [legacy])
+        with self.assertRaises(SystemExit):
+            HISTORY.append_record(self.log, record(errors=failed["errors"], findings=1, verdict="FAIL"))
+
+    def test_jev_receipts_are_required_on_a_jev_verdict_and_absent_on_llm(self):
+        vars = {"reviewer": "sanity-jev", "reviewer_results": [jev_reply(1), jev_reply(2, [{"kind": "skipped"}]),
+                                                               {"success": False, "data": None, "error": {}}]}
+        self.assertEqual(HISTORY.jev_receipts(vars), [jev_reply(1)["data"]["jev"], jev_reply(2, [{"kind": "skipped"}])["data"]["jev"]])
+        self.assertEqual(HISTORY.jev_receipts(dict(vars, reviewer="sanity-llm")), [])
+        jev = record(reviewer="sanity-jev", jev_receipts=[RECEIPT])
+        self.assertEqual(HISTORY.render_record(jev), jev)
+        for invalid in (record(reviewer="sanity-jev"), record(reviewer="sanity-jev", verdict="FAIL", findings=1),
+                        record(jev_receipts=[RECEIPT]), record(reviewer="sanity-jev", jev_receipts=[None])):
+            with self.subTest(invalid=invalid), self.assertRaises(SystemExit):
+                HISTORY.render_record(invalid)
+        unavailable = record(reviewer="sanity-jev", verdict="CANNOT_RUN", findings=None,
+                             error={"code": "SANITY.JEV_UNAVAILABLE", "message": "Jev retry budget exhausted"})
+        self.assertEqual(HISTORY.render_record(unavailable), unavailable)
+
+    def test_retry_of_a_row_logged_before_jev_receipts_existed_is_the_same_row(self):
+        jev = record(reviewer="sanity-jev", jev_receipts=[RECEIPT])
+        legacy = {key: value for key, value in jev.items() if key not in ("jev_receipts", "errors")}
+        self.log.write_text(json.dumps(legacy) + "\n")
+        HISTORY.append_record(self.log, jev)
+        self.assertEqual([json.loads(line) for line in self.log.read_text().splitlines()], [legacy])
+
+    def test_malformed_failure_envelopes_never_block_the_cannot_run_row(self):
+        error = {"code": "SANITY.RESULT_INVALID", "message": "reply had no fence", "recoverable": False}
+        vars = {"reviewer_results": [
+            {"success": False, "data": None, "error": error},
+            {"success": False, "data": None, "error": {"message": "no code"}},
+            {"success": False, "data": None, "error": dict(error, deliverable=2)}]}
+        errors = HISTORY.slot_errors(vars)
+        self.assertEqual(errors, [dict(error, deliverable=None), dict(error, deliverable=2)])
+        row = record(reviewer="sanity-jev", verdict="CANNOT_RUN", final_verdict="PASS", findings=None,
+                     error={"code": "SANITY.RESULT_INVALID", "message": "deliverable 1 envelope invalid"}, errors=errors)
+        HISTORY.append_record(self.log, HISTORY.render_record(row))
+        self.assertEqual(json.loads(self.log.read_text()), row)
+
     def test_table_skips_pre_0_8_2_rows(self):
         legacy = {key: value for key, value in record().items() if key not in ("completed_local", "final_verdict")}
         runs = [dict(legacy, reviewer="sanity-selected"), legacy]
@@ -154,9 +211,9 @@ CONSOLE = (  # agents/dev-sanity.md "Mandatory Console Report"
 
 
 def fenced(task, bead, number, sha, findings=()):
-    return "```json\n" + json.dumps({"success": True, "data": {
+    return "```json\n" + json.dumps(receipted({"success": True, "data": {
         "deliverable": number, "sanity_bead": task, "dev_bead": bead, "commit_checked": sha,
-        "findings": list(findings)}, "error": None}, indent=2) + "\n```"
+        "findings": list(findings)}, "error": None}), indent=2) + "\n```"
 
 
 class ShippedFlow(unittest.TestCase):
@@ -195,17 +252,18 @@ class ShippedFlow(unittest.TestCase):
         now = time.time()
         return subprocess.run([str(SCRIPTS / "sanity-merge"), str(self.manifest), self.task, self.bead, "d-4",
                                "--reviewer", reviewer, "--started-at", str(now - 60), "--completed-at", str(now),
-                               *extra], input=stdin, capture_output=True, text=True)
+                               *extra, "--client", str(CLIENT)], input=stdin, capture_output=True, text=True, env=receipt_env())
 
-    def run_flow(self, select):
+    def run_flow(self, select, jev_failure=None):
         sha = self.repo.sha
         skipped = {"kind": "skipped", "file": "crates/types/src/retry.rs", "line": 1, "issue": "404 test not written"}
         replies = {"sanity-llm": [fenced(self.task, self.bead, 1, sha), fenced(self.task, self.bead, 2, sha)],
-                   "sanity-jev": [fenced(self.task, self.bead, 1, sha), fenced(self.task, self.bead, 2, sha, [skipped])]}
+                   "sanity-jev": [fenced(self.task, self.bead, 1, sha),
+                                  jev_failure or fenced(self.task, self.bead, 2, sha, [skipped])]}
         reviewer_vars = {}
         for reviewer, texts in replies.items():
             merged = self.merge(reviewer, stdin=json.dumps(texts))  # reply text kept unchanged as strings
-            self.assertEqual(merged.returncode, 0, merged.stderr)
+            self.assertEqual(merged.returncode, 3 if reviewer == "sanity-jev" and jev_failure else 0, merged.stderr)
             reviewer_vars[reviewer] = self.root / f"{reviewer}-vars.json"
             reviewer_vars[reviewer].write_text(merged.stdout)
         digests = {r: json.loads(v.read_text())["reviewer_results_sha256"] for r, v in reviewer_vars.items()}
@@ -256,6 +314,28 @@ class ShippedFlow(unittest.TestCase):
         self.assertEqual([(r["reviewer"], r["verdict"], r["final_verdict"]) for r in rows],
                          [("sanity-llm", "PASS", "CANNOT_RUN"), ("sanity-jev", "FAIL", "CANNOT_RUN")])
         self.assertEqual(table, self.expected_table(rows, ["LLM | 0 | ✅ | ✗", "JEV | 1 | ❌ | ✗"]))
+
+    def test_failed_jev_slot_error_is_logged_verbatim_while_llm_is_selected(self):
+        error = {"code": "SANITY.JEV_UNAVAILABLE", "message": "TYPESAFE_API_KEY is missing; no Jev evaluation ran",
+                 "recoverable": True, "suggested_action": "set TYPESAFE_API_KEY", "deliverable": 2}
+        failure = {"success": False, "data": None, "error": error}
+
+        def take_llm(selection):
+            selection[1].update(jev="cannot_run", reason="JEV unavailable: SANITY.JEV_UNAVAILABLE")
+        final, rows, table, _ = self.run_flow(take_llm, jev_failure=failure)
+        self.assertEqual(final, "PASS")
+        self.assertEqual([(r["reviewer"], r["verdict"], r["errors"]) for r in rows], [
+            ("sanity-llm", "PASS", []),
+            ("sanity-jev", "CANNOT_RUN", [{k: error[k] for k in ("code", "message", "recoverable", "deliverable")}])])
+        self.assertEqual(table, self.expected_table(rows, ["LLM | 0 | ✅ | ✓", "JEV | — | ⚠ unavailable | ✗"]))
+
+    def test_all_ok_rows_log_no_errors(self):
+        _, rows, _, _ = self.run_flow(lambda selection: None)
+        self.assertEqual([r["errors"] for r in rows], [[], []])
+        jev = [json.loads(text.split("\n", 1)[1].rsplit("\n", 1)[0])["data"]["jev"] for text in (
+            fenced(self.task, self.bead, 1, self.repo.sha),
+            fenced(self.task, self.bead, 2, self.repo.sha, [{"kind": "skipped", "file": "crates/types/src/retry.rs", "line": 1, "issue": "404 test not written"}]))]
+        self.assertEqual([r["jev_receipts"] for r in rows], [[], jev])
 
     def test_console_fails_on_a_wrong_ledger_path(self):
         doc = (ROOT.parents[1] / "agents/dev-sanity.md").read_text()

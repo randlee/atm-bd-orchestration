@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.2.0
+version: 2.16.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -44,11 +44,32 @@ wait behind their work.
 ## Startup
 
 At session start, and again whenever credentials change, prove Jev access:
-`python3 scripts/jev_client.py --startup --lead <lead>`. Exit 0: JEV
-children may run. Exit 2: keep taking tasks, but dispatch no `sc-sanity-jev`
+`python3 scripts/jev_client.py --startup`. Exit 0: JEV children may run.
+Exit 2 is probe-failed mode, and so is a JEV child failing with
+`SANITY.JEV_UNAVAILABLE`: keep taking tasks, but dispatch no `sc-sanity-jev`
 child until a later probe passes; every JEV slot gets the coordinator-origin
-`SANITY.JEV_UNAVAILABLE` envelope of step 3 below. If the probe's stderr asks
-you to report, send its stdout to the lead with `atm send <lead> --stdin`.
+`SANITY.JEV_UNAVAILABLE` envelope of step 3 below.
+
+A Jev outage (out of tokens or quota, missing or invalid key, retry budget
+exhausted, probe exit 2) is a serious failure, announced once per outage as in
+the skill's Lead Role (`.claude/skills/atm-bd-orchestration/SKILL.md`) through
+its class bead: `{{ workflow_issues_root }}-jev-outage` for a failed probe,
+`{{ workflow_issues_root }}-jev-child-outage` for a JEV child's
+`SANITY.JEV_UNAVAILABLE`. When the bead does not
+exist, create it from `workflow-issue-bead.json.j2` with the error as
+description; when it is closed, `bd reopen` it. In either case announce:
+`python3 scripts/jev_client.py --startup --announce --lead {{ lead }}` (failed
+probe) or `python3 scripts/jev_client.py --announce --error "<code>: <message>"
+--lead {{ lead }}` (the child's error verbatim, no probe) sends
+its error to the escalation recipients (else to `{{ lead }}`, saying no
+escalation recipient is set). When it is open, append the task id and the
+error to it (`bd update <bead> --append-notes`) and announce nothing. While in
+probe-failed mode, run the probe again at the start of each sanity task; when
+it passes, close `-jev-outage` if open with `bd close <bead> --reason "probe PASS"`
+and leave probe-failed mode. A class bead a JEV child opened closes only when a
+later JEV child reply passes the `sanity-jev` merge: `bd close <bead> --reason
+"Jev child PASS in <task>"`, or when no sanity task is ready or open, on the
+lead's passing Loop re-test probe (the skill's Loop).
 
 ## Tasks
 
@@ -63,24 +84,50 @@ check.
 
 ## Pre-claim refusals
 
-Before claim, perform these numbered checks at the pinned commit. Each
+Before claim, check that `bd ready -n 0 --json` lists the sanity bead. When it
+does not, do not claim it and do not start the task: find the root cause (its
+open blockers, normally the checked bead still open) and refuse; never wait:
+close the task `refused` with `task-refused.md.j2`, `bead_state` `open`, naming
+the bead, why it is not ready, which bead or agent has to move, and for a
+blocker that is not yet its dependency the edge to add,
+`bd dep add <bead> --blocked-by <blocker>`. The task assigner re-assigns it once
+`bd ready` lists the bead.
+
+Then perform these numbered checks at the pinned commit. Each
 failure is a refusal, not a best-effort check:
 
 1. `test -n "$PR_NUMBER" && test -n "$PR_URL"`; otherwise refuse
    `SANITY.PR_REQUIRED`.
-2. `gh pr view "$PR_NUMBER" --json baseRefName,headRefOid --jq '.baseRefName + " " + .headRefOid'`
-   must equal the declared `pr_target` and commit; otherwise refuse
-   `SANITY.STALE_BASE`. Then `git fetch origin`.
-3. `git log --format=%H "origin/$PR_TARGET..$COMMIT" | grep -q .` must pass;
+2. `gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRefOid`
+   must show base `$BASE` and head `$COMMIT`;
+   `gh api 'repos/{owner}/{repo}/stacks' --paginate --jq '.[]'` (GitHub's
+   stacks, never local `gh stack` tracking) must have an open stack whose
+   `pull_requests` include `$PR_NUMBER` with `$BASE` the `head.ref` of the
+   open PR before it (the stack's `base.ref` for its first open PR), or, in no
+   open stack, be layer 0 awaiting layer 1 (`$BASE` is `$PR_TARGET` and
+   `gh pr list --head "$BASE" --state open --json headRefName` prints `[]`); then
+   `git fetch origin`, and `git merge-base --is-ancestor "origin/$PR_TARGET" "origin/$BASE"`
+   must pass unless `$PR_TARGET`, the checked bead's `pr_target` (a lower bound), is `$BASE`
+   (a `$PR_TARGET` gone from origin holds when a PR in `gh pr list --head "$PR_TARGET" --state merged --json mergeCommit` has its merge commit in `origin/$BASE`);
+   otherwise refuse `SANITY.NOT_STACKED`.
+3. `git log --format=%H "origin/$BASE..$COMMIT" | grep -q .` must pass;
    otherwise refuse `SANITY.ZERO_DELTA`.
-4. `test -z "$(git status --porcelain --untracked-files=no | grep -v -e ' \.beads\.gate\.lock$' -e ' \.sc-compose/')"`
+4. `git merge-base --is-ancestor "origin/$BASE" "$COMMIT"` must pass;
+   otherwise refuse `SANITY.NOT_REBASED`.
+5. `test -z "$(git status --porcelain --untracked-files=no | grep -v -e ' \.beads\.gate\.lock$' -e ' \.sc-compose/')"`
    must pass; otherwise refuse `SANITY.DIRTY_TREE`.
-5. `bd history "$TASK_ID"` must contain no earlier PASS; otherwise refuse
-   `SANITY_FROZEN`.
+6. No snapshot in `bd history "$TASK_ID" --json` may show the bead closed
+   with a reason starting `PASS at ` (a note or other reason that mentions
+   PASS does not count; `jq -e 'any(.[]; .Issue.status == "closed" and (.Issue.close_reason // "" | startswith("PASS at ")))'`
+   exits 1); otherwise refuse `SANITY_FROZEN`.
+
+Only a mismatch is one of these codes. A command that fails to run (`gh`,
+`git fetch`, `bd`: a nonzero exit or error, not an answer) refuses
+`GATE_CANNOT_RUN`, a serious failure announced as in the skill's Lead Role.
 
 For every refusal, reuse an existing workflow class bead for the same failure
 signature: append the task id, head, command and failure evidence, and cite the
-class id in the refusal. If no class matches, report the signature to the lead
+class id in the refusal. If no class matches, report the signature to the task assigner
 for classification and cite that message instead; do not create a per-task
 shadow or delay the refusal. Pre-dispatch refusals have no reviewer result
 and append no history row.
@@ -105,13 +152,18 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    ```bash
    iteration=$(atm task events "$task" --all --json | jq '[.events[] | select(.event == "completed")] | length + 1')
    $S/sanity-split --task "$task" --bead "$checked_bead" --worktree "$worktree" \
-     --branch "$branch" --commit "$commit" --base "$base" \
+     --branch "$branch" --commit "$commit" --base "$base" "${layer_pr_args[@]}" \
      --lint-command "$lint_command" --scratch "$scratch" > "$manifest"
    ```
 
+   `layer_pr_args` is `--layer-pr <n>` for each PR in the task's `<layer-prs>`
+   (after a dev-fix: the sprint's layer PRs, the checked PR last), so the
+   changed files are the sprint's own layer ranges and never another sprint's
+   layer between them; empty otherwise.
+
    There is no fallback. A split failure refuses the task before reviewer
    dispatch; report its actual code. A bead whose `## Deliverables` is not a
-   numbered list gives `SANITY.PLAN_INVALID`: tell the lead that planning
+   numbered list gives `SANITY.PLAN_INVALID`: tell the task assigner that planning
    failed for that bead.
 
 2. Launch both reviewer families as background work concurrently: dispatch
@@ -134,8 +186,11 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    rerun fails, dispatch fails, or the Jev startup probe has not passed, put a
    coordinator-origin `success:false, data:null` envelope in that slot with
    an error containing `code`, the actual `message`, `recoverable`,
-   `suggested_action`, and the `deliverable` number. Say explicitly that the reviewer could not run. Never substitute an
-   LLM result for unavailable JEV (or vice versa).
+   `suggested_action`, and the `deliverable` number (in probe-failed mode, the
+   probe's own error `code` and `message` verbatim). Say explicitly that the reviewer could not run. Never substitute an
+   LLM result for unavailable JEV (or vice versa) in that reviewer's slot: the
+   slot keeps its failure envelope. One failed reviewer is not a blocker and
+   not CANNOT_RUN; selection (step 4) takes the other reviewer's valid reply.
 4. Merge each LLM/JEV result array as soon as that reviewer finishes.
    `sanity-merge` accepts exactly one result per deliverable at the pinned
    SHA, checks that the worktree is still at that SHA and clean, folds in the
@@ -150,20 +205,38 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
      < "$scratch/$reviewer-results.json" > "$scratch/$reviewer-vars.json"
    ```
 
+   The `sanity-jev` merge screens every reply: a success without a valid Jev
+   client receipt in `data.jev`, whose choice contradicts its findings (`no`:
+   exactly one; `yes`: none), or that reuses another deliverable's receipt,
+   and a `SANITY.JEV_*` failure whose message is not the client's own text,
+   becomes a coordinator-origin `SANITY.RESULT_INVALID` failure for that
+   deliverable (the replaced reply and reason are kept in `rejected_results`).
+   Selection then takes the LLM reply: a fallback, logged and announced as
+   below. Its cause is the class bead `{{ workflow_issues_root }}-jev-result-invalid`,
+   created, announced (`--announce --error` with that failure's code and
+   message) and closed as a JEV child's in Startup.
+
    Do not append either history row yet: the final selected verdict is not
    known. Once both raw arrays are available, record `selected_started_at`
    immediately before selection and `selected_completed_at` when
    `selection.json` is written. Then select each deliverable in a strict
    JSON array. Every entry records exact LLM/JEV statuses, `selected` source
    (`llm`, `jev`, or `rerun`), a reason for a disagreement or rerun, and a
-   checker-defect flag. A checker defect is allowed only for a selected
+   checker-defect flag. When one reviewer's reply is a failure envelope,
+   select the other reviewer's valid reply, with the failure's code as the
+   reason; `sanity-merge` rejects a failed reply selected over a valid one.
+   Only a deliverable where neither reviewer has a valid reply is CANNOT_RUN.
+   That takeover is a fallback: the failed slot's error is logged (step 6
+   `errors`) and its cause announced once as in Startup.
+   A checker defect is allowed only for a selected
    undone reply, needs its reason, and creates no child; its selection record
    and workflow-issue class bead carry the evidence. A rerun supplies one
    unchanged reply, its reviewer, and nonempty repo-relative missing-context
    paths; its assignment is the manifest's assignment with `context` set to
    those `{path, why}` objects:
    `jq --argjson n <n> --argjson context '<objects>' '.assignments[] | select(.number == $n) | .assignment | .context = $context' "$manifest"`;
-   `rerun.context` lists those same paths.
+   `rerun.context` lists those same paths. A rerun whose reply is a failure
+   never replaces a valid original reply: `sanity-merge` rejects it.
 
 5. Merge the selected report from the raw files and selection array:
 
@@ -176,7 +249,8 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
      --selection "$scratch/selection.json" > "$scratch/sanity-selected-vars.json"
    ```
 
-   Exit 4 from either merge: retry with the same times. Exit 0 produces
+   Exit 4 from either merge: retry with the same times. A reviewer merge's
+   CANNOT_RUN vars still go to the selected merge. Exit 0 produces
    PASS/FAIL. Exit 1 or 3 may produce a CANNOT_RUN report; preserve the error
    and raw results. An invalid invocation/manifest with no report is a
    coordinator error to report, never a PASS. Do not run lint again to obtain
@@ -187,7 +261,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    or task closure) but uses the selected vars' verdict as the shared required
    `--final-verdict`. If selection or selected merge cannot run, set
    `--final-verdict CANNOT_RUN` and still append the LLM/JEV rows; a reviewer
-   whose merge printed no report has no row, so report that to the lead. The same
+   whose merge printed no report has no row, so report that to the task assigner. The same
    task attempt/iteration applies to both. `sanity-run-history` appends
    to the same ignored phase JSONL, keyed by shared `run_id` and explicit
    reviewer: strict `sanity-run-record.json.j2` render through `sc-compose
@@ -195,7 +269,10 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    (one object per line), locked append (no sc-compose `--append` exists). A
    failed render or validation appends nothing; retrying the identical append
    is safe. CANNOT_RUN is logged with null findings and its error, never as
-   PASS or FAIL:
+   PASS or FAIL; each row's `errors` lists every failed slot's `code`,
+   `message`, `recoverable` and `deliverable` verbatim from its envelope, and
+   `jev_receipts` holds the receipt of every `sanity-jev` success reply
+   (required on a `sanity-jev` PASS/FAIL row, empty on `sanity-llm`):
 
    ```bash
    log=$($S/sanity-run-history --vars "$scratch/$reviewer-vars.json" --task "$task" \
@@ -205,7 +282,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
 
    It prints the ledger path; keep it as `$log`.
 7. For each `checker_defect`, append the selection entry to the matching
-   workflow class bead (or report it to the lead) and cite it in notes.
+   workflow class bead (or report it to the task assigner) and cite it in notes.
    Complete the selected lifecycle (Verdicts below) using its vars copied to
    `sanity-$task-vars.json`. Retain LLM, JEV, selection, and rerun evidence in
    completion notes.
@@ -222,8 +299,9 @@ explicit.
 | Verdict | Sanity check bead | Task |
 | --- | --- | --- |
 | PASS | `bd close` with reason `PASS at <commit>` | `completed`, `dev-sanity-complete.md.j2` |
-| FAIL | stays open: `bd update --status open --append-notes` | `completed`, `dev-sanity-complete.md.j2` with the findings |
+| FAIL | stays open: `bd update --status open --append-notes`; the checked bead is reopened (`bd reopen`) | `completed`, `dev-sanity-complete.md.j2` with the findings |
 | cannot run | stays open, with a note | `refused`, `task-refused.md.j2` |
+| blocked mid-task (a prerequisite open or reopened, a fix not landed) | `bd update --status open --assignee "" --append-notes "BLOCKED: <blocker>: <why>"` | `refused`, `task-refused.md.j2` naming the blocker and the edge `bd dep add <bead> --blocked-by <blocker>`; never stay active waiting |
 
 A FAIL never closes the bead. Closing it would release the dev beads that
 depend on the checked sprint. Only the selected FAIL creates child findings,
@@ -234,14 +312,14 @@ parent-to-child `blocks` edge is invalid. Each child is blocking at
 `clamp(parent priority - 1, P1, P4)`, records the same structured JSON finding
 data as the sanity report, and copies the checked bead's
 phase/sprint/stack/layer provenance. The lead reviews those children and may
-overrule or modify them, but does not recreate their report data. The lead
-then follows its existing process to reopen the parent and assign the dev fix,
-adding `blocks` edges only between those new beads, where one fix depends on
-another. The parent cannot close until all children close. That closure makes
+overrule or modify them, but does not recreate their report data. The script
+adds `blocks` edges only between those new beads, where one fix depends on
+another. dev-sanity then reopens the checked bead, which re-blocks this sanity
+bead, and the lead assigns the dev fix. The parent cannot close until all children close. That closure makes
 the same sanity check bead ready again.
 
 After the second operational FAIL for the same checked bead, report
-`SANITY.ROUND_CAP` to the lead with the undone deliverable numbers. No third
+`SANITY.ROUND_CAP` to the task assigner with the undone deliverable numbers. No third
 round is dispatched without the lead's ruling.
 
 ## Mandatory Console Report

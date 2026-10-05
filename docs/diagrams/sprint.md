@@ -150,8 +150,8 @@ flowchart TB
 The sanity bead is a minimal gate with no `discovered-from` edge. On FAIL
 dev-sanity files one child finding per undone deliverable under the checked
 bead, reopens it, and leaves sanity open. The open children hold the dev bead
-open, and the dev bead holds the sprint open. The dev fixes them in place on
-the reopened bead (`dev-fix.xml.j2`). The same applies to a fix bead and its
+open, and the dev bead holds the sprint open. The dev fixes them for
+the reopened bead on a new layer cut from the stack's top (`dev-fix.xml.j2`). The same applies to a fix bead and its
 sanity.
 
 dev-sanity is one teammate (`agents/dev-sanity.md`) that spawns
