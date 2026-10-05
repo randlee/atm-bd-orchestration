@@ -216,8 +216,8 @@ on every restack and show up as out-of-scope work in that sprint's PR.
    `qa_bead` = the quick-fix QA bead) and dispatches it to an idle roster agent
    (the finder when idle) with `fix-assignment.xml.j2` on the same fix branch when
    nothing is linked above it, else on a new layer cut from the stack's
-   current top (Stack Discipline), with no sanity bead, followed by one more
-   quick-fix QA bead as in this step. When every roster agent is mid-task,
+   current top (Stack Discipline), with no sanity bead; once every finding
+   from that QA has closed, one more quick-fix QA bead as in this step. When every roster agent is mid-task,
    the lead assigns the finding's task to itself (`atm task assign
    "$ATM_IDENTITY" --task-id <finding bead> --template fix-assignment.xml.j2
    --vars <vars>`) when its own roster model fits the finding's `difficulty`
