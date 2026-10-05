@@ -27,7 +27,7 @@ def record(**changes):
                  task='task-"quote"\nnext', sprint="d-4", phase="d", started_at="2026-09-30T16:00:00Z",
                  completed_at="2026-09-30T16:01:05Z", duration="1m05s", duration_seconds=65,
                  pr_number=42, iteration=1, verdict="PASS", final_verdict="PASS", findings=0,
-                 error=None, completed_local="09-30 09:01")
+                 error=None, errors=[], completed_local="09-30 09:01")
     return dict(value, **changes)
 
 
@@ -197,15 +197,16 @@ class ShippedFlow(unittest.TestCase):
                                "--reviewer", reviewer, "--started-at", str(now - 60), "--completed-at", str(now),
                                *extra], input=stdin, capture_output=True, text=True)
 
-    def run_flow(self, select):
+    def run_flow(self, select, jev_failure=None):
         sha = self.repo.sha
         skipped = {"kind": "skipped", "file": "crates/types/src/retry.rs", "line": 1, "issue": "404 test not written"}
         replies = {"sanity-llm": [fenced(self.task, self.bead, 1, sha), fenced(self.task, self.bead, 2, sha)],
-                   "sanity-jev": [fenced(self.task, self.bead, 1, sha), fenced(self.task, self.bead, 2, sha, [skipped])]}
+                   "sanity-jev": [fenced(self.task, self.bead, 1, sha),
+                                  jev_failure or fenced(self.task, self.bead, 2, sha, [skipped])]}
         reviewer_vars = {}
         for reviewer, texts in replies.items():
             merged = self.merge(reviewer, stdin=json.dumps(texts))  # reply text kept unchanged as strings
-            self.assertEqual(merged.returncode, 0, merged.stderr)
+            self.assertEqual(merged.returncode, 3 if reviewer == "sanity-jev" and jev_failure else 0, merged.stderr)
             reviewer_vars[reviewer] = self.root / f"{reviewer}-vars.json"
             reviewer_vars[reviewer].write_text(merged.stdout)
         digests = {r: json.loads(v.read_text())["reviewer_results_sha256"] for r, v in reviewer_vars.items()}
@@ -256,6 +257,24 @@ class ShippedFlow(unittest.TestCase):
         self.assertEqual([(r["reviewer"], r["verdict"], r["final_verdict"]) for r in rows],
                          [("sanity-llm", "PASS", "CANNOT_RUN"), ("sanity-jev", "FAIL", "CANNOT_RUN")])
         self.assertEqual(table, self.expected_table(rows, ["LLM | 0 | ✅ | ✗", "JEV | 1 | ❌ | ✗"]))
+
+    def test_failed_jev_slot_error_is_logged_verbatim_while_llm_is_selected(self):
+        error = {"code": "SANITY.JEV_UNAVAILABLE", "message": "TYPESAFE_API_KEY is missing; no Jev evaluation ran",
+                 "recoverable": True, "suggested_action": "set TYPESAFE_API_KEY", "deliverable": 2}
+        failure = {"success": False, "data": None, "error": error}
+
+        def take_llm(selection):
+            selection[1].update(jev="cannot_run", reason="JEV unavailable: SANITY.JEV_UNAVAILABLE")
+        final, rows, table, _ = self.run_flow(take_llm, jev_failure=failure)
+        self.assertEqual(final, "PASS")
+        self.assertEqual([(r["reviewer"], r["verdict"], r["errors"]) for r in rows], [
+            ("sanity-llm", "PASS", []),
+            ("sanity-jev", "CANNOT_RUN", [{k: error[k] for k in ("code", "message", "recoverable", "deliverable")}])])
+        self.assertEqual(table, self.expected_table(rows, ["LLM | 0 | ✅ | ✓", "JEV | — | ⚠ unavailable | ✗"]))
+
+    def test_all_ok_rows_log_no_errors(self):
+        _, rows, _, _ = self.run_flow(lambda selection: None)
+        self.assertEqual([r["errors"] for r in rows], [[], []])
 
     def test_console_fails_on_a_wrong_ledger_path(self):
         doc = (ROOT.parents[1] / "agents/dev-sanity.md").read_text()

@@ -56,7 +56,7 @@ each oversight recipient,
 `atm send <recipient> --stdin`. The oversight recipients are ATM's escalation
 recipients: `atm escalation list --team "$ATM_TEAM" --json | jq -r '.recipients[]'`,
 if empty `atm escalation list --json | jq -r '.recipients[]'`, if both empty
-the lead.
+the lead, saying in the message that no escalation recipient is set.
 
 ## Tasks
 
@@ -184,6 +184,8 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    select the other reviewer's valid reply, with the failure's code as the
    reason; `sanity-merge` rejects a failed reply selected over a valid one.
    Only a deliverable where neither reviewer has a valid reply is CANNOT_RUN.
+   That takeover is a fallback: the failed slot's error is logged (step 6
+   `errors`) and its cause announced once as in Startup.
    A checker defect is allowed only for a selected
    undone reply, needs its reason, and creates no child; its selection record
    and workflow-issue class bead carry the evidence. A rerun supplies one
@@ -224,7 +226,8 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    (one object per line), locked append (no sc-compose `--append` exists). A
    failed render or validation appends nothing; retrying the identical append
    is safe. CANNOT_RUN is logged with null findings and its error, never as
-   PASS or FAIL:
+   PASS or FAIL; each row's `errors` lists every failed slot's `code`,
+   `message`, `recoverable` and `deliverable` verbatim from its envelope:
 
    ```bash
    log=$($S/sanity-run-history --vars "$scratch/$reviewer-vars.json" --task "$task" \

@@ -70,7 +70,9 @@ work moving. Unresolved decision beads block phase closure, not development.
 A serious infrastructure failure an agent cannot fix itself (missing or
 invalid API key, out of tokens or quota, provider auth failure and the like)
 is announced once per outage to the oversight recipients, resolved as in
-`.claude/agents/dev-sanity.md` Startup.
+`.claude/agents/dev-sanity.md` Startup. When a backup or fallback exists, use
+it so work moves forward, never silently: record each use in the log or
+evidence and announce it the same way, once per cause, not per task.
 
 ## Repository configuration
 

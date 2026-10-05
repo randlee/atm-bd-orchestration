@@ -44,6 +44,17 @@ def read_vars(path: Path) -> dict[str, object]:
     return value
 
 
+SLOT_ERROR_KEYS = ("code", "message", "recoverable", "deliverable")
+
+
+def slot_errors(value: dict[str, object]) -> list[dict[str, object]]:
+    """Each failed slot's error, copied verbatim from its failure envelope; vars without reviewer_results have none."""
+    results = value.get("reviewer_results") or []
+    return [{key: result["error"].get(key) for key in SLOT_ERROR_KEYS}
+            for result in results
+            if isinstance(result, dict) and result.get("success") is False and isinstance(result.get("error"), dict)]
+
+
 def phase_from_sprint(sprint: str) -> str:
     match = re.fullmatch(r"(?:phase-)?([a-z]+)(?:[-_]?\d+)?", sprint.lower())
     if not match:
@@ -130,6 +141,7 @@ def main() -> None:
         "run_id": vars["run_id"], "reviewer": vars["reviewer"], "commit": vars["commit"],
         "started_at": vars["started_at"], "duration_seconds": elapsed,
         "error": vars.get("error"),
+        "errors": slot_errors(vars),
         "task": args.task, "sprint": vars["sprint"], "phase": phase,
         "pr_number": args.pr_number, "findings": vars["findings_count"],
         "verdict": vars["verdict"], "final_verdict": args.final_verdict,
@@ -154,7 +166,7 @@ RECORD_TYPES = {
 
 
 def validate_record(record):
-    if not isinstance(record, dict) or set(record) != set(RECORD_TYPES) | {"findings", "error"}:
+    if not isinstance(record, dict) or set(record) != set(RECORD_TYPES) | {"findings", "error", "errors"}:
         fail("rendered record has incorrect fields")
     for field, expected in RECORD_TYPES.items():
         exact_types = expected if isinstance(expected, tuple) else (expected,)
@@ -162,6 +174,12 @@ def validate_record(record):
             fail(f"rendered record.{field} must be " + " or ".join(item.__name__ for item in exact_types))
     if record["reviewer"] not in {"sanity-llm", "sanity-jev"}:
         fail("rendered record has invalid reviewer")
+    if not isinstance(record["errors"], list) or not all(
+            isinstance(error, dict) and set(error) == set(SLOT_ERROR_KEYS)
+            and type(error["code"]) is str and error["code"] and type(error["message"]) is str
+            and type(error["recoverable"]) is bool and type(error["deliverable"]) is int and error["deliverable"] >= 1
+            for error in record["errors"]):
+        fail("rendered record.errors must be a list of {code, message, recoverable, deliverable}")
     if record["final_verdict"] not in {"PASS", "FAIL", "CANNOT_RUN"}:
         fail("rendered record has invalid final_verdict")
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", record["commit"]):
@@ -216,7 +234,8 @@ def append_record(log_path, record):
         prior = [r for r in same_run if r.get("reviewer") == record["reviewer"]]
         if prior:
             # completed_local follows the process TZ; a retry under another TZ is the same row.
-            if {**prior[-1], "completed_local": None} != {**record, "completed_local": None}:
+            # A row logged before `errors` existed had none.
+            if {"errors": [], **prior[-1], "completed_local": None} != {**record, "completed_local": None}:
                 fail("run/reviewer already logged with different results")
         else:
             # A valid last JSON object without newline is readable, but needs a
