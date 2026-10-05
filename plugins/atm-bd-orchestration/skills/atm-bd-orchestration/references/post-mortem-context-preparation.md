@@ -115,5 +115,5 @@ The review completion's required `post_mortem_jev` object contains `status`
 `integration_sha`, and `reason`. `completed` records execution, not PASS. Check
 that the cited JSONL rows exist at the reviewed SHA. `not_applicable` requires
 an inventory showing no code-screenable findings; `unavailable` leaves phase
-review pending; announce a persistent Jev outage once to the oversight recipients resolved as in `.claude/agents/dev-sanity.md` Startup. The existing post-mortem totals still account for every finding
+review pending; announce a persistent Jev outage as a serious failure (`.claude/skills/atm-bd-orchestration/SKILL.md`, Lead Role). The existing post-mortem totals still account for every finding
 as verified fixed, justified nonfix, or unresolved.

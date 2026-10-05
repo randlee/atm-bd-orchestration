@@ -50,8 +50,9 @@ child until a later probe passes; every JEV slot gets the coordinator-origin
 `SANITY.JEV_UNAVAILABLE` envelope of step 3 below. If the probe's stderr asks
 you to report, send its stdout to the lead with `atm send <lead> --stdin`.
 Announce a persistent reviewer outage (Jev out of tokens or quota, missing or
-invalid key, retry budget exhausted, probe exit 2) once per outage, not per
-task, with the stdout or error to each oversight recipient,
+invalid key, retry budget exhausted, probe exit 2), a serious failure in the
+skill's Lead Role, once per outage, not per task, with the stdout or error to
+each oversight recipient,
 `atm send <recipient> --stdin`. The oversight recipients are ATM's escalation
 recipients: `atm escalation list --team "$ATM_TEAM" --json | jq -r '.recipients[]'`,
 if empty `atm escalation list --json | jq -r '.recipients[]'`, if both empty

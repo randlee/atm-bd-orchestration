@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.4
+version: 0.6.5
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -66,6 +66,11 @@ Before treating a finding or unresolved decision as a development stop, read
 decision and the consequence of choosing wrong. Record decisions for the user
 or their delegate; conservative, reversible provisional choices keep independent
 work moving. Unresolved decision beads block phase closure, not development.
+
+A serious infrastructure failure an agent cannot fix itself (missing or
+invalid API key, out of tokens or quota, provider auth failure and the like)
+is announced once per outage to the oversight recipients, resolved as in
+`.claude/agents/dev-sanity.md` Startup.
 
 ## Repository configuration
 
