@@ -28,8 +28,11 @@ req = json.loads(Path(sys.argv[2]).read_text())
 state = Path(sys.argv[2]).with_suffix(".calls")
 n = int(state.read_text()) + 1 if state.exists() else 1
 state.write_text(str(n))
+if "CRASH" in req["state"]["candidate"]:
+    sys.exit("Traceback: quota exceeded")
 if "FAIL" in req["state"]["candidate"] or ("FLAKY" in req["state"]["candidate"] and n == 1):
-    print(json.dumps({"success": False, "data": None, "error": {"code": "SANITY.JEV_UNAVAILABLE"}}))
+    print(json.dumps({"success": False, "data": None, "error": {"code": "SANITY.JEV_UNAVAILABLE", "message": "TYPESAFE_API_KEY is missing"}}))
+    sys.exit(2)
 else:
     print(json.dumps({"success": True, "data": {"answers": ANSWERS}}))
 """
@@ -69,7 +72,7 @@ class ReduceTests(unittest.TestCase):
 
     def test_no_drop_and_failed_row(self):
         self.assertEqual(judge.reduce(answers())["dropped"], [])
-        self.assertEqual(judge.row("r2", 7, None), "r2 | 7 | JEV FAILED")
+        self.assertEqual(judge.row("r2", 7, None, {"exit": 2}), 'r2 | 7 | JEV FAILED {"exit": 2}')
 
 
 class MainTests(unittest.TestCase):
@@ -98,10 +101,18 @@ class MainTests(unittest.TestCase):
         self.assertEqual(lines[0], judge.HEADER)
         self.assertEqual(lines[1], "ok | 2 | R1(0.90) | no(0.57) | none(0.80) | yes(0.60) | same(0.70)")
         self.assertTrue(lines[2].startswith("flaky | 2 | R1(0.90)"))
-        self.assertEqual(lines[3], "bad | 1 | JEV FAILED")
+        self.assertEqual(lines[3], "bad | 1 | JEV FAILED " + json.dumps({"exit": 2, "error": {
+            "code": "SANITY.JEV_UNAVAILABLE", "message": "TYPESAFE_API_KEY is missing"}, "stdout": None, "stderr": ""}))
         self.assertEqual((self.d / "jev/bad.req.calls").read_text(), "2")
         self.assertFalse((self.d / "jev/bad.json").exists())
         self.assertEqual(json.loads((self.d / "jev/ok.req.json").read_text())["state"]["candidate"], "Run tests.")
+
+    def test_client_crash_records_its_exit_code_stdout_and_stderr_verbatim(self):
+        code, lines = self.main(("crash", "CRASH"))
+        self.assertEqual(code, 2)
+        self.assertEqual(lines[1], "crash | 1 | JEV FAILED " + json.dumps(
+            {"exit": 1, "error": None, "stdout": "", "stderr": "Traceback: quota exceeded\n"}))
+        self.assertEqual((self.d / "jev/crash.req.calls").read_text(), "2")
 
     def test_all_judged_exits_zero(self):
         self.assertEqual(self.main(("ok", "Run tests."))[0], 0)

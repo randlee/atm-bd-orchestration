@@ -14,4 +14,4 @@ description: Rewrite prompt text for conciseness and clarity with fresh subagent
 6. Pick: no drops and `changes_rule no`, then fewest words, then `ambiguous no`. Read the winner yourself against the key; report any disagreement with Jev.
 7. None qualifies: give the flagged drops or changes to fresh rewriters; at most 2 more rounds.
 
-Never answer for Jev; a failed request is rerun once, then recorded as failed.
+Never answer for Jev; a failed request is rerun once, then recorded as failed with its verbatim error.

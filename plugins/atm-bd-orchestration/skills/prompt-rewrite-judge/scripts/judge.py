@@ -3,7 +3,8 @@
 
 judge.py --key key.json --original original.txt --out DIR [--client scripts/jev_client.py] CAND.txt...
 Writes DIR/<cand>.req.json and DIR/<cand>.json (Jev answers) and prints one row per
-candidate; each value is the choice and Jev's probability for it.
+candidate; each value is the choice and Jev's probability for it. A failed row carries the
+client's exit code, JSON error, unparsed stdout and stderr verbatim.
 """
 import argparse
 import json
@@ -43,24 +44,26 @@ def reduce(answers):
     return out
 
 
-def row(name, words, verdict):
+def row(name, words, verdict, error=None):
     if verdict is None:
-        return f"{name} | {words} | JEV FAILED"
+        return f"{name} | {words} | JEV FAILED {json.dumps(error)}"
     cell = lambda k: f"{verdict[k][0]}({verdict[k][1]:.2f})"
     drops = " ".join(f"R{n}({p:.2f})" for n, p in verdict["dropped"]) or "-"
     return " | ".join([name, str(words), drops] + [cell(k) for k in EXTRA])
 
 
 def run(client, path):
+    """-> (answers, None) or (None, the last attempt's verbatim error)."""
     for _ in range(2):  # one rerun on failure; never answer for Jev
         p = subprocess.run([sys.executable, str(client), "--request", str(path)], capture_output=True, text=True)
         try:
             d = json.loads(p.stdout)
         except json.JSONDecodeError:
-            continue
+            d = {}
         if d.get("success"):
-            return d["data"]["answers"]
-    return None
+            return d["data"]["answers"], None
+        error = {"exit": p.returncode, "error": d.get("error"), "stdout": None if d else p.stdout, "stderr": p.stderr}
+    return None, error
 
 
 def main(argv=None):
@@ -87,11 +90,11 @@ def main(argv=None):
     with ThreadPoolExecutor(8) as ex:
         answers = list(ex.map(lambda j: run(o.client, j[1]), jobs))
     print(HEADER)
-    for (name, _, words), ans in zip(jobs, answers):
+    for (name, _, words), (ans, error) in zip(jobs, answers):
         if ans is not None:
             (o.out / f"{name}.json").write_text(json.dumps(ans, indent=1))
-        print(row(name, words, None if ans is None else reduce(ans)))
-    return 0 if all(answers) else 2
+        print(row(name, words, None if ans is None else reduce(ans), error))
+    return 0 if all(ans for ans, _ in answers) else 2
 
 
 if __name__ == "__main__":
