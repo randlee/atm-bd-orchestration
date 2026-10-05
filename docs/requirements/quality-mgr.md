@@ -16,7 +16,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 
 ### QA round (`qa-template`)
 
-8. Before claim: `bd ready` lists the QA bead, else do not claim or start; close the task `refused` (`bead_state` open) naming the blocker and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); never wait. PR base = `metadata.pr_target` or a descendant of it, PR head starts with the sanity PASS sha (close reason `PASS at <sha>` of the checked bead's latest closed `stage:dev-sanity` bead; skipped when the QA bead's `metadata.quick_fix` is true, a Parallel Quick Fix having no sanity check), worktree HEAD = PR head; else refuse `SANITY_STALE`.
+8. Before claim: `bd ready` lists the QA bead, else do not claim or start; close the task `refused` (`bead_state` open) naming the blocker and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); never wait. A blocker met mid-round: return the bead open and close the task `refused` the same way. PR base = `metadata.pr_target` or a descendant of it, PR head starts with the sanity PASS sha (close reason `PASS at <sha>` of the checked bead's latest closed `stage:dev-sanity` bead; skipped when the QA bead's `metadata.quick_fix` is true, a Parallel Quick Fix having no sanity check), worktree HEAD = PR head; else refuse `SANITY_STALE`.
 9. Claim, then `atm task start`.
 10. Reject an assignment not rendered from the template; read `policy_path`.
 11. Pipe the checked bead (and `sprint_bead` if set) with governing requirements/ADRs into `<scratch>/<task>-sprint.md`; it is `sprint_doc`.

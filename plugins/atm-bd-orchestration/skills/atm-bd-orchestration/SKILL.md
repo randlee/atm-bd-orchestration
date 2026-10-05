@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.16
+version: 0.6.17
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -222,7 +222,8 @@ on every restack and show up as out-of-scope work in that sprint's PR.
    "$ATM_IDENTITY" --task-id <finding bead> --template fix-assignment.xml.j2
    --vars <vars>`) when its own roster model fits the finding's `difficulty`
    (gate (5)); it runs the template's gate, claim, start and close steps
-   itself and a background developer subagent does the fix steps (b to e),
+   itself, acts on the subagent's report for steps c and f1, and a background
+   developer subagent does the fix steps (b to e),
    since a background agent never writes to beads or ATM. When the lead's
    model does not fit, the finding stays in `bd ready` for the first fitting
    roster agent to go idle. Every other branch picks the fix up by rebasing onto
@@ -310,7 +311,8 @@ For each ready bead:
 | sanity check (`stage:dev-sanity`) | [`dev-sanity-template.xml.j2`](templates/dev-sanity-template.xml.j2) | `resolve-role dev-sanity` |
 | QA (`stage:qa`) | [`qa-template.xml.j2`](templates/qa-template.xml.j2) | quality-mgr |
 | fix (`stage:fix`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | the member the lead picks for its `difficulty` |
-| important or minor finding (`stage:finding`, no `metadata.sanity_finding`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2), in the same step as one `bd import` of its sanity bead (`atm-beads` [`dev-sanity-bead.json.j2`](../atm-beads/templates/dev-sanity-bead.json.j2), `dev_bead` = the finding) and its QA bead ([`qa-bead.json.j2`](templates/qa-bead.json.j2), `checked_bead` = the finding, `blocked_by` = the sanity bead), each with `parent` = the finding's parent; a minor finding left in the backlog gets neither until it is assigned | an idle dev, by priority |
+| finding from a quick-fix QA (its `discovered-from` QA bead has `metadata.quick_fix` true) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2), no sanity bead; after its fix-complete, one more quick-fix QA bead (Parallel Quick Fix step 4) | an idle dev whose model fits its `difficulty`, by priority |
+| important or minor finding (`stage:finding`, no `metadata.sanity_finding`, not from a quick-fix QA) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2), in the same step as one `bd import` of its sanity bead (`atm-beads` [`dev-sanity-bead.json.j2`](../atm-beads/templates/dev-sanity-bead.json.j2), `dev_bead` = the finding) and its QA bead ([`qa-bead.json.j2`](templates/qa-bead.json.j2), `checked_bead` = the finding, `blocked_by` = the sanity bead), each with `parent` = the finding's parent; a minor finding left in the backlog gets neither until it is assigned | an idle dev, by priority |
 | sanity finding (`stage:finding` with `metadata.sanity_finding`) | its checked bead's [`dev-fix.xml.j2`](templates/dev-fix.xml.j2), once per checked bead | the checked bead's assignee |
 | review (`stage:review`) | [`review-template.xml.j2`](templates/review-template.xml.j2) | the phase-end reviewer |
 
@@ -329,7 +331,7 @@ Then, on each task close:
 | task-refused | read the reason and the bead state (`open`, or `blocked-failed` for a dev bead that declared failure). Reassign it only once `bd ready` lists the bead (a blocker refusal: as the not-ready or blocker row), split it, or close the bead yourself with `bd close <bead> --force --reason "<why>"`. A `blocked` bead is never in `bd ready`: run `bd update <bead> --status open --assignee <new agent>` before you re-dispatch it. A sanity refusal for no PR, not stacked or not rebased is yours as stack writer (Stack Discipline). A cannot-run caused by an announced outage (its workflow class bead is open) is not re-dispatched until the cause clears and that bead closes; never force-close the bead meanwhile. `REVIEW_PENDING_JEV`: file each code finding in its notes with `finding-bead.json.j2` (`qa_bead` = the review bead) and re-dispatch the review only after the Jev outage clears, with the prior `post_mortem_jev` run IDs in its notes so they are reused |
 | fix-complete (`not_reproducible`) | no commit, no sanity check; the finding is closed. For a poured fix bead or an important or minor finding bead, close its group's sanity bead, then its QA bead, each with `bd close <bead> --reason "not_reproducible: <fix bead>"` |
 | assignee silent past the re-nudge | announce it as in Lead Role, then `bd update <bead> --status open --assignee <new agent>` and re-assign the same task id with the same template and vars: `atm task assign <new agent> --task-id <same id> --template <same> --vars <same>` |
-| not-ready or blocker refusal | the task is closed `refused` and the bead is open. Fix the cause it names (usually a blocker still open; a blocker that is not a bead, such as an unfiled fix, gets one first: [`finding-bead.json.j2`](templates/finding-bead.json.j2) or a workflow class bead, whichever fits) and add the dependency it recommends (`bd dep add <bead> --blocked-by <blocker>`, or the right one, sprint beads included; never a replan) so `bd ready` holds the bead until the blocker closes. When bd refuses that edge (it keeps one edge type per bead pair, so a QA bead that already `validates` its checked bead takes no other, and it refuses a parent-child edge), add the edge to an open bead the blocker's work goes through instead (`bd dep add <bead> --blocked-by <it>`, unless it already blocks the bead): for a QA bead whose checked bead reopened, its sanity bead (`bd reopen` it if it had closed); never remove an edge; re-assign the same bead (same task id, template and vars) only once `bd ready` lists it. A blocker refusal is never answered with "wait". If the work is no longer wanted, close the bead with a reason instead |
+| not-ready or blocker refusal | the task is closed `refused` and the bead is open. Fix the cause it names (usually a blocker still open; a blocker that is not a bead, such as an unfiled fix, gets one first: [`finding-bead.json.j2`](templates/finding-bead.json.j2) or a workflow class bead, whichever fits) and add the dependency it recommends (`bd dep add <bead> --blocked-by <blocker>`, or the right one, sprint beads included; never a replan) so `bd ready` holds the bead until the blocker closes. When bd refuses that edge (it keeps one edge type per bead pair, so a QA bead that already `validates` its checked bead takes no other, and it refuses a parent-child edge), add the edge to an open bead the blocker's work goes through instead (`bd dep add <bead> --blocked-by <it>`, unless it already blocks the bead): for a QA bead whose checked bead changes after its sanity PASS, the change is a new fix bead with its own sanity bead (a passed sanity is frozen, never reopened), and that sanity bead holds the QA bead; never remove an edge; re-assign the same bead (same task id, template and vars) only once `bd ready` lists it. A blocker refusal is never answered with "wait". If the work is no longer wanted, close the bead with a reason instead |
 
 Re-run `bd ready` after every close. Never cache the ready list. The open
 phase root also appears in it; it is never dispatched.
