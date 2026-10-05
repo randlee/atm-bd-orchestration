@@ -400,16 +400,28 @@ class DevAssignmentTests(unittest.TestCase):
         self.assertNotIn("is not linked", result.stdout)
         self.assertNotIn("confirm the open one", result.stdout)
 
-    def test_sanity_split_diffs_from_the_first_layers_base_after_a_dev_fix(self):
+    def test_after_a_dev_fix_sanity_and_qa_diff_only_the_sprints_own_layer_prs(self):
         values = _example("dev-sanity-template-vars.json")
         plain = _render("dev-sanity-template.xml.j2", values)
         self.assertEqual(plain.returncode, 0, plain.stderr)
-        self.assertIn(f"<diff-base><![CDATA[{values['base']}]]></diff-base>", plain.stdout)
-        fixed = _render("dev-sanity-template.xml.j2", {**values, "diff_base": "sprint/d-2-first-base"})
+        self.assertIn("<layer-prs><![CDATA[]]></layer-prs>", plain.stdout)
+        fixed = _render("dev-sanity-template.xml.j2", {**values, "layer_prs": [250, 262]})
         self.assertEqual(fixed.returncode, 0, fixed.stderr)
-        self.assertIn("<diff-base><![CDATA[sprint/d-2-first-base]]></diff-base>", fixed.stdout)
-        self.assertIn("Run sanity-split once, with `--base` = `<diff-base>`", fixed.stdout)
-        self.assertIn('--base "$diff_base"', (ROOT.parents[1] / "agents/dev-sanity.md").read_text())
+        self.assertIn("<layer-prs><![CDATA[250 262]]></layer-prs>", fixed.stdout)
+        self.assertIn("Run sanity-split once, with `--layer-pr <n>` for each PR in `<layer-prs>` (empty: the single range from `<base>`)", fixed.stdout)
+        self.assertIn('--base "$base" "${layer_pr_args[@]}"', (ROOT.parents[1] / "agents/dev-sanity.md").read_text())
+        self.assertNotIn("diff_base", (ROOT / "templates/dev-sanity-template.xml.j2").read_text())
+        qa = _example("qa-template-vars.json")
+        single = _render("qa-template.xml.j2", qa)
+        self.assertEqual(single.returncode, 0, single.stderr)
+        self.assertIn(f"The change under review is `git diff origin/{qa['base']}...{qa['commit']}`, never", single.stdout)
+        self.assertIn(f"change = git diff origin/{qa['base']}...{qa['commit']}.", single.stdout)
+        layered = _render("qa-template.xml.j2", {**qa, "layer_prs": [250, 262]})
+        self.assertEqual(layered.returncode, 0, layered.stderr)
+        self.assertIn("The change under review is the sprint's own layer ranges, `git diff <baseRefOid>...<headRefOid>` of each PR 250, 262 "
+                      "(`gh pr view <n> --json baseRefOid,headRefOid`), never", layered.stdout)
+        self.assertIn("change = git diff <baseRefOid>...<headRefOid> of each layer PR 250 262 (gh pr view <n> --json baseRefOid,headRefOid).", layered.stdout)
+        self.assertNotIn(f"git diff origin/{qa['base']}", layered.stdout)
 
     def test_sanity_reads_the_stack_from_githubs_stacks_api(self):
         for text in ((ROOT / "templates/dev-sanity-template.xml.j2").read_text(), (ROOT.parents[1] / "agents/dev-sanity.md").read_text()):

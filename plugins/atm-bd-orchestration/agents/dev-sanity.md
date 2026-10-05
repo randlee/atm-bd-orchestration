@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.7.0
+version: 2.8.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -114,12 +114,14 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    ```bash
    iteration=$(atm task events "$task" --all --json | jq '[.events[] | select(.event == "completed")] | length + 1')
    $S/sanity-split --task "$task" --bead "$checked_bead" --worktree "$worktree" \
-     --branch "$branch" --commit "$commit" --base "$diff_base" \
+     --branch "$branch" --commit "$commit" --base "$base" "${layer_pr_args[@]}" \
      --lint-command "$lint_command" --scratch "$scratch" > "$manifest"
    ```
 
-   `$diff_base` is the task's `<diff-base>`: after a dev-fix, the PR base of
-   the sprint's first layer, so the changed files cover the whole bead.
+   `layer_pr_args` is `--layer-pr <n>` for each PR in the task's `<layer-prs>`
+   (after a dev-fix: the sprint's layer PRs, the checked PR last), so the
+   changed files are the sprint's own layer ranges and never another sprint's
+   layer between them; empty otherwise.
 
    There is no fallback. A split failure refuses the task before reviewer
    dispatch; report its actual code. A bead whose `## Deliverables` is not a

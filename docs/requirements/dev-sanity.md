@@ -27,7 +27,7 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 16. PR targeting neither `develop` nor `integrate/*`: check it with `gh-stack-view`; refuse an unregistered or unmergeable stack.
 17. Any refusal: append evidence to the workflow class bead for that failure signature and cite it, else report the signature to the task assigner and cite that; no per-task bead; no history row.
 18. Claim and `atm task start`; iteration = completed events in `atm task events <task> --all --json` + 1.
-19. Run `sanity-split` exactly once; save the manifest; its run_id, sha, reviewers, operational_reviewer apply to the whole run.
+19. Run `sanity-split` exactly once, with `--layer-pr <n>` for each PR of the task's `layer_prs` (after a dev-fix: the sprint's own layer ranges, the checked PR last, whose head must be the sha); save the manifest; its run_id, sha, reviewers, operational_reviewer apply to the whole run.
 20. Split failure: refuse with its actual code before dispatch; `SANITY.PLAN_INVALID`: tell the task assigner planning failed for that bead.
 21. Dispatch every deliverable's assignment unchanged as fenced JSON to one `sc-sanity-llm` and one `sc-sanity-jev` child, both families before waiting; record each family's `started_at` before its dispatch.
 22. Keep each fenced reply text unchanged, as a JSON string, in its own reviewer's array (`sanity-merge` parses the fence); never mix arrays.

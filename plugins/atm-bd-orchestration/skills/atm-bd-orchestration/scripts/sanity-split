@@ -4,7 +4,7 @@
 Usage:
   sanity-split --task <sanity bead> --bead <dev bead> --worktree <path>
                --branch <branch> --commit <commit> --base <base>
-               --lint-command '<cmd>' --scratch <dir>
+               --lint-command '<cmd>' --scratch <dir> [--layer-pr <n> ...]
                [--bead-json <file>] [--split-only] [--template <path>]
                [--lint-timeout-seconds <n>]
   sanity-split lint-supervisor --worktree <path> --command '<cmd>' --log <file>
@@ -12,7 +12,8 @@ Usage:
 
 Reads the checked bead (`bd show <bead> --json`, or `--bead-json`), parses the
 numbered list under `## Deliverables`, pins the target commit, lists the files
-changed since the base, renders `dev-sanity-assignment.json.j2` once per
+changed since the base (with `--layer-pr`, the union of those PRs' own ranges,
+`gh pr view <n> --json baseRefOid,headRefOid`, the checked PR last), renders `dev-sanity-assignment.json.j2` once per
 deliverable with `sc-compose`, starts the lint command detached in the
 worktree, and prints one JSON manifest to stdout:
 
@@ -183,6 +184,29 @@ def pin(args):
     return sha, base_sha
 
 
+def layer_range(worktree, pr):
+    """One stack layer's own range: its PR's (baseRefOid, headRefOid)."""
+    try:
+        run = subprocess.run(["gh", "pr", "view", pr, "--json", "baseRefOid,headRefOid"], capture_output=True, text=True, cwd=worktree)
+    except OSError as exc:
+        raise Fail(3, f"gh unavailable: {exc}")
+    if run.returncode != 0:
+        raise Fail(3, f"gh pr view {pr} failed: {run.stderr.strip()}")
+    try:
+        data = json.loads(run.stdout)
+        return str(data["baseRefOid"]), str(data["headRefOid"])
+    except (ValueError, KeyError, TypeError):
+        raise Fail(3, f"gh pr view {pr} returned no baseRefOid/headRefOid")
+
+
+def layer_files(worktree, prs, sha):
+    """The union of the changed files of each layer PR's own range; the last (checked) PR's head must be the pinned sha."""
+    ranges = [layer_range(worktree, pr) for pr in prs]
+    if ranges[-1][1] != sha:
+        raise Fail(4, f"PR {prs[-1]} head is {ranges[-1][1]}, not {sha}")
+    return sorted(set().union(*(changed_files(worktree, base, head) for base, head in ranges)))
+
+
 def changed_files(worktree, base_sha, sha):
     out = git(worktree, "diff", "--name-status", "-z", "--find-renames", f"{base_sha}...{sha}")
     fields = out.split("\0")
@@ -344,6 +368,7 @@ def main():
     for flag in ("--task", "--bead", "--worktree", "--branch", "--commit", "--base", "--lint-command", "--scratch"):
         parser.add_argument(flag, required=True)
     parser.add_argument("--bead-json")
+    parser.add_argument("--layer-pr", action="append", default=[])
     parser.add_argument("--split-only", action="store_true")
     parser.add_argument("--template", type=Path, default=TEMPLATE)
     parser.add_argument("--lint-timeout-seconds", type=int, default=1800)
@@ -359,7 +384,7 @@ def main():
             sha, base_sha, files, lint = args.commit, args.base, [], None
         else:
             sha, base_sha = pin(args)
-            files = changed_files(args.worktree, base_sha, sha)
+            files = layer_files(args.worktree, args.layer_pr, sha) if args.layer_pr else changed_files(args.worktree, base_sha, sha)
             lint = None
         outside = outside_fence(files, owned)
         assignments = []

@@ -1,6 +1,6 @@
 ---
 name: qa-task
-version: 4.7.0
+version: 4.8.0
 description: lead QA assignment for quality-mgr in atm-bd-orchestration. task_id is the QA bead. Reviews one layer at a pinned commit and closes the QA bead whatever the verdict; nothing waits on it.
 format: xml
 required_variables:
@@ -22,10 +22,12 @@ optional_variables:
   - pr_number
   - carry_forward
   - sprint_bead
+  - layer_prs
 defaults:
   pr_number: ""
   carry_forward: ""
   sprint_bead: ""
+  layer_prs: []
 metadata:
   type: qa-task
   tags:
@@ -56,7 +58,7 @@ metadata:
   <base><![CDATA[{{ base | string | cdata_escape }}]]></base>
   <worktree><![CDATA[{{ worktree_path | string | cdata_escape }}]]></worktree>
   <carry-forward><![CDATA[{{ carry_forward | string | cdata_escape }}]]></carry-forward>
-  <stack-discipline><![CDATA[`{{ branch | string | cdata_escape }}` is frozen at `{{ commit | string | cdata_escape }}` for this review. Every reviewer receives this same branch, commit, and worktree and must reject a mismatched or moving checkout. Review exact content with `git show {{ commit | string | cdata_escape }}:<path>`. The change under review is `git diff origin/{{ base | string | cdata_escape }}...{{ commit | string | cdata_escape }}`, never a diff against a moving base. Every round-1 finding, at every severity, is filed in that round (a blocking one as a poured fix group, the others as finding beads); none is deferred. Each is fixed later on a new layer at the top of stack `{{ stack | string | cdata_escape }}`. A fix-verification round checks only its carried findings against their original acceptance criteria and does not file new findings.]]></stack-discipline>
+  <stack-discipline><![CDATA[`{{ branch | string | cdata_escape }}` is frozen at `{{ commit | string | cdata_escape }}` for this review. Every reviewer receives this same branch, commit, and worktree and must reject a mismatched or moving checkout. Review exact content with `git show {{ commit | string | cdata_escape }}:<path>`. The change under review is {% if layer_prs %}the sprint's own layer ranges, `git diff <baseRefOid>...<headRefOid>` of each PR {{ layer_prs | join(", ") | string | cdata_escape }} (`gh pr view <n> --json baseRefOid,headRefOid`){% else %}`git diff origin/{{ base | string | cdata_escape }}...{{ commit | string | cdata_escape }}`{% endif %}, never a diff against a moving base. Every round-1 finding, at every severity, is filed in that round (a blocking one as a poured fix group, the others as finding beads); none is deferred. Each is fixed later on a new layer at the top of stack `{{ stack | string | cdata_escape }}`. A fix-verification round checks only its carried findings against their original acceptance criteria and does not file new findings.]]></stack-discipline>
 
   <fix-verification-precedence><![CDATA[A review assigned to verify a fix is not a sprint review, regardless of round number or inherited review-mode. For a fix, dispatch only the agent necessary to confirm the original finding, normally its filing reviewer. No automatic req-qa/arch-qa/rust-qa or screening panel. Lock scope to the assigned finding ID and original acceptance criterion; do not expand to a sprint diff, TODO scan, duplicate sweep, or new findings. The selected verifier may run focused checks needed to confirm the fix. Report fixed/open/regressed for that same finding and reconcile verified original-finding closure, not just QA-task closure. Required CI remains a separate merge requirement. This rule overrides the broader sprint-only instructions in stack-discipline and workflow steps c, e, g, and i. Sprint rounds 1–2 remain sprint reviews.]]></fix-verification-precedence>
 
@@ -65,7 +67,7 @@ metadata:
     <step id="a1"><![CDATA[QA tasks run concurrently. Right after the task start run `atm task list --json` and treat every open task assigned to you as live now; run each with its own background reviewers and close each when its verdict is ready. ATM allows one active task per agent today: when another task is active, claim the bead, do the work, and close the task without starting it.]]></step>
     <step id="b"><![CDATA[Reject the task immediately if the assignment is not an XML payload rendered from this template. Read `{{ policy_path | string | cdata_escape }}`. Write the reviewers' sprint input once, piping the checked bead in; it replaces the sprint doc and is passed to every reviewer as `sprint_doc`:
 ```bash
-{ printf 'QA of {{ checked_bead | string | cdata_escape }} (sprint {{ sprint | string | cdata_escape }}) at {{ commit | string | cdata_escape }} on {{ branch | string | cdata_escape }}; change = git diff origin/{{ base | string | cdata_escape }}...{{ commit | string | cdata_escape }}.\n\n'
+{ printf 'QA of {{ checked_bead | string | cdata_escape }} (sprint {{ sprint | string | cdata_escape }}) at {{ commit | string | cdata_escape }} on {{ branch | string | cdata_escape }}; change = {% if layer_prs %}git diff <baseRefOid>...<headRefOid> of each layer PR {{ layer_prs | join(" ") | string | cdata_escape }} (gh pr view <n> --json baseRefOid,headRefOid){% else %}git diff origin/{{ base | string | cdata_escape }}...{{ commit | string | cdata_escape }}{% endif %}.\n\n'
   printf 'The bead under review is the sprint plan: its description, design and acceptance criteria are the deliverables.\n\n```json\n'
   bd show {{ checked_bead | string | cdata_escape }} --json | jq '.[0] | {id, title, description, design, acceptance_criteria, metadata}'
   printf '```\n'
