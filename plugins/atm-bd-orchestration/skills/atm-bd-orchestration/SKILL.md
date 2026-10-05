@@ -76,7 +76,8 @@ empty `atm escalation list --json | jq -r '.recipients[]'`, if both empty the
 task assigner, saying in the message that no escalation recipient is set;
 `atm send <recipient> --stdin` to each. Once per cause is the cause's workflow
 class bead (`workflow-issue-bead.json.j2`, `parent` as in
-`examples/workflow-issue-bead-vars.json`): announce only when you create it,
+`examples/workflow-issue-bead-vars.json`, `remedy` = the command that re-tests
+the cause): announce only when you create it,
 append each later occurrence to it, and close it when the cause clears. When a
 backup or fallback exists, use it so work moves forward, never silently: record
 each use in the log or evidence and announce it the same way.
@@ -286,7 +287,7 @@ ready bead. Assign a bead only while `bd ready` lists it. Order and hold work on
 never tell an agent not to run a task in its queue. The lead may step in at critical points, preferably through a background developer subagent (Parallel Quick Fix step 3); lead work is never part of the original plan.
 While a workflow outage class bead is open, re-test its cause on each pass
 (Jev: `python3 scripts/jev_client.py --startup`; any other cause: the command
-named in the bead) and on success close it (`bd close <bead> --reason
+in the bead's `remedy`, its `design`) and on success close it (`bd close <bead> --reason
 "re-test PASS"`), which releases the re-dispatches held on it. A passing probe
 does not close a Jev class bead a JEV child opened while a sanity task is ready
 or open; dev-sanity closes it on its next passing JEV child
