@@ -258,6 +258,8 @@ def selected_results(args, manifest, sanity_bead, dev_bead):
             reply, status, source = *llm_by[number], "sanity-llm"
         else:
             reply, status, source = *jev_by[number], "sanity-jev"
+        if rerun is None and status == "cannot_run" and "cannot_run" != (llm_by if entry["selected"] == "jev" else jev_by)[number][1]:
+            raise Reject(f"deliverable {number}: selection must take the reviewer with a valid reply")
         if not isinstance(entry["checker_defect"], bool):
             raise Reject(f"deliverable {number}: checker_defect must be boolean")
         if entry["checker_defect"] and status != "undone":
