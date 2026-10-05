@@ -43,7 +43,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 
 ### Plan review (`plan-review-template`)
 
-32. Check readiness, claim, start; blocked: report the blocker to the task assigner and wait.
+32. Check readiness, claim, start; blocked: close the task `refused` (`bead_state` open) naming the blocker and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); a blocker met mid-task: return the bead open, unassigned, blocker in notes, close the task `refused` the same way; never wait.
 33. Run `validate-plan --root <root>`: exit 5 every line blocking; exit 2 cannot-run (`PLAN_REVIEW_CANNOT_RUN`); a missing plan file and `bd doctor` errors are blocking.
 34. Pipe each sprint container to `<scratch>/<bead>-plan.md` and the root to `<scratch>/<root>-plan.md`.
 35. Pin reviewers to `integration_branch` at `git rev-parse origin/<integration_branch>`.
@@ -56,7 +56,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 
 ### Phase-end review (`review-template`)
 
-42. Check readiness, claim, start; not ready: report blockers to the task assigner and wait.
+42. Check readiness, claim, start; not ready: close the task `refused` (`bead_state` open) naming the blockers and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); a blocker met mid-task: return the bead open, unassigned, blocker in notes, close the task `refused` the same way; never wait.
 43. Require branch = root `integration_branch`, worktree HEAD = `<commit>`; read via `git show <commit>:<path>`; plan = `bd show <phase feature>` and children.
 44. JEV post-mortem per `post-mortem.md`: inventory every phase finding (closed, nested); investigate every flagged result; dedupe; report them to the task assigner, who files them as finding beads; append raw evaluations to the phase JSONL with UTC, SHA, run IDs.
 45. Record `post_mortem_jev`; model error is not PASS; no code findings: `not_applicable`; JEV unavailable: `unavailable`, review stays pending: bead returned open, task refused `REVIEW_PENDING_JEV` with the code findings and `post_mortem_jev` in the refusal notes, which the lead files; never a completion.

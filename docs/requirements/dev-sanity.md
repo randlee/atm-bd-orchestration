@@ -18,7 +18,7 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 
 ### Per assignment (task id = sanity bead id)
 9. Start every open sanity task at once (`bd update --claim` all, `atm task start` the active one); close each when its verdict arrives.
-10. Not ready (`bd ready -n 0 --json` omits it): do not claim or start; find the root cause; report bead, why, who must move to the task assigner; wait.
+10. Not ready (`bd ready -n 0 --json` omits it): do not claim or start; find the root cause; close the task `refused` (`bead_state` open), `reason_md` = bead, why, who must move and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); a blocker met mid-task: return the bead open, unassigned, blocker in notes, close the task `refused` the same way; never wait.
 11. Refuse `SANITY.PR_REQUIRED` without `pr_number` and `pr_url`.
 12. PR head must equal `commit`, the PR must be in an open stack of `gh api repos/{owner}/{repo}/stacks` (GitHub's stacks, never local `gh stack` tracking) with its base the `head.ref` of the open PR before it (the stack's `base.ref` for its first open PR), or be in no open stack as layer 0 awaiting layer 1 (base = `pr_target`, no open PR from it), and that base must be the checked bead's `pr_target` or a descendant of it, else refuse `SANITY.NOT_STACKED`; `git fetch origin` before the descendant check; a `pr_target` gone from origin holds when a merged PR of it has its merge commit in `origin/<base>`.
 13. Refuse `SANITY.ZERO_DELTA` when `origin/<base>..<commit>` is empty, and `SANITY.NOT_REBASED` when `origin/<base>` is not an ancestor of `<commit>`.
