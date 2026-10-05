@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.12
+version: 0.6.13
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -213,8 +213,9 @@ on every restack and show up as out-of-scope work in that sprint's PR.
    which its PR base must descend from). No PR merges without QA. A failed
    quick-fix QA pours nothing and lists its blocking findings in the close's
    `findings_md`; the lead files each as a finding bead (`finding-bead.json.j2`,
-   `qa_bead` = the quick-fix QA bead) and dispatches it to the finder with
-   `fix-assignment.xml.j2` on the same fix branch when
+   `qa_bead` = the quick-fix QA bead) and dispatches it to an idle roster agent
+   (the finder when idle; a background developer subagent as in step 3 when
+   every roster agent is mid-task) with `fix-assignment.xml.j2` on the same fix branch when
    nothing is linked above it, else on a new layer cut from the stack's
    current top (Stack Discipline), with no sanity bead, followed by one more
    quick-fix QA bead as in this step. Every other branch picks the fix up by rebasing onto
