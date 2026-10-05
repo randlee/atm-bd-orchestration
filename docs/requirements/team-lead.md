@@ -62,7 +62,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 45. Create a `bd gate` and its edges only on the user's explicit instruction; human gates need recorded user agreement.
 
 #### Stack
-46. Be the only stack writer (`gh stack link/unstack/sync/rebase/merge`).
+46. Be the only stack writer (`gh stack link/unstack/sync/rebase/merge`). Rebasing is done before sanity or QA is assigned and is the dev's, at dev-complete; the lead fixes only what the dev could not, or another stack problem, before dispatching sanity or QA, in its own worktree, and dispatches with the new `commit`, `base`, `pr_number` and `worktree_path`. A layer that has passed QA, or has layers above it, is never rebased, and a rebase never re-dispatches QA or sanity on any other layer.
 47. Link layers in completion order; record each bead's actual `layer` at link time; `pr_target` changes only at a dev-fix (28).
 48. Parallel quick fix: pick the lowest base holding what the change needs; finder (or a background developer subagent when all are busy) cuts `fix/<thing>` from it; one QA round (`checked_bead` = finder's bead, `layer` = base, QA bead from `qa-bead.json.j2` with `quick_fix` true: no sanity check); merge on PASS; tell each owner the base moved; record fix branch/PR in the finder's and every touched bead's notes.
 49. Merge no PR into the integration branch or a stack layer without QA.

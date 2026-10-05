@@ -151,7 +151,13 @@ layers 0 and 1 together, `gh stack link --base <trunk> <pr0> <pr1>`, when
 layer 1's PR opens; a sanity refusal for no PR, not
 stacked or not rebased is the lead's (the stack writer) to fix: it opens,
 links or rebases by a new layer as `/sc-gh-stack` prescribes and re-dispatches
-the sanity check, without interrupting or messaging the dev. A passed sanity is
+the sanity check, without interrupting or messaging the dev.
+Rebasing is done before sanity or QA is assigned and is the dev's, at
+dev-complete; the lead fixes only what the dev could not, or another stack
+problem, before dispatching sanity or QA, in its own worktree, and dispatches
+with the new `commit`, `base`, `pr_number` and `worktree_path`. A layer that
+has passed QA, or has layers above it, is never rebased, and a rebase never
+re-dispatches QA or sanity on any other layer. A passed sanity is
 frozen and a later change is a new fix bead with its own sanity. Sprint work
 does not wait for QA: the next sprint is dispatched as soon as its sanity
 blockers PASS. QA and fixes interleave by priority (blocking P1, sprint and
