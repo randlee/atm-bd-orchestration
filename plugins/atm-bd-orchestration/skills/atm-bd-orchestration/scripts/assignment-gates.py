@@ -75,6 +75,33 @@ def declared_pr_target(runner: Runner, bead: dict[str, Any]) -> str | None:
     return target
 
 
+def descends(runner: Runner, lower: str, base: str, git: list[str] | None = None) -> bool:
+    """`pr_target` is a lower bound: the actual base is it or a descendant of it."""
+    if lower == base:
+        return True
+    result = runner(["git", *(git or []), "merge-base", "--is-ancestor", f"origin/{lower}", f"origin/{base}"], capture_output=True, text=True)
+    if result.returncode > 1:
+        raise RuntimeError(result.stderr.strip() or "git merge-base failed")
+    return result.returncode == 0
+
+
+def stacked_base(runner: Runner, head: str, worktree: str = "") -> str | None:
+    """The branch of the open layer below `head` in its gh stack (the trunk for the first open layer); None when not linked."""
+    result = runner(["gh", "stack", "view", "--json"], capture_output=True, text=True, cwd=worktree or None)
+    if result.returncode == 2:
+        return None
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or "gh stack view failed")
+    stack = json.loads(result.stdout)
+    base = stack["trunk"]
+    for branch in stack["branches"]:
+        if branch["name"] == head:
+            return base
+        if not branch.get("isMerged"):
+            base = branch["name"]
+    return None
+
+
 def dev_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     if runner([VALIDATE_PLAN, "--root", args.root], capture_output=True, text=True, cwd=str(PRIMARY)).returncode:
         return "PLAN_INVALID"
@@ -84,7 +111,8 @@ def dev_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     bead = run_json(runner, "bd", "show", args.bead, "--json")[0]
     if not claimable(bead, identity):
         return "UNCLAIMABLE"
-    if declared_pr_target(runner, bead) not in (None, args.pr_target):
+    declared = declared_pr_target(runner, bead)
+    if declared is not None and not descends(runner, str(declared), args.pr_target, git_dir(args)):
         return "PR_TARGET_MISMATCH"
     if (reason := refusal_for_difficulty(bead, members_for(runner), identity)):
         return reason
@@ -97,13 +125,16 @@ def sanity_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     if not args.pr_number or not args.commit:
         return "PR_REQUIRED"
     run_json(runner, "bd", "show", args.bead, "--json")
-    pr = run_json(runner, "gh", "pr", "view", args.pr_number, "--json", "baseRefName,headRefOid")
-    if pr.get("baseRefName") != args.pr_target or pr.get("headRefOid") != args.commit:
-        return "STALE_BASE"
+    pr = run_json(runner, "gh", "pr", "view", args.pr_number, "--json", "baseRefName,headRefName,headRefOid")
+    base = str(pr.get("baseRefName") or "")
+    if pr.get("headRefOid") != args.commit or stacked_base(runner, str(pr.get("headRefName") or ""), getattr(args, "worktree", "")) != base:
+        return "NOT_STACKED"
     run(runner, "git", "fetch", "origin")
-    if not run(runner, "git", "log", "--format=%H", f"origin/{args.pr_target}..{args.commit}"):
+    if not descends(runner, args.pr_target, base):
+        return "NOT_STACKED"
+    if not run(runner, "git", "log", "--format=%H", f"origin/{base}..{args.commit}"):
         return "ZERO_DELTA"
-    rebased = runner(["git", "merge-base", "--is-ancestor", f"origin/{args.pr_target}", args.commit], capture_output=True, text=True)
+    rebased = runner(["git", "merge-base", "--is-ancestor", f"origin/{base}", args.commit], capture_output=True, text=True)
     if rebased.returncode == 1:
         return "NOT_REBASED"
     if rebased.returncode:
@@ -130,12 +161,11 @@ def qa_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     if not args.pr_number:
         return "PR_REQUIRED"
     qa_bead = run_json(runner, "bd", "show", args.bead, "--json")[0]
-    if metadata(qa_bead).get("pr_target") not in (None, args.pr_target):
-        return "PR_TARGET_MISMATCH"
     checked = args.checked_bead or metadata(qa_bead).get("checked_bead")
     pass_commit = sanity_pass_commit(runner, str(checked)) if checked else None
     pr = run_json(runner, "gh", "pr", "view", args.pr_number, "--json", "baseRefName,headRefOid")
-    if pr.get("baseRefName") != args.pr_target:
+    base = str(pr.get("baseRefName") or "")
+    if not all(descends(runner, str(lower), base) for lower in (metadata(qa_bead).get("pr_target"), args.pr_target) if lower is not None):
         return "PR_TARGET_MISMATCH"
     if not pass_commit or len(pass_commit) < 7 or not str(pr.get("headRefOid") or "").startswith(pass_commit):
         return "SANITY_STALE"

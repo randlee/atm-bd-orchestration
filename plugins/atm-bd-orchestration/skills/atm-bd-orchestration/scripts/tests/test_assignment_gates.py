@@ -49,7 +49,9 @@ def dev_runner(overrides=None):
 def sanity_runner(overrides=None):
     data = {
         ("bd", "show", "bead", "--json"): (0, dumped([{"metadata": {}}])),
-        ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefOid": "head"})),
+        ("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefName": "branch", "headRefOid": "head"})),
+        ("gh", "stack", "view", "--json"): (0, dumped({"trunk": "integrate", "branches": [
+            {"name": "merged", "isMerged": True}, {"name": "target"}, {"name": "branch"}]})),
         ("git", "fetch", "origin"): (0, ""),
         ("git", "rev-parse", "target"): (0, "base"),
         ("git", "rev-parse", "origin/target"): (0, "base"),
@@ -103,9 +105,10 @@ class AssignmentGateTests(unittest.TestCase):
     def test_a_poured_dev_bead_takes_its_sprint_containers_pr_target(self):
         poured = {("bd", "show", "bead", "--json"): (0, dumped([{"status": "open", "assignee": "", "labels": ["stage:dev"],
                   "metadata": {"difficulty": "normal", "sprint_bead": "container"}}]))}
-        for target, expected in (("target", "READY"), ("other", "PR_TARGET_MISMATCH")):
-            runner = dev_runner({**poured, ("bd", "show", "container", "--json"): (0, dumped([{"metadata": {"pr_target": target}}]))})
-            with self.subTest(container_target=target):
+        for target, ancestor, expected in (("target", 1, "READY"), ("lower", 0, "READY"), ("other", 1, "PR_TARGET_MISMATCH"), ("other", 128, "GATE_CANNOT_RUN")):
+            runner = dev_runner({**poured, ("bd", "show", "container", "--json"): (0, dumped([{"metadata": {"pr_target": target}}])),
+                                 ("git", "merge-base", "--is-ancestor", f"origin/{target}", "origin/target"): (ancestor, "")})
+            with self.subTest(container_target=target, ancestor=ancestor):
                 self.assertEqual(gates.evaluate(ns("dev"), runner), expected)
         fix = {("bd", "show", "bead", "--json"): (0, dumped([{"status": "open", "assignee": "", "labels": ["stage:fix"],
                "metadata": {"difficulty": "normal", "sprint_bead": "container"}}])),
@@ -122,7 +125,12 @@ class AssignmentGateTests(unittest.TestCase):
     def test_sanity_refusals_and_ready(self):
         cases = [
             ("pr-required.json", ns("sanity", pr_number=""), sanity_runner()),
-            ("stale-base.json", ns("sanity"), sanity_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "wrong", "headRefOid": "head"}))})),
+            ("not-stacked.json", ns("sanity"), sanity_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "wrong", "headRefName": "branch", "headRefOid": "head"}))})),
+            ("not-stacked.json", ns("sanity"), sanity_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefName": "branch", "headRefOid": "moved"}))})),
+            ("not-stacked.json", ns("sanity"), sanity_runner({("gh", "stack", "view", "--json"): (2, "")})),
+            ("not-stacked.json", ns("sanity"), sanity_runner({("gh", "stack", "view", "--json"): (0, dumped({"trunk": "integrate", "branches": [{"name": "target"}]}))})),
+            ("not-stacked.json", ns("sanity", pr_target="planned"), sanity_runner({("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (1, "")})),
+            ("sanity-ready.json", ns("sanity", pr_target="planned"), sanity_runner({("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (0, "")})),
             ("not-rebased.json", ns("sanity"), sanity_runner({("git", "merge-base", "--is-ancestor", "origin/target", "head"): (1, "")})),
             ("zero-delta.json", ns("sanity"), sanity_runner({("git", "log", "--format=%H", "origin/target..head"): (0, "")})),
             ("dirty-tree.json", ns("sanity"), sanity_runner({("git", "status", "--porcelain", "--untracked-files=no"): (0, " M tracked.py")})),
@@ -136,16 +144,39 @@ class AssignmentGateTests(unittest.TestCase):
         runner = sanity_runner({("git", "merge-base", "--is-ancestor", "origin/target", "head"): (128, "")})
         self.assertEqual(gates.evaluate(ns("sanity"), runner), "GATE_CANNOT_RUN")
 
+    def test_sanity_stack_checks_that_cannot_run_are_not_refusals(self):
+        for override in ({("gh", "stack", "view", "--json"): (1, "")}, {("gh", "stack", "view", "--json"): (0, "not json")},
+                         {("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (128, "")}):
+            with self.subTest(override=override):
+                self.assertEqual(gates.evaluate(ns("sanity", pr_target="planned"), sanity_runner(override)), "GATE_CANNOT_RUN")
+
+    def test_the_first_open_layer_is_based_on_the_trunk(self):
+        runner = sanity_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "integrate", "headRefName": "target", "headRefOid": "head"})),
+                                ("git", "merge-base", "--is-ancestor", "origin/target", "origin/integrate"): (1, ""),
+                                ("git", "log", "--format=%H", "origin/integrate..head"): (0, "delta")})
+        self.assertEqual(gates.evaluate(ns("sanity", pr_target="integrate"), runner), "READY")
+        self.assertEqual(gates.evaluate(ns("sanity"), runner), "NOT_STACKED")  # the trunk does not descend from a planned layer above it
+
     def test_qa_refusals_and_ready(self):
         cases = [
             ("stale-sanity.json", qa_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefOid": "0ld0ld0aaa"}))})),
             ("stale-sanity.json", qa_runner({("bd", "list", "-l", "stage:dev-sanity", "--status", "closed", "-n", "0", "--json"): (0, dumped([
                 {"id": "checked-sanity", "close_reason": "FAIL at abc1234", "closed_at": "2026-10-02T00:00:00Z", "metadata": {"dev_bead": "checked"}}]))})),
             ("qa-head-mismatch.json", qa_runner({("git", "rev-parse", "HEAD"): (0, "other")})),
+            ("pr-target-mismatch.json", qa_runner({("git", "merge-base", "--is-ancestor", "origin/target", "origin/top"): (1, ""),
+                                                   ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "top", "headRefOid": "abc1234def"}))})),
+            ("qa-ready.json", qa_runner({("git", "merge-base", "--is-ancestor", "origin/target", "origin/top"): (0, ""),
+                                         ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "top", "headRefOid": "abc1234def"}))})),
             ("qa-ready.json", qa_runner()),
         ]
         for fixture, runner in cases:
             with self.subTest(fixture=fixture): self.assert_fixture(fixture, ns("qa"), runner)
+
+
+    def test_qa_base_check_that_cannot_run_is_not_a_refusal(self):
+        runner = qa_runner({("git", "merge-base", "--is-ancestor", "origin/target", "origin/top"): (128, ""),
+                            ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "top", "headRefOid": "abc1234def"}))})
+        self.assertEqual(gates.evaluate(ns("qa"), runner), "GATE_CANNOT_RUN")
 
 
 if __name__ == "__main__": unittest.main()
