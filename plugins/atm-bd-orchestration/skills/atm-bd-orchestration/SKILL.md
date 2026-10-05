@@ -210,8 +210,11 @@ on every restack and show up as out-of-scope work in that sprint's PR.
    its layer; its QA bead from `qa-bead.json.j2` with `quick_fix` true, so QA
    skips the sanity-PASS check a quick fix has no sanity for, and `pr_target`,
    which its PR base must descend from). No PR merges without QA. A failed
-   quick-fix QA re-dispatches the finder on the same fix branch, followed by
-   one more QA bead. Every other branch picks the fix up by rebasing onto
+   quick-fix QA pours nothing and lists its blocking findings in the close; the
+   lead re-dispatches the finder with the task template the quick fix used
+   (`fix-assignment.xml.j2` or `dev-fix.xml.j2`) on the same fix branch when
+   nothing is linked above it, else on a new layer cut from the stack's
+   current top (Stack Discipline), followed by one more QA bead. Every other branch picks the fix up by rebasing onto
    its stack's current top at its dev-complete; the lead tells its owner the
    base moved.
 5. The lead records the fix branch and PR in the finder's bead notes and in
