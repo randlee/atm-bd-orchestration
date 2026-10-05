@@ -4,6 +4,10 @@
 
 ### Added
 - `scripts/bv-analyze` and `references/bv.md`: the lead's read-only BV graph analysis of a fresh `bd --readonly export` (or a rendered plan file before import), fail-closed on any incomplete or stale load. bd 1.3 memory rows are dropped (raw export in `export.jsonl`, issues in `issues.jsonl`); `--target`'s blocker chain runs on the target and everything it transitively waits on (`prerequisites.jsonl`), so an unrelated bad row cannot fail it; a partial load names the rejected bead ids and BV's warnings. `bv.md` says when the lead runs it and what it decides: plan shape only before import, only added edges in motion, priority with a reason, staffing to the user (`SKILL.md` 0.6.20 links it from Lead Role).
+- `validate-plan --ci`: offline (no bd, no fetch), every git-tracked `.atm-bd/phase-*.toml` loads and its plan file parses; one line per problem, exit 5 on problems, 0 when there are none or no phase file is tracked (`atm-beads` 0.3.4).
+
+### Fixed
+- `assignment-gates.py sanity`: `bd history` output that is not a JSON list of snapshots each with an `Issue` object is `GATE_CANNOT_RUN` with the output in the message on stderr, no longer an empty history and `READY`; every `GATE_CANNOT_RUN` from `evaluate` now prints its reason to stderr.
 
 ## [0.9.0] - 2026-10-04
 

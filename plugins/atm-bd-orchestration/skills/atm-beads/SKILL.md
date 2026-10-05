@@ -1,6 +1,6 @@
 ---
 name: atm-beads
-version: 0.3.3
+version: 0.3.4
 description: Plans written as beads. Use when writing, validating or importing a phase plan into beads, or when pairing an ATM task with its bead (claim, start, close).
 requires:
   cli:
@@ -79,6 +79,7 @@ before the first dispatch. Run it from the repository root:
 ```bash
 .claude/skills/atm-beads/scripts/validate-plan --file <plan.jsonl> --phase <x> --index <plans_dir>/phase-<x>.jsonl   # before import
 .claude/skills/atm-beads/scripts/validate-plan --phase <x>   # live beads; plan file from origin/<integration_branch>
+.claude/skills/atm-beads/scripts/validate-plan --ci   # CI, offline: every tracked .atm-bd/phase-*.toml and its plan file parse
 ```
 
 What it checks is listed once, in the header of
