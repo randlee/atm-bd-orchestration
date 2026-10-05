@@ -200,7 +200,8 @@ def qa_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     base = str(pr.get("baseRefName") or "")
     if not all(descends(runner, str(lower), base) for lower in (metadata(qa_bead).get("pr_target"), args.pr_target) if lower is not None):
         return "PR_TARGET_MISMATCH"
-    if not pass_commit or len(pass_commit) < 7 or not str(pr.get("headRefOid") or "").startswith(pass_commit):
+    quick_fix = metadata(qa_bead).get("quick_fix") is True  # a Parallel Quick Fix has QA but no sanity check
+    if not quick_fix and (not pass_commit or len(pass_commit) < 7 or not str(pr.get("headRefOid") or "").startswith(pass_commit)):
         return "SANITY_STALE"
     if run(runner, "git", "rev-parse", "HEAD") != pr.get("headRefOid"):
         return "QA_HEAD_MISMATCH"

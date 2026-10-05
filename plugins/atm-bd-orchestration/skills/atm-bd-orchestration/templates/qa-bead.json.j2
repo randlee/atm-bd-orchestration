@@ -1,7 +1,7 @@
 ---
 name: qa-bead
-version: 1.0.0
-description: The QA bead the lead creates when a sanity check passes. It is a child of the bead it checks and blocks nothing. Render strictly, then `jq -c .` into the import JSONL.
+version: 1.1.0
+description: The QA bead the lead creates when a sanity check passes, or for a Parallel Quick Fix with `quick_fix` true (its QA has no sanity check). It is a child of the bead it checks and blocks nothing. Render strictly, then `jq -c .` into the import JSONL.
 format: json
 required_variables:
   - id
@@ -17,9 +17,11 @@ required_variables:
 optional_variables:
   - priority
   - difficulty
+  - quick_fix
 defaults:
   priority: 2
   difficulty: normal
+  quick_fix: false
 ---
 {
   "id": {{ id | tojson }},
@@ -43,6 +45,7 @@ defaults:
     "commit": {{ commit | tojson }},
     "round": {{ round | tojson }},
     "difficulty": {{ difficulty | tojson }},
+    "quick_fix": {{ quick_fix | tojson }},
     "checked_bead": {{ checked_bead | tojson }}
   }
 }

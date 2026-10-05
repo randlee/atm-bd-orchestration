@@ -238,6 +238,19 @@ class AssignmentGateTests(unittest.TestCase):
             with self.subTest(fixture=fixture): self.assert_fixture(fixture, ns("qa"), runner)
 
 
+    def test_a_quick_fix_qa_skips_only_the_sanity_pass_check(self):
+        no_pass = {("bd", "list", "-l", "stage:dev-sanity", "--status", "closed", "-n", "0", "--json"): (0, "[]")}
+        quick = {("bd", "show", "bead", "--json"): (0, dumped([{"metadata": {"checked_bead": "checked", "pr_target": "target", "quick_fix": True}}]))}
+        self.assertEqual(gates.evaluate(ns("qa"), qa_runner({**no_pass, **quick})), "READY")
+        self.assertEqual(gates.evaluate(ns("qa"), qa_runner(no_pass)), "SANITY_STALE")
+        self.assertEqual(gates.evaluate(ns("qa"), qa_runner({**no_pass, ("bd", "show", "bead", "--json"): (0, dumped([
+            {"metadata": {"checked_bead": "checked", "pr_target": "target", "quick_fix": False}}]))})), "SANITY_STALE")
+        self.assertEqual(gates.evaluate(ns("qa"), qa_runner({**no_pass, **quick, ("git", "rev-parse", "HEAD"): (0, "other")})), "QA_HEAD_MISMATCH")
+        self.assertEqual(gates.evaluate(ns("qa", pr_number=""), qa_runner({**no_pass, **quick})), "PR_REQUIRED")
+        self.assertEqual(gates.evaluate(ns("qa"), qa_runner({**no_pass, **quick, ("git", "merge-base", "--is-ancestor", "origin/target", "origin/top"): (1, ""),
+                                                            ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "top", "headRefOid": "abc1234def"}))})),
+                         "PR_TARGET_MISMATCH")
+
     def test_qa_base_check_that_cannot_run_is_not_a_refusal(self):
         runner = qa_runner({("git", "merge-base", "--is-ancestor", "origin/target", "origin/top"): (128, ""),
                             ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "top", "headRefOid": "abc1234def"}))})

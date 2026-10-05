@@ -573,6 +573,15 @@ class ConfigVariableTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["assignee"], "my-qa")
 
+    def test_qa_bead_marks_a_quick_fix_explicitly(self):
+        import json
+        plain = _render("qa-bead.json.j2", _example("qa-bead-vars.json"))
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        self.assertIs(json.loads(plain.stdout)["metadata"]["quick_fix"], False)
+        quick = _render("qa-bead.json.j2", {**_example("qa-bead-vars.json"), "quick_fix": True})
+        self.assertEqual(quick.returncode, 0, quick.stderr)
+        self.assertIs(json.loads(quick.stdout)["metadata"]["quick_fix"], True)
+
 
 class QaLogContractTests(unittest.TestCase):
     """The QA metrics log is a stable contract (paths, record fields and their order); config never changes it."""
