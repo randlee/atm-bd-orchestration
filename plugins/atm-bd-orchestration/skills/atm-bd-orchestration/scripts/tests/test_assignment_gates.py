@@ -273,6 +273,16 @@ class AssignmentGateTests(unittest.TestCase):
                                                             ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "top", "headRefOid": "abc1234def"}))})),
                          "PR_TARGET_MISMATCH")
 
+    def test_a_quick_fix_layer_on_the_stack_top_passes_its_lower_bound(self):
+        # R4: the quick fix is a new layer on the stack top; its QA bead's pr_target is the lowest branch it needs.
+        quick = {("bd", "show", "bead", "--json"): (0, dumped([{"metadata": {"checked_bead": "finder", "pr_target": "sprint/d-2", "quick_fix": True}}])),
+                 ("bd", "list", "-l", "stage:dev-sanity", "--status", "closed", "-n", "0", "--json"): (0, "[]"),
+                 ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "sprint/d-5", "headRefOid": "abc1234def"})),
+                 ("git", "merge-base", "--is-ancestor", "origin/sprint/d-2", "origin/sprint/d-5"): (0, "")}
+        self.assertEqual(gates.evaluate(ns("qa", pr_target="sprint/d-2", checked_bead=""), qa_runner(quick)), "READY")
+        self.assertEqual(gates.evaluate(ns("qa", pr_target="sprint/d-2", checked_bead=""), qa_runner(
+            {**quick, ("git", "merge-base", "--is-ancestor", "origin/sprint/d-2", "origin/sprint/d-5"): (1, "")})), "PR_TARGET_MISMATCH")
+
     def test_qa_base_check_that_cannot_run_is_not_a_refusal(self):
         runner = qa_runner({("git", "merge-base", "--is-ancestor", "origin/target", "origin/top"): (128, ""),
                             ("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "top", "headRefOid": "abc1234def"}))})

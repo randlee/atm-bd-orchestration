@@ -581,6 +581,10 @@ class ConfigVariableTests(unittest.TestCase):
         quick = _render("qa-bead.json.j2", {**_example("qa-bead-vars.json"), "quick_fix": True})
         self.assertEqual(quick.returncode, 0, quick.stderr)
         self.assertIs(json.loads(quick.stdout)["metadata"]["quick_fix"], True)
+        self.assertIsNone(json.loads(plain.stdout)["metadata"]["pr_target"])
+        bounded = _render("qa-bead.json.j2", {**_example("qa-bead-vars.json"), "quick_fix": True, "pr_target": "sprint/d-2"})
+        self.assertEqual(bounded.returncode, 0, bounded.stderr)
+        self.assertEqual(json.loads(bounded.stdout)["metadata"]["pr_target"], "sprint/d-2")
 
 
 class QaLogContractTests(unittest.TestCase):

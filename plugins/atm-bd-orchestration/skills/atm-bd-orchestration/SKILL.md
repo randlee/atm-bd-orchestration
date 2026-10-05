@@ -185,23 +185,28 @@ on every restack and show up as out-of-scope work in that sprint's PR.
 
 1. The finder stops the edit in the sprint worktree and tells the task assigner the
    exact change and the branches it breaks.
-2. The lead picks the base: the lowest branch that already holds what the
-   change needs. That is the phase's integration branch for a bug in merged code, or
-   the stack layer whose types the change uses.
-3. The finder cuts `fix/<thing>` from `origin/<base>` in its own worktree,
+2. The lead picks the quick fix's `pr_target`, a lower bound: the lowest
+   branch that already holds what the change needs. That is the phase's
+   integration branch for a bug in merged code, or the stack layer whose
+   types the change uses.
+3. The finder cuts `fix/<thing>` from the stack's current top
+   (`assignment-gates.py stack-top --pr-target <pr_target>`) in its own worktree,
    with only the change, the implementors and call sites the compiler
    forces, and one test when it is a bug. The test command passes; push; PR
-   into `<base>`.
+   against that top: a new layer, never a PR into a lower layer or the
+   integration branch. It reports the PR by plain `atm send`.
    When every roster agent is mid-task, the lead runs a background
    developer subagent for this step instead of waiting; the branch,
    scope and test rule are the same.
-4. The lead dispatches one QA round on the fix PR (`qa-template.xml.j2`,
-   `checked_bead` = the finder's bead, `layer` = the base; its QA bead from
-   `qa-bead.json.j2` with `quick_fix` true, so QA skips the sanity-PASS check
-   a quick fix has no sanity for) and merges when
-   it passes; no PR into the integration branch or a stack layer merges
-   without QA. Every branch whose `pr_target` is the base rebases onto
-   its stack's current top at its next push; the lead tells its owner the base moved.
+4. The lead links it on top of the stack and dispatches one QA round on the
+   fix PR (`qa-template.xml.j2`, `checked_bead` = the finder's bead, `layer` =
+   its layer; its QA bead from `qa-bead.json.j2` with `quick_fix` true, so QA
+   skips the sanity-PASS check a quick fix has no sanity for, and `pr_target`,
+   which its PR base must descend from). No PR merges without QA. A failed
+   quick-fix QA re-dispatches the finder on the same fix branch, followed by
+   one more QA bead. Every other branch picks the fix up by rebasing onto
+   its stack's current top at its dev-complete; the lead tells its owner the
+   base moved.
 5. The lead records the fix branch and PR in the finder's bead notes and in
    the notes of every bead whose fence it touched. The finder's sprint task
    stays open and continues on the rebased layer.
@@ -292,7 +297,7 @@ Then, on each task close:
 | fix-complete (`fixed`) | verify the dev's PR and link it on top of the phase stack, fixing any stack problem yourself (Stack Discipline). For a poured fix bead, nothing more: its group's sanity check is now ready. For an important or minor finding bead, create its sanity check bead (`atm-beads` [`dev-sanity-bead.json.j2`](../atm-beads/templates/dev-sanity-bead.json.j2), `dev_bead` and `parent` = the finding) |
 | review-complete | file each finding with `finding-bead.json.j2` (`qa_bead` = the review bead) |
 | task-refused | read the reason and the bead state (`open`, or `blocked-failed` for a dev bead that declared failure). Reassign it, split it, or close the bead yourself with `bd close <bead> --force --reason "<why>"`. A `blocked` bead is never in `bd ready`: run `bd update <bead> --status open --assignee <new agent>` before you re-dispatch it. A sanity refusal for no PR, not stacked or not rebased is yours as stack writer (Stack Discipline) |
-| fix-complete (`not_reproducible`) | nothing: no commit, no sanity check; the finding is closed |
+| fix-complete (`not_reproducible`) | no commit, no sanity check; the finding is closed. For a poured fix bead, close its group's sanity bead, then its QA bead, each with `bd close <bead> --reason "not_reproducible: <fix bead>"` |
 | not-ready report | the task is still open and queued. Fix the cause it names (usually a blocker still open) and tell the assignee to run the ready check again. If the work is no longer wanted, close the task `cancelled` with `task-refused.md.j2` (`bead_state` open) |
 
 Re-run `bd ready` after every close. Never cache the ready list. The open
