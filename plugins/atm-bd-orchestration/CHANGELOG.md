@@ -9,6 +9,7 @@
   escalations. No formula or script changes.
 
 ### Changed
+- Every PR lands on the top of its stack: `metadata.pr_target` is a lower bound (the actual base is it or a descendant); the dev and fix dev rebase onto the stack's current top, open the PR against it and close with the `/sc-gh-stack-view` output; sanity refuses `SANITY.NOT_STACKED` in place of `SANITY.STALE_BASE`.
 - The lead opens and stacks the PR at dev-complete (before sanity); dev-complete and fix-complete tell the task assigner to open and link the PR and assign the next check; sanity refuses `SANITY.NOT_REBASED` when the commit does not contain `origin/<pr_target>`.
 - Closes and reports go to the task assigner: the dev, dev-fix, dev-sanity,
   fix, QA, plan-review and review templates drop the `lead` and `cc`
