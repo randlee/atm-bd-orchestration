@@ -76,29 +76,50 @@ def declared_pr_target(runner: Runner, bead: dict[str, Any]) -> str | None:
 
 
 def descends(runner: Runner, lower: str, base: str, git: list[str] | None = None) -> bool:
-    """`pr_target` is a lower bound: the actual base is it or a descendant of it."""
+    """`pr_target` is a lower bound: the actual base is it or a descendant of it.
+    A lower bound whose branch is gone from origin (its layer collapsed into the trunk) holds when its PR merged."""
     if lower == base:
         return True
     result = runner(["git", *(git or []), "merge-base", "--is-ancestor", f"origin/{lower}", f"origin/{base}"], capture_output=True, text=True)
     if result.returncode > 1:
+        if runner(["git", *(git or []), "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{lower}"], capture_output=True, text=True).returncode:
+            if run_json(runner, "gh", "pr", "list", "--head", lower, "--state", "merged", "--json", "number"):
+                return True
         raise RuntimeError(result.stderr.strip() or "git merge-base failed")
     return result.returncode == 0
 
 
-def stacked_base(runner: Runner, head: str, worktree: str = "") -> str | None:
-    """The branch of the open layer below `head` in its gh stack (the trunk for the first open layer); None when not linked."""
-    result = runner(["gh", "stack", "view", "--json"], capture_output=True, text=True, cwd=worktree or None)
-    if result.returncode == 2:
+def stack_view_script(env: dict[str, str] | None = None, home: Path | None = None) -> str:
+    """gh_stack_view.py, located as sc-gh-stack does; RuntimeError (GATE_CANNOT_RUN) when absent."""
+    env = os.environ if env is None else env
+    candidates = [PRIMARY / ".claude/scripts/gh_stack_view.py"]
+    if env.get("CLAUDE_PLUGIN_ROOT"):
+        candidates.append(Path(env["CLAUDE_PLUGIN_ROOT"]) / "scripts/gh_stack_view.py")
+    for path in candidates:
+        if path.is_file():
+            return str(path)
+    found = [p for root in (PRIMARY / ".claude", (home or Path.home()) / ".claude") if root.is_dir()
+             for p in root.rglob("gh_stack_view.py") if p.is_file()]
+    if not found:
+        raise RuntimeError("gh_stack_view.py not found")
+    return str(max(found, key=lambda p: p.stat().st_mtime))
+
+
+def stacked_base(runner: Runner, pr_number: str) -> str | None:
+    """The branch of the open layer below PR `pr_number` in its gh stack (the trunk for the first open layer), read from
+    the cross-worktree view, never from one worktree's tracking; None when the PR is in no stack or its base is not that branch."""
+    result = runner([sys.executable, stack_view_script(), "--json"], capture_output=True, text=True, cwd=str(PRIMARY))
+    if result.returncode == 2 and "no open gh stack found" in result.stderr:
         return None
-    if result.returncode:
-        raise RuntimeError(result.stderr.strip() or "gh stack view failed")
-    stack = json.loads(result.stdout)
-    base = stack["trunk"]
-    for branch in stack["branches"]:
-        if branch["name"] == head:
-            return base
-        if not branch.get("isMerged"):
-            base = branch["name"]
+    if result.returncode > 1:
+        raise RuntimeError(result.stderr.strip() or "gh_stack_view.py failed")
+    for stack in json.loads(result.stdout)["stacks"]:
+        base = stack["trunk"]
+        for row in stack["rows"]:
+            if str(row.get("pr")) == str(pr_number):
+                return base if row.get("pr_base") == base else None
+            if not row.get("merged"):
+                base = row["branch"]
     return None
 
 
@@ -127,7 +148,7 @@ def sanity_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     run_json(runner, "bd", "show", args.bead, "--json")
     pr = run_json(runner, "gh", "pr", "view", args.pr_number, "--json", "baseRefName,headRefName,headRefOid")
     base = str(pr.get("baseRefName") or "")
-    if pr.get("headRefOid") != args.commit or stacked_base(runner, str(pr.get("headRefName") or ""), getattr(args, "worktree", "")) != base:
+    if pr.get("headRefOid") != args.commit or stacked_base(runner, args.pr_number) != base:
         return "NOT_STACKED"
     run(runner, "git", "fetch", "origin")
     if not descends(runner, args.pr_target, base):

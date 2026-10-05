@@ -69,11 +69,15 @@ failure is a refusal, not a best-effort check:
 1. `test -n "$PR_NUMBER" && test -n "$PR_URL"`; otherwise refuse
    `SANITY.PR_REQUIRED`.
 2. `gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRefOid`
-   must show base `$BASE` and head `$COMMIT`; `gh stack view --json` in the
-   worktree must list the PR's branch with `$BASE` the branch of the open
-   layer below it (the stack's `trunk` for its first open layer); then
+   must show base `$BASE` and head `$COMMIT`; `gh_stack_view.py --json`
+   (located as `/sc-gh-stack` does; not found is cannot-run), run from the
+   primary checkout and never read from one worktree's `gh stack` tracking,
+   must have a row whose `pr` is `$PR_NUMBER` and whose `pr_base` is `$BASE`,
+   the `branch` of the open row before it (the stack's `trunk` for its first
+   open row); then
    `git fetch origin`, and `git merge-base --is-ancestor "origin/$PR_TARGET" "origin/$BASE"`
-   must pass unless `$PR_TARGET`, the checked bead's `pr_target` (a lower bound), is `$BASE`;
+   must pass unless `$PR_TARGET`, the checked bead's `pr_target` (a lower bound), is `$BASE`
+   (a `$PR_TARGET` gone from origin holds when `gh pr list --head "$PR_TARGET" --state merged` lists its PR);
    otherwise refuse `SANITY.NOT_STACKED`.
 3. `git log --format=%H "origin/$BASE..$COMMIT" | grep -q .` must pass;
    otherwise refuse `SANITY.ZERO_DELTA`.

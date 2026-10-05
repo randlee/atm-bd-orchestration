@@ -5,9 +5,13 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import os
 import subprocess
+import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 MODULE = Path(__file__).parents[1] / "assignment-gates.py"
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -15,15 +19,22 @@ SPEC = importlib.util.spec_from_file_location("assignment_gates", MODULE)
 assert SPEC and SPEC.loader
 gates = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(gates)
+LOCATE = gates.stack_view_script
 
 
 class FakeRunner:
-    def __init__(self, responses): self.responses = responses
-    cwds: list = []
+    """Answers by (cwd, argv) first, then argv; records every call's cwd."""
+    def __init__(self, responses): self.responses, self.calls = responses, []
+    @property
+    def cwds(self): return [cwd for cwd, _ in self.calls]
     def __call__(self, args, **kwargs):
-        self.cwds.append(kwargs.get("cwd"))
-        code, stdout = self.responses.get(tuple(args), (0, ""))
-        return subprocess.CompletedProcess(args, code, stdout, "")
+        self.calls.append((kwargs.get("cwd"), tuple(args)))
+        code, stdout, *stderr = self.responses.get((kwargs.get("cwd"), tuple(args)), self.responses.get(tuple(args), (0, "")))
+        return subprocess.CompletedProcess(args, code, stdout, "".join(stderr))
+
+
+VIEW = "/scripts/gh_stack_view.py"
+STACK_VIEW = (sys.executable, VIEW, "--json")
 
 
 def ns(kind, **overrides):
@@ -50,8 +61,9 @@ def sanity_runner(overrides=None):
     data = {
         ("bd", "show", "bead", "--json"): (0, dumped([{"metadata": {}}])),
         ("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefName": "branch", "headRefOid": "head"})),
-        ("gh", "stack", "view", "--json"): (0, dumped({"trunk": "integrate", "branches": [
-            {"name": "merged", "isMerged": True}, {"name": "target"}, {"name": "branch"}]})),
+        (str(gates.PRIMARY), STACK_VIEW): (0, dumped({"stacks": [{"trunk": "integrate", "rows": [
+            {"branch": "merged", "pr": 5, "pr_base": "integrate", "merged": True}, {"branch": "target", "pr": 6, "pr_base": "integrate", "merged": False},
+            {"branch": "branch", "pr": 7, "pr_base": "target", "merged": False}]}]})),
         ("git", "fetch", "origin"): (0, ""),
         ("git", "rev-parse", "target"): (0, "base"),
         ("git", "rev-parse", "origin/target"): (0, "base"),
@@ -76,7 +88,15 @@ def qa_runner(overrides=None):
     }; data.update(overrides or {}); return FakeRunner(data)
 
 
+def view(*rows, trunk="integrate"):
+    return {(str(gates.PRIMARY), STACK_VIEW): (0, dumped({"stacks": [{"trunk": trunk, "rows": list(rows)}]}))}
+
+
 class AssignmentGateTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(gates, "stack_view_script", return_value=VIEW)
+        patcher.start(); self.addCleanup(patcher.stop)
+
     def expected(self, name): return json.loads((FIXTURES / name).read_text())["expected"]
 
     def assert_fixture(self, name, gate_args, runner):
@@ -127,8 +147,10 @@ class AssignmentGateTests(unittest.TestCase):
             ("pr-required.json", ns("sanity", pr_number=""), sanity_runner()),
             ("not-stacked.json", ns("sanity"), sanity_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "wrong", "headRefName": "branch", "headRefOid": "head"}))})),
             ("not-stacked.json", ns("sanity"), sanity_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefName": "branch", "headRefOid": "moved"}))})),
-            ("not-stacked.json", ns("sanity"), sanity_runner({("gh", "stack", "view", "--json"): (2, "")})),
-            ("not-stacked.json", ns("sanity"), sanity_runner({("gh", "stack", "view", "--json"): (0, dumped({"trunk": "integrate", "branches": [{"name": "target"}]}))})),
+            ("not-stacked.json", ns("sanity"), sanity_runner({(str(gates.PRIMARY), STACK_VIEW): (2, "", "gh-stack-view: no open gh stack found.")})),
+            ("not-stacked.json", ns("sanity"), sanity_runner(view({"branch": "target", "pr": 6, "pr_base": "integrate", "merged": False}))),
+            ("not-stacked.json", ns("sanity"), sanity_runner(view({"branch": "target", "pr": 6, "pr_base": "integrate", "merged": False},
+                                                                   {"branch": "branch", "pr": 7, "pr_base": "integrate", "merged": False}))),
             ("not-stacked.json", ns("sanity", pr_target="planned"), sanity_runner({("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (1, "")})),
             ("sanity-ready.json", ns("sanity", pr_target="planned"), sanity_runner({("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (0, "")})),
             ("not-rebased.json", ns("sanity"), sanity_runner({("git", "merge-base", "--is-ancestor", "origin/target", "head"): (1, "")})),
@@ -145,17 +167,52 @@ class AssignmentGateTests(unittest.TestCase):
         self.assertEqual(gates.evaluate(ns("sanity"), runner), "GATE_CANNOT_RUN")
 
     def test_sanity_stack_checks_that_cannot_run_are_not_refusals(self):
-        for override in ({("gh", "stack", "view", "--json"): (1, "")}, {("gh", "stack", "view", "--json"): (0, "not json")},
+        for override in ({(str(gates.PRIMARY), STACK_VIEW): (2, "", "gh-stack-view: gh repo view failed")},
+                         {(str(gates.PRIMARY), STACK_VIEW): (0, "not json")},
                          {("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (128, "")}):
             with self.subTest(override=override):
                 self.assertEqual(gates.evaluate(ns("sanity", pr_target="planned"), sanity_runner(override)), "GATE_CANNOT_RUN")
 
     def test_the_first_open_layer_is_based_on_the_trunk(self):
-        runner = sanity_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "integrate", "headRefName": "target", "headRefOid": "head"})),
+        runner = sanity_runner({**view({"branch": "merged", "pr": 5, "pr_base": "integrate", "merged": True},
+                                       {"branch": "target", "pr": 7, "pr_base": "integrate", "merged": False}),("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "integrate", "headRefName": "target", "headRefOid": "head"})),
                                 ("git", "merge-base", "--is-ancestor", "origin/target", "origin/integrate"): (1, ""),
                                 ("git", "log", "--format=%H", "origin/integrate..head"): (0, "delta")})
         self.assertEqual(gates.evaluate(ns("sanity", pr_target="integrate"), runner), "READY")
         self.assertEqual(gates.evaluate(ns("sanity"), runner), "NOT_STACKED")  # the trunk does not descend from a planned layer above it
+
+    def test_sanity_reads_the_stack_from_the_cross_worktree_view_not_the_checked_worktrees_tracking(self):
+        # The dev's worktree has no gh-stack tracking (the dev never runs gh stack), so `gh stack view` exits 2 there.
+        runner = sanity_runner({("/wt", ("gh", "stack", "view", "--json")): (2, "")})
+        self.assertEqual(gates.evaluate(ns("sanity", worktree="/wt"), runner), "READY")
+        self.assertIn((str(gates.PRIMARY), STACK_VIEW), runner.calls)
+        self.assertFalse([call for call in runner.calls if call[1][:3] == ("gh", "stack", "view")])
+
+    def test_stack_view_script_is_located_as_sc_gh_stack_does(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, plugin, home = (Path(tmp) / name for name in ("repo", "plugin", "home"))
+            older, newer = home / ".claude/a/gh_stack_view.py", home / ".claude/b/gh_stack_view.py"
+            for path in (older, newer):
+                path.parent.mkdir(parents=True); path.write_text("")
+            os.utime(older, (1, 1))
+            with mock.patch.object(gates, "PRIMARY", root):
+                self.assertEqual(LOCATE({}, home), str(newer))
+                (plugin / "scripts").mkdir(parents=True); (plugin / "scripts/gh_stack_view.py").write_text("")
+                self.assertEqual(LOCATE({"CLAUDE_PLUGIN_ROOT": str(plugin)}, home), str(plugin / "scripts/gh_stack_view.py"))
+                (root / ".claude/scripts").mkdir(parents=True); (root / ".claude/scripts/gh_stack_view.py").write_text("")
+                self.assertEqual(LOCATE({"CLAUDE_PLUGIN_ROOT": str(plugin)}, home), str(root / ".claude/scripts/gh_stack_view.py"))
+                (root / ".claude/scripts/gh_stack_view.py").unlink()
+                with self.assertRaises(RuntimeError):
+                    LOCATE({}, Path(tmp) / "nobody")
+        with mock.patch.object(gates, "stack_view_script", side_effect=RuntimeError("gh_stack_view.py not found")):
+            self.assertEqual(gates.evaluate(ns("sanity"), sanity_runner()), "GATE_CANNOT_RUN")
+
+    def test_a_lower_bound_whose_branch_is_gone_holds_only_when_its_pr_merged(self):
+        gone = {("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (128, ""),
+                ("git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/planned"): (1, "")}
+        merged = ("gh", "pr", "list", "--head", "planned", "--state", "merged", "--json", "number")
+        self.assertEqual(gates.evaluate(ns("sanity", pr_target="planned"), sanity_runner({**gone, merged: (0, dumped([{"number": 3}]))})), "READY")
+        self.assertEqual(gates.evaluate(ns("sanity", pr_target="planned"), sanity_runner({**gone, merged: (0, "[]")})), "GATE_CANNOT_RUN")
 
     def test_qa_refusals_and_ready(self):
         cases = [

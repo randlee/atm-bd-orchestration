@@ -20,7 +20,7 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 9. Start every open sanity task at once (`bd update --claim` all, `atm task start` the active one); close each when its verdict arrives.
 10. Not ready (`bd ready -n 0 --json` omits it): do not claim or start; find the root cause; report bead, why, who must move to the task assigner; wait.
 11. Refuse `SANITY.PR_REQUIRED` without `pr_number` and `pr_url`.
-12. PR head must equal `commit`, the PR must be linked in a stack with its base the branch of the open layer below (the trunk for the first open layer), and that base must be the checked bead's `pr_target` or a descendant of it, else refuse `SANITY.NOT_STACKED`; `git fetch origin` before the descendant check.
+12. PR head must equal `commit`, the PR's row in `gh_stack_view.py --json` (cross-worktree, never one worktree's `gh stack` tracking) must have `pr_base` the branch of the open row before it (the trunk for the first open row), and that base must be the checked bead's `pr_target` or a descendant of it, else refuse `SANITY.NOT_STACKED`; `git fetch origin` before the descendant check; a `pr_target` gone from origin holds when its PR merged.
 13. Refuse `SANITY.ZERO_DELTA` when `origin/<base>..<commit>` is empty, and `SANITY.NOT_REBASED` when `origin/<base>` is not an ancestor of `<commit>`.
 14. Refuse `SANITY.DIRTY_TREE` on tracked changes beyond the ignored paths.
 15. Refuse `SANITY_FROZEN` when `bd history <task>` records a prior PASS.
