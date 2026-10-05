@@ -214,11 +214,18 @@ on every restack and show up as out-of-scope work in that sprint's PR.
    quick-fix QA pours nothing and lists its blocking findings in the close's
    `findings_md`; the lead files each as a finding bead (`finding-bead.json.j2`,
    `qa_bead` = the quick-fix QA bead) and dispatches it to an idle roster agent
-   (the finder when idle; a background developer subagent as in step 3 when
-   every roster agent is mid-task) with `fix-assignment.xml.j2` on the same fix branch when
+   (the finder when idle) with `fix-assignment.xml.j2` on the same fix branch when
    nothing is linked above it, else on a new layer cut from the stack's
    current top (Stack Discipline), with no sanity bead, followed by one more
-   quick-fix QA bead as in this step. Every other branch picks the fix up by rebasing onto
+   quick-fix QA bead as in this step. When every roster agent is mid-task,
+   the lead assigns the finding's task to itself (`atm task assign
+   "$ATM_IDENTITY" --task-id <finding bead> --template fix-assignment.xml.j2
+   --vars <vars>`) when its own roster model fits the finding's `difficulty`
+   (gate (5)); it runs the template's gate, claim, start and close steps
+   itself and a background developer subagent does the fix steps (b to e),
+   since a background agent never writes to beads or ATM. When the lead's
+   model does not fit, the finding stays in `bd ready` for the first fitting
+   roster agent to go idle. Every other branch picks the fix up by rebasing onto
    its stack's current top at its dev-complete; the lead tells its owner the
    base moved.
 5. The lead records the fix branch and PR in the finder's bead notes and in
