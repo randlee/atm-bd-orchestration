@@ -27,7 +27,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 16. Fix round: file nothing; note each confirmed fix; for each regressed or open carried fix bead pour round n+1; never reopen.
 17. Never assign findings.
 18. Verdict: only-minor is PASS; blocking or important is FAIL with one fix round; a second FAIL is `ROUND_CAP`, stop dispatch, record root cause.
-19. With a PR: post `qa-complete.md.j2` as a PR comment and check stack and CI once (never watch). No PR: say so in notes.
+19. With a PR: post `qa-complete.md.j2` as a PR comment and check stack and CI state (never `--watch`). No PR: say so in notes.
 20. Close bead and task together whatever the verdict, `bd close` first and the task only if it succeeded.
 21. After the closes (never on refusal), append one row each to the phase QA log and stats log, computed fresh; never hand-edit; correct with a workflow-issue bead plus a correcting row; never commit the logs.
 
