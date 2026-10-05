@@ -433,6 +433,27 @@ class BeadPourMockTests(unittest.TestCase):
         assert ws.show(sprint)["status"] == "closed"
 
 
+    def test_sanity_split_reads_the_plan_of_poured_dev_and_fix_beads(self):
+        ws = self.ws
+        sprint = ws.sprint("s", 1)
+        ws.bd("update", sprint, "--description", "## Goal\nRetry.\n\n## Deliverables\n1. Add retry\n2. Test 429\n\n## Does Not Close\n- none",
+              "--metadata", json.dumps({**ws.show(sprint)["metadata"], "owned_paths": ["crates/types/**"]}))
+        dev, _, qa = group(sprint)
+        ws.groups("--sprint", sprint)
+        fix = fix_group(sprint, "qa1-f1")[0]
+        ws.groups("--findings", findings_file(ws, sprint, qa, 1, {"ref": "qa1-f1", "remedy": "return the typed error"}))
+
+        def split(bead):
+            proc = ws.run(ws.scripts / "sanity-split", "--task", f"{bead}-sanity", "--bead", bead, "--worktree", ws.root,
+                          "--branch", "b", "--commit", "abc1234", "--base", "develop", "--lint-command", "true",
+                          "--scratch", ws.root / "scratch", "--split-only")
+            manifest = json.loads(proc.stdout)
+            return [a["assignment"]["deliverable"]["text"] for a in manifest["assignments"]], manifest["assignments"][0]["assignment"]["owned_paths"]
+
+        assert "## Deliverables" not in (ws.show(dev)["description"] or "")
+        assert split(dev) == (["Add retry", "Test 429"], ["crates/types/**"])
+        assert split(fix) == (["return the typed error"], ["crates/types/**"])
+
     def test_pours_before_dispatch_and_a_finding_overrides_difficulty_and_ids(self):
         ws = self.ws
         sprint = ws.sprint("k", 1)      # no assignee anywhere: pouring happens before plan review

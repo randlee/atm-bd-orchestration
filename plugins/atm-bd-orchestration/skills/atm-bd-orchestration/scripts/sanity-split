@@ -11,7 +11,8 @@ Usage:
                --exit-file <file> [--timeout-seconds <n>]
 
 Reads the checked bead (`bd show <bead> --json`, or `--bead-json`), parses the
-numbered list under `## Deliverables`, pins the target commit, lists the files
+numbered list under `## Deliverables` (a poured bead without one, or without
+`owned_paths`, takes it from its sprint container `metadata.sprint_bead`), pins the target commit, lists the files
 changed since the base (with `--layer-pr`, the union of those PRs' own ranges,
 `gh pr view <n> --json baseRefOid,headRefOid`, the checked PR last), renders `dev-sanity-assignment.json.j2` once per
 deliverable with `sc-compose`, starts the lint command detached in the
@@ -79,25 +80,36 @@ def die(code, message):
     return code
 
 
-def load_bead(args):
+def load_bead(args, bead_id=None):
+    """One bead by id: `bd show <id> --json`, or the entry with that id in `--bead-json` (a bead or a list)."""
+    bead_id = bead_id or args.bead
     if args.bead_json:
         try:
             data = json.loads(Path(args.bead_json).read_text())
         except (OSError, ValueError) as exc:
             raise Fail(1, f"cannot read --bead-json: {exc}")
     else:
-        run = subprocess.run(["bd", "show", args.bead, "--json"], capture_output=True, text=True)
+        run = subprocess.run(["bd", "show", bead_id, "--json"], capture_output=True, text=True)
         if run.returncode != 0:
-            raise Fail(3, f"bd show {args.bead} failed: {run.stderr.strip()}")
+            raise Fail(3, f"bd show {bead_id} failed: {run.stderr.strip()}")
         try:
             data = json.loads(run.stdout)
         except ValueError:
-            raise Fail(3, f"bd show {args.bead} did not print JSON")
+            raise Fail(3, f"bd show {bead_id} did not print JSON")
     if isinstance(data, list):
-        data = data[0] if data else None
-    if not isinstance(data, dict) or data.get("id") != args.bead:
-        raise Fail(3, f"bead {args.bead} not found in bead JSON")
+        data = next((item for item in data if isinstance(item, dict) and item.get("id") == bead_id), None)
+    if not isinstance(data, dict) or data.get("id") != bead_id:
+        raise Fail(3, f"bead {bead_id} not found in bead JSON")
     return data
+
+
+def plan_source(args, bead):
+    """The bead holding the plan: the checked bead, or for a poured dev bead without `## Deliverables`
+    (or without owned_paths) its sprint container `metadata.sprint_bead`."""
+    sprint = (bead.get("metadata") or {}).get("sprint_bead")
+    if sprint and not (DELIVERABLES.search(bead.get("description") or "") and (bead.get("metadata") or {}).get("owned_paths")):
+        return load_bead(args, sprint)
+    return bead
 
 
 ITEM = re.compile(r"^(\d+)\.\s+(\S.*)$")
@@ -106,8 +118,11 @@ FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 HEADING = re.compile(r"^(#{1,6}) ")
 
 
+DELIVERABLES = re.compile(r"^## Deliverables[ \t]*$", re.M)
+
+
 def parse_deliverables(description):
-    match = re.search(r"^## Deliverables[ \t]*$", description or "", re.M)
+    match = DELIVERABLES.search(description or "")
     if not match:
         raise Fail(2, "bead has no `## Deliverables` section")
     items, fence, prev_blank = [], None, True
@@ -378,8 +393,10 @@ def main():
         return 1
     try:
         bead = load_bead(args)
-        deliverables = parse_deliverables(bead.get("description") or "")
-        owned = (bead.get("metadata") or {}).get("owned_paths") or []
+        source = plan_source(args, bead)
+        own = bead.get("description") or ""
+        deliverables = parse_deliverables(own if DELIVERABLES.search(own) else source.get("description") or "")
+        owned = (bead.get("metadata") or {}).get("owned_paths") or (source.get("metadata") or {}).get("owned_paths") or []
         if args.split_only:
             sha, base_sha, files, lint = args.commit, args.base, [], None
         else:

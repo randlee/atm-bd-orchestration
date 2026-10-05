@@ -37,7 +37,7 @@ container and the repository configuration):
 #}
 formula = "finding-group"
 description = "Fix of blocking finding {{{ finding_ref }}}, round {{{ round }}}, in sprint {{{ sprint }}}."
-version = 5
+version = 6
 type = "workflow"
 
 [vars.parent]
@@ -51,7 +51,7 @@ default = "{{{ ref }}}"
 [[steps]]
 id = "fix"
 title = "{{{ sprint }}}: fix {{{ finding_ref }}}: {{{ finding_title }}}"
-description = "Fix blocking finding {{{ finding_ref }}} (round {{{ round }}}), filed by {{{ reviewer }}} in {{{ filed_by }}}.\n\nRemedy: {{{ remedy }}}\n\nCommit the fix on the sprint's stack, then close this bead. A dev-sanity check and the filing reviewer's verification follow."
+description = "Fix blocking finding {{{ finding_ref }}} (round {{{ round }}}), filed by {{{ reviewer }}} in {{{ filed_by }}}.\n\nRemedy: {{{ remedy }}}\n\nCommit the fix on the sprint's stack, then close this bead. A dev-sanity check and the filing reviewer's verification follow.\n\n## Deliverables\n1. {{{ remedy }}}"
 type = "task"
 priority = {{{ priority }}}
 labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:fix"]
