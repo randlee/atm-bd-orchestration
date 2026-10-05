@@ -36,7 +36,7 @@ Requirements in the consuming repository:
 Jev sanity checks and post-mortem screening also need `TYPESAFE_API_KEY` in the
 agent's environment at run time; without it `scripts/jev_client.py --startup`
 reports `SANITY.JEV_UNAVAILABLE` and dev-sanity records every JEV slot as
-unavailable (the LLM subagent still runs).
+unavailable (the LLM subagent still runs and selection takes its replies).
 
 Standalone, from a checkout of this repository:
 

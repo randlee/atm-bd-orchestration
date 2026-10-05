@@ -95,7 +95,7 @@ attempts. The review completion includes `post_mortem_jev` with run IDs, JSONL
 path, integration SHA and status, plus the complete inventory dispositions.
 A model error is not PASS. If no code findings exist, record `not_applicable`
 with the inventory reason; if JEV is unavailable, record `unavailable` and
-leave integration review pending (review-template step d1, `REVIEW_PENDING_JEV`). Quality scores are advisory, not closures.
+leave integration review pending (review-template step d1, `REVIEW_PENDING_JEV`); announce a persistent Jev outage once to the oversight recipients resolved as in `.claude/agents/dev-sanity.md` Startup. Quality scores are advisory, not closures.
 
 ## Reviewers
 
