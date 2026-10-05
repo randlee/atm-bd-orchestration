@@ -80,7 +80,7 @@ class bead (`workflow-issue-bead.json.j2`, `parent` as in
 the cause): announce only when you create it,
 append each later occurrence to it, and close it when the cause clears. When a
 backup or fallback exists, use it so work moves forward, never silently: record
-each use in the log or evidence and announce it the same way.
+each use with its verbatim error in the log or evidence and announce it the same way.
 
 ## Repository configuration
 

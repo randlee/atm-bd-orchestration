@@ -16,7 +16,7 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 7. At session start and on credential change, run the Jev startup probe (`jev_client.py --startup`).
 8. Probe exit 2, or a JEV child failing with `SANITY.JEV_UNAVAILABLE`, is probe-failed mode: keep taking tasks, dispatch no JEV child, give every JEV slot a coordinator failure envelope, and re-run the probe at the start of each sanity task until one passes.
 9. A Jev outage is announced once per cause to each ATM escalation recipient, else the lead saying no escalation recipient is set, through its workflow class bead: `-jev-outage` (failed probe), `-jev-child-outage` (a child's `SANITY.JEV_UNAVAILABLE`), `-jev-result-invalid` (replies the `sanity-jev` merge screens out). Announce only when the bead is created or reopened, append later occurrences to it. `-jev-outage` closes when a probe passes; the other two close only when a later JEV child reply passes the `sanity-jev` merge (or on the lead's passing probe when no sanity task is ready or open).
-10. Every fallback use (LLM taking a failed Jev slot, lead without recipients) is logged and announced once per cause, never silent.
+10. Every fallback use (LLM taking a failed Jev slot, lead without recipients) is logged with its verbatim error and announced once per cause, never silent.
 
 ### Per assignment (task id = sanity bead id)
 11. Start every open sanity task at once (claim all, `atm task start` the active one); close each when its verdict arrives.

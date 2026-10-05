@@ -55,7 +55,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 38. Take conservative reversible provisional choices; hold only work that depends on a significant decision.
 39. Never close an unresolved finding or claim PASS to release a queue; silence or elapsed time is not approval.
 40. Create a `bd gate` and its edges only on the user's explicit instruction; human gates need recorded user agreement.
-41. A serious infrastructure failure is announced once per cause (its workflow class bead) to the ATM escalation recipients, else the task assigner saying none is set; a fallback is used so work moves, never silently: each use is logged and announced the same way. While an outage class bead is open, re-test its cause each Loop pass and close it on success.
+41. A serious infrastructure failure is announced once per cause (its workflow class bead) to the ATM escalation recipients, else the task assigner saying none is set; a fallback is used so work moves, never silently: each use is logged with its verbatim error and announced the same way. While an outage class bead is open, re-test its cause each Loop pass and close it on success.
 
 #### Stack
 42. Be the only stack writer (`gh stack link/unstack/sync/rebase/merge`). Rebasing is done before sanity or QA is assigned and is the dev's, at dev-complete; the lead fixes only what the dev could not, or another stack problem, before dispatching sanity or QA, in its own worktree, and dispatches with the new `commit`, `base`, `branch`, `pr_number` and `worktree_path`. A layer that has passed QA, or has layers above it, is never rebased, and a rebase never re-dispatches QA or sanity on any other layer.
