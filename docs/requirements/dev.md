@@ -18,7 +18,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 10. Commit as items land and push early (`git push -u origin <branch>` first); a push or `atm send` closes nothing.
 11. Never weaken a test, skip a criterion, or leave a placeholder.
 12. Run `<test_command>` (and the bead's validation commands) to zero failures.
-13. Rebase onto the stack's current top (`/sc-gh-stack-view --json`: the stack whose rows contain `<pr_target>`, its last open row's `branch`, or the trunk when none is open), re-run `<test_command>`, `git push --force-with-lease origin <branch>`, then `gh pr create --base <top> --head <branch>` (never `--draft`) and run `/sc-gh-stack-view`.
+13. Rebase onto the stack's current top (`/sc-gh-stack-view --json`: the stack whose rows contain `<pr_target>`, its last open row's `branch`, or the trunk when none is open), re-run `<test_command>`, `git push --force-with-lease origin <branch>`, then `gh pr create --base <top> --head <branch> --fill` (never `--draft`) and run `/sc-gh-stack-view`.
 14. Close bead and task together with the close template; vars from its `required_variables`, `task_id`/`sprint` unchanged, `commit` = pushed head, `rebased_onto` = the top, `pr_number`/`pr_url` = the PR, `stack_view` = the verbatim `/sc-gh-stack-view` output; vars file outside the repo.
 15. The task close is the report; it returns to the task assigner. No copies.
 16. After the close, read ATM; only then does the next task start.

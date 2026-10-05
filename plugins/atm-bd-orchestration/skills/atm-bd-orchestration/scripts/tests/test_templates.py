@@ -380,7 +380,7 @@ class DevAssignmentTests(unittest.TestCase):
                 self.assertIn("Rebase onto the stack's current top (it may have moved since dispatch)", result.stdout)
                 self.assertIn("`/sc-gh-stack-view --json`", result.stdout)
                 self.assertIn("`git rebase origin/<top>`", result.stdout)
-                self.assertIn("`gh pr create --base <top> --head ", result.stdout)
+                self.assertRegex(result.stdout, r"`gh pr create --base <top> --head \S+ --fill`")
                 self.assertIn("(never `--draft`)", result.stdout)
                 self.assertNotIn("rebases only onto", result.stdout)
                 self.assertNotIn("Rebase only onto", result.stdout)
