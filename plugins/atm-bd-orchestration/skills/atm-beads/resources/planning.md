@@ -190,7 +190,7 @@ after its work passes the sanity check. See [`dev-sanity.md`](dev-sanity.md).
   Only the final phase PR leaves it, for the repository's base branch.
 - `layer` is the plan's intent. Layers really stack in the
   order they complete, and the lead records the actual `layer` when it links
-  each one (`atm-bd-orchestration` "Stack Discipline"); `pr_target` stays the planned lower bound.
+  each one (`atm-bd-orchestration` "Stack Discipline"); `pr_target` stays the planned lower bound until a dev-fix records the sprint's first layer's branch there.
 - Sprints that can run at once must have disjoint `owned_paths`. Sprints that
   share a path must be ordered: one's sanity bead in the other's blocker closure.
 

@@ -38,9 +38,9 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 25. Dispatch the next sprint once its sanity blockers PASS; never wait on QA.
 
 #### On each close
-26. dev-complete: verify the dev's PR and link it on top of the phase stack (`/sc-gh-stack`), run `/sc-gh-stack-view` and fix any stack problem yourself; never message or re-dispatch the dev for stacking; then assign the sanity check.
-27. Sanity PASS: verify the PR base is `pr_target` or a descendant of it; dispatch the group's poured QA bead (`checked_bead`, `sprint_bead` from its metadata; for a fix bead also `carry_forward` = the fix bead, `round` = its `metadata.round` + 1). Important or minor finding: create its QA bead from `qa-bead.json.j2` with `checked_bead` and `carry_forward` = the finding.
-28. Sanity FAIL (first): verify children against the branch; close with reason any that judge correctness or quality; overrule, amend, split or reassign, never recreate; dev-sanity has reopened the checked bead; assign `dev-fix.xml.j2` on a new layer: cut its branch and worktree from the current top of the stack, record the checked layer's branch as the checked bead's `metadata.pr_target` (`bd update <bead> --set-metadata pr_target=<branch>`) and pass it as `pr_target`; never rebase or re-target the linked layer.
+26. dev-complete: verify the dev's PR and link it on top of the phase stack (`/sc-gh-stack`), run `/sc-gh-stack-view` and fix any stack problem yourself; never message or re-dispatch the dev for stacking; then assign the sanity check (after a dev-fix, `diff_base` = the PR base of the sprint's first layer).
+27. Sanity PASS: verify the PR base is `pr_target` or a descendant of it; dispatch the group's poured QA bead (`checked_bead`, `sprint_bead` from its metadata; `base` = the PR base, or after a dev-fix the PR base of the sprint's first layer; for a fix bead also `carry_forward` = the fix bead, `round` = its `metadata.round` + 1). Important or minor finding: create its QA bead from `qa-bead.json.j2` with `checked_bead` and `carry_forward` = the finding.
+28. Sanity FAIL (first): verify children against the branch; close with reason any that judge correctness or quality; overrule, amend, split or reassign, never recreate; dev-sanity has reopened the checked bead; assign `dev-fix.xml.j2` on a new layer: cut its branch and worktree from the current top of the stack, record the sprint's first layer's branch as the checked bead's `metadata.pr_target` (`bd update <bead> --set-metadata pr_target=<branch>`; a later dev-fix keeps it) and pass it as `pr_target`; never rebase or re-target a linked layer.
 29. Sanity FAIL (second, `SANITY.ROUND_CAP`): diff flagged files vs last PASS, check the base for foreign commits, then rule; no third round without it.
 30. `SANITY.PLAN_INVALID`: planning failed for that bead.
 31. qa-complete: nothing to file or pour (quality-mgr poured the fix groups); reopen a ceremony closure you disagree with (`bd reopen`); pick the member for each finding.
@@ -63,7 +63,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 
 #### Stack
 46. Be the only stack writer (`gh stack link/unstack/sync/rebase/merge`).
-47. Link layers in completion order; record each bead's actual `layer` at link time, never overwriting `pr_target`.
+47. Link layers in completion order; record each bead's actual `layer` at link time; `pr_target` changes only at a dev-fix (28).
 48. Parallel quick fix: pick the lowest base holding what the change needs; finder (or a background developer subagent when all are busy) cuts `fix/<thing>` from it; one QA round (`checked_bead` = finder's bead, `layer` = base); merge on PASS; tell each owner the base moved; record fix branch/PR in the finder's and every touched bead's notes.
 49. Merge no PR into the integration branch or a stack layer without QA.
 50. Verify branches read-only; never run a state-changing command in an assignee's worktree.

@@ -378,8 +378,11 @@ class DevAssignmentTests(unittest.TestCase):
             with self.subTest(template=name):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("Rebase onto the stack's current top (it may have moved since dispatch)", result.stdout)
-                self.assertIn("`/sc-gh-stack-view --trunk <trunk> --json`", result.stdout)
-                self.assertIn("exit 2 or no matching stack means the top is `", result.stdout)
+                self.assertIn("find the top in GitHub's stacks: `gh api 'repos/{owner}/{repo}/stacks' --paginate --jq '.[] | select(.open and any(.pull_requests[]; .head.ref == ", result.stdout)
+                self.assertIn("| [.pull_requests[] | select(.state == \"open\")] | last | .head.ref // empty'`", result.stdout)
+                self.assertIn("no output means the top is `", result.stdout)
+                self.assertNotIn("gh_stack_view.py", result.stdout)
+                self.assertIn("run `/sc-gh-stack-view` (read-only) and keep its output verbatim", result.stdout)
                 self.assertIn("`git rebase origin/<top>`", result.stdout)
                 self.assertRegex(result.stdout, r"`gh pr create --base <top> --head \S+ --fill`")
                 self.assertIn("(never `--draft`)", result.stdout)
@@ -392,16 +395,28 @@ class DevAssignmentTests(unittest.TestCase):
         values = _example("dev-fix-vars.json")
         result = _render("dev-fix.xml.j2", values)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"The checked layer `{values['pr_target']}` is linked and frozen: never rebase, re-target or push it.", result.stdout)
+        self.assertIn(f"The sprint's first layer `{values['pr_target']}` and any fix layer above it are linked and frozen: never rebase, re-target or push them.", result.stdout)
         self.assertIn(f"`{values['branch']}` is a new layer cut from the top of stack", result.stdout)
         self.assertNotIn("is not linked", result.stdout)
         self.assertNotIn("confirm the open one", result.stdout)
 
-    def test_sanity_reads_the_stack_from_the_cross_worktree_view(self):
+    def test_sanity_split_diffs_from_the_first_layers_base_after_a_dev_fix(self):
+        values = _example("dev-sanity-template-vars.json")
+        plain = _render("dev-sanity-template.xml.j2", values)
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        self.assertIn(f"<diff-base><![CDATA[{values['base']}]]></diff-base>", plain.stdout)
+        fixed = _render("dev-sanity-template.xml.j2", {**values, "diff_base": "sprint/d-2-first-base"})
+        self.assertEqual(fixed.returncode, 0, fixed.stderr)
+        self.assertIn("<diff-base><![CDATA[sprint/d-2-first-base]]></diff-base>", fixed.stdout)
+        self.assertIn("Run sanity-split once, with `--base` = `<diff-base>`", fixed.stdout)
+        self.assertIn('--base "$diff_base"', (ROOT.parents[1] / "agents/dev-sanity.md").read_text())
+
+    def test_sanity_reads_the_stack_from_githubs_stacks_api(self):
         for text in ((ROOT / "templates/dev-sanity-template.xml.j2").read_text(), (ROOT.parents[1] / "agents/dev-sanity.md").read_text()):
             with self.subTest(text=text[:40]):
-                self.assertIn("gh_stack_view.py --json`", text)
-                self.assertIn("never read from one worktree's `gh stack` tracking", text)
+                self.assertIn("gh api 'repos/{owner}/{repo}/stacks' --paginate --jq '.[]'`", text)
+                self.assertIn("never local `gh stack` tracking", text)
+                self.assertNotIn("gh_stack_view.py", text)
                 self.assertNotIn("`gh stack view --json` in the", text)
 
     def test_completion_renders_a_stack_issue_unless_coherent_and_landable(self):

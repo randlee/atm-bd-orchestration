@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.6.0
+version: 2.7.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -69,15 +69,14 @@ failure is a refusal, not a best-effort check:
 1. `test -n "$PR_NUMBER" && test -n "$PR_URL"`; otherwise refuse
    `SANITY.PR_REQUIRED`.
 2. `gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRefOid`
-   must show base `$BASE` and head `$COMMIT`; `gh_stack_view.py --json`
-   (located as `/sc-gh-stack` does; not found is cannot-run), run from the
-   primary checkout and never read from one worktree's `gh stack` tracking,
-   must have a row whose `pr` is `$PR_NUMBER` and whose `pr_base` is `$BASE`,
-   the `branch` of the open row before it (the stack's `trunk` for its first
-   open row); then
+   must show base `$BASE` and head `$COMMIT`;
+   `gh api 'repos/{owner}/{repo}/stacks' --paginate --jq '.[]'` (GitHub's
+   stacks, never local `gh stack` tracking) must have an open stack whose
+   `pull_requests` include `$PR_NUMBER` with `$BASE` the `head.ref` of the
+   open PR before it (the stack's `base.ref` for its first open PR); then
    `git fetch origin`, and `git merge-base --is-ancestor "origin/$PR_TARGET" "origin/$BASE"`
    must pass unless `$PR_TARGET`, the checked bead's `pr_target` (a lower bound), is `$BASE`
-   (a `$PR_TARGET` gone from origin holds when `gh pr list --head "$PR_TARGET" --state merged` lists its PR);
+   (a `$PR_TARGET` gone from origin holds when a PR in `gh pr list --head "$PR_TARGET" --state merged --json mergeCommit` has its merge commit in `origin/$BASE`);
    otherwise refuse `SANITY.NOT_STACKED`.
 3. `git log --format=%H "origin/$BASE..$COMMIT" | grep -q .` must pass;
    otherwise refuse `SANITY.ZERO_DELTA`.
@@ -115,9 +114,12 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    ```bash
    iteration=$(atm task events "$task" --all --json | jq '[.events[] | select(.event == "completed")] | length + 1')
    $S/sanity-split --task "$task" --bead "$checked_bead" --worktree "$worktree" \
-     --branch "$branch" --commit "$commit" --base "$base" \
+     --branch "$branch" --commit "$commit" --base "$diff_base" \
      --lint-command "$lint_command" --scratch "$scratch" > "$manifest"
    ```
+
+   `$diff_base` is the task's `<diff-base>`: after a dev-fix, the PR base of
+   the sprint's first layer, so the changed files cover the whole bead.
 
    There is no fallback. A split failure refuses the task before reviewer
    dispatch; report its actual code. A bead whose `## Deliverables` is not a

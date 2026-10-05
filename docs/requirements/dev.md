@@ -18,7 +18,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 10. Commit as items land and push early (`git push -u origin <branch>` first); a push or `atm send` closes nothing.
 11. Never weaken a test, skip a criterion, or leave a placeholder.
 12. Run `<test_command>` (and the bead's validation commands) to zero failures.
-13. Rebase onto the stack's current top (`/sc-gh-stack-view --trunk <trunk> --json`, `<trunk>` the phase root's `integration_branch`: the stack whose rows contain `<pr_target>`, its last open row's `branch`; exit 2 or no matching stack: `<pr_target>`), re-run `<test_command>`, `git push --force-with-lease origin <branch>`, then `gh pr create --base <top> --head <branch> --fill` (never `--draft`) and run `/sc-gh-stack-view`.
+13. Rebase onto the stack's current top (`gh api repos/{owner}/{repo}/stacks`: the `head.ref` of the last open PR of the open stack containing `<pr_target>`; no such stack: `<pr_target>`), re-run `<test_command>`, `git push --force-with-lease origin <branch>`, then `gh pr create --base <top> --head <branch> --fill` (never `--draft`) and run `/sc-gh-stack-view`.
 14. Close bead and task together with the close template; vars from its `required_variables`, `task_id`/`sprint` unchanged, `commit` = pushed head, `rebased_onto` = the top, `pr_number`/`pr_url` = the PR, `stack_view` = the verbatim `/sc-gh-stack-view` output; vars file outside the repo.
 15. The task close is the report; it returns to the task assigner. No copies.
 16. After the close, read ATM; only then does the next task start.
@@ -34,7 +34,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 
 ### Dev-fix (`dev-fix`)
 
-23. Not ready while `closed` means never reopened. The fixes go on the assigned new layer cut from the stack's top; the checked layer (`pr_target`) is frozen: never rebase, re-target or push it.
+23. Not ready while `closed` means never reopened. The fixes go on the assigned new layer cut from the stack's top; the sprint's first layer (`pr_target`) and any fix layer above it are frozen: never rebase, re-target or push them.
 24. Read the complete plan and enumerate all tasks that must be completed in the primary and any child beads (`bd list --parent <bead> --status open --json`); create an itemized private checklist outside the tracked tree with every task identified; work through the checklist one item at a time, closing each child when fixed (`bd close <child> --reason "<short sha>: <fix>"`); then go through it again one item at a time and confirm each is done.
 25. Re-check the whole bead; re-read its requirements and ADRs.
 26. Close as Dev 21, `deliverables_md` listing each finding and its fix.
