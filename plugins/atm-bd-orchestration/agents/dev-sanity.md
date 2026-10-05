@@ -53,16 +53,22 @@ child until a later probe passes; every JEV slot gets the coordinator-origin
 A Jev outage (out of tokens or quota, missing or invalid key, retry budget
 exhausted, probe exit 2) is a serious failure, announced once per outage as in
 the skill's Lead Role (`.claude/skills/atm-bd-orchestration/SKILL.md`) through
-its class bead `{{ workflow_issues_root }}-jev-outage`. When the bead does not
+its class bead: `{{ workflow_issues_root }}-jev-outage` for a failed probe,
+`{{ workflow_issues_root }}-jev-child-outage` for a JEV child's
+`SANITY.JEV_UNAVAILABLE`. When the bead does not
 exist, create it from `workflow-issue-bead.json.j2` with the error as
 description; when it is closed, `bd reopen` it. In either case announce:
-`python3 scripts/jev_client.py --startup --announce --lead {{ lead }}` sends
+`python3 scripts/jev_client.py --startup --announce --lead {{ lead }}` (failed
+probe) or `python3 scripts/jev_client.py --announce --error "<code>: <message>"
+--lead {{ lead }}` (the child's error verbatim, no probe) sends
 its error to the escalation recipients (else to `{{ lead }}`, saying no
 escalation recipient is set). When it is open, append the task id and the
 error to it (`bd update <bead> --append-notes`) and announce nothing. While in
 probe-failed mode, run the probe again at the start of each sanity task; when
-it passes, close the class bead with `bd close <bead> --reason "probe PASS"`
-and leave probe-failed mode.
+it passes, close `-jev-outage` if open with `bd close <bead> --reason "probe PASS"`
+and leave probe-failed mode. A class bead a JEV child opened closes only when a
+later JEV child reply passes the `sanity-jev` merge: `bd close <bead> --reason
+"Jev child PASS in <task>"`.
 
 ## Tasks
 

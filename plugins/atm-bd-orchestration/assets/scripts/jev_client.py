@@ -192,17 +192,39 @@ def escalation_recipients():
     return []
 
 
+def announce(message, lead):
+    """Send `message` to ATM's escalation recipients, else to `lead` saying none is set."""
+    recipients = escalation_recipients()
+    if not recipients:
+        recipients, message = [lead], message + " No escalation recipient is set."
+    for recipient in recipients:
+        try:
+            sent = subprocess.run(["atm", "send", recipient, "--stdin"], input=message,
+                                  text=True, capture_output=True, timeout=15)
+            if sent.returncode:
+                print(f"Announcement to {recipient} failed; coordinator must report the error via ATM.", file=sys.stderr)
+        except (OSError, subprocess.TimeoutExpired):
+            print(f"Announcement to {recipient} unavailable; coordinator must report the error via ATM.", file=sys.stderr)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--startup", action="store_true")
     mode.add_argument("--request", type=Path)
+    mode.add_argument("--error", help="with --announce: announce this JEV child error verbatim; no probe runs")
     parser.add_argument("--announce", action="store_true",
-                        help="with --startup: send a failure to ATM's escalation recipients (else --lead)")
+                        help="with --startup or --error: send a failure to ATM's escalation recipients (else --lead)")
     parser.add_argument("--lead", help="ATM lead identity; required with --announce, the fallback recipient")
     args = parser.parse_args(argv)
-    if args.announce and (not args.startup or not args.lead or args.lead.startswith("-")):
-        parser.error("--announce requires --startup and an explicit --lead identity")
+    if args.announce and (args.request or not args.lead or args.lead.startswith("-")):
+        parser.error("--announce requires --startup or --error and an explicit --lead identity")
+    if args.error is not None and (not args.announce or not args.error.strip()):
+        parser.error("--error requires --announce and a nonempty error")
+    if args.error is not None:
+        announce(f"dev-sanity Jev child failed: {args.error}. Selection takes the LLM reply for JEV slots until a Jev child succeeds.", args.lead)
+        print(json.dumps({"success": True, "data": {"announced": args.error}, "error": None}))
+        return 0
     try:
         request = startup_request() if args.startup else json.loads(args.request.read_text())
         data = evaluate(request)
@@ -219,18 +241,7 @@ def main(argv=None):
         result = failure(JevError("VALIDATION.INPUT", "Request file unavailable or invalid JSON"))
     if args.announce and not result["success"]:
         error = result["error"]
-        message = f"dev-sanity Jev startup failed: {error['code']}: {error['message']}. No sc-sanity-jev checks run; dev-sanity records every JEV slot as unavailable until a startup probe passes."
-        recipients = escalation_recipients()
-        if not recipients:
-            recipients, message = [args.lead], message + " No escalation recipient is set."
-        for recipient in recipients:
-            try:
-                sent = subprocess.run(["atm", "send", recipient, "--stdin"], input=message,
-                                      text=True, capture_output=True, timeout=15)
-                if sent.returncode:
-                    print(f"Announcement to {recipient} failed; coordinator must report the startup error via ATM.", file=sys.stderr)
-            except (OSError, subprocess.TimeoutExpired):
-                print(f"Announcement to {recipient} unavailable; coordinator must report the startup error via ATM.", file=sys.stderr)
+        announce(f"dev-sanity Jev startup failed: {error['code']}: {error['message']}. No sc-sanity-jev checks run; dev-sanity records every JEV slot as unavailable until a startup probe passes.", args.lead)
     print(json.dumps(result, allow_nan=False))
     return 0 if result["success"] else 2
 

@@ -61,6 +61,25 @@ class JevClientTests(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             client.main(["--startup", "--announce"])
 
+    def test_error_announces_a_child_failure_verbatim_without_probing(self):
+        error = "SANITY.JEV_UNAVAILABLE: Jev HTTP 503; response body withheld"
+        with patch.object(client.http.client, "HTTPSConnection") as http:
+            rc, result, sends = self.startup(["--announce", "--error", error, "--lead", "appointed-lead"], ["oversight@team"], ["daemon@host"],
+                                             environ={"ATM_TEAM": "t", "TYPESAFE_API_KEY": "test-only-key"})
+            http.assert_not_called()
+        self.assertEqual((rc, result), (0, {"success": True, "data": {"announced": error}, "error": None}))
+        self.assertEqual([to for to, _ in sends], ["oversight@team"])
+        self.assertIn(error, sends[0][1])
+        _, _, sends = self.startup(["--announce", "--error", error, "--lead", "appointed-lead"], [], None)
+        self.assertEqual([to for to, _ in sends], ["appointed-lead"])
+        self.assertIn(error, sends[0][1])
+        self.assertTrue(sends[0][1].endswith("No escalation recipient is set."))
+        for argv in (["--error", error], ["--announce", "--error", "", "--lead", "appointed-lead"],
+                     ["--announce", "--error", error], ["--startup", "--error", error, "--announce", "--lead", "appointed-lead"],
+                     ["--request", "r.json", "--announce", "--lead", "appointed-lead"]):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                client.main(argv)
+
     def test_successful_transport(self):
         conn = MagicMock()
         conn.getresponse.return_value.status = 200

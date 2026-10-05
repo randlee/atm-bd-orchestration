@@ -284,7 +284,9 @@ ready bead. The lead may step in at critical points, preferably through a backgr
 While a workflow outage class bead is open, re-test its cause on each pass
 (Jev: `python3 scripts/jev_client.py --startup`; any other cause: the command
 named in the bead) and on success close it (`bd close <bead> --reason
-"re-test PASS"`), which releases the re-dispatches held on it.
+"re-test PASS"`), which releases the re-dispatches held on it. A passing probe
+does not close a Jev class bead a JEV child opened; dev-sanity closes it on its
+next passing JEV child (`.claude/agents/dev-sanity.md` Startup).
 For each ready bead:
 
 | Ready bead | Template | To |
