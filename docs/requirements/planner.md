@@ -63,12 +63,12 @@ Sources: `plugins/atm-bd-orchestration/skills/`: `atm-beads/` (SKILL.md, resourc
 
 ### Replanning
 48. Fix a DAG problem only by replanning: edit the plan file in a `/sc-git-worktree` branch off the `integration_branch`, merge the plan PR into it; beads and the plan file change in one commit.
-49. While the phase runs the sprint DAG is frozen; only edges to phase-created fix beads change.
+49. While the phase runs the sprint set is frozen; only added edges change: to phase-created fix beads, and any dependency discovered in motion (sprint beads included), never a replan.
 50. Keep `validate-plan --root <root>` green from plan approval to phase end.
 
 ### Never
 51. Never create a gate bead or its edges without the user's explicit instruction for that gate.
-52. Never repair the graph with `bd dep` or `--parent`.
+52. Never repair the graph with `bd dep` or `--parent`, beyond adding a dependency discovered in motion.
 53. Never re-import to update a bead.
 54. Never put findings, fixes, QA, tasks, branches or gates in the plan file.
 55. Never mark an unimplemented sprint bead `closed`.

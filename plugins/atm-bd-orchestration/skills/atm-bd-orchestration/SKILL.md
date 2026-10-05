@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.14
+version: 0.6.15
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -322,7 +322,7 @@ Then, on each task close:
 | task-refused | read the reason and the bead state (`open`, or `blocked-failed` for a dev bead that declared failure). Reassign it, split it, or close the bead yourself with `bd close <bead> --force --reason "<why>"`. A `blocked` bead is never in `bd ready`: run `bd update <bead> --status open --assignee <new agent>` before you re-dispatch it. A sanity refusal for no PR, not stacked or not rebased is yours as stack writer (Stack Discipline). A cannot-run caused by an announced outage (its workflow class bead is open) is not re-dispatched until the cause clears and that bead closes; never force-close the bead meanwhile. `REVIEW_PENDING_JEV`: file each code finding in its notes with `finding-bead.json.j2` (`qa_bead` = the review bead) and re-dispatch the review only after the Jev outage clears, with the prior `post_mortem_jev` run IDs in its notes so they are reused |
 | fix-complete (`not_reproducible`) | no commit, no sanity check; the finding is closed. For a poured fix bead or an important or minor finding bead, close its group's sanity bead, then its QA bead, each with `bd close <bead> --reason "not_reproducible: <fix bead>"` |
 | assignee silent past the re-nudge | announce it as in Lead Role, then `bd update <bead> --status open --assignee <new agent>` and re-assign the same task id with the same template and vars: `atm task assign <new agent> --task-id <same id> --template <same> --vars <same>` |
-| not-ready or blocker refusal | the task is closed `refused` and the bead is open. Fix the cause it names (usually a blocker still open) and add the dependency it recommends (`bd dep add <bead> --blocked-by <blocker>`, or the right one; a missing sprint edge is a replan, below) so `bd ready` holds the bead until the blocker closes; re-assign the same bead (same task id, template and vars) only once `bd ready` lists it. A blocker refusal is never answered with "wait". If the work is no longer wanted, close the bead with a reason instead |
+| not-ready or blocker refusal | the task is closed `refused` and the bead is open. Fix the cause it names (usually a blocker still open) and add the dependency it recommends (`bd dep add <bead> --blocked-by <blocker>`, or the right one, sprint beads included; never a replan) so `bd ready` holds the bead until the blocker closes; re-assign the same bead (same task id, template and vars) only once `bd ready` lists it. A blocker refusal is never answered with "wait". If the work is no longer wanted, close the bead with a reason instead |
 
 Re-run `bd ready` after every close. Never cache the ready list. The open
 phase root also appears in it; it is never dispatched.
@@ -333,10 +333,13 @@ Close a sprint container when every child is closed (`bd children <sprint>
 
 After every bead write, run `validate-plan --phase <x>`. On any problem,
 stop dispatching and report it to the user; never repair the graph
-(`bd dep`, `--parent`). A DAG problem is fixed by replanning: edit
+(`bd dep`, `--parent`) beyond adding a dependency discovered in motion. A DAG problem is fixed by replanning: edit
 the plan file in a `/sc-git-worktree` branch off the root's
-`integration_branch` and merge the plan PR into it. While a phase is in motion its sprint DAG is frozen; only
-dependencies to fix beads created during the phase are added or changed.
+`integration_branch` and merge the plan PR into it. While a phase is in motion its sprint set is frozen; the lead only adds
+dependencies: to fix beads created during the phase, and any dependency
+discovered in motion (a blocker refusal names it), sprint beads included,
+with `bd dep add <bead> --blocked-by <blocker>`. A discovered dependency
+is never a replan; a planned edge is never removed.
 Verify branches read-only (`git -C <worktree> log`,
 `git diff`, `gh pr view`); never run a state-changing command in an
 assignee's worktree.
