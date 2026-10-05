@@ -13,7 +13,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 5. Rebase onto `origin/<pr_target>`; a conflict is part of the work.
 6. Run `assignment-gates.py dev` from the worktree.
 7. `READY`: `bd update <bead> --claim`, then `atm task start <bead> "<one line>"`.
-8. `NOT_READY`: do not claim or start; find the blockers (`bd show`, `bd blocked --json`); close the task `refused` with `task-refused.md.j2` (`bead_state` open), `reason_md` = bead, cause, who must move and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); a blocker met mid-task: return the bead open, unassigned, blocker in notes, close the task `refused` the same way; never wait.
+8. `NOT_READY`: do not claim or start; find the blockers (`bd show`, `bd blocked --json`); close the task `refused` with `task-refused.md.j2` (`bead_state` open), `reason_md` = bead, cause, who must move and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); a blocker met mid-task (work another bead or agent owns that is not done; a shared change you can make yourself is a quick fix, 33, and the task continues): return the bead open, unassigned, blocker in notes, close the task `refused` the same way; never wait.
 9. Any other code: reuse a matching workflow class bead (append task id, head, command, evidence) and cite it in the refusal; none matches: report the signature to the task assigner and cite that message; never create a per-task bead.
 10. Commit as items land and push early (`git push -u origin <branch>` first); a push or `atm send` closes nothing.
 11. Never weaken a test, skip a criterion, or leave a placeholder.
