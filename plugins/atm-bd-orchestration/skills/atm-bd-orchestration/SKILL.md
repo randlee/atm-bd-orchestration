@@ -162,7 +162,7 @@ the sanity check, without interrupting or messaging the dev.
 Rebasing is done before sanity or QA is assigned and is the dev's, at
 dev-complete; the lead fixes only what the dev could not, or another stack
 problem, before dispatching sanity or QA, in its own worktree, and dispatches
-with the new `commit`, `base`, `pr_number` and `worktree_path`. A layer that
+with the new `commit`, `base`, `branch`, `pr_number` and `worktree_path`. A layer that
 has passed QA, or has layers above it, is never rebased, and a rebase never
 re-dispatches QA or sanity on any other layer. A passed sanity is
 frozen and a later change is a new fix bead with its own sanity. Sprint work
