@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.9.0
+version: 2.10.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -81,7 +81,9 @@ failure is a refusal, not a best-effort check:
    `gh api 'repos/{owner}/{repo}/stacks' --paginate --jq '.[]'` (GitHub's
    stacks, never local `gh stack` tracking) must have an open stack whose
    `pull_requests` include `$PR_NUMBER` with `$BASE` the `head.ref` of the
-   open PR before it (the stack's `base.ref` for its first open PR); then
+   open PR before it (the stack's `base.ref` for its first open PR), or, in no
+   open stack, be layer 0 awaiting layer 1 (`$BASE` is `$PR_TARGET` and
+   `gh pr list --head "$BASE" --state open --json headRefName` prints `[]`); then
    `git fetch origin`, and `git merge-base --is-ancestor "origin/$PR_TARGET" "origin/$BASE"`
    must pass unless `$PR_TARGET`, the checked bead's `pr_target` (a lower bound), is `$BASE`
    (a `$PR_TARGET` gone from origin holds when a PR in `gh pr list --head "$PR_TARGET" --state merged --json mergeCommit` has its merge commit in `origin/$BASE`);

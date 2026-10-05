@@ -56,7 +56,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 
 ### Scripts
 
-36. `assignment-gates.py dev` prints one code; exit 0 `READY`, 2 `GATE_CANNOT_RUN`, 5 otherwise. `stack-top --pr-target <b>` prints the head of the last open PR of the one open GitHub stack based on or containing `<b>` (`<b>` when none) with exit 0, else `STACK_AMBIGUOUS` (several stacks, 5) or `GATE_CANNOT_RUN` (2).
+36. `assignment-gates.py dev` prints one code; exit 0 `READY`, 2 `GATE_CANNOT_RUN`, 5 otherwise. `stack-top --pr-target <b>` prints the head of the last open PR of the one open GitHub stack based on or containing `<b>` (when none, the one open unlinked PR based on `<b>`, else `<b>`) with exit 0, else `STACK_AMBIGUOUS` (several stacks or unlinked PRs, 5) or `GATE_CANNOT_RUN` (2).
 37. Checks in order: `validate-plan` (`PLAN_INVALID`), in `bd ready` (`NOT_READY`), open and unassigned or self (`UNCLAIMABLE`), `pr_target`, the sprint container's for a poured dev bead, is `--pr-target` or its ancestor (`PR_TARGET_MISMATCH`), roster model fits `difficulty` (`DIFFICULTY_MISMATCH`), `origin/<pr_target>` ancestor of HEAD (`WRONG_BASE`).
 38. Difficulty models (substring): hard fable/opus/astra; normal terra/opus/sonnet; fast luna.
 39. `task-refused.md.j2`: `bead_state` `open` or `blocked-failed`.

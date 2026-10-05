@@ -108,16 +108,31 @@ def is_open(pr: dict[str, Any]) -> bool:
     return pr.get("state") == "open" and not pr.get("merged_at")
 
 
+def open_pr_heads(runner: Runner, flag: str, ref: str) -> list[str]:
+    """Head branches of the open PRs whose `--base` or `--head` is `ref`, linked into a stack or not."""
+    rows = json.loads(run_in(runner, str(PRIMARY), "gh", "pr", "list", flag, ref, "--state", "open", "--json", "headRefName"))
+    return [str(row["headRefName"]) for row in rows]
+
+
+def run_in(runner: Runner, cwd: str, *args: str) -> str:
+    result = runner(list(args), capture_output=True, text=True, cwd=cwd)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "command failed")
+    return result.stdout
+
+
 def stack_top(runner: Runner, target: str) -> str | None:
     """The branch a new PR based on `target` lands on: the head of the last open PR of the one open stack whose base is
-    `target` or that has a PR from `target` (its base when none is open); `target` when no stack matches; None when
-    several stacks match (ambiguous: never guess)."""
+    `target` or that has a PR from `target` (its base when none is open). When no stack matches, the one open unlinked
+    PR based on `target` (layer 0 awaiting layer 1: a stack forms from layers 0 and 1 together), else `target`. None
+    when several stacks or unlinked PRs match (ambiguous: never guess)."""
     matches = [stack for stack in open_stacks(runner)
                if stack["base"]["ref"] == target or any(pr["head"]["ref"] == target for pr in stack["pull_requests"])]
     if len(matches) > 1:
         return None
     if not matches:
-        return target
+        unlinked = open_pr_heads(runner, "--base", target)
+        return target if not unlinked else unlinked[0] if len(unlinked) == 1 else None
     heads = [pr["head"]["ref"] for pr in matches[0]["pull_requests"] if is_open(pr)]
     return heads[-1] if heads else matches[0]["base"]["ref"]
 
@@ -160,7 +175,10 @@ def sanity_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     run_json(runner, "bd", "show", args.bead, "--json")
     pr = run_json(runner, "gh", "pr", "view", args.pr_number, "--json", "baseRefName,headRefName,headRefOid")
     base = str(pr.get("baseRefName") or "")
-    if pr.get("headRefOid") != args.commit or stacked_base(runner, args.pr_number) != base:
+    stacked = stacked_base(runner, args.pr_number)
+    # Layer 0 alone cannot form a stack: unlinked, it is based on the trunk (its pr_target, no open PR's head).
+    awaiting_layer_one = stacked is None and base == args.pr_target and not open_pr_heads(runner, "--head", base)
+    if pr.get("headRefOid") != args.commit or (stacked != base and not awaiting_layer_one):
         return "NOT_STACKED"
     run(runner, "git", "fetch", "origin")
     if not descends(runner, args.pr_target, base):

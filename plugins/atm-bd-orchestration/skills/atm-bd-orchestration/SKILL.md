@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.5
+version: 0.6.6
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -144,7 +144,11 @@ dispatch. Every PR lands on the top of its stack; there are no forks. A dev or f
 is cut from the top of its stack; before dev-complete or fix-complete the dev rebases onto the
 stack's current top, opens the PR against it and closes with the `/sc-gh-stack-view` output. The lead
 links the PR on top of the phase stack
-(`/sc-gh-stack`), before the sanity check; a sanity refusal for no PR, not
+(`/sc-gh-stack`), before the sanity check. Layer 0 alone cannot form a stack:
+its PR waits unlinked on the trunk (sanity accepts it there, and `stack-top`
+returns its branch so the next root sprint lands on it), and the lead links
+layers 0 and 1 together, `gh stack link --base <trunk> <pr0> <pr1>`, when
+layer 1's PR opens; a sanity refusal for no PR, not
 stacked or not rebased is the lead's (the stack writer) to fix: it opens,
 links or rebases by a new layer as `/sc-gh-stack` prescribes and re-dispatches
 the sanity check, without interrupting or messaging the dev. A passed sanity is

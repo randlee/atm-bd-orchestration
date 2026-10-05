@@ -31,6 +31,10 @@ class FakeRunner:
 STACKS = (str(gates.PRIMARY), gates.STACKS)
 
 
+def HEADS(flag, ref):
+    return ("gh", "pr", "list", flag, ref, "--state", "open", "--json", "headRefName")
+
+
 def pr(number, head, state="open", merged_at=None):
     return {"number": number, "state": state, "draft": False, "merged_at": merged_at, "head": {"ref": head, "sha": "s"}}
 
@@ -66,6 +70,7 @@ def sanity_runner(overrides=None):
         ("bd", "show", "bead", "--json"): (0, dumped([{"metadata": {}}])),
         ("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefName": "branch", "headRefOid": "head"})),
         **stacks(pr(5, "merged", "closed", "2026-10-01T00:00:00Z"), pr(6, "target"), pr(7, "branch")),
+        HEADS("--head", "target"): (0, dumped([{"headRefName": "target"}])),
         ("git", "fetch", "origin"): (0, ""),
         ("git", "rev-parse", "target"): (0, "base"),
         ("git", "rev-parse", "origin/target"): (0, "base"),
@@ -175,6 +180,20 @@ class AssignmentGateTests(unittest.TestCase):
         self.assertEqual(gates.evaluate(ns("sanity", pr_target="integrate"), runner), "READY")
         self.assertEqual(gates.evaluate(ns("sanity"), runner), "NOT_STACKED")  # the trunk does not descend from a planned layer above it
 
+    def test_layer_0_awaiting_layer_1_is_accepted_only_on_the_trunk(self):
+        unlinked = {STACKS: (0, ""), HEADS("--head", "integrate"): (0, "[]"),
+                    ("gh", "pr", "view", "7", "--json", "baseRefName,headRefName,headRefOid"): (0, dumped({"baseRefName": "integrate", "headRefName": "layer-0", "headRefOid": "head"})),
+                    ("git", "log", "--format=%H", "origin/integrate..head"): (0, "delta")}
+        self.assertEqual(gates.evaluate(ns("sanity", pr_target="integrate"), sanity_runner(unlinked)), "READY")
+        self.assertEqual(gates.evaluate(ns("sanity", pr_target="integrate"), sanity_runner(
+            {**unlinked, ("git", "merge-base", "--is-ancestor", "origin/integrate", "head"): (1, "")})), "NOT_REBASED")
+        # based on another layer's branch, or on a planned layer above the trunk: it must be in a stack
+        self.assertEqual(gates.evaluate(ns("sanity", pr_target="integrate"), sanity_runner(
+            {**unlinked, HEADS("--head", "integrate"): (0, dumped([{"headRefName": "integrate"}]))})), "NOT_STACKED")
+        self.assertEqual(gates.evaluate(ns("sanity", pr_target="planned"), sanity_runner(unlinked)), "NOT_STACKED")
+        self.assertEqual(gates.evaluate(ns("sanity", pr_target="integrate"), sanity_runner(
+            {**unlinked, HEADS("--head", "integrate"): (1, "", "HTTP 502")})), "GATE_CANNOT_RUN")
+
     def test_sanity_reads_the_stack_from_githubs_stacks_api_not_local_tracking(self):
         # The dev's worktree has no gh-stack tracking (the dev never runs gh stack), so `gh stack view` exits 2 there.
         runner = sanity_runner({("/wt", ("gh", "stack", "view", "--json")): (2, "")})
@@ -208,8 +227,11 @@ class AssignmentGateTests(unittest.TestCase):
             ("head match", stacks(*layers, others=[other]), "target", ("branch", 0)),
             ("merged head match", stacks(*layers), "merged", ("branch", 0)),
             ("no open PR left", stacks(pr(5, "merged", "closed", "2026-10-01T00:00:00Z")), "merged", ("integrate", 0)),
-            ("closed stack ignored", stacks(*layers, is_open=False), "integrate", ("integrate", 0)),
-            ("empty", {STACKS: (0, "")}, "integrate", ("integrate", 0)),
+            ("closed stack ignored", {**stacks(*layers, is_open=False), HEADS("--base", "integrate"): (0, "[]")}, "integrate", ("integrate", 0)),
+            ("empty", {STACKS: (0, ""), HEADS("--base", "integrate"): (0, "[]")}, "integrate", ("integrate", 0)),
+            ("unlinked layer 0", {STACKS: (0, ""), HEADS("--base", "integrate"): (0, dumped([{"headRefName": "layer-0"}]))}, "integrate", ("layer-0", 0)),
+            ("several unlinked PRs", {STACKS: (0, ""), HEADS("--base", "integrate"): (0, dumped([{"headRefName": "a"}, {"headRefName": "b"}]))}, "integrate", ("STACK_AMBIGUOUS", 5)),
+            ("unlinked lookup fails", {STACKS: (0, ""), HEADS("--base", "integrate"): (1, "", "HTTP 502")}, "integrate", ("GATE_CANNOT_RUN", 2)),
             ("several stacks on one trunk", stacks(*layers, others=[{**other, "base": {"ref": "integrate"}}]), "integrate", ("STACK_AMBIGUOUS", 5)),
             ("API failure", {STACKS: (1, "", "gh: Not Found (HTTP 404)")}, "integrate", ("GATE_CANNOT_RUN", 2)),
             ("not json", {STACKS: (0, "<html>")}, "integrate", ("GATE_CANNOT_RUN", 2)),
