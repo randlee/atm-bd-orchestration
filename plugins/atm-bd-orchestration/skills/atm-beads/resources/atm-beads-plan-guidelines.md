@@ -44,8 +44,9 @@ risk deferred to one late checkpoint. Both extremes are findings. See
 - A track is a `gh stack` on the phase integration branch. The stack is
   specified when the plan is written: each sprint bead's metadata records its
   `stack`, `layer` (1 = bottom), `branch`, `pr_target` and `worktree`, where
-  `pr_target` is the branch of the layer below (the integration branch for
-  layer 1), a lower bound: the PR's actual base is it or a descendant of it.
+  `pr_target` is the branch of its nearest `must_follow` prerequisite, the one
+  it builds on (the integration branch when it has none; never a parallel
+  sibling), a lower bound: the PR's actual base is it or a descendant of it.
 - The plan is optimized for parallel execution, so waves are horizontal
   layers of code: contract, layers, integration. A bead is released as soon
   as all of its blockers are closed, that is when all its required work is

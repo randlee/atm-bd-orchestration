@@ -139,7 +139,7 @@ set) and metadata come from these required vars:
 | `stack` | `phase-<x>`: the phase is one stack |
 | `layer` | planned position, 1 = bottom |
 | `branch` | `sprint/<phase>-<n>-<slug>` |
-| `pr_target` | planned: branch of layer n−1, or the root's `integration_branch` for layer 1; a lower bound: the PR's actual base is it or a descendant of it |
+| `pr_target` | planned: branch of its nearest `must_follow` prerequisite, the one it builds on, or the root's `integration_branch` when it has none; never a parallel sibling; a lower bound: the PR's actual base is it or a descendant of it |
 | `worktree` | `<worktree_base>/<branch>` |
 | `relation` | `root`, `must_follow` or `parallel_safe` |
 | `closure_type` | from the guidelines' closure types |
@@ -188,9 +188,9 @@ after its work passes the sanity check. See [`dev-sanity.md`](dev-sanity.md).
 
 - The phase is one append-only `gh stack` on the root's `integration_branch`.
   Only the final phase PR leaves it, for the repository's base branch.
-- `layer` and `pr_target` are the plan's intent. Layers really stack in the
-  order they complete, and the lead records the actual values when it links
-  each one (`atm-bd-orchestration` "Stack Discipline").
+- `layer` is the plan's intent. Layers really stack in the
+  order they complete, and the lead records the actual `layer` when it links
+  each one (`atm-bd-orchestration` "Stack Discipline"); `pr_target` stays the planned lower bound.
 - Sprints that can run at once must have disjoint `owned_paths`. Sprints that
   share a path must be ordered: one's sanity bead in the other's blocker closure.
 

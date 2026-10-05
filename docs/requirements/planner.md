@@ -31,7 +31,7 @@ Sources: `plugins/atm-bd-orchestration/skills/`: `atm-beads/` (SKILL.md, resourc
 20. One vars file per bead: root `plan-root` (`<prefix>-phase-<x>`), sprint `sprint-bead` (`<prefix>-<x>-<n>`), sanity `dev-sanity-bead` (`<dev id>-sanity`).
 21. Root vars: `title`, `description` (goal + sprint table), `design`, `acceptance_criteria`, `plan_scope` (`feature` under the Development epic or `epic`, no parent), `integration_branch` = `integration_branch_pattern` with `{phase}`.
 22. Sprint description: goal, numbered `## Deliverables` from 1 (each naming its REQ/NFR), required work, non-closure, paths to delete; design: contract, types, samples, targets; acceptance: criteria + validation commands.
-23. Sprint metadata: `sprint`, `stack` = `phase-<x>`, `layer` (1 = bottom), `branch`, `pr_target` (layer n-1's branch; layer 1 the root's `integration_branch`), `worktree` = `<worktree_base>/<branch>`, `relation`, `closure_type`, `target_boundary`, `owned_paths`, `difficulty` (`hard`/`normal`/`fast`), `parent` = root.
+23. Sprint metadata: `sprint`, `stack` = `phase-<x>`, `layer` (1 = bottom), `branch`, `pr_target` (the branch of the nearest `must_follow` prerequisite it builds on, never a parallel sibling; none: the root's `integration_branch`), `worktree` = `<worktree_base>/<branch>`, `relation`, `closure_type`, `target_boundary`, `owned_paths`, `difficulty` (`hard`/`normal`/`fast`), `parent` = root.
 24. `blocked_by` each prerequisite's sanity bead, never its dev bead.
 25. `requirements` and `adrs`: every governing id or exactly `["NONE"]`; never empty, never mixed.
 26. A not-yet-existing id only when its document is in `owned_paths` and a deliverable says the sprint adds it.

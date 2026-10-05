@@ -142,7 +142,7 @@ Keep `<scratch>` outside the repository.
 | `branch` | `sprint/<sprint>-<slug>`, with the slug taken from the doc's branch or file name |
 | `worktree` | `<worktree_base>/<branch>` |
 | `stack` | `phase-<x>`: the phase is one append-only stack |
-| `layer`, `pr_target` | planned order: layer 1 targets the phase's `integration_branch`, and layer n targets the branch of layer n−1. Number the layers in the sprint table's order among sprints of the same dependency depth, and by sprint number within a row. These are the plan's intent: layers really stack in completion order, and lead records the actual values at link time |
+| `layer`, `pr_target` | `pr_target` is the branch of the sprint's nearest `must_follow` prerequisite, the one it builds on, or the phase's `integration_branch` when it has none; never a parallel sibling. Number the layers in the sprint table's order among sprints of the same dependency depth, and by sprint number within a row. `layer` is the plan's intent: layers really stack in completion order, and lead records the actual `layer` at link time |
 | sanity check bead | `id` = `<sprint id>-sanity`, `dev_bead` = the sprint id |
 
 Section headings vary between plans. Map a section by what it holds, not by

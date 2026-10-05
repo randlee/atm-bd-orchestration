@@ -66,7 +66,8 @@ def git_dir(args: argparse.Namespace) -> list[str]:
 
 
 def declared_pr_target(runner: Runner, bead: dict[str, Any]) -> str | None:
-    """The bead's own pr_target; a poured dev bead declares none and takes its sprint container's.
+    """The bead's own pr_target (planned: its nearest `must_follow` prerequisite's branch, or the trunk; never a
+    parallel sibling); a poured dev bead declares none and takes its sprint container's.
     A fix bead's target (a new layer at the top of the stack) is set at dispatch."""
     target = metadata(bead).get("pr_target")
     container = metadata(bead).get("sprint_bead")

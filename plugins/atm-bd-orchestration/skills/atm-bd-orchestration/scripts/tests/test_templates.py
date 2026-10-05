@@ -378,7 +378,8 @@ class DevAssignmentTests(unittest.TestCase):
             with self.subTest(template=name):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("Rebase onto the stack's current top (it may have moved since dispatch)", result.stdout)
-                self.assertIn("`/sc-gh-stack-view --json`", result.stdout)
+                self.assertIn("`/sc-gh-stack-view --trunk <trunk> --json`", result.stdout)
+                self.assertIn("exit 2 or no matching stack means the top is `", result.stdout)
                 self.assertIn("`git rebase origin/<top>`", result.stdout)
                 self.assertRegex(result.stdout, r"`gh pr create --base <top> --head \S+ --fill`")
                 self.assertIn("(never `--draft`)", result.stdout)
@@ -386,6 +387,22 @@ class DevAssignmentTests(unittest.TestCase):
                 self.assertNotIn("Rebase only onto", result.stdout)
                 self.assertIn("`pr_target` is a lower bound", result.stdout)
                 self.assertNotIn("`metadata.pr_target` equals", result.stdout)
+
+    def test_a_sanity_fail_fix_is_a_new_layer_above_the_frozen_checked_layer(self):
+        values = _example("dev-fix-vars.json")
+        result = _render("dev-fix.xml.j2", values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"The checked layer `{values['pr_target']}` is linked and frozen: never rebase, re-target or push it.", result.stdout)
+        self.assertIn(f"`{values['branch']}` is a new layer cut from the top of stack", result.stdout)
+        self.assertNotIn("is not linked", result.stdout)
+        self.assertNotIn("confirm the open one", result.stdout)
+
+    def test_sanity_reads_the_stack_from_the_cross_worktree_view(self):
+        for text in ((ROOT / "templates/dev-sanity-template.xml.j2").read_text(), (ROOT.parents[1] / "agents/dev-sanity.md").read_text()):
+            with self.subTest(text=text[:40]):
+                self.assertIn("gh_stack_view.py --json`", text)
+                self.assertIn("never read from one worktree's `gh stack` tracking", text)
+                self.assertNotIn("`gh stack view --json` in the", text)
 
     def test_completion_renders_a_stack_issue_unless_coherent_and_landable(self):
         for name in ("dev-complete.md.j2", "fix-complete.md.j2"):

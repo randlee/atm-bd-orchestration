@@ -147,8 +147,8 @@ Keep `<scratch>` outside the repository and never commit the prompt files.
 Dev and fix work runs in parallel and is stacked when it completes: the dev
 completes the work, rebases it onto the current top of its stack, and the
 stack writer (lead) links it. Layers therefore stack in the order they
-complete, and lead records each bead's actual `layer` and `pr_target` when it
-is linked; the plan-time values are the plan's intent. The mechanics are the
+complete, and lead records each bead's actual `layer` when it
+is linked; `pr_target` stays the planned lower bound. The mechanics are the
 `sc-gh-stack` skill (`/sc-gh-stack` in Claude): its `workflow.md`,
 `recipe-cut-layer.md` and `recipe-link.md` are plain markdown any agent can
 follow.
