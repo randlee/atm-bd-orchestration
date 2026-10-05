@@ -202,7 +202,9 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    becomes a coordinator-origin `SANITY.RESULT_INVALID` failure for that
    deliverable (the replaced reply and reason are kept in `rejected_results`).
    Selection then takes the LLM reply: a fallback, logged and announced as
-   below.
+   below. Its cause is the class bead `{{ workflow_issues_root }}-jev-result-invalid`,
+   created, announced (`--announce --error` with that failure's code and
+   message) and closed as a JEV child's in Startup.
 
    Do not append either history row yet: the final selected verdict is not
    known. Once both raw arrays are available, record `selected_started_at`
