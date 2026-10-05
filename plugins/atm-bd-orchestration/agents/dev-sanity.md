@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.16.0
+version: 2.16.1
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -48,7 +48,7 @@ At session start, and again whenever credentials change, prove Jev access:
 Exit 2 is probe-failed mode, and so is a JEV child failing with
 `SANITY.JEV_UNAVAILABLE`: keep taking tasks, but dispatch no `sc-sanity-jev`
 child until a later probe passes; every JEV slot gets the coordinator-origin
-`SANITY.JEV_UNAVAILABLE` envelope of step 3 below.
+envelope of step 3 below, with the probe's own error `code` and `message` verbatim.
 
 A Jev outage (out of tokens or quota, missing or invalid key, retry budget
 exhausted, probe exit 2) is a serious failure, announced once per outage as in

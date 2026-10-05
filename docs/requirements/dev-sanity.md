@@ -8,70 +8,59 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 1. Run as the one team-unique member `resolve-role dev-sanity` names; never a dev or fix agent.
 2. Answer only "is each numbered deliverable written"; never review code or judge quality.
 3. Own the verdict: the selected result alone sets PASS/FAIL and creates finding children.
-4. Make every `bd`/`atm` write; pass `--actor "$ATM_IDENTITY"` on each `bd` write.
-5. Keep scratch and vars outside the repo; leave nothing in it; never commit `.sc/sanity-log/`.
+4. Make every `bd`/`atm` write (subagents make none); pass `--actor "$ATM_IDENTITY"` on each `bd` write.
+5. Keep scratch and vars outside the repo; leave nothing in it; never commit the sanity log.
 6. Never edit code, commit, push or mutate a stack.
 
-### Startup
-7. At session start and on credential change, run `scripts/jev_client.py --startup`.
-8. Exit 2, or a JEV child failing with `SANITY.JEV_UNAVAILABLE`, is probe-failed mode: keep taking tasks, dispatch no JEV child, give every JEV slot a coordinator `SANITY.JEV_UNAVAILABLE` envelope, and re-run the probe at the start of each sanity task until one passes. A Jev outage (no tokens or quota, missing or invalid key, retry budget exhausted, probe exit 2) is announced once per outage to each ATM escalation recipient (`SKILL.md` Lead Role), else the lead, saying no escalation recipient is set: announce only when its class bead `<workflow_issues_root>-jev-outage` is created or reopened (`jev_client.py --startup --announce --lead <lead>`), append later occurrences to it, close it when a probe passes. Every fallback use (LLM taking a failed Jev slot, lead without recipients) is logged and announced once per cause, never silent.
+### Startup and Jev outages
+7. At session start and on credential change, run the Jev startup probe (`jev_client.py --startup`).
+8. Probe exit 2, or a JEV child failing with `SANITY.JEV_UNAVAILABLE`, is probe-failed mode: keep taking tasks, dispatch no JEV child, give every JEV slot a coordinator failure envelope, and re-run the probe at the start of each sanity task until one passes.
+9. A Jev outage is announced once per cause to each ATM escalation recipient, else the lead saying no escalation recipient is set, through its workflow class bead: `-jev-outage` (failed probe), `-jev-child-outage` (a child's `SANITY.JEV_UNAVAILABLE`), `-jev-result-invalid` (replies the `sanity-jev` merge screens out). Announce only when the bead is created or reopened, append later occurrences to it. `-jev-outage` closes when a probe passes; the other two close only when a later JEV child reply passes the `sanity-jev` merge (or on the lead's passing probe when no sanity task is ready or open).
+10. Every fallback use (LLM taking a failed Jev slot, lead without recipients) is logged with its verbatim error and announced once per cause, never silent.
 
 ### Per assignment (task id = sanity bead id)
-9. Start every open sanity task at once (`bd update --claim` all, `atm task start` the active one); close each when its verdict arrives.
-10. Not ready (`bd ready -n 0 --json` omits it): do not claim or start; find the root cause; close the task `refused` (`bead_state` open), `reason_md` = bead, why, who must move and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); a blocker met mid-task: return the bead open, unassigned, blocker in notes, close the task `refused` the same way; never wait.
-11. Refuse `SANITY.PR_REQUIRED` without `pr_number` and `pr_url`.
-12. PR head must equal `commit`, the PR must be in an open stack of `gh api repos/{owner}/{repo}/stacks` (GitHub's stacks, never local `gh stack` tracking) with its base the `head.ref` of the open PR before it (the stack's `base.ref` for its first open PR), or be in no open stack as layer 0 awaiting layer 1 (base = `pr_target`, no open PR from it), and that base must be the checked bead's `pr_target` or a descendant of it, else refuse `SANITY.NOT_STACKED`; `git fetch origin` before the descendant check; a `pr_target` gone from origin holds when a merged PR of it has its merge commit in `origin/<base>`.
-13. Refuse `SANITY.ZERO_DELTA` when `origin/<base>..<commit>` is empty, and `SANITY.NOT_REBASED` when `origin/<base>` is not an ancestor of `<commit>`.
-14. Refuse `SANITY.DIRTY_TREE` on tracked changes beyond the ignored paths.
-15. Refuse `SANITY_FROZEN` when a `bd history <task> --json` snapshot shows the bead closed with a reason starting `PASS at `; a note or other reason mentioning PASS does not count.
-16. PR targeting neither `develop` nor `integrate/*`: check it with `gh-stack-view`; refuse an unregistered or unmergeable stack.
-17. Any refusal: append evidence to the workflow class bead for that failure signature and cite it, else report the signature to the task assigner and cite that; no per-task bead; no history row.
-18. Claim and `atm task start`; iteration = completed events in `atm task events <task> --all --json` + 1.
-19. Run `sanity-split` exactly once, with `--layer-pr <n>` for each PR of the task's `layer_prs` (after a dev-fix: the sprint's own layer ranges, the checked PR last, whose head must be the sha); save the manifest; its run_id, sha, reviewers, operational_reviewer apply to the whole run.
-20. Split failure: refuse with its actual code before dispatch; `SANITY.PLAN_INVALID`: tell the task assigner planning failed for that bead.
-21. Dispatch every deliverable's assignment unchanged as fenced JSON to one `sc-sanity-llm` and one `sc-sanity-jev` child, both families before waiting; record each family's `started_at` before its dispatch.
-22. Keep each fenced reply text unchanged, as a JSON string, in its own reviewer's array (`sanity-merge` parses the fence); never mix arrays.
-23. Record each family's `completed_at` when its last reply or timeout arrives, before merge or lint wait.
-24. Stop a child silent 30 minutes and keep its failure envelope; a failed child is yours: fix its assignment or context and rerun it; the rerun reply replaces the failed envelope in that reviewer's array before its merge; the replaced envelope goes in notes.
-25. Rerun fails, dispatch fails or the Jev probe has not passed: coordinator `success:false, data:null` envelope with `code, message, recoverable, suggested_action, deliverable`; say that reviewer could not run; never substitute one reviewer for the other in that slot; one failed reviewer is not a blocker or CANNOT_RUN.
-26. Merge each family with `sanity-merge --reviewer sanity-llm|sanity-jev --started-at --completed-at` as it finishes; append no history yet.
-27. Triage per deliverable into `selection.json`: exact LLM/JEV statuses, `selected` (`llm`, `jev` or `rerun`), a reason for every disagreement or rerun, `checker_defect`, both reply hashes; record selected start and completion epochs; one reviewer failed: select the other's valid reply with the failure as reason; neither valid: CANNOT_RUN.
-28. Rerun: the manifest's assignment with `context` set to the nonempty repo-relative missing-context `{path, why}` objects (`jq`), sent to one child; put its unchanged reply and reviewer in `rerun`.
-29. Checker defect: only on a selected undone reply, with a reason; creates no child.
-30. Merge `--reviewer sanity-selected --llm-vars --jev-vars --selection`.
-31. Merge exit 4: retry with the same times, never rerun lint; exit 0: PASS/FAIL; exit 1/3 with a report: CANNOT_RUN, keep error and raw results; no report: coordinator error, never PASS.
-32. After the selected merge, append exactly two history rows, `sanity-llm` then `sanity-jev`, each with its own completion time, the same iteration and the selected verdict as `--final-verdict`; selection or selected merge cannot run: `CANNOT_RUN`, still append both; a reviewer merge with no report has no row: report it to the task assigner.
-33. Copy only SEL vars to `<scratch>/sanity-<task>-vars.json`.
-34. Each checker defect: append the selection entry to the matching workflow class bead (or report to the task assigner); cite it in notes.
-35. PASS: `bd close <task> --reason "PASS at <sha>"`; `atm task close completed --template dev-sanity-complete.md.j2`.
-36. FAIL: `sanity-create-findings --reviewer sc-sanity-selected`; never edit the parent; then `bd reopen <checked bead> --reason "sanity FAIL at <sha>: <n> findings"`; `bd update <task> --status open --assignee "" --append-notes "FAIL at <sha>: <n> findings"`; task `completed`, same template.
-37. Finding handoff failure is cannot-run, not FAIL.
-38. Cannot run (unsplittable plan, missing worktree, unpushed commit, timeout, rejected twice): workflow class bead or task-assigner report as in 17; bead open, no assignee, note; task `refused` with `task-refused.md.j2`.
-39. Second FAIL on the same checked bead: report `SANITY.ROUND_CAP` with undone deliverable numbers to the task assigner; no third round without a ruling.
-40. Keep LLM, JEV, selection and rerun evidence in completion notes.
-41. After the selected task closes, render the last ten runs: `set -o pipefail; test -s "$log" && tail -n 20 "$log" | jq -s '{runs: .}' | sc-compose render --strict --file sanity-run-table.md.j2 --var-file /dev/stdin`, `$log` being the path `sanity-run-history` printed.
-42. Put the whole table (`S | PR | R | Find | Result | Match | Done | Iter`; `Match` = reviewer verdict equals final verdict; rows of other reviewers are skipped) in the user-visible reply before reading ATM again; never rewrite the ledger.
-43. Ledger or render failure: report `SANITY.STATUS_TABLE_UNAVAILABLE`; never change a verdict.
-44. Read ATM again.
+11. Start every open sanity task at once (claim all, `atm task start` the active one); close each when its verdict arrives.
+12. Not ready (`bd ready -n 0` omits it): do not claim or start; find the root cause; close the task `refused` (`bead_state` open), `reason_md` = bead, why, who must move and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); a blocker met mid-task: return the bead open, unassigned, blocker in notes, close the task `refused` the same way; never wait.
+13. Pre-claim refusals, in order: no `pr_number`/`pr_url` → `SANITY.PR_REQUIRED`; PR base not the assigned `base`, head not `commit`, not in an open GitHub stack with its base the layer below (or, in no stack, layer 0 awaiting layer 1 on `pr_target`), or base not the checked bead's `pr_target` (a poured dev bead's from its sprint container; none skips this) or a descendant → `SANITY.NOT_STACKED`; empty `origin/<base>..<commit>` → `SANITY.ZERO_DELTA`; `origin/<base>` not an ancestor of `<commit>` → `SANITY.NOT_REBASED`; tracked changes → `SANITY.DIRTY_TREE`; the bead was once closed `PASS at ` → `SANITY_FROZEN`. A command that fails to run (not a mismatch) → `GATE_CANNOT_RUN`, announced as a serious failure.
+14. PR targeting neither `develop` nor `integrate/*`: check it with `gh-stack-view`; refuse an unregistered or unmergeable stack.
+15. Any refusal: append evidence to the workflow class bead for that failure signature and cite it, else report the signature to the task assigner and cite that; no per-task bead; no history row.
+16. Claim and `atm task start`; iteration = completed events of the task + 1.
+17. Run `sanity-split` exactly once (after a dev-fix, over the sprint's own layer PRs, the checked PR last); its run id, sha and reviewers apply to the whole run.
+18. Split failure: refuse with its actual code before dispatch; `SANITY.PLAN_INVALID`: tell the task assigner planning failed for that bead.
+19. Dispatch every deliverable's assignment unchanged as fenced JSON to one `sc-sanity-llm` and one `sc-sanity-jev` child, both families before waiting; record each family's start and completion times.
+20. Keep each reply unchanged in its own reviewer's array; never mix arrays.
+21. Stop a child silent 30 minutes and keep its failure envelope; a failed child is yours: fix its assignment or context and rerun it; the rerun reply replaces the failed envelope before its merge; the replaced envelope goes in notes.
+22. Rerun fails, dispatch fails or the Jev probe has not passed: a coordinator failure envelope in that slot (in probe-failed mode the probe's own code and message verbatim); say that reviewer could not run; never substitute one reviewer for the other in that slot; one failed reviewer is not a blocker or CANNOT_RUN.
+23. Merge each family as it finishes; append no history yet.
+24. Triage per deliverable: select `llm`, `jev` or `rerun`, with a reason for every disagreement or rerun; one reviewer failed: select the other's valid reply with the failure as reason; neither valid: CANNOT_RUN. A rerun goes to one child with the missing context added.
+25. Checker defect: only on a selected undone reply, with a reason; creates no child; append it to the matching workflow class bead (or report to the task assigner) and cite it in notes.
+26. Selected merge: exit 4 (lint running) retry with the same times, never rerun lint; exit 0: PASS/FAIL; exit 1/3 with a report: CANNOT_RUN, keep error and raw results; no report: coordinator error, never PASS.
+27. After the selected merge, append exactly two history rows, `sanity-llm` then `sanity-jev`, with the selected verdict as final; selection or selected merge cannot run: `CANNOT_RUN`, still append both; a reviewer merge with no report has no row: report it to the task assigner.
+28. PASS: `bd close <task> --reason "PASS at <sha>"`; task `completed` with `dev-sanity-complete.md.j2`.
+29. FAIL: `sanity-create-findings` (selected results only); never edit the parent; then reopen the checked bead; return the sanity bead open, unassigned, `FAIL at <sha>: <n> findings` in notes; task `completed`, same template.
+30. Finding handoff failure is cannot-run, not FAIL.
+31. Cannot run (unsplittable plan, missing worktree, unpushed commit, timeout, rejected twice): class bead or report as in 15; bead open, no assignee, note; task `refused`.
+32. Second FAIL on the same checked bead: report `SANITY.ROUND_CAP` with undone deliverable numbers to the task assigner; no third round without a ruling.
+33. Keep LLM, JEV, selection and rerun evidence in completion notes.
+34. After the task closes, put the last ten runs' table (`sanity-run-table.md.j2`) in the user-visible reply before reading ATM again; never rewrite the ledger; ledger or render failure: report `SANITY.STATUS_TABLE_UNAVAILABLE`, never change a verdict. Then read ATM.
 
 ### Subagents (sc-sanity-llm, sc-sanity-jev)
-45. Judge only `deliverable.text` from deliverable text, owned paths, changed files, `context` paths and pinned commit; never request more.
-46. Missing input field: `VALIDATION.INPUT`.
-47. Read only with `git diff <base_sha>...<commit>` and `git show <commit>:<path>`; never the working tree; unreadable: `SANITY.TARGET_UNREADABLE`.
-48. Existing code may satisfy a deliverable; PR, QA, linking, merging are not judged.
-49. Not done: exactly one `skipped` finding at a real relative file and line; missing file: line 1 of the nearest file that should reference it.
-50. JEV: ask Jev for every deliverable through `python3 scripts/jev_client.py --request <file>` (one Choice question `written`, `yes`/`no`, at most 24000 bytes); `no` is exactly one `skipped` finding, `yes` none; return `data.jev` = the client's `data.receipt` verbatim (model, question, choice, probabilities, response id, request hash, and a MAC keyed with `TYPESAFE_API_KEY`, so it cannot be written without the call); Jev unavailable, timed out or invalid: failure envelope with the client's `SANITY.JEV_*`/`VALIDATION.INPUT` error verbatim, message included, and `deliverable`, never an unaided result labelled Jev.
-51. Return fenced JSON `{success, data:{sanity_bead, dev_bead, deliverable, commit_checked=commit, findings[, jev]}, error}`; failure: `data:null`, `error:{code, message, recoverable, suggested_action, deliverable}`.
-52. Never edit, commit, push, build, test, lint or run `bd`/`atm`; empty findings is success.
+35. Judge only `deliverable.text` from deliverable text, owned paths, changed files, `context` paths and pinned commit; never request more.
+36. Missing input field: `VALIDATION.INPUT`.
+37. Read only the pinned diff and files at `<commit>`, never the working tree; unreadable: `SANITY.TARGET_UNREADABLE`.
+38. Existing code may satisfy a deliverable; PR, QA, linking, merging are not judged.
+39. Not done: exactly one `skipped` finding at a real relative file and line; missing file: line 1 of the nearest file that should reference it.
+40. JEV: ask Jev for every deliverable through `jev_client.py --request` (one Choice question `written`, `yes`/`no`); `no` is exactly one `skipped` finding, `yes` none; return the client's receipt verbatim (it cannot be written without the call); Jev unavailable, timed out or invalid: failure envelope with the client's error verbatim, never an unaided result labelled Jev.
+41. Return fenced JSON `{success, data, error}`; failure: `data:null`, `error:{code, message, recoverable, suggested_action, deliverable}`.
+42. Never edit, commit, push, build, test, lint or run `bd`/`atm`; empty findings is success.
 
 ### Scripts
-53. `assignment-gates.py sanity` (git runs in `--worktree`; with `--base`, a PR base other than it is NOT_STACKED): READY, PR_REQUIRED, NOT_STACKED, ZERO_DELTA, NOT_REBASED, DIRTY_TREE (ignores `.beads.gate.lock`, `.sc-compose/`), SANITY_FROZEN or GATE_CANNOT_RUN.
-54. `sanity-split`: one top-level `1.`..`N.` list under `## Deliverables` (else exit 2 `PLAN_INVALID`); exit 3 `TARGET_UNREADABLE`; exit 4 `COMMIT_MISMATCH` (HEAD, branch, any `git status` output, origin not at sha); exit 5 `RENDER_FAILED`; one assignment per deliverable with `context: []`; reviewers `[sanity-llm, sanity-jev, sanity-selected]`, operational `sanity-selected`; lint once, detached, 1800 s timeout.
-55. `sanity-merge`: replies are envelopes or fenced JSON strings; one valid result per deliverable at the pinned sha, at most one `skipped` each; worktree still at sha, branch, clean; exit 4 while lint runs; lint timeout/cancelled/error is `SANITY.LINT_UNAVAILABLE`; lint diagnostics fold in as `lint` findings; PASS only with no findings and lint exit 0; `--completed-at` finite, >= start, <= now+5 s. `--reviewer sanity-jev` replaces a success without a valid receipt (verified by `--client`, default `<repo>/scripts/jev_client.py`, with `TYPESAFE_API_KEY`), whose choice contradicts its findings or that reuses another deliverable's receipt, and a `SANITY.JEV_*` failure whose message is not the client's own text, with a `SANITY.RESULT_INVALID` failure for that deliverable, keeping the replaced reply in `rejected_results`; the selected merge rejects such a reply.
-56. `sanity-merge` selected mode: verifies reply hashes, statuses, reasons, rerun context files at sha; accepts a reviewer's CANNOT_RUN vars; rejects a failure envelope selected over a valid reply, and a failed rerun reply while either original reply is valid; a selected failure envelope is cannot-run; checker-defect deliverables count done; findings carry their selected reviewer.
-57. `sanity-run-history` (`sanity-run-record` 4.0.0): reviewer only `sanity-llm` or `sanity-jev`; `jev_receipts` holds every `sanity-jev` success reply's receipt verbatim, required on a `sanity-jev` PASS/FAIL row, empty on `sanity-llm`; CANNOT_RUN needs null findings and an error, never PASS/FAIL; `errors` lists each failed slot's `code, message, recoverable, deliverable` verbatim (empty when none; `deliverable` null when the envelope lacks it; an envelope without a well-typed code, message and recoverable is not listed, so it never blocks the row); strict render of `sanity-run-record.json.j2`, typed validation, UTC timestamps; locked compact append to `<primary checkout>/.sc/sanity-log/phase-<phase>.jsonl` (phase from the checked bead's `metadata.phase`, else the sprint); prints the ledger path; identical retry (ignoring `completed_local`, and a field the earlier row predates) no-op, differing run/reviewer duplicate fails; commit, task, sprint, PR, iteration and `--final-verdict` equal across a run.
-58. `sanity-create-findings`: FAIL vars only; run reports only with `sanity-selected` provenance; one open `bug` child per `skipped` finding (none for lint) with provenance and `sanity_finding`, labels `phase-<p>`, `stage:finding`, `stack:<s>`; blocking priority `clamp(parent-1, P1, P4)`; `blocks` only between its own children; idempotent per task/commit/finding_ref; writes `finding_bead_ids` to the vars; failure: `SANITY.FINDING_HANDOFF_FAILED`.
-59. `jev_client.py --startup` exits 2 on failure; with `--announce` (which requires `--lead`) the failure goes to each ATM escalation recipient (team, else daemon), else to `--lead` saying no escalation recipient is set; missing `TYPESAFE_API_KEY` is `SANITY.JEV_UNAVAILABLE`.
+43. `assignment-gates.py sanity`: READY, PR_REQUIRED, NOT_STACKED, ZERO_DELTA, NOT_REBASED, DIRTY_TREE (ignores `.beads.gate.lock`, `.sc-compose/`, untracked files), SANITY_FROZEN or GATE_CANNOT_RUN.
+44. `sanity-split`: exit 2 `PLAN_INVALID` (no top-level numbered `## Deliverables`), 3 `TARGET_UNREADABLE`, 4 `COMMIT_MISMATCH` (HEAD, branch or origin not at sha, any `git status --porcelain` line other than the ignored paths, or the last layer PR's head not the sha), 5 `RENDER_FAILED`; one assignment per deliverable; lint once, detached, 1800 s timeout.
+45. `sanity-merge`: one valid result per deliverable at the pinned sha, at most one `skipped` each; PASS only with no findings and lint exit 0; lint diagnostics fold in as findings; lint timeout/cancelled/error is `SANITY.LINT_UNAVAILABLE`. `--reviewer sanity-jev` turns a reply without a valid receipt, whose choice contradicts its findings, that reuses another deliverable's receipt, or a `SANITY.JEV_*` failure not in the client's own text, into `SANITY.RESULT_INVALID` for that deliverable; the selected merge rejects such a reply, a failure envelope selected over a valid reply, and a failed rerun while either original reply is valid.
+46. `sanity-run-history`: rows only for `sanity-llm` or `sanity-jev`; a `sanity-jev` PASS/FAIL row carries every receipt; CANNOT_RUN has null findings and an error; locked append to the phase sanity ledger; an identical retry is a no-op, a differing duplicate fails.
+47. `sanity-create-findings`: one open child finding per selected `skipped` finding (none for lint) at `clamp(parent-1, P1, P4)`, `blocks` only between its own children; idempotent; failure: `SANITY.FINDING_HANDOFF_FAILED`.
+48. `jev_client.py --startup` exits 2 on failure; `--announce` (with `--startup` or `--error "<code>: <message>"`, and `--lead`) sends the failure to each ATM escalation recipient, else to `--lead` saying no escalation recipient is set; missing `TYPESAFE_API_KEY` is `SANITY.JEV_UNAVAILABLE`.
 
 ## Unresolved
 

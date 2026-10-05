@@ -164,6 +164,9 @@ artifacts:
     - skills/atm-beads/tests/test_plan_root.py
     - skills/atm-beads/tests/test_repo_config.py
     - skills/atm-beads/tests/test_validate_plan.py
+    - skills/prompt-rewrite-judge/SKILL.md
+    - skills/prompt-rewrite-judge/scripts/judge.py
+    - skills/prompt-rewrite-judge/scripts/tests/test_judge.py
     - skills/qa-report/SKILL.md
     - skills/sprint-report/SKILL.md
     - skills/sprint-report/dag-view.html
