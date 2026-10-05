@@ -65,4 +65,3 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 ## Unresolved
 
 1. Clean tree: all three ignore `.beads.gate.lock`/`.sc-compose/`; `assignment-gates.py` also ignores untracked files, while `sanity-split` and `sanity-merge` fail `COMMIT_MISMATCH` on any other `git status --porcelain` output.
-2. Probe-failed JEV slot: `agents/dev-sanity.md` Startup says a `SANITY.JEV_UNAVAILABLE` envelope; its step 3 says the probe's own code and message verbatim.

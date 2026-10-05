@@ -70,4 +70,3 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 1. QA refusal codes: `qa-template.xml.j2` step a refuses every mismatch as `SANITY_STALE`; `assignment-gates.py qa` returns `PR_REQUIRED`/`PR_TARGET_MISMATCH`/`QA_HEAD_MISMATCH`, and no template invokes the `qa` subcommand.
 2. Phase-end reviewer: `roles/quality-mgr.md`/`SKILL.md` say quality-mgr owns it; `SKILL.md` assigns `<reviewer>` and `review-template.xml.j2` is a single read-only reviewer with no reviewer set.
 3. `qa-template.xml.j2` and `plan-review-template.xml.j2` pass `qa_round` to every reviewer; only `ruthless-boundary-qa-assignment.json.j2` declares it (`plan-scope-reviewer` takes `round_index`).
-4. `plan-scope-reviewer-assignment.json.j2` says `plan_docs` pipes every dev bead; `plan-review-template.xml.j2` pipes every sprint container.
