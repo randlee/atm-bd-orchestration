@@ -84,7 +84,16 @@ check.
 
 ## Pre-claim refusals
 
-Before claim, perform these numbered checks at the pinned commit. Each
+Before claim, check that `bd ready -n 0 --json` lists the sanity bead. When it
+does not, do not claim it and do not start the task: find the root cause (its
+open blockers, normally the checked bead still open) and refuse; never wait:
+close the task `refused` with `task-refused.md.j2`, `bead_state` `open`, naming
+the bead, why it is not ready, which bead or agent has to move, and for a
+blocker that is not yet its dependency the edge to add,
+`bd dep add <bead> --blocked-by <blocker>`. The task assigner re-assigns it once
+`bd ready` lists the bead.
+
+Then perform these numbered checks at the pinned commit. Each
 failure is a refusal, not a best-effort check:
 
 1. `test -n "$PR_NUMBER" && test -n "$PR_URL"`; otherwise refuse
@@ -292,6 +301,7 @@ explicit.
 | PASS | `bd close` with reason `PASS at <commit>` | `completed`, `dev-sanity-complete.md.j2` |
 | FAIL | stays open: `bd update --status open --append-notes`; the checked bead is reopened (`bd reopen`) | `completed`, `dev-sanity-complete.md.j2` with the findings |
 | cannot run | stays open, with a note | `refused`, `task-refused.md.j2` |
+| blocked mid-task (a prerequisite open or reopened, a fix not landed) | `bd update --status open --assignee "" --append-notes "BLOCKED: <blocker>: <why>"` | `refused`, `task-refused.md.j2` naming the blocker and the edge `bd dep add <bead> --blocked-by <blocker>`; never stay active waiting |
 
 A FAIL never closes the bead. Closing it would release the dev beads that
 depend on the checked sprint. Only the selected FAIL creates child findings,
