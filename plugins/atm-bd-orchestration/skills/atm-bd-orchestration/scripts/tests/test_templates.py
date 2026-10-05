@@ -50,7 +50,9 @@ class TemplateContractTests(unittest.TestCase):
 
     def test_sanity_template_base_mismatch_code_matches_the_coordinator(self):
         text = (ROOT / "templates/dev-sanity-template.xml.j2").read_text()
-        self.assertIn("(else `SANITY.STALE_BASE`)", text)  # agents/dev-sanity.md and assignment-gates.py sanity
+        self.assertIn("require, else `SANITY.NOT_STACKED`:", text)  # agents/dev-sanity.md and assignment-gates.py sanity
+        self.assertNotIn("STALE_BASE", text)
+        self.assertIn("git merge-base --is-ancestor origin/<pr_target> origin/{{ base | string | cdata_escape }}", text)
         self.assertNotIn("PR_TARGET_MISMATCH", text)
         self.assertLess(text.index("bd ready -n 0 --json"), text.index("Otherwise claim"))
         self.assertLess(text.index("git fetch origin"), text.index("origin/{{"))  # the tracking ref is fresh before any origin/ check
@@ -365,6 +367,42 @@ class DevAssignmentTests(unittest.TestCase):
         self.assertNotIn("Commit:", result.stdout)
         self.assertNotEqual(_render("fix-complete.md.j2", {**base, "outcome": "fixed"}).returncode, 0)
         self.assertEqual(_render("fix-complete.md.j2", _example("fix-complete-vars.json")).returncode, 0)
+        for missing in ("pr_number", "pr_url", "stack_view"):
+            with self.subTest(missing=missing):
+                values = {k: v for k, v in _example("fix-complete-vars.json").items() if k != missing}
+                self.assertNotEqual(_render("fix-complete.md.j2", values).returncode, 0)
+
+    def test_every_dev_lands_its_pr_on_the_current_stack_top(self):
+        for name in ("dev-template.xml.j2", "dev-fix.xml.j2", "fix-assignment.xml.j2"):
+            result = _render(name, _example(name.removesuffix(".j2").rsplit(".", 1)[0] + "-vars.json"))
+            with self.subTest(template=name):
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("Rebase onto the stack's current top (it may have moved since dispatch)", result.stdout)
+                self.assertIn("`/sc-gh-stack-view --json`", result.stdout)
+                self.assertIn("`git rebase origin/<top>`", result.stdout)
+                self.assertIn("`gh pr create --base <top> --head ", result.stdout)
+                self.assertIn("(never `--draft`)", result.stdout)
+                self.assertNotIn("rebases only onto", result.stdout)
+                self.assertNotIn("Rebase only onto", result.stdout)
+                self.assertIn("`pr_target` is a lower bound", result.stdout)
+                self.assertNotIn("`metadata.pr_target` equals", result.stdout)
+
+    def test_completion_renders_a_stack_issue_unless_coherent_and_landable(self):
+        for name in ("dev-complete.md.j2", "fix-complete.md.j2"):
+            values = _example(name.removesuffix(".md.j2") + "-vars.json")
+            good = _render(name, values)
+            with self.subTest(template=name):
+                self.assertEqual(good.returncode, 0, good.stderr)
+                self.assertNotIn("## Stack issue", good.stdout)
+                self.assertIn(values["stack_view"], good.stdout)
+                self.assertIn(f"Verify PR #{values['pr_number']} exists and link it on top of the phase stack", good.stdout)
+                self.assertIn("do not message or re-dispatch the dev for stacking", good.stdout)
+                for bad in (values["stack_view"].replace("VERDICT: ✅ COHERENT", "VERDICT: ❌ NOT COHERENT"),
+                            values["stack_view"].replace("LANDING: ✅", "LANDING: ❌"),
+                            values["stack_view"].replace("LANDING: ✅", "LANDING: ❓")):
+                    issue = _render(name, {**values, "stack_view": bad})
+                    self.assertEqual(issue.returncode, 0, issue.stderr)
+                    self.assertLess(issue.stdout.index("## Stack issue"), issue.stdout.index("## Next (task assigner)"))
 
 
 class PlanFixRoundTests(unittest.TestCase):
