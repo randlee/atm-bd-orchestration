@@ -378,9 +378,9 @@ class DevAssignmentTests(unittest.TestCase):
             with self.subTest(template=name):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("Rebase onto the stack's current top (it may have moved since dispatch)", result.stdout)
-                self.assertIn("find the top in GitHub's stacks: `gh api 'repos/{owner}/{repo}/stacks' --paginate --jq '.[] | select(.open and any(.pull_requests[]; .head.ref == ", result.stdout)
-                self.assertIn("| [.pull_requests[] | select(.state == \"open\")] | last | .head.ref // empty'`", result.stdout)
-                self.assertIn("no output means the top is `", result.stdout)
+                self.assertRegex(result.stdout, r"the top is what `\S+/\.claude/skills/atm-bd-orchestration/scripts/assignment-gates\.py stack-top --pr-target \S+` prints on exit 0")
+                self.assertIn("any other exit prints a code (`STACK_AMBIGUOUS`, `GATE_CANNOT_RUN`): never guess, refuse with it by step ", result.stdout)
+                self.assertNotIn("no output means the top is", result.stdout)
                 self.assertNotIn("gh_stack_view.py", result.stdout)
                 self.assertIn("run `/sc-gh-stack-view` (read-only) and keep its output verbatim", result.stdout)
                 self.assertIn("`git rebase origin/<top>`", result.stdout)

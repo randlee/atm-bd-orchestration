@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only, injectable pre-claim gates for dev, sanity, and QA work."""
+"""Read-only, injectable pre-claim gates for dev, sanity, and QA work, and the read-only stack-top lookup."""
 from __future__ import annotations
 
 import argparse
@@ -96,20 +96,41 @@ def descends(runner: Runner, lower: str, base: str, git: list[str] | None = None
 STACKS = ("gh", "api", "repos/{owner}/{repo}/stacks", "--paginate", "--jq", ".[]")
 
 
-def stacked_base(runner: Runner, pr_number: str) -> str | None:
-    """The head branch of the open PR below PR `pr_number` in its open GitHub stack (the stack's base for its first
-    open PR), read from GitHub's stacks API, never from local gh-stack tracking; None when the PR is in no open stack."""
+def open_stacks(runner: Runner) -> list[dict[str, Any]]:
+    """Every open stack from GitHub's stacks API, PRs bottom first; never local gh-stack tracking."""
     result = runner(list(STACKS), capture_output=True, text=True, cwd=str(PRIMARY))
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or "gh api stacks failed")
-    for stack in (json.loads(line) for line in result.stdout.splitlines() if line.strip()):
-        if not stack.get("open"):
-            continue
+    return [stack for stack in (json.loads(line) for line in result.stdout.splitlines() if line.strip()) if stack.get("open")]
+
+
+def is_open(pr: dict[str, Any]) -> bool:
+    return pr.get("state") == "open" and not pr.get("merged_at")
+
+
+def stack_top(runner: Runner, target: str) -> str | None:
+    """The branch a new PR based on `target` lands on: the head of the last open PR of the one open stack whose base is
+    `target` or that has a PR from `target` (its base when none is open); `target` when no stack matches; None when
+    several stacks match (ambiguous: never guess)."""
+    matches = [stack for stack in open_stacks(runner)
+               if stack["base"]["ref"] == target or any(pr["head"]["ref"] == target for pr in stack["pull_requests"])]
+    if len(matches) > 1:
+        return None
+    if not matches:
+        return target
+    heads = [pr["head"]["ref"] for pr in matches[0]["pull_requests"] if is_open(pr)]
+    return heads[-1] if heads else matches[0]["base"]["ref"]
+
+
+def stacked_base(runner: Runner, pr_number: str) -> str | None:
+    """The head branch of the open PR below PR `pr_number` in its open GitHub stack (the stack's base for its first
+    open PR), read from GitHub's stacks API, never from local gh-stack tracking; None when the PR is in no open stack."""
+    for stack in open_stacks(runner):
         base = stack["base"]["ref"]
         for pr in stack["pull_requests"]:
             if str(pr["number"]) == str(pr_number):
                 return base
-            if pr.get("state") == "open" and not pr.get("merged_at"):
+            if is_open(pr):
                 base = pr["head"]["ref"]
     return None
 
@@ -200,9 +221,9 @@ def evaluate(args: argparse.Namespace, runner: Runner = subprocess.run) -> str:
 
 def main(argv: list[str] | None = None, runner: Runner = subprocess.run) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=("dev", "sanity", "qa"))
-    parser.add_argument("--root", required=True)
-    parser.add_argument("--bead", required=True)
+    parser.add_argument("kind", choices=("dev", "sanity", "qa", "stack-top"))
+    parser.add_argument("--root", default="")
+    parser.add_argument("--bead", default="")
     parser.add_argument("--pr-target", required=True)
     parser.add_argument("--identity", default="")
     parser.add_argument("--pr-number", default="")
@@ -210,6 +231,16 @@ def main(argv: list[str] | None = None, runner: Runner = subprocess.run) -> int:
     parser.add_argument("--checked-bead", default="")
     parser.add_argument("--worktree", default="")
     args = parser.parse_args(argv)
+    if args.kind == "stack-top":
+        try:
+            top = stack_top(runner, args.pr_target)
+        except (RuntimeError, OSError, TypeError, ValueError, KeyError):
+            print("GATE_CANNOT_RUN")
+            return 2
+        print(top or "STACK_AMBIGUOUS")
+        return 0 if top else 5
+    if not (args.root and args.bead):
+        parser.error(f"{args.kind} needs --root and --bead")
     code = evaluate(args, runner)
     print(code)
     return 0 if code == "READY" else (2 if code == "GATE_CANNOT_RUN" else 5)

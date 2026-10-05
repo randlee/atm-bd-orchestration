@@ -18,7 +18,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 10. Commit as items land and push early (`git push -u origin <branch>` first); a push or `atm send` closes nothing.
 11. Never weaken a test, skip a criterion, or leave a placeholder.
 12. Run `<test_command>` (and the bead's validation commands) to zero failures.
-13. Rebase onto the stack's current top (`gh api repos/{owner}/{repo}/stacks`: the `head.ref` of the last open PR of the open stack containing `<pr_target>`; no such stack: `<pr_target>`), re-run `<test_command>`, `git push --force-with-lease origin <branch>`, then `gh pr create --base <top> --head <branch> --fill` (never `--draft`) and run `/sc-gh-stack-view`.
+13. Rebase onto the stack's current top (`assignment-gates.py stack-top --pr-target <pr_target>` prints it on exit 0; any other exit is a code to refuse with, never a guess), re-run `<test_command>`, `git push --force-with-lease origin <branch>`, then `gh pr create --base <top> --head <branch> --fill` (never `--draft`) and run `/sc-gh-stack-view`.
 14. Close bead and task together with the close template; vars from its `required_variables`, `task_id`/`sprint` unchanged, `commit` = pushed head, `rebased_onto` = the top, `pr_number`/`pr_url` = the PR, `stack_view` = the verbatim `/sc-gh-stack-view` output; vars file outside the repo.
 15. The task close is the report; it returns to the task assigner. No copies.
 16. After the close, read ATM; only then does the next task start.
@@ -56,7 +56,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 
 ### Scripts
 
-36. `assignment-gates.py dev` prints one code; exit 0 `READY`, 2 `GATE_CANNOT_RUN`, 5 otherwise.
+36. `assignment-gates.py dev` prints one code; exit 0 `READY`, 2 `GATE_CANNOT_RUN`, 5 otherwise. `stack-top --pr-target <b>` prints the head of the last open PR of the one open GitHub stack based on or containing `<b>` (`<b>` when none) with exit 0, else `STACK_AMBIGUOUS` (several stacks, 5) or `GATE_CANNOT_RUN` (2).
 37. Checks in order: `validate-plan` (`PLAN_INVALID`), in `bd ready` (`NOT_READY`), open and unassigned or self (`UNCLAIMABLE`), `pr_target`, the sprint container's for a poured dev bead, is `--pr-target` or its ancestor (`PR_TARGET_MISMATCH`), roster model fits `difficulty` (`DIFFICULTY_MISMATCH`), `origin/<pr_target>` ancestor of HEAD (`WRONG_BASE`).
 38. Difficulty models (substring): hard fable/opus/astra; normal terra/opus/sonnet; fast luna.
 39. `task-refused.md.j2`: `bead_state` `open` or `blocked-failed`.

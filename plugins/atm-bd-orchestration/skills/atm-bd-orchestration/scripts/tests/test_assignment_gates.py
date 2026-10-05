@@ -194,6 +194,34 @@ class AssignmentGateTests(unittest.TestCase):
         self.assertEqual(gates.evaluate(ns("sanity", pr_target="planned"), sanity_runner({**listed, in_base: (1, "")})), "GATE_CANNOT_RUN")
         self.assertEqual(gates.evaluate(ns("sanity", pr_target="planned"), sanity_runner({**gone, merged: (0, "[]")})), "GATE_CANNOT_RUN")
 
+    def stack_top(self, responses, target="integrate"):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = gates.main(["stack-top", "--pr-target", target], FakeRunner(responses))
+        return output.getvalue().strip(), code
+
+    def test_stack_top_is_the_last_open_pr_of_the_one_matching_stack(self):
+        other = {"number": 9, "base": {"ref": "main"}, "open": True, "pull_requests": [pr(9, "elsewhere")]}
+        layers = (pr(5, "merged", "closed", "2026-10-01T00:00:00Z"), pr(6, "target"), pr(7, "branch"), pr(8, "dropped", "closed"))
+        cases = [
+            ("trunk match", stacks(*layers, others=[other]), "integrate", ("branch", 0)),
+            ("head match", stacks(*layers, others=[other]), "target", ("branch", 0)),
+            ("merged head match", stacks(*layers), "merged", ("branch", 0)),
+            ("no open PR left", stacks(pr(5, "merged", "closed", "2026-10-01T00:00:00Z")), "merged", ("integrate", 0)),
+            ("closed stack ignored", stacks(*layers, is_open=False), "integrate", ("integrate", 0)),
+            ("empty", {STACKS: (0, "")}, "integrate", ("integrate", 0)),
+            ("several stacks on one trunk", stacks(*layers, others=[{**other, "base": {"ref": "integrate"}}]), "integrate", ("STACK_AMBIGUOUS", 5)),
+            ("API failure", {STACKS: (1, "", "gh: Not Found (HTTP 404)")}, "integrate", ("GATE_CANNOT_RUN", 2)),
+            ("not json", {STACKS: (0, "<html>")}, "integrate", ("GATE_CANNOT_RUN", 2)),
+        ]
+        for name, responses, target, expected in cases:
+            with self.subTest(name):
+                self.assertEqual(self.stack_top(responses, target), expected)
+
+    def test_gate_kinds_still_require_root_and_bead(self):
+        with self.assertRaises(SystemExit):
+            gates.main(["dev", "--pr-target", "target"], dev_runner())
+
     def test_qa_refusals_and_ready(self):
         cases = [
             ("stale-sanity.json", qa_runner({("gh", "pr", "view", "7", "--json", "baseRefName,headRefOid"): (0, dumped({"baseRefName": "target", "headRefOid": "0ld0ld0aaa"}))})),
