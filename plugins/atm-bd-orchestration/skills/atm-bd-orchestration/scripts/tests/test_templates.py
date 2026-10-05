@@ -354,6 +354,57 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
                 self.assertIn("Report a disposition (fixed | open | regressed) for each id", data["notes"])
 
 
+class BlockedRefusalTests(unittest.TestCase):
+    """A task whose bead is not ready, or that meets a blocker mid-task, is refused with the bead left open; never held."""
+
+    NOT_READY_STEP = {"dev-template.xml.j2": "a1", "dev-fix.xml.j2": "a1", "fix-assignment.xml.j2": "a1",
+                      "dev-sanity-template.xml.j2": "a1", "qa-template.xml.j2": "a2",
+                      "review-template.xml.j2": "a", "plan-review-template.xml.j2": "a"}
+
+    def _rendered(self, name: str) -> str:
+        result = _render(name, _example(name.removesuffix(".j2").rsplit(".", 1)[0] + "-vars.json"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
+    @staticmethod
+    def _step(text: str, step: str) -> str:
+        start = text.index(f'<step id="{step}">')
+        return text[start:text.index("</step>", start)]
+
+    def test_the_not_ready_step_refuses_and_leaves_the_bead_open(self):
+        for name, step in self.NOT_READY_STEP.items():
+            with self.subTest(template=name):
+                text = self._rendered(name)
+                body = self._step(text, step)
+                self.assertIn("do not claim", body)
+                self.assertIn("`bead_state` `open`", body)
+                self.assertIn("--blocked-by <blocker>", body)
+                self.assertIn("never wait", body)
+                self.assertTrue("refused --template .claude/skills/atm-bd-orchestration/templates/task-refused.md.j2" in body
+                                or "refuse as in step" in body)
+                self.assertNotIn("and wait", text)
+
+    def test_the_ready_check_comes_before_any_claim(self):
+        for name in ("qa-template.xml.j2", "dev-sanity-template.xml.j2"):
+            with self.subTest(template=name):
+                step_a = self._step(self._rendered(name), "a")
+                self.assertTrue(step_a.startswith('<step id="a"><![CDATA[Before'))
+                self.assertLess(step_a.index("bd ready -n 0 --json"), step_a.index("gh pr view"))
+
+    def test_a_mid_task_blocker_returns_the_bead_open_and_refuses(self):
+        for name in self.NOT_READY_STEP:
+            with self.subTest(template=name):
+                text = self._rendered(name)
+                self.assertIn('--status open --assignee "" --append-notes "BLOCKED: <blocker>: <why>"', text)
+                self.assertIn("never stay active waiting", text)
+
+    def test_a_shared_change_the_dev_can_make_is_a_quick_fix_not_a_blocker(self):
+        for name, step in (("dev-template.xml.j2", "d1"), ("dev-fix.xml.j2", "b1"), ("fix-assignment.xml.j2", "d1")):
+            with self.subTest(template=name):
+                text = self._rendered(name)
+                self.assertIn("Parallel Quick Fix", self._step(text, step))
+                self.assertIn(f"A shared change you can make yourself is not a blocker: it is a Parallel Quick Fix (step {step}) and the task continues.", text)
+
 class DevAssignmentTests(unittest.TestCase):
     """Dev, dev-fix and fix assignments: the a1 trigger, actor-stamped bd writes, and the not_reproducible close."""
 
