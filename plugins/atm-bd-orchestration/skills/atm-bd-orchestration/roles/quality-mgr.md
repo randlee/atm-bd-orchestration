@@ -185,7 +185,8 @@ depends on the verdict:
   checked sprint/finding; never select a default. The dispatch report prints
   `UNCLASSIFIED` and no agent for a live bead missing it.
 - A blocking finding never adds a dependency to another planned sprint. The
-  plan file is the sole source of those edges; file and
+  plan file is the minimum set of those edges, and only the lead adds one
+  (including one discovered in motion; recommend it); file and
   dispatch the finding's own remediation through its normal finding/fix flow.
 - Findings are `parallel_safe` by default. Set `blocked_by` only to another finding
   of this round, when its fix needs that one's fix first.
