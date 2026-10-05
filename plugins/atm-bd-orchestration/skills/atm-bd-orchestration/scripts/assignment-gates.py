@@ -127,16 +127,22 @@ def run_in(runner: Runner, cwd: str, *args: str) -> str:
 
 def stack_top(runner: Runner, target: str) -> str | None:
     """The branch a new PR based on `target` lands on: the head of the last open PR of the one open stack whose base is
-    `target` or that has a PR from `target` (its base when none is open). When no stack matches, the one open unlinked
-    PR based on `target` (layer 0 awaiting layer 1: a stack forms from layers 0 and 1 together), else `target`. None
-    when several stacks or unlinked PRs match (ambiguous: never guess)."""
+    `target` or that has a PR from `target` (its base when none is open). When no stack matches, the top of the one
+    chain of open unlinked PRs based on `target` (layer 0 awaiting layer 1: a stack forms from layers 0 and 1
+    together, and layer 1 may open before the lead links them), else `target`. None when several stacks or unlinked
+    PRs match at any step (ambiguous: never guess)."""
     matches = [stack for stack in open_stacks(runner)
                if stack["base"]["ref"] == target or any(pr["head"]["ref"] == target for pr in stack["pull_requests"])]
     if len(matches) > 1:
         return None
     if not matches:
-        unlinked = open_pr_heads(runner, "--base", target)
-        return target if not unlinked else unlinked[0] if len(unlinked) == 1 else None
+        top, seen = target, {target}
+        while (unlinked := open_pr_heads(runner, "--base", top)):
+            if len(unlinked) > 1 or unlinked[0] in seen:
+                return None
+            top = unlinked[0]
+            seen.add(top)
+        return top
     heads = [pr["head"]["ref"] for pr in matches[0]["pull_requests"] if is_open(pr)]
     return heads[-1] if heads else matches[0]["base"]["ref"]
 
