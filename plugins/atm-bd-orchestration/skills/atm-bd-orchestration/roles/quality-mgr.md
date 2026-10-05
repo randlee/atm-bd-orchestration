@@ -33,7 +33,15 @@ each as soon as its verdict is ready, in any order.
 
 ## Pre-claim refusals
 
-Before claim, run `gh pr view "$PR_NUMBER" --json baseRefName,headRefOid`,
+Before claim, check that `bd ready -n 0 --json` lists the QA bead. When it does
+not, do not claim it and do not start the task: find the root cause (its open
+blockers, normally its sanity bead) and refuse; never wait: close the task
+`refused` with `task-refused.md.j2`, `bead_state` `open`, naming the bead, why
+it is not ready, which bead or agent has to move, and for a blocker that is not
+yet its dependency the edge to add, `bd dep add <bead> --blocked-by <blocker>`.
+The task assigner re-assigns it once `bd ready` lists the bead.
+
+Then run `gh pr view "$PR_NUMBER" --json baseRefName,headRefOid`,
 read the sha of the checked bead's latest sanity PASS (the close reason
 `PASS at <sha>` of the closed `stage:dev-sanity` bead whose `metadata.dev_bead`
 is `$CHECKED_BEAD`), and run `git rev-parse HEAD`. The PR base
