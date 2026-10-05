@@ -29,7 +29,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 16. Before the first dispatch, create the root's `integration_branch` from the base branch and push it.
 17. Run `bd ready -l phase-<x> -n 0 --json` after every close, before any other work, and dispatch every ready bead; never cache it; never dispatch the phase root. The lead implements nothing.
 18. Route: plan review and QA to quality-mgr; dev to the member you pick for its `difficulty`; sanity to `resolve-role dev-sanity`; finding to the member you pick; a sanity finding (`metadata.sanity_finding`) is never dispatched alone: its checked bead goes to that bead's assignee with `dev-fix.xml.j2`; review to the phase-end reviewer.
-19. Dev or finding bead: `git fetch origin && git worktree add -b <branch> <worktree> origin/<pr_target>`.
+19. Dev or finding bead: `git fetch origin && git worktree add -b <branch> <worktree> origin/<top>`, the current top of its stack (its `pr_target` or a descendant), passed as the assignment's `pr_target`.
 20. `bd update <bead> --assignee <agent>` before assigning.
 21. Build vars from the template's `required_variables`, `task_id` = bead id, rest from bead metadata; vars files outside the repo.
 22. Preview with `atm compose`; never render and paste a body.
@@ -38,16 +38,16 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 25. Dispatch the next sprint once its sanity blockers PASS; never wait on QA.
 
 #### On each close
-26. dev-complete: open the PR against `pr_target` and link it on the phase stack, then assign the sanity check.
-27. Sanity PASS: verify branch base = `pr_target`; dispatch the group's poured QA bead (`checked_bead`, `sprint_bead` from its metadata; for a fix bead also `carry_forward` = the fix bead, `round` = its `metadata.round` + 1). Important or minor finding: create its QA bead from `qa-bead.json.j2` with `checked_bead` and `carry_forward` = the finding.
+26. dev-complete: verify the dev's PR and link it on top of the phase stack (`/sc-gh-stack`), run `/sc-gh-stack-view` and fix any stack problem yourself; never message or re-dispatch the dev for stacking; then assign the sanity check.
+27. Sanity PASS: verify the PR base is `pr_target` or a descendant of it; dispatch the group's poured QA bead (`checked_bead`, `sprint_bead` from its metadata; for a fix bead also `carry_forward` = the fix bead, `round` = its `metadata.round` + 1). Important or minor finding: create its QA bead from `qa-bead.json.j2` with `checked_bead` and `carry_forward` = the finding.
 28. Sanity FAIL (first): verify children against the branch; close with reason any that judge correctness or quality; overrule, amend, split or reassign, never recreate; dev-sanity has reopened the checked bead; assign `dev-fix.xml.j2`.
 29. Sanity FAIL (second, `SANITY.ROUND_CAP`): diff flagged files vs last PASS, check the base for foreign commits, then rule; no third round without it.
 30. `SANITY.PLAN_INVALID`: planning failed for that bead.
 31. qa-complete: nothing to file or pour (quality-mgr poured the fix groups); reopen a ceremony closure you disagree with (`bd reopen`); pick the member for each finding.
 32. QA `ROUND_CAP` (FAIL at round 2): no further fix round.
-33. fix-complete `fixed`: open (or confirm) the PR against `pr_target` and link it on the phase stack; then a poured fix bead needs nothing more; for an important or minor finding bead create its sanity bead (`dev-sanity-bead.json.j2`, `dev_bead` and `parent` = the finding). `not_reproducible`: nothing.
+33. fix-complete `fixed`: verify the dev's PR and link it on top of the phase stack, fixing any stack problem yourself; then a poured fix bead needs nothing more; for an important or minor finding bead create its sanity bead (`dev-sanity-bead.json.j2`, `dev_bead` and `parent` = the finding). `not_reproducible`: nothing.
 34. review-complete: file each finding with `finding-bead.json.j2` (`qa_bead` = review bead; sprint, layer, requirements, adrs from the cited dev bead, root + union minus `NONE` when it spans sprints; `found_at_commit` = reviewed commit; `screen` = `keep` unless screened; `finding_ref` = `R-n`).
-35. task-refused: read reason and bead state; reassign, split or `bd close --force --reason`; `blocked` bead: `bd update --status open --assignee <new>` before re-dispatch.
+35. task-refused: read reason and bead state; reassign, split or `bd close --force --reason`; `blocked` bead: `bd update --status open --assignee <new>` before re-dispatch. A sanity refusal for no PR, not stacked or not rebased is the lead's as stack writer: open, link or rebase by a new layer as `sc-gh-stack` prescribes and re-dispatch the sanity check, without interrupting or messaging the dev.
 36. not-ready report: fix the named cause, tell the assignee to re-check; unwanted work: close the task `cancelled` with `task-refused.md.j2`.
 37. After every bead write, `validate-plan --root <root>`; any problem: stop dispatching, report to the user; never repair the graph (`bd dep`, `--parent`).
 38. DAG change: replan PR off the root's `integration_branch`, merged into it; in motion only fix-bead dependencies change.

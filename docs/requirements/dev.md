@@ -18,8 +18,8 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 10. Commit as items land and push early (`git push -u origin <branch>` first); a push or `atm send` closes nothing.
 11. Never weaken a test, skip a criterion, or leave a placeholder.
 12. Run `<test_command>` (and the bead's validation commands) to zero failures.
-13. Rebase onto `origin/<pr_target>`, re-run `<test_command>`, `git push --force-with-lease origin <branch>`.
-14. Close bead and task together with the close template; vars from its `required_variables`, `task_id`/`sprint` unchanged, `commit` = pushed head, `rebased_onto` = rebase target; vars file outside the repo.
+13. Rebase onto the stack's current top (`/sc-gh-stack-view --json`: the stack whose rows contain `<pr_target>`, its last open row's `branch`, or the trunk when none is open), re-run `<test_command>`, `git push --force-with-lease origin <branch>`, then `gh pr create --base <top> --head <branch>` (never `--draft`) and run `/sc-gh-stack-view`.
+14. Close bead and task together with the close template; vars from its `required_variables`, `task_id`/`sprint` unchanged, `commit` = pushed head, `rebased_onto` = the top, `pr_number`/`pr_url` = the PR, `stack_view` = the verbatim `/sc-gh-stack-view` output; vars file outside the repo.
 15. The task close is the report; it returns to the task assigner. No copies.
 16. After the close, read ATM; only then does the next task start.
 
@@ -45,7 +45,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 28. Read the bead, its `metadata.sprint_bead`, and the finding's requirements and ADRs (`requirements_globs`, `adr_globs`); read `policy_path` and its guidelines.
 29. Confirm the defect at the cited file:line; absent: no work, close `not_reproducible` with the file:line checked.
 30. Fix every in-scope occurrence of the pattern; touch only what the remedy needs.
-31. Close: `bd close --reason "fixed at <short sha>"` (or `"not reproducible: <file:line>"`) + `fix-complete.md.j2`, `outcome` `fixed` or `not_reproducible`; `commit` and `rebased_onto` required for `fixed`, omitted for `not_reproducible`.
+31. Close: `bd close --reason "fixed at <short sha>"` (or `"not reproducible: <file:line>"`) + `fix-complete.md.j2`, `outcome` `fixed` or `not_reproducible`; `commit`, `rebased_onto`, `pr_number`, `pr_url` and `stack_view` required for `fixed`, omitted for `not_reproducible`.
 32. Cannot fix: class bead or escalation (9); `bd update --status open --assignee "" --append-notes "FIX_CANNOT_COMPLETE; ..."`; task `refused`. Never close a finding unfixed.
 
 ### Parallel quick fix (finder)
@@ -57,7 +57,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 ### Scripts
 
 36. `assignment-gates.py dev` prints one code; exit 0 `READY`, 2 `GATE_CANNOT_RUN`, 5 otherwise.
-37. Checks in order: `validate-plan` (`PLAN_INVALID`), in `bd ready` (`NOT_READY`), open and unassigned or self (`UNCLAIMABLE`), `pr_target`, the sprint container's for a poured dev bead (`PR_TARGET_MISMATCH`), roster model fits `difficulty` (`DIFFICULTY_MISMATCH`), `origin/<pr_target>` ancestor of HEAD (`WRONG_BASE`).
+37. Checks in order: `validate-plan` (`PLAN_INVALID`), in `bd ready` (`NOT_READY`), open and unassigned or self (`UNCLAIMABLE`), `pr_target`, the sprint container's for a poured dev bead, is `--pr-target` or its ancestor (`PR_TARGET_MISMATCH`), roster model fits `difficulty` (`DIFFICULTY_MISMATCH`), `origin/<pr_target>` ancestor of HEAD (`WRONG_BASE`).
 38. Difficulty models (substring): hard fable/opus/astra; normal terra/opus/sonnet; fast luna.
 39. `task-refused.md.j2`: `bead_state` `open` or `blocked-failed`.
 

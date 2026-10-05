@@ -20,8 +20,8 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 9. Start every open sanity task at once (`bd update --claim` all, `atm task start` the active one); close each when its verdict arrives.
 10. Not ready (`bd ready -n 0 --json` omits it): do not claim or start; find the root cause; report bead, why, who must move to the task assigner; wait.
 11. Refuse `SANITY.PR_REQUIRED` without `pr_number` and `pr_url`.
-12. PR base must equal `pr_target` and head equal `commit`, else refuse; then `git fetch origin`.
-13. Refuse `SANITY.ZERO_DELTA` when `origin/<target>..<commit>` is empty, and `SANITY.NOT_REBASED` when `origin/<target>` is not an ancestor of `<commit>`.
+12. PR head must equal `commit`, the PR must be linked in a stack with its base the branch of the open layer below (the trunk for the first open layer), and that base must be the checked bead's `pr_target` or a descendant of it, else refuse `SANITY.NOT_STACKED`; `git fetch origin` before the descendant check.
+13. Refuse `SANITY.ZERO_DELTA` when `origin/<base>..<commit>` is empty, and `SANITY.NOT_REBASED` when `origin/<base>` is not an ancestor of `<commit>`.
 14. Refuse `SANITY.DIRTY_TREE` on tracked changes beyond the ignored paths.
 15. Refuse `SANITY_FROZEN` when `bd history <task>` records a prior PASS.
 16. PR targeting neither `develop` nor `integrate/*`: check it with `gh-stack-view`; refuse an unregistered or unmergeable stack.
@@ -65,7 +65,7 @@ Sources: `agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-s
 52. Never edit, commit, push, build, test, lint or run `bd`/`atm`; empty findings is success.
 
 ### Scripts
-53. `assignment-gates.py sanity`: READY, PR_REQUIRED, STALE_BASE, ZERO_DELTA, NOT_REBASED, DIRTY_TREE (ignores `.beads.gate.lock`, `.sc-compose/`), SANITY_FROZEN or GATE_CANNOT_RUN.
+53. `assignment-gates.py sanity`: READY, PR_REQUIRED, NOT_STACKED, ZERO_DELTA, NOT_REBASED, DIRTY_TREE (ignores `.beads.gate.lock`, `.sc-compose/`), SANITY_FROZEN or GATE_CANNOT_RUN.
 54. `sanity-split`: one top-level `1.`..`N.` list under `## Deliverables` (else exit 2 `PLAN_INVALID`); exit 3 `TARGET_UNREADABLE`; exit 4 `COMMIT_MISMATCH` (HEAD, branch, any `git status` output, origin not at sha); exit 5 `RENDER_FAILED`; one assignment per deliverable with `context: []`; reviewers `[sanity-llm, sanity-jev, sanity-selected]`, operational `sanity-selected`; lint once, detached, 1800 s timeout.
 55. `sanity-merge`: replies are envelopes or fenced JSON strings; one valid result per deliverable at the pinned sha, at most one `skipped` each; worktree still at sha, branch, clean; exit 4 while lint runs; lint timeout/cancelled/error is `SANITY.LINT_UNAVAILABLE`; lint diagnostics fold in as `lint` findings; PASS only with no findings and lint exit 0; `--completed-at` finite, >= start, <= now+5 s.
 56. `sanity-merge` selected mode: verifies reply hashes, statuses, reasons, rerun context files at sha; a selected failure envelope is cannot-run; checker-defect deliverables count done; findings carry their selected reviewer.

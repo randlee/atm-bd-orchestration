@@ -45,7 +45,7 @@ risk deferred to one late checkpoint. Both extremes are findings. See
   specified when the plan is written: each sprint bead's metadata records its
   `stack`, `layer` (1 = bottom), `branch`, `pr_target` and `worktree`, where
   `pr_target` is the branch of the layer below (the integration branch for
-  layer 1).
+  layer 1), a lower bound: the PR's actual base is it or a descendant of it.
 - The plan is optimized for parallel execution, so waves are horizontal
   layers of code: contract, layers, integration. A bead is released as soon
   as all of its blockers are closed, that is when all its required work is

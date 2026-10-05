@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.4.1
+version: 2.5.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -68,12 +68,16 @@ failure is a refusal, not a best-effort check:
 
 1. `test -n "$PR_NUMBER" && test -n "$PR_URL"`; otherwise refuse
    `SANITY.PR_REQUIRED`.
-2. `gh pr view "$PR_NUMBER" --json baseRefName,headRefOid --jq '.baseRefName + " " + .headRefOid'`
-   must equal the declared `pr_target` and commit; otherwise refuse
-   `SANITY.STALE_BASE`. Then `git fetch origin`.
-3. `git log --format=%H "origin/$PR_TARGET..$COMMIT" | grep -q .` must pass;
+2. `gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRefOid`
+   must show base `$BASE` and head `$COMMIT`; `gh stack view --json` in the
+   worktree must list the PR's branch with `$BASE` the branch of the open
+   layer below it (the stack's `trunk` for its first open layer); then
+   `git fetch origin`, and `git merge-base --is-ancestor "origin/$PR_TARGET" "origin/$BASE"`
+   must pass unless `$PR_TARGET`, the checked bead's `pr_target` (a lower bound), is `$BASE`;
+   otherwise refuse `SANITY.NOT_STACKED`.
+3. `git log --format=%H "origin/$BASE..$COMMIT" | grep -q .` must pass;
    otherwise refuse `SANITY.ZERO_DELTA`.
-4. `git merge-base --is-ancestor "origin/$PR_TARGET" "$COMMIT"` must pass;
+4. `git merge-base --is-ancestor "origin/$BASE" "$COMMIT"` must pass;
    otherwise refuse `SANITY.NOT_REBASED`.
 5. `test -z "$(git status --porcelain --untracked-files=no | grep -v -e ' \.beads\.gate\.lock$' -e ' \.sc-compose/')"`
    must pass; otherwise refuse `SANITY.DIRTY_TREE`.

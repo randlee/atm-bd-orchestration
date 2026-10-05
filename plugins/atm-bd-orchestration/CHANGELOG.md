@@ -9,7 +9,7 @@
   escalations. No formula or script changes.
 
 ### Changed
-- Every PR lands on the top of its stack: `metadata.pr_target` is a lower bound (the actual base is it or a descendant); the dev and fix dev rebase onto the stack's current top, open the PR against it and close with the `/sc-gh-stack-view` output; sanity refuses `SANITY.NOT_STACKED` in place of `SANITY.STALE_BASE`.
+- Every PR lands on the top of its stack: `metadata.pr_target` is a lower bound (the actual base is it or a descendant); the dev and fix dev rebase onto the stack's current top, open the PR against it and close with the `/sc-gh-stack-view` output; sanity refuses `SANITY.NOT_STACKED` in place of `SANITY.STALE_BASE`; a sanity refusal for no PR, not stacked or not rebased is the lead's to fix as stack writer, never the dev's. `assignment-gates.py` dev, sanity and qa checks are descendant checks (`git merge-base --is-ancestor`). `dev-template` 3.4.0, `fix-assignment` 3.4.0, `dev-fix` 1.4.0, `dev-complete` 2.2.0 and `fix-complete` 2.3.0 (`pr_number`, `pr_url`, `stack_view`; a "Stack issue" section unless COHERENT with LANDING ✅), `dev-sanity-template` 2.8.0, `qa-template` 4.7.0, `dev-sanity.md` 2.5.0, `SKILL.md` 0.6.0.
 - The lead opens and stacks the PR at dev-complete (before sanity); dev-complete and fix-complete tell the task assigner to open and link the PR and assign the next check; sanity refuses `SANITY.NOT_REBASED` when the commit does not contain `origin/<pr_target>`.
 - Closes and reports go to the task assigner: the dev, dev-fix, dev-sanity,
   fix, QA, plan-review and review templates drop the `lead` and `cc`

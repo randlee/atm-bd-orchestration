@@ -139,7 +139,7 @@ set) and metadata come from these required vars:
 | `stack` | `phase-<x>`: the phase is one stack |
 | `layer` | planned position, 1 = bottom |
 | `branch` | `sprint/<phase>-<n>-<slug>` |
-| `pr_target` | planned: branch of layer n−1, or the root's `integration_branch` for layer 1 |
+| `pr_target` | planned: branch of layer n−1, or the root's `integration_branch` for layer 1; a lower bound: the PR's actual base is it or a descendant of it |
 | `worktree` | `<worktree_base>/<branch>` |
 | `relation` | `root`, `must_follow` or `parallel_safe` |
 | `closure_type` | from the guidelines' closure types |
