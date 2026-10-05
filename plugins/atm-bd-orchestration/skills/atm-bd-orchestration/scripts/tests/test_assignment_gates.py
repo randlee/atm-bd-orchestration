@@ -65,6 +65,16 @@ def dev_runner(overrides=None):
     }; data.update(overrides or {}); return FakeRunner(data)
 
 
+# `bd history --json`: snapshots newest first, each `{CommitHash, ..., Issue}`.
+HISTORY_NEVER_PASSED = [
+    {"CommitHash": "c3", "Issue": {"id": "bead", "status": "open", "notes": "FAIL at abc: 1 findings; earlier PASS of the parent"}},
+    {"CommitHash": "c2", "Issue": {"id": "bead", "status": "closed", "close_reason": "not_reproducible: PASS at fix"}},
+    {"CommitHash": "c1", "Issue": {"id": "bead", "status": "open", "close_reason": "PASS at stale-field"}},
+]
+HISTORY_PASSED = [{"CommitHash": "c4", "Issue": {"id": "bead", "status": "open"}},
+                  {"CommitHash": "c3", "Issue": {"id": "bead", "status": "closed", "close_reason": "PASS at abc1234"}}]
+
+
 def sanity_runner(overrides=None):
     data = {
         ("bd", "show", "bead", "--json"): (0, dumped([{"metadata": {}}])),
@@ -76,7 +86,7 @@ def sanity_runner(overrides=None):
         ("git", "rev-parse", "origin/target"): (0, "base"),
         ("git", "log", "--format=%H", "origin/target..head"): (0, "delta"),
         ("git", "status", "--porcelain", "--untracked-files=no"): (0, "?? .beads.gate.lock"),
-        ("bd", "history", "bead", "--json"): (0, dumped({"events": []})),
+        ("bd", "history", "bead", "--json"): (0, dumped(HISTORY_NEVER_PASSED)),
     }; data.update(overrides or {}); return FakeRunner(data)
 
 
@@ -157,11 +167,20 @@ class AssignmentGateTests(unittest.TestCase):
             ("not-rebased.json", ns("sanity"), sanity_runner({("git", "merge-base", "--is-ancestor", "origin/target", "head"): (1, "")})),
             ("zero-delta.json", ns("sanity"), sanity_runner({("git", "log", "--format=%H", "origin/target..head"): (0, "")})),
             ("dirty-tree.json", ns("sanity"), sanity_runner({("git", "status", "--porcelain", "--untracked-files=no"): (0, " M tracked.py")})),
-            ("sanity-frozen.json", ns("sanity"), sanity_runner({("bd", "history", "bead", "--json"): (0, dumped({"verdict": "PASS"}))})),
+            ("sanity-frozen.json", ns("sanity"), sanity_runner({("bd", "history", "bead", "--json"): (0, dumped(HISTORY_PASSED))})),
             ("sanity-ready.json", ns("sanity"), sanity_runner()),
         ]
         for fixture, gate_args, runner in cases:
             with self.subTest(fixture=fixture): self.assert_fixture(fixture, gate_args, runner)
+
+    def test_sanity_checks_the_assigned_base_and_runs_git_in_the_worktree(self):
+        self.assertEqual(gates.evaluate(ns("sanity", base="target"), sanity_runner()), "READY")
+        self.assertEqual(gates.evaluate(ns("sanity", base="assigned-elsewhere"), sanity_runner()), "NOT_STACKED")
+        moved = {("git", "-C", "/wt", "log", "--format=%H", "origin/target..head"): (0, "")}
+        runner = sanity_runner(moved)
+        self.assertEqual(gates.evaluate(ns("sanity", worktree="/wt"), runner), "ZERO_DELTA")
+        git_calls = [argv for _, argv in runner.calls if argv[0] == "git"]
+        self.assertTrue(git_calls and all(argv[1:3] == ("-C", "/wt") for argv in git_calls), git_calls)
 
     def test_sanity_rebase_check_that_cannot_run_is_not_a_refusal(self):
         runner = sanity_runner({("git", "merge-base", "--is-ancestor", "origin/target", "head"): (128, "")})
@@ -196,7 +215,8 @@ class AssignmentGateTests(unittest.TestCase):
 
     def test_sanity_reads_the_stack_from_githubs_stacks_api_not_local_tracking(self):
         # The dev's worktree has no gh-stack tracking (the dev never runs gh stack), so `gh stack view` exits 2 there.
-        runner = sanity_runner({("/wt", ("gh", "stack", "view", "--json")): (2, "")})
+        runner = sanity_runner({("/wt", ("gh", "stack", "view", "--json")): (2, ""),
+                                ("git", "-C", "/wt", "log", "--format=%H", "origin/target..head"): (0, "delta")})
         self.assertEqual(gates.evaluate(ns("sanity", worktree="/wt"), runner), "READY")
         self.assertIn(STACKS, runner.calls)
         self.assertFalse([call for call in runner.calls if call[1][:3] == ("gh", "stack", "view")])

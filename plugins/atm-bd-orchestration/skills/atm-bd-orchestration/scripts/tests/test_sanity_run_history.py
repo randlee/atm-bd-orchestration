@@ -135,6 +135,29 @@ class SanityHistory(unittest.TestCase):
         HISTORY.append_record(self.log, record(completed_local="09-30 18:01"))
         self.assertEqual(len(self.log.read_text().splitlines()), 1)
 
+    def test_retry_of_a_row_logged_before_errors_existed_is_the_same_row(self):
+        failed = record(errors=[{"code": "SANITY.JEV_UNAVAILABLE", "message": "Jev retry budget exhausted",
+                                 "recoverable": True, "deliverable": 1}])
+        legacy = {key: value for key, value in failed.items() if key != "errors"}
+        self.log.write_text(json.dumps(legacy) + "\n")
+        HISTORY.append_record(self.log, HISTORY.render_record(failed))
+        self.assertEqual([json.loads(line) for line in self.log.read_text().splitlines()], [legacy])
+        with self.assertRaises(SystemExit):
+            HISTORY.append_record(self.log, record(errors=failed["errors"], findings=1, verdict="FAIL"))
+
+    def test_malformed_failure_envelopes_never_block_the_cannot_run_row(self):
+        error = {"code": "SANITY.RESULT_INVALID", "message": "reply had no fence", "recoverable": False}
+        vars = {"reviewer_results": [
+            {"success": False, "data": None, "error": error},
+            {"success": False, "data": None, "error": {"message": "no code"}},
+            {"success": False, "data": None, "error": dict(error, deliverable=2)}]}
+        errors = HISTORY.slot_errors(vars)
+        self.assertEqual(errors, [dict(error, deliverable=None), dict(error, deliverable=2)])
+        row = record(reviewer="sanity-jev", verdict="CANNOT_RUN", final_verdict="PASS", findings=None,
+                     error={"code": "SANITY.RESULT_INVALID", "message": "deliverable 1 envelope invalid"}, errors=errors)
+        HISTORY.append_record(self.log, HISTORY.render_record(row))
+        self.assertEqual(json.loads(self.log.read_text()), row)
+
     def test_table_skips_pre_0_8_2_rows(self):
         legacy = {key: value for key, value in record().items() if key not in ("completed_local", "final_verdict")}
         runs = [dict(legacy, reviewer="sanity-selected"), legacy]

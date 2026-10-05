@@ -307,6 +307,27 @@ class SelectedMergeTests(unittest.TestCase):
         self.assertEqual((code, report["verdict"]), (1, "CANNOT_RUN"))
         self.assertIn("selection must take the reviewer with a valid reply", report["error"]["message"])
 
+    def test_a_failed_rerun_never_replaces_a_valid_original_reply(self):
+        rerun = {"reviewer": "sanity-jev", "context": ["a.rs"], "reply": failed(1, "SANITY.JEV_UNAVAILABLE")}
+        for llm_row, jev_row, statuses in ((reply(1), failed(1, "SANITY.JEV_UNAVAILABLE"), ("done", "cannot_run")),
+                                          (failed(1, "SANITY.CHILD_TIMEOUT"), reply(1), ("cannot_run", "done")),
+                                          (reply(1), reply(1), ("done", "done"))):
+            with self.subTest(statuses=statuses), mock.patch.object(merge, "context_path_exists", return_value=True):
+                code, report = self.selected_from_vars(
+                    self.reviewer_vars("sanity-llm", [llm_row]), self.reviewer_vars("sanity-jev", [jev_row]), [
+                        {"deliverable": 1, "llm": statuses[0], "jev": statuses[1], "selected": "rerun",
+                         "reason": "rerun with context", "rerun": rerun, "checker_defect": False}])
+                self.assertEqual((code, report["verdict"]), (1, "CANNOT_RUN"))
+                self.assertIn("a failed rerun cannot replace a valid original reply", report["error"]["message"])
+        with mock.patch.object(merge, "context_path_exists", return_value=True):
+            code, report = self.selected_from_vars(
+                self.reviewer_vars("sanity-llm", [failed(1, "SANITY.CHILD_TIMEOUT")]),
+                self.reviewer_vars("sanity-jev", [failed(1, "SANITY.JEV_UNAVAILABLE")]), [
+                    {"deliverable": 1, "llm": "cannot_run", "jev": "cannot_run", "selected": "rerun",
+                     "reason": "rerun with context", "rerun": rerun, "checker_defect": False}])
+        self.assertEqual((code, report["verdict"]), (3, "CANNOT_RUN"))
+        self.assertNotIn("a failed rerun", report["error"]["message"])
+
     def test_selected_rejects_rerun_context_directory_at_manifest_commit(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

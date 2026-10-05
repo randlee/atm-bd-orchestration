@@ -19,7 +19,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 11. Never weaken a test, skip a criterion, or leave a placeholder.
 12. Run `<test_command>` (and the bead's validation commands) to zero failures.
 13. Rebase onto the stack's current top (`assignment-gates.py stack-top --pr-target <pr_target>` prints it on exit 0; any other exit is a code to refuse with, never a guess), re-run `<test_command>`, `git push --force-with-lease origin <branch>`, then `gh pr create --base <top> --head <branch> --fill` (never `--draft`) and run `/sc-gh-stack-view`.
-14. Close bead and task together with the close template; vars from its `required_variables`, `task_id`/`sprint` unchanged, `commit` = pushed head, `rebased_onto` = the top, `pr_number`/`pr_url` = the PR, `stack_view` = the verbatim `/sc-gh-stack-view` output; vars file outside the repo.
+14. Close bead and task together with the close template, `bd close` first and the task only if it succeeded; vars from its `required_variables`, `task_id`/`sprint` unchanged, `commit` = pushed head, `rebased_onto` = the top, `pr_number`/`pr_url` = the PR, `stack_view` = the verbatim `/sc-gh-stack-view` output; vars file outside the repo.
 15. The task close is the report; it returns to the task assigner. No copies.
 16. After the close, read ATM; only then does the next task start.
 

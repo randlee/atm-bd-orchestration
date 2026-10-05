@@ -1,6 +1,6 @@
 ---
 name: sc-sanity-jev
-version: 0.6.0
+version: 0.6.1
 description: Jev-assisted dev sanity check of one numbered deliverable at an exact commit; reports whether it is done as JSON. Read-only, no lint, not QA.
 tools: Glob, Grep, LS, Read, BashOutput, Bash
 model: sonnet
@@ -106,4 +106,6 @@ An unfinished check returns `success: false`, `data: null`, and
 
 If Jev is unavailable, times out, or returns invalid output, return the failure
 envelope with the actual error and deliverable number. Never label an unaided
-LLM conclusion as a Jev result. The coordinator logs this as CANNOT_RUN.
+LLM conclusion as a Jev result. The coordinator keeps the envelope in its slot,
+logs its error, and selects the LLM reply for that deliverable; only a
+deliverable neither reviewer could check is CANNOT_RUN.

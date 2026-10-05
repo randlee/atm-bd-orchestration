@@ -44,6 +44,9 @@ import re
 import subprocess
 import sys
 
+# Tool lock and log files a clean worktree may hold; the same as `IGNORED_STATUS_PATHS` in assignment-gates.py.
+IGNORED_STATUS_PATHS = (".beads.gate.lock", ".sc-compose/")
+
 CHECKER_KIND = "skipped"
 RUSTC = re.compile(r"^\s*-->\s+(?P<file>[^:\s]+):(?P<line>\d+):\d+", re.M)
 RUSTFMT = re.compile(r"^Diff in (?P<file>[^:\s]+)(?: at line |:)(?P<line>\d+)", re.M)
@@ -260,6 +263,9 @@ def selected_results(args, manifest, sanity_bead, dev_bead):
             reply, status, source = *jev_by[number], "sanity-jev"
         if rerun is None and status == "cannot_run" and "cannot_run" != (llm_by if entry["selected"] == "jev" else jev_by)[number][1]:
             raise Reject(f"deliverable {number}: selection must take the reviewer with a valid reply")
+        if rerun is not None and status == "cannot_run" and "cannot_run" != entry["llm"] or \
+                rerun is not None and status == "cannot_run" and "cannot_run" != entry["jev"]:
+            raise Reject(f"deliverable {number}: a failed rerun cannot replace a valid original reply")
         if not isinstance(entry["checker_defect"], bool):
             raise Reject(f"deliverable {number}: checker_defect must be boolean")
         if entry["checker_defect"] and status != "undone":
@@ -304,7 +310,7 @@ def verify_worktree(manifest):
         raise TaskFailure("SANITY.COMMIT_MISMATCH fatal 0", f"HEAD is {head}, not {manifest['sha']}")
     if branch != manifest["branch"]:
         raise TaskFailure("SANITY.COMMIT_MISMATCH fatal 0", f"checked-out branch is {branch}, not {manifest['branch']}")
-    if status:
+    if any(line and not any(path in line for path in IGNORED_STATUS_PATHS) for line in status.splitlines()):
         raise TaskFailure("SANITY.COMMIT_MISMATCH fatal 0", "worktree has uncommitted or untracked changes")
 
 

@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.11.0
+version: 2.12.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -100,8 +100,10 @@ failure is a refusal, not a best-effort check:
    otherwise refuse `SANITY.NOT_REBASED`.
 5. `test -z "$(git status --porcelain --untracked-files=no | grep -v -e ' \.beads\.gate\.lock$' -e ' \.sc-compose/')"`
    must pass; otherwise refuse `SANITY.DIRTY_TREE`.
-6. `bd history "$TASK_ID"` must contain no earlier PASS; otherwise refuse
-   `SANITY_FROZEN`.
+6. No snapshot in `bd history "$TASK_ID" --json` may show the bead closed
+   with a reason starting `PASS at ` (a note or other reason that mentions
+   PASS does not count; `jq -e 'any(.[]; .Issue.status == "closed" and (.Issue.close_reason // "" | startswith("PASS at ")))'`
+   exits 1); otherwise refuse `SANITY_FROZEN`.
 
 Only a mismatch is one of these codes. A command that fails to run (`gh`,
 `git fetch`, `bd`: a nonzero exit or error, not an answer) refuses
@@ -205,7 +207,8 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    paths; its assignment is the manifest's assignment with `context` set to
    those `{path, why}` objects:
    `jq --argjson n <n> --argjson context '<objects>' '.assignments[] | select(.number == $n) | .assignment | .context = $context' "$manifest"`;
-   `rerun.context` lists those same paths.
+   `rerun.context` lists those same paths. A rerun whose reply is a failure
+   never replaces a valid original reply: `sanity-merge` rejects it.
 
 5. Merge the selected report from the raw files and selection array:
 

@@ -292,6 +292,14 @@ class SanityMerge(unittest.TestCase):
             out = self.merge([self.result(1), self.result(2)])
             self.assertEqual((out.returncode, out.stdout.strip()), (3, "SANITY.TARGET_UNREADABLE fatal 0"))
         self.write_manifest()
+        with self.subTest("tool lock and log files are not dirt"):
+            (self.wt / ".beads.gate.lock").write_text("")
+            (self.wt / ".sc-compose").mkdir()
+            (self.wt / ".sc-compose" / "log.jsonl").write_text("{}")
+            out = self.merge([self.result(1), self.result(2)])
+            self.assertEqual(out.returncode, 0, out.stderr)
+            (self.wt / ".beads.gate.lock").unlink()
+            shutil.rmtree(self.wt / ".sc-compose")
         with self.subTest("dirty"):
             (self.wt / "new.rs").write_text("x")
             out = self.merge([self.result(1), self.result(2)])

@@ -53,7 +53,11 @@ def claimable(bead: dict[str, Any], identity: str) -> bool:
 
 
 def has_prior_pass(history: Any) -> bool:
-    return "PASS" in json.dumps(history).upper()
+    """A `bd history --json` snapshot of the bead closed with reason `PASS at <sha>`; a note or reason that merely
+    mentions PASS is not one."""
+    snapshots = [row.get("Issue", row) for row in history if isinstance(row, dict)] if isinstance(history, list) else []
+    return any(isinstance(issue, dict) and issue.get("status") == "closed"
+               and str(issue.get("close_reason") or "").startswith("PASS at ") for issue in snapshots)
 
 
 def is_clean(status: str) -> bool:
@@ -178,19 +182,21 @@ def sanity_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     stacked = stacked_base(runner, args.pr_number)
     # Layer 0 alone cannot form a stack: unlinked, it is based on the trunk (its pr_target, no open PR's head).
     awaiting_layer_one = stacked is None and base == args.pr_target and not open_pr_heads(runner, "--head", base)
-    if pr.get("headRefOid") != args.commit or (stacked != base and not awaiting_layer_one):
+    assigned = getattr(args, "base", "")
+    if pr.get("headRefOid") != args.commit or (stacked != base and not awaiting_layer_one) or (assigned and base != assigned):
         return "NOT_STACKED"
-    run(runner, "git", "fetch", "origin")
-    if not descends(runner, args.pr_target, base):
+    git = git_dir(args)
+    run(runner, "git", *git, "fetch", "origin")
+    if not descends(runner, args.pr_target, base, git):
         return "NOT_STACKED"
-    if not run(runner, "git", "log", "--format=%H", f"origin/{base}..{args.commit}"):
+    if not run(runner, "git", *git, "log", "--format=%H", f"origin/{base}..{args.commit}"):
         return "ZERO_DELTA"
-    rebased = runner(["git", "merge-base", "--is-ancestor", f"origin/{base}", args.commit], capture_output=True, text=True)
+    rebased = runner(["git", *git, "merge-base", "--is-ancestor", f"origin/{base}", args.commit], capture_output=True, text=True)
     if rebased.returncode == 1:
         return "NOT_REBASED"
     if rebased.returncode:
         raise RuntimeError(rebased.stderr.strip() or "git merge-base failed")
-    if not is_clean(run(runner, "git", "status", "--porcelain", "--untracked-files=no")):
+    if not is_clean(run(runner, "git", *git, "status", "--porcelain", "--untracked-files=no")):
         return "DIRTY_TREE"
     if has_prior_pass(run_json(runner, "bd", "history", args.bead, "--json")):
         return "SANITY_FROZEN"
@@ -249,6 +255,7 @@ def main(argv: list[str] | None = None, runner: Runner = subprocess.run) -> int:
     parser.add_argument("--commit", default="")
     parser.add_argument("--checked-bead", default="")
     parser.add_argument("--worktree", default="")
+    parser.add_argument("--base", default="", help="sanity: the assigned PR base; the PR's actual base must equal it")
     args = parser.parse_args(argv)
     if args.kind == "stack-top":
         try:

@@ -38,7 +38,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 27. Never assign findings.
 28. Verdict: only-minor is PASS; blocking or important is FAIL with one fix round; a second FAIL is `ROUND_CAP`, stop dispatch, record root cause.
 29. With a PR: post `qa-complete.md.j2` as a PR comment, check stack/CI with `sc-gh-stack-view` and `gh pr checks --json name,state,bucket`; never `--watch`. No PR: say so in notes.
-30. Close bead and task together whatever the verdict, with `qa-complete.md.j2`.
+30. Close bead and task together whatever the verdict, with `qa-complete.md.j2`, `bd close` first and the task only if it succeeded.
 31. After the closes (never on refusal), append one row each to `.sc/qa-log/phase-<p>.jsonl` and `phase-<p>-stats.jsonl` under the lock, computed fresh; never hand-edit; correct with a workflow-issue bead plus a correcting row; never commit the logs.
 
 ### Plan review (`plan-review-template`)

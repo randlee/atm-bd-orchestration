@@ -338,6 +338,14 @@ class SanitySplit(unittest.TestCase):
                 self.assertEqual(texts, expected)
 
     def test_commit_mismatch(self):
+        with self.subTest("tool lock and log files are not dirt"):
+            (self.repo.wt / ".beads.gate.lock").write_text("")
+            (self.repo.wt / ".sc-compose").mkdir()
+            (self.repo.wt / ".sc-compose" / "log.jsonl").write_text("{}")
+            out = self.run_split()
+            self.assertEqual(out.returncode, 0, out.stderr)
+            (self.repo.wt / ".beads.gate.lock").unlink()
+            shutil.rmtree(self.repo.wt / ".sc-compose")
         with self.subTest("dirty tree"):
             (self.repo.wt / "scratch.txt").write_text("x")
             out = self.run_split()

@@ -37,7 +37,9 @@ Before claim, run `gh pr view "$PR_NUMBER" --json baseRefName,headRefOid`,
 read the sha of the checked bead's latest sanity PASS (the close reason
 `PASS at <sha>` of the closed `stage:dev-sanity` bead whose `metadata.dev_bead`
 is `$CHECKED_BEAD`), and run `git rev-parse HEAD`. The PR base
-must be `metadata.pr_target` or a descendant of it, its head must start with that sha
+must be the lower bound `pr_target` or a descendant of it (the QA bead's own
+`metadata.pr_target` when set, a Parallel Quick Fix; else the checked bead's;
+else its sprint container's, `metadata.sprint_bead`), its head must start with that sha
 (not checked when the QA bead's `metadata.quick_fix` is true: a Parallel Quick Fix has no sanity check),
 and the QA worktree HEAD must equal that PR head. Otherwise refuse
 `SANITY_STALE`; no layer or quick fix lacking QA PASS at that pinned head is

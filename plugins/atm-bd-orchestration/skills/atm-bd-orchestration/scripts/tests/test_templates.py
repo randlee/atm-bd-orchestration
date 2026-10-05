@@ -94,11 +94,17 @@ class TemplateContractTests(unittest.TestCase):
         self.assertIn("task_id is a poured fix bead (`<sprint>.<ref>-r<n>-fix`", head)
 
     def test_dev_step_a_rebases_before_the_gate(self):
-        for name in ("dev-template", "fix-assignment", "dev-fix"):
-            text = (ROOT / f"templates/{name}.xml.j2").read_text()
+        text = (ROOT / "templates/dev-template.xml.j2").read_text()
+        self.assertIn("`git fetch origin && git rebase origin/{{ pr_target | string | cdata_escape }}` in the worktree", text)
+        self.assertLess(text.index("git rebase origin/"), text.index("assignment-gates.py dev"))
+
+    def test_fix_step_a_on_a_branch_cut_from_the_top_only_checks_ancestry(self):
+        for name in ("fix-assignment", "dev-fix"):
+            step = (ROOT / f"templates/{name}.xml.j2").read_text().split('<step id="a">', 1)[1].split("</step>", 1)[0]
             with self.subTest(template=name):
-                self.assertIn("`git fetch origin && git rebase origin/{{ pr_target | string | cdata_escape }}` in the worktree", text)
-                self.assertLess(text.index("git rebase origin/"), text.index("assignment-gates.py dev"))
+                self.assertNotIn("git rebase", step)
+                self.assertLess(step.index("`git fetch origin`"), step.index("assignment-gates.py dev"))
+                self.assertIn("`git merge-base --is-ancestor origin/{{ pr_target | string | cdata_escape }} HEAD` exits 0, else `WRONG_BASE`", step)
 
     def test_integration_completion_requires_audit_evidence(self):
         import json
