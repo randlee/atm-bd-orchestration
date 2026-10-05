@@ -27,7 +27,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 
 #### Dispatch
 16. Before the first dispatch, create the root's `integration_branch` from the base branch and push it.
-17. Run `bd ready -l phase-<x> -n 0 --json` after every close, before any other work, and dispatch every ready bead; never cache it; never dispatch the phase root. The lead implements nothing.
+17. Run `bd ready -l phase-<x> -n 0 --json` after every close, before any other work, and dispatch every ready bead; never cache it; never dispatch the phase root. The lead may step in at critical points, preferably through a background developer subagent; lead work is never part of the original plan.
 18. Route: plan review and QA to quality-mgr; dev to the member you pick for its `difficulty`; sanity to `resolve-role dev-sanity`; finding to the member you pick; a sanity finding (`metadata.sanity_finding`) is never dispatched alone: its checked bead goes to that bead's assignee with `dev-fix.xml.j2`; review to the phase-end reviewer.
 19. Dev or finding bead: `git fetch origin && git worktree add -b <branch> <worktree> origin/<top>`, the current top of its stack (its `pr_target` or a descendant), passed as the assignment's `pr_target`.
 20. `bd update <bead> --assignee <agent>` before assigning.
@@ -64,7 +64,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 #### Stack
 46. Be the only stack writer (`gh stack link/unstack/sync/rebase/merge`).
 47. Link layers in completion order; record each bead's actual `layer` at link time; `pr_target` changes only at a dev-fix (28).
-48. Parallel quick fix: pick the lowest base holding what the change needs; finder (or a background developer subagent when all are busy) cuts `fix/<thing>` from it; one QA round (`checked_bead` = finder's bead, `layer` = base); merge on PASS; tell each owner the base moved; record fix branch/PR in the finder's and every touched bead's notes.
+48. Parallel quick fix: pick the lowest base holding what the change needs; finder (or a background developer subagent when all are busy) cuts `fix/<thing>` from it; one QA round (`checked_bead` = finder's bead, `layer` = base, QA bead from `qa-bead.json.j2` with `quick_fix` true: no sanity check); merge on PASS; tell each owner the base moved; record fix branch/PR in the finder's and every touched bead's notes.
 49. Merge no PR into the integration branch or a stack layer without QA.
 50. Verify branches read-only; never run a state-changing command in an assignee's worktree.
 

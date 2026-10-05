@@ -16,7 +16,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 
 ### QA round (`qa-template`)
 
-8. Before claim: PR base = `metadata.pr_target` or a descendant of it, PR head starts with the sanity PASS sha (close reason `PASS at <sha>` of the checked bead's latest closed `stage:dev-sanity` bead), worktree HEAD = PR head; else refuse `SANITY_STALE`.
+8. Before claim: PR base = `metadata.pr_target` or a descendant of it, PR head starts with the sanity PASS sha (close reason `PASS at <sha>` of the checked bead's latest closed `stage:dev-sanity` bead; skipped when the QA bead's `metadata.quick_fix` is true, a Parallel Quick Fix having no sanity check), worktree HEAD = PR head; else refuse `SANITY_STALE`.
 9. Claim, then `atm task start`.
 10. Reject an assignment not rendered from the template; read `policy_path`.
 11. Pipe the checked bead (and `sprint_bead` if set) with governing requirements/ADRs into `<scratch>/<task>-sprint.md`; it is `sprint_doc`.

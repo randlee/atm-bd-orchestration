@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.3
+version: 0.6.4
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -179,7 +179,9 @@ on every restack and show up as out-of-scope work in that sprint's PR.
    developer subagent for this step instead of waiting; the branch,
    scope and test rule are the same.
 4. The lead dispatches one QA round on the fix PR (`qa-template.xml.j2`,
-   `checked_bead` = the finder's bead, `layer` = the base) and merges when
+   `checked_bead` = the finder's bead, `layer` = the base; its QA bead from
+   `qa-bead.json.j2` with `quick_fix` true, so QA skips the sanity-PASS check
+   a quick fix has no sanity for) and merges when
    it passes; no PR into the integration branch or a stack layer merges
    without QA. Every branch whose `pr_target` is the base rebases onto
    its stack's current top at its next push; the lead tells its owner the base moved.
@@ -246,7 +248,7 @@ bd ready -l phase-<x> -n 0 --json
 first: dev beads whose prerequisites' sanity checks passed, sanity checks
 whose dev or fix bead closed, QA beads whose sanity check passed, fix beads and
 open findings. Run it after every task close, before any other work, and dispatch every
-ready bead. The lead implements nothing; work it would do is a bead for a dev.
+ready bead. The lead may step in at critical points, preferably through a background developer subagent (Parallel Quick Fix step 3); lead work is never part of the original plan.
 For each ready bead:
 
 | Ready bead | Template | To |
@@ -453,7 +455,7 @@ written to beads with the `atm-beads` templates.
 | `review-complete.md.j2` | close | phase-end reviewer |
 | `task-refused.md.j2` | close | anyone who cannot do the whole assignment |
 | `req-qa`, `arch-qa`, `ruthless-boundary-qa`, `flaky-test-qa`, `schema-reviewer`, `plan-scope-reviewer` `-assignment.json.j2` | fenced JSON | quality-mgr → its background reviewers; `plan-scope-reviewer` on plan QA-1, then only for its carried findings, locked to each finding's original acceptance criterion |
-| `qa-bead.json.j2` | bead | lead, for a finding bead or a parallel quick fix (sprint and fix QA beads are poured) |
+| `qa-bead.json.j2` | bead | lead, for a finding bead or a parallel quick fix (`quick_fix` true; sprint and fix QA beads are poured) |
 | `finding-bead.json.j2` | bead | quality-mgr (QA, important and minor) and lead (review), one per finding |
 | `workflow-issue-bead.json.j2` | bead | anyone, a workflow class bead for a recurring failure signature |
 
