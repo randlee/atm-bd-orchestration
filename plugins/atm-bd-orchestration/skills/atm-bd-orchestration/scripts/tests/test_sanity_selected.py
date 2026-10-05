@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from jev_receipts import CLIENT, KEY, client as jev_client, receipted
+
 
 SCRIPTS = Path(__file__).parents[1]
 sys.path.insert(0, str(SCRIPTS))
@@ -30,10 +32,11 @@ merge = load("sanity_merge")
 history = load("sanity_run_history")
 split = load("sanity_split")
 findings = load("sanity_create_findings")
+merge.CLIENT = CLIENT  # the package's own client verifies the receipts below
 
 
 def reply(number: int, findings: list[dict] | None = None) -> dict:
-    return {
+    return receipted({
         "success": True,
         "data": {
             "deliverable": number,
@@ -43,17 +46,24 @@ def reply(number: int, findings: list[dict] | None = None) -> dict:
             "findings": findings or [],
         },
         "error": None,
-    }
+    })
 
 
 def failed(number: int, code: str) -> dict:
+    """A failure with the message its source writes: the Jev client's own text for a SANITY.JEV_* code."""
     return {"success": False, "data": None, "error": {
-        "code": code, "message": f"{code} for deliverable {number}", "recoverable": True,
+        "code": code, "message": "Jev retry budget exhausted" if code.startswith("SANITY.JEV_") else f"{code} for deliverable {number}",
+        "recoverable": True,
         "suggested_action": "rerun when the reviewer is available", "deliverable": number}}
 
 
 class SelectedMergeTests(unittest.TestCase):
     manifest = {"run_id": "run", "deliverables_total": 1, "sha": "a" * 40}
+
+    def setUp(self):
+        patcher = mock.patch.dict(merge.os.environ, {"TYPESAFE_API_KEY": KEY})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def selected(self, llm, jev, selection):
         with tempfile.TemporaryDirectory() as directory:
@@ -327,6 +337,22 @@ class SelectedMergeTests(unittest.TestCase):
                      "reason": "rerun with context", "rerun": rerun, "checker_defect": False}])
         self.assertEqual((code, report["verdict"]), (3, "CANNOT_RUN"))
         self.assertNotIn("a failed rerun", report["error"]["message"])
+
+    def test_selected_merge_rejects_jev_replies_without_a_valid_receipt(self):
+        bare = reply(1)
+        bare["data"] = {k: v for k, v in bare["data"].items() if k != "jev"}
+        code, report = self.selected_from_vars(self.reviewer_vars("sanity-llm", [reply(1)]), {
+            "run_id": "run", "reviewer": "sanity-jev", "reviewer_results": [bare],
+            "reviewer_results_sha256": merge.canonical_sha256([bare])}, [
+            {"deliverable": 1, "llm": "done", "jev": "done", "selected": "llm", "reason": "", "rerun": None, "checker_defect": False}])
+        self.assertEqual((code, report["verdict"]), (1, "CANNOT_RUN"))
+        self.assertIn("sanity-jev reply: no valid Jev receipt", report["error"]["message"])
+        with mock.patch.object(merge, "context_path_exists", return_value=True):
+            code, report = self.selected_from_vars(self.reviewer_vars("sanity-llm", [reply(1)]), self.reviewer_vars("sanity-jev", [reply(1)]), [
+                {"deliverable": 1, "llm": "done", "jev": "done", "selected": "rerun", "reason": "rerun with context",
+                 "rerun": {"reviewer": "sanity-jev", "context": ["a.rs"], "reply": bare}, "checker_defect": False}])
+        self.assertEqual((code, report["verdict"]), (1, "CANNOT_RUN"))
+        self.assertIn("rerun reply: no valid Jev receipt", report["error"]["message"])
 
     def test_selected_rejects_rerun_context_directory_at_manifest_commit(self):
         with tempfile.TemporaryDirectory() as directory:

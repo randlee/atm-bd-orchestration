@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Bounded Jev transport and startup probe for the proposed sanity agent."""
 import argparse
+import hashlib
+import hmac
 import http.client
 import json
+import re
 import math
 import os
 from pathlib import Path
@@ -123,6 +126,49 @@ def evaluate(request):
     raise JevError("SANITY.JEV_UNAVAILABLE", "Jev retry budget exhausted", True)
 
 
+# Every failure message this client writes. A Jev failure envelope must carry one verbatim (sanity-merge checks it).
+CLIENT_MESSAGES = re.compile("|".join([
+    r"TYPESAFE_API_KEY is missing; no Jev evaluation ran", r"TYPESAFE_API_KEY has invalid formatting",
+    r"Unexpected Jev response model or shape", r"Missing or unexpected answer IDs", r"Answer must be an object",
+    r"Invalid Choice answer", r"Expected pinned model, state and nonempty questions",
+    r"Pilot supports well-formed Choice questions only", r"Request must contain finite JSON values",
+    r"Pilot request exceeds 24000 bytes; split evidence without dropping checks",
+    r"Jev connection failed or timed out", r"Jev HTTP \d{3}; response body withheld",
+    r"Jev response exceeded size limit", r"Jev response was not JSON", r"Jev retry budget exhausted",
+    r"Startup probe returned the wrong literal choice", r"Request file unavailable or invalid JSON",
+]))
+RECEIPT_KEYS = ("model", "question", "choice", "probabilities", "response_id", "request_sha256", "mac")
+
+
+def is_client_message(message):
+    return isinstance(message, str) and CLIENT_MESSAGES.fullmatch(message) is not None
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def receipt_mac(body, key):
+    return hmac.new(key.encode("utf-8"), canonical({k: body[k] for k in RECEIPT_KEYS if k != "mac"}), hashlib.sha256).hexdigest()
+
+
+def receipt(request, response, key):
+    """What a caller copies to show this call happened: the one question's answer, bound to the request and keyed with
+    the API key, so it cannot be written without the call."""
+    (name,) = request["questions"]
+    answer = response["answers"][name]
+    body = {"model": response["model"], "question": name, "choice": answer["choice"],
+            "probabilities": answer["probabilities"],
+            "response_id": response.get("id") if isinstance(response.get("id"), str) else None,
+            "request_sha256": hashlib.sha256(canonical(request)).hexdigest()}
+    return {**body, "mac": receipt_mac({**body, "mac": None}, key)}
+
+
+def verify_receipt(value, key):
+    return (isinstance(value, dict) and set(value) == set(RECEIPT_KEYS) and isinstance(value["mac"], str) and bool(key)
+            and hmac.compare_digest(value["mac"], receipt_mac(value, key)))
+
+
 def startup_request():
     # Synthetic state only: no repository source is sent during startup.
     return {"model": MODEL, "state": {"marker": "ready"}, "questions": {
@@ -160,6 +206,8 @@ def main(argv=None):
     try:
         request = startup_request() if args.startup else json.loads(args.request.read_text())
         data = evaluate(request)
+        if not args.startup and len(request["questions"]) == 1:
+            data = {**data, "receipt": receipt(request, data, api_key())}
         if args.startup:
             if data["answers"]["startup"]["choice"] != "ready":
                 raise JevError("SANITY.JEV_RESPONSE_INVALID", "Startup probe returned the wrong literal choice")

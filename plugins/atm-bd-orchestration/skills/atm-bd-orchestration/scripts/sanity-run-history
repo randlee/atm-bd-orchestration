@@ -45,7 +45,7 @@ def read_vars(path: Path) -> dict[str, object]:
 
 
 SLOT_ERROR_KEYS = ("code", "message", "recoverable", "deliverable")
-LATER_FIELDS = ("errors",)  # record fields added after rows were first logged
+LATER_FIELDS = ("errors", "jev_receipts")  # record fields added after rows were first logged
 
 
 def valid_slot_error(error: object) -> bool:
@@ -65,6 +65,14 @@ def slot_errors(value: dict[str, object]) -> list[dict[str, object]]:
               for result in results
               if isinstance(result, dict) and result.get("success") is False and isinstance(result.get("error"), dict)]
     return [error for error in errors if valid_slot_error(error)]
+
+
+def jev_receipts(value: dict[str, object]) -> list[object]:
+    """The receipt (`data.jev`) of every sanity-jev success reply, copied verbatim; sanity-llm rows carry none."""
+    if value.get("reviewer") != "sanity-jev":
+        return []
+    return [result["data"].get("jev") for result in value.get("reviewer_results") or []
+            if isinstance(result, dict) and result.get("success") is True and isinstance(result.get("data"), dict)]
 
 
 def phase_from_sprint(sprint: str) -> str:
@@ -154,6 +162,7 @@ def main() -> None:
         "started_at": vars["started_at"], "duration_seconds": elapsed,
         "error": vars.get("error"),
         "errors": slot_errors(vars),
+        "jev_receipts": jev_receipts(vars),
         "task": args.task, "sprint": vars["sprint"], "phase": phase,
         "pr_number": args.pr_number, "findings": vars["findings_count"],
         "verdict": vars["verdict"], "final_verdict": args.final_verdict,
@@ -178,7 +187,7 @@ RECORD_TYPES = {
 
 
 def validate_record(record):
-    if not isinstance(record, dict) or set(record) != set(RECORD_TYPES) | {"findings", "error", "errors"}:
+    if not isinstance(record, dict) or set(record) != set(RECORD_TYPES) | {"findings", "error", "errors", "jev_receipts"}:
         fail("rendered record has incorrect fields")
     for field, expected in RECORD_TYPES.items():
         exact_types = expected if isinstance(expected, tuple) else (expected,)
@@ -188,6 +197,13 @@ def validate_record(record):
         fail("rendered record has invalid reviewer")
     if not isinstance(record["errors"], list) or not all(valid_slot_error(error) for error in record["errors"]):
         fail("rendered record.errors must be a list of {code, message, recoverable, deliverable}")
+    receipts = record["jev_receipts"]
+    if not isinstance(receipts, list) or not all(isinstance(receipt, dict) for receipt in receipts):
+        fail("rendered record.jev_receipts must be a list of receipt objects")
+    if record["reviewer"] == "sanity-llm" and receipts:
+        fail("a sanity-llm row carries no Jev receipts")
+    if record["reviewer"] == "sanity-jev" and record["verdict"] in {"PASS", "FAIL"} and not receipts:
+        fail("a sanity-jev PASS/FAIL row requires the Jev receipt of every deliverable")
     if record["final_verdict"] not in {"PASS", "FAIL", "CANNOT_RUN"}:
         fail("rendered record has invalid final_verdict")
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", record["commit"]):
@@ -242,7 +258,7 @@ def append_record(log_path, record):
         prior = [r for r in same_run if r.get("reviewer") == record["reviewer"]]
         if prior:
             # completed_local follows the process TZ; a retry under another TZ is the same row.
-            # A row logged before a field existed (`errors`) is compared without it.
+            # A row logged before a field existed (`errors`, `jev_receipts`) is compared without it.
             later = [key for key in LATER_FIELDS if key not in prior[-1]]
             if {**prior[-1], "completed_local": None} != {**{k: v for k, v in record.items() if k not in later}, "completed_local": None}:
                 fail("run/reviewer already logged with different results")

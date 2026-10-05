@@ -1,7 +1,7 @@
 ---
 name: sanity-run-record
-version: 3.1.0
-description: Fixed sanity ledger record. sanity-run-history validates required string/integer/nullable fields after strict rendering and before locked append. UTC timestamps only.
+version: 4.0.0
+description: Fixed sanity ledger record; `jev_receipts` holds the Jev client's receipt (`data.jev`) of every sanity-jev success reply, required on a sanity-jev PASS/FAIL row and empty on sanity-llm (rows before 4.0.0 have none). sanity-run-history validates required string/integer/nullable fields after strict rendering and before locked append. UTC timestamps only.
 format: json
 required_variables:
   - run_id
@@ -22,6 +22,7 @@ required_variables:
   - findings
   - error
   - errors
+  - jev_receipts
 ---
 {
   "run_id": {{ run_id | tojson }},
@@ -41,5 +42,6 @@ required_variables:
   "final_verdict": {{ final_verdict | tojson }},
   "findings": {{ findings | tojson }},
   "error": {{ error | tojson }},
-  "errors": {{ errors | tojson }}
+  "errors": {{ errors | tojson }},
+  "jev_receipts": {{ jev_receipts | tojson }}
 }

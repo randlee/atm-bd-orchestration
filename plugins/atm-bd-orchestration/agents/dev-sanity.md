@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.12.0
+version: 2.13.0
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -170,7 +170,8 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    rerun fails, dispatch fails, or the Jev startup probe has not passed, put a
    coordinator-origin `success:false, data:null` envelope in that slot with
    an error containing `code`, the actual `message`, `recoverable`,
-   `suggested_action`, and the `deliverable` number. Say explicitly that the reviewer could not run. Never substitute an
+   `suggested_action`, and the `deliverable` number (in probe-failed mode, the
+   probe's own error `code` and `message` verbatim). Say explicitly that the reviewer could not run. Never substitute an
    LLM result for unavailable JEV (or vice versa) in that reviewer's slot: the
    slot keeps its failure envelope. One failed reviewer is not a blocker and
    not CANNOT_RUN; selection (step 4) takes the other reviewer's valid reply.
@@ -187,6 +188,15 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
      --completed-at "$reviewer_completed_at" \
      < "$scratch/$reviewer-results.json" > "$scratch/$reviewer-vars.json"
    ```
+
+   The `sanity-jev` merge screens every reply: a success without a valid Jev
+   client receipt in `data.jev`, whose choice contradicts its findings (`no`:
+   exactly one; `yes`: none), or that reuses another deliverable's receipt,
+   and a `SANITY.JEV_*` failure whose message is not the client's own text,
+   becomes a coordinator-origin `SANITY.RESULT_INVALID` failure for that
+   deliverable (the replaced reply and reason are kept in `rejected_results`).
+   Selection then takes the LLM reply: a fallback, logged and announced as
+   below.
 
    Do not append either history row yet: the final selected verdict is not
    known. Once both raw arrays are available, record `selected_started_at`
@@ -242,7 +252,9 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    failed render or validation appends nothing; retrying the identical append
    is safe. CANNOT_RUN is logged with null findings and its error, never as
    PASS or FAIL; each row's `errors` lists every failed slot's `code`,
-   `message`, `recoverable` and `deliverable` verbatim from its envelope:
+   `message`, `recoverable` and `deliverable` verbatim from its envelope, and
+   `jev_receipts` holds the receipt of every `sanity-jev` success reply
+   (required on a `sanity-jev` PASS/FAIL row, empty on `sanity-llm`):
 
    ```bash
    log=$($S/sanity-run-history --vars "$scratch/$reviewer-vars.json" --task "$task" \

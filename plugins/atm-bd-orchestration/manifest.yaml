@@ -93,6 +93,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/fixtures/unclaimable.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/wrong-base.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/zero-delta.json
+    - skills/atm-bd-orchestration/scripts/tests/jev_receipts.py
     - skills/atm-bd-orchestration/scripts/tests/test_assignment_gates.py
     - skills/atm-bd-orchestration/scripts/tests/test_atomic.py
     - skills/atm-bd-orchestration/scripts/tests/test_bead_pour_mock.py

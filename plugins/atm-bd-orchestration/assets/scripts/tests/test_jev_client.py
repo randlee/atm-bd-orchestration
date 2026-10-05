@@ -115,6 +115,42 @@ class JevClientTests(unittest.TestCase):
         with self.assertRaises(client.JevError):
             client.validate_request(request)
 
+    def test_request_prints_a_receipt_only_the_call_can_write(self):
+        request = {"model": client.MODEL, "state": {"deliverable": "d", "evidence": "e"}, "questions": {"written": {
+            "type": "choice", "instructions": "Delivered?", "criteria": {"yes": "delivered", "no": "not delivered"}}}}
+        response = {"model": client.MODEL, "id": "resp-1", "answers": {"written": {
+            "type": "choice", "choice": "no", "confidence": 0.9, "probabilities": {"yes": 0.1, "no": 0.9}}}}
+        conn = MagicMock()
+        conn.getresponse.return_value.status = 200
+        conn.getresponse.return_value.read.return_value = json.dumps(response).encode()
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as file:
+            json.dump(request, file)
+            file.flush()
+            output = io.StringIO()
+            with patch.dict(client.os.environ, {"TYPESAFE_API_KEY": "test-only-key"}), \
+                 patch.object(client.http.client, "HTTPSConnection", return_value=conn), contextlib.redirect_stdout(output):
+                self.assertEqual(client.main(["--request", file.name]), 0)
+        receipt = json.loads(output.getvalue())["data"]["receipt"]
+        self.assertEqual({k: receipt[k] for k in ("model", "question", "choice", "probabilities", "response_id")},
+                         {"model": client.MODEL, "question": "written", "choice": "no",
+                          "probabilities": {"yes": 0.1, "no": 0.9}, "response_id": "resp-1"})
+        self.assertEqual(receipt["request_sha256"], client.hashlib.sha256(client.canonical(request)).hexdigest())
+        self.assertTrue(client.verify_receipt(receipt, "test-only-key"))
+        self.assertFalse(client.verify_receipt(receipt, "another-key"))
+        self.assertFalse(client.verify_receipt(dict(receipt, choice="yes"), "test-only-key"))
+        self.assertFalse(client.verify_receipt({k: v for k, v in receipt.items() if k != "mac"}, "test-only-key"))
+
+    def test_every_failure_message_the_client_writes_is_recognised(self):
+        source = (Path(__file__).parents[1] / "jev_client.py").read_text()
+        import re
+        literals = re.findall(r'JevError\("[A-Z_.]+", f?"([^"]+)"', source)
+        self.assertGreaterEqual(len(literals), 15)
+        for literal in literals:
+            with self.subTest(message=literal):
+                self.assertTrue(client.is_client_message(literal.replace("{status}", "503")))
+        self.assertFalse(client.is_client_message("Selected model is at capacity"))
+
 
 if __name__ == "__main__":
     unittest.main()

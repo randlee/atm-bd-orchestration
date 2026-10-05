@@ -16,5 +16,6 @@
   "final_verdict": "PASS",
   "findings": 0,
   "error": null,
-  "errors": []
+  "errors": [],
+  "jev_receipts": []
 }
