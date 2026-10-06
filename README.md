@@ -17,7 +17,6 @@ plugins/
     conftest.py                          test path setup
     skills/{atm-beads,atm-bd-orchestration,qa-report,sprint-report,sprint-review}/
     agents/{dev-sanity,sc-sanity-llm,sc-sanity-jev}.md
-    assets/scripts/jev_client.py         Jev transport, placed at <repo>/scripts/jev_client.py
     tests/                               package consistency and install tests
 .github/workflows/tests.yml              the package tests on ubuntu and macos
 ```

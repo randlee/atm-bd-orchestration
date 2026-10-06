@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.11.1] - 2026-10-06
+
+### Changed
+- Lead Role Loop: when an assignee stops on an active task (acting as if pair-programming, stating its next step and waiting for a user who does not exist: a turn ending on a promise of future work, status-only replies to reminders, `lead_notified` mail, or a `bead-queues` `task_stalled` row: an active task with 3 or more reminders, which `--json` now reports), the lead re-engages on the first sign with the checklist message instead of waiting for the reminder budget. `dev-template` (3.14.1): no user approves a step; never end a turn on a promise of future work while the task is active. sc-obs obs-f-3/obs-f-4 sat idle 7h and 4.5h after status-only replies to nine reminders (#81).
+
+## [0.11.0] - 2026-10-06
+
+### Added
+- `.claude/skills/atm-bd-orchestration/scripts/bead-queues` (`.claude/skills/atm-bd-orchestration/scripts/tests/test_bead_queues.py`), ported from sc-observability `scripts/bead_queues.py` @ e1866dca (#55): read-only oversight of one phase root's descendants in the 0.9+ bead model (plan review, dev, sanity, QA, fix groups, finding beads, sanity-FAIL children, closable containers), joined with live ATM tasks and the gh stack (dev complete with no `PR #<n>` recorded, phase PRs on no open stack, an open stack that is not coherent or not one merge). `--json` follows the Hermes cron contract with edge-triggered rows (bead/PR id + queue) kept in `.atm-bd/bead-queues/<root>.json` and a `--min-age` window. The lead runs it on each Loop pass.
+
+## [0.10.5] - 2026-10-06
+
+### Changed
+- The Jev transport ships inside the skill that uses it, `.claude/skills/atm-bd-orchestration/scripts/jev_client.py`; nothing is installed at the repository root. An upgrade removes the `<repo>/scripts/jev_client.py` an earlier version placed when unchanged and refuses it, naming it, when modified (`--overwrite` moves it to `.backup/`). Every script path in the agents, skills, references and templates is written from the repository root (`dev-sanity` 2.16.3, `sc-sanity-jev` 0.8.1, `atm-bd-orchestration` 0.6.21, `atm-beads` 0.3.5, `dev-sanity-template` 2.17.1).
+
+## [0.10.4] - 2026-10-06
+
+### Fixed
+- `jev_client.py --assignment <file>` builds the sanity request from the assignment: the deliverable text verbatim, `git diff base_sha...commit` of `changed_files`, and the `context` files at `commit`; `sc-sanity-jev` (0.8.0) writes the assignment unchanged and runs it, never a request of its own. sc-obs `obs-f-2.f2-imp-006` got `SANITY.RESULT_INVALID` twice: the agent-written requests held a paraphrased deliverable and no code (`"evidence": "commit f8b8d2db; sync_http/tests.rs"`), so Jev answered near a coin flip (yes 0.49 / 0.37).
+
 ## [0.10.3] - 2026-10-06
 
 ### Fixed

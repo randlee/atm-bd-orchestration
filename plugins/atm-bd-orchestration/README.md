@@ -12,7 +12,7 @@ Bead-driven phase orchestration for ATM agent teams, as one installable package:
 | `agents/dev-sanity.md` | the single dev-sanity teammate: the whole dev-sanity role in one agent prompt |
 | `agents/sc-sanity-llm.md`, `agents/sc-sanity-jev.md` | the per-deliverable LLM and Jev (typesafe.ai) subagents dev-sanity spawns |
 | `agents/parallax.md` | optional work-orchestrator teammate: runs the lead's routine orchestration; the lead keeps `bv`, monitoring and rulings |
-| `assets/scripts/jev_client.py` | the Jev transport, placed at `<repo>/scripts/jev_client.py` |
+| `skills/atm-bd-orchestration/scripts/jev_client.py` | the Jev transport |
 
 The skills run repository-relative scripts (`.claude/skills/<skill>/scripts/...`)
 and dispatch templates that ATM agents execute inside the consuming repository,
@@ -35,7 +35,7 @@ Requirements in the consuming repository:
   on PATH.
 
 Jev sanity checks and post-mortem screening also need `TYPESAFE_API_KEY` in the
-agent's environment at run time; without it `scripts/jev_client.py --startup`
+agent's environment at run time; without it `.claude/skills/atm-bd-orchestration/scripts/jev_client.py --startup`
 reports `SANITY.JEV_UNAVAILABLE` and dev-sanity records every JEV slot as
 unavailable (the LLM subagent still runs and selection takes its replies).
 
@@ -88,9 +88,8 @@ tests) also carry install-time placeholders: `{{ lead }}`,
 configuration, and `{{ repo_slug }}`, `{{ repo_name }}` (git origin)
 and `{{ workflow_issues_root }}` (`<bead_prefix>-workflow-issues`)
 derived from the repository. Every other file, including every `*.j2` dispatch
-template, is copied byte for byte. `assets/scripts/jev_client.py` is placed at
-`<repo>/scripts/jev_client.py`, the path `sc-sanity-jev` and
-`post_mortem_jev.py` call.
+template, is copied byte for byte. `sc-sanity-jev` and `post_mortem_jev.py` call
+the Jev transport at `.claude/skills/atm-bd-orchestration/scripts/jev_client.py`.
 
 ## Ownership and upgrades
 
