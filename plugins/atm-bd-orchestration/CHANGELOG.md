@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.4] - 2026-10-06
+
+### Fixed
+- `jev_client.py --assignment <file>` builds the sanity request from the assignment: the deliverable text verbatim, `git diff base_sha...commit` of `changed_files`, and the `context` files at `commit`; `sc-sanity-jev` (0.8.0) writes the assignment unchanged and runs it, never a request of its own. sc-obs `obs-f-2.f2-imp-006` got `SANITY.RESULT_INVALID` twice: the agent-written requests held a paraphrased deliverable and no code (`"evidence": "commit f8b8d2db; sync_http/tests.rs"`), so Jev answered near a coin flip (yes 0.49 / 0.37).
+
 ## [0.10.3] - 2026-10-06
 
 ### Fixed

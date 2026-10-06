@@ -160,6 +160,60 @@ class JevClientTests(unittest.TestCase):
         self.assertFalse(client.verify_receipt(dict(receipt, choice="yes"), "test-only-key"))
         self.assertFalse(client.verify_receipt({k: v for k, v in receipt.items() if k != "mac"}, "test-only-key"))
 
+    def test_assignment_request_carries_the_deliverable_verbatim_and_the_committed_diff(self):
+        import subprocess, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            def git(*args):
+                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                                      check=True, capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            Path(tmp, "server.py").write_text("bind()\ndrop()\nrebind()\n")
+            Path(tmp, "notes.md").write_text("context note\n")
+            git("add", "-A"); git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            Path(tmp, "server.py").write_text("bind()\nhand_off_fd()\n")
+            git("commit", "-qam", "fix")
+            commit = git("rev-parse", "HEAD")
+            assignment = {"deliverable": {"number": 1, "text": "Keep the listener open and hand its fd to the child."},
+                          "worktree_path": tmp, "commit": commit, "base_sha": base,
+                          "changed_files": ["server.py"], "context": ["notes.md"]}
+            request = client.assignment_request(assignment)
+            self.assertEqual(request["state"]["deliverable"], assignment["deliverable"]["text"])
+            self.assertIn("+hand_off_fd()", request["state"]["evidence"])
+            self.assertIn("-rebind()", request["state"]["evidence"])
+            self.assertEqual(request["state"]["context"], {"notes.md": "context note\n"})
+            client.validate_request(request)
+
+            response = {"model": client.MODEL, "answers": {"written": {
+                "type": "choice", "choice": "yes", "confidence": 0.9, "probabilities": {"yes": 0.95, "no": 0.05}}}}
+            conn = MagicMock()
+            conn.getresponse.return_value.status = 200
+            conn.getresponse.return_value.read.return_value = json.dumps(response).encode()
+            file = Path(tmp, "..", Path(tmp).name + "-assignment.json").resolve()
+            file.write_text(json.dumps(assignment))
+            try:
+                output = io.StringIO()
+                with patch.dict(client.os.environ, {"TYPESAFE_API_KEY": "test-only-key"}), \
+                     patch.object(client.http.client, "HTTPSConnection", return_value=conn), contextlib.redirect_stdout(output):
+                    self.assertEqual(client.main(["--assignment", str(file)]), 0)
+                sent = json.loads(conn.request.call_args.kwargs["body"])
+                self.assertEqual(sent, request)
+                receipt = json.loads(output.getvalue())["data"]["receipt"]
+                self.assertEqual(receipt["request_sha256"], client.hashlib.sha256(client.canonical(request)).hexdigest())
+                self.assertTrue(client.verify_receipt(receipt, "test-only-key"))
+
+                for broken, message in (({**assignment, "commit": "0" * 40}, "Committed evidence unreadable at the pinned commits"),
+                                        ({k: v for k, v in assignment.items() if k != "base_sha"},
+                                         "Assignment lacks deliverable text, worktree, commits or file lists")):
+                    file.write_text(json.dumps(broken))
+                    output = io.StringIO()
+                    with patch.dict(client.os.environ, {"TYPESAFE_API_KEY": "test-only-key"}), contextlib.redirect_stdout(output):
+                        self.assertEqual(client.main(["--assignment", str(file)]), 2)
+                    error = json.loads(output.getvalue())["error"]
+                    self.assertEqual((error["code"], error["message"]), ("VALIDATION.INPUT", message))
+            finally:
+                file.unlink()
+
     def test_every_failure_message_the_client_writes_is_recognised(self):
         source = (Path(__file__).parents[1] / "jev_client.py").read_text()
         import re
