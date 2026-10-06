@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.11.4] - 2026-10-06
+
+### Fixed
+- A request over the Jev budget now tells the agent what to do: the `SANITY.JEV_INCONCLUSIVE` envelope is `recoverable` and its `suggested_action` gives the request size and says to remove `context` entries (largest first) and rerun `--assignment`, never the deliverable text or `changed_files`. Every other client error with a known fix returns its steps too (fetch for unreadable commits, one retry after 60 s for connection, 429 and 5xx failures, rewrite an unreadable assignment file); the rest say to report the error unchanged. `sc-sanity-jev` (0.8.2) does what `suggested_action` says before returning an error. Before, the size refusal read as an outage and every slot fell back to LLM-only.
+
+## [0.11.3] - 2026-10-06
+
+### Fixed
+- `jev_client.py` request cap 24000 -> 96000 bytes, Jev's documented 32k-token state budget (64k per request) at about 3 bytes per token; `judge.py` follows. The old 24000-byte "pilot bound" (~6k tokens) predates 0.10.4, which sends the real diff and context files, so a multi-file bead exceeded it: sc-obs obs-f-8.group-sanity lost all 7 Jev slots (`SANITY.JEV_INCONCLUSIVE`, recorded `CANNOT_RUN`) and went LLM-only. A request over the budget still refuses with a typed error and no Jev call.
+
 ## [0.11.2] - 2026-10-06
 
 ### Fixed
