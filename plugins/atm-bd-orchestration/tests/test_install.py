@@ -83,7 +83,7 @@ def test_config_template_declares_exactly_the_spec_variables_without_defaults():
 
 def test_versions_agree():
     version = install.package_version(PKG)
-    assert version == "0.10.1"
+    assert version == "0.10.2"
     assert json.loads((PKG / ".claude-plugin/plugin.json").read_text())["version"] == version
     assert f"## [{version}]" in (PKG / "CHANGELOG.md").read_text()
 
@@ -247,7 +247,7 @@ def test_fresh_install(tmp_path, capsys):
     assert config["reviewers_round1"] == ["req-qa", "arch-qa"]
     # the install record: version and the sha256 of every file written
     record = lock(repo)
-    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.10.1"
+    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.10.2"
     expected = {f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]} | {"scripts/jev_client.py", install.CONFIG_OUT}
     assert set(record["files"]) == expected
     assert all(sha((repo / k).read_bytes()) == v for k, v in record["files"].items())
@@ -369,7 +369,15 @@ def test_foreign_file_at_a_shipped_path_fails(tmp_path, capsys):
     (repo / ".claude/agents/dev-sanity.md").write_text("the repository's own agent\n")
     rc, err = run(repo, *QA, capsys=capsys)
     assert rc == 1 and ".claude/agents/dev-sanity.md exists and is not owned by atm-bd-orchestration" in err
+    assert "rerun with --overwrite" in err
     assert (repo / ".claude/agents/dev-sanity.md").read_text() == "the repository's own agent\n"
+    rc, err = run(repo, *QA, "--overwrite", capsys=capsys)
+    assert rc == 0, err
+    assert "warning: .claude/agents/dev-sanity.md" in err
+    [backup] = [p for p in (repo / ".backup").iterdir() if p.name != ".gitignore"]
+    assert (backup / ".claude/agents/dev-sanity.md").read_text() == "the repository's own agent\n"
+    assert (repo / ".backup/.gitignore").read_text() == "*\n"
+    assert lock(repo)["files"][".claude/agents/dev-sanity.md"] == sha((repo / ".claude/agents/dev-sanity.md").read_bytes())
 
 
 # ---------------------------------------------------------------- re-install / upgrade
@@ -415,6 +423,13 @@ def test_reinstall_fails_naming_modified_files_and_changes_nothing(tmp_path, pkg
     for key in edited:
         assert f"{key} was modified since atm-bd-orchestration installed it" in err
     assert snapshot(repo) == before   # the unmodified upgrade target was not touched either
+    rc, err = run(repo, "--overwrite", pkg=pkg_copy, capsys=capsys)
+    assert rc == 0, err
+    [backup] = [p for p in (repo / ".backup").iterdir() if p.name != ".gitignore"]
+    for key in edited:
+        assert (backup / key).read_bytes() == before[key]
+        assert not (repo / key).read_text().endswith("local edit\n")
+    assert (repo / ".claude" / script).read_text().endswith("# upgraded\n")
 
 
 @needs_sc_compose
@@ -429,9 +444,12 @@ def test_files_no_longer_shipped_are_removed_when_unchanged(tmp_path, pkg_copy, 
     (repo / ".claude/agents/sc-sanity-jev.md").write_text("edited\n")
     rc, err = run(repo, pkg=pkg_copy, capsys=capsys)
     assert rc == 1 and ".claude/agents/sc-sanity-jev.md was modified" in err and "no longer ships it" in err
-    (repo / ".claude/agents/sc-sanity-jev.md").unlink()
-    rc, err = run(repo, pkg=pkg_copy, capsys=capsys)
+    rc, err = run(repo, "--overwrite", pkg=pkg_copy, capsys=capsys)
     assert rc == 0, err
+    [backup] = [p for p in (repo / ".backup").iterdir() if p.name != ".gitignore"]
+    assert (backup / ".claude/agents/sc-sanity-jev.md").read_text() == "edited\n"
+    assert not (repo / ".claude/agents/sc-sanity-jev.md").exists()
+    assert ".claude/agents/sc-sanity-jev.md" not in lock(repo)["files"]
     assert not (repo / ".claude/skills/sprint-review").exists()
     assert not any(k.startswith(".claude/skills/sprint-review/") for k in lock(repo)["files"])
 
@@ -481,7 +499,7 @@ def test_migration_owns_shipped_and_legacy_bytes_and_fails_on_others(tmp_path, p
     assert rc == 0, err
     assert (repo / ".claude" / script).read_bytes() == (PKG / script).read_bytes()
     assert not (repo / ".claude" / dropped).exists()
-    assert lock(repo)["version"] == "0.10.1"
+    assert lock(repo)["version"] == "0.10.2"
 
 
 def _git_has(rev: str) -> bool:
