@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.2] - 2026-10-06
+
+### Changed
+- Plan review: an ADR the plan adds or changes that institutes ceremony the user did not explicitly request is a blocking finding (`plan-review-template` 3.9.0).
+
 ## [0.10.1] - 2026-10-06
 
 ### Fixed

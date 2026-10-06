@@ -1,6 +1,6 @@
 ---
 name: plan-review-task
-version: 3.8.0
+version: 3.9.0
 description: lead plan-review assignment for quality-mgr. task_id is the plan-review bead (<root>-plan-qa), which blocks every sprint container, so nothing is dispatched until the plan passes. The plan is the beads under the root; there is no plan PR.
 format: xml
 required_variables:
@@ -47,7 +47,8 @@ metadata:
 - `metadata.requirements` or `metadata.adrs` is empty, missing, or mixes `NONE` with ids (validate-plan already reports these);
 - an id is not in the governing document, unless it meets the New Ids rule of `.claude/skills/atm-beads/resources/planning.md` (the document is in `owned_paths` and a deliverable says the sprint adds the id);
 - a listed id does not govern the bead's work;
-- the work touches a requirement or ADR the bead does not list, including a bead that says `NONE`.
+- the work touches a requirement or ADR the bead does not list, including a bead that says `NONE`;
+- an ADR the plan adds or changes institutes ceremony (an artifact, gate, check or review step that no running code branches on) that the user did not explicitly request; reject the ADR.
 Run `req-qa` and `arch-qa` as background agents on every piped sprint container file, with `sprint_doc` = that file and the docs-only plan rules of `.claude/agents/quality-mgr.md`. Run `plan-scope-reviewer` over the whole set, in full, its assignment rendered with `plan-scope-reviewer-assignment.json.j2` (`plan_docs` = every piped sprint container file, `phase_root_doc` = the root's file); its `parallelism` numbers go in the report. Run the other plan reviewers the docs-only plan rules name on the same piped files, with `qa_round` = {{ round | string | cdata_escape }}.{% endif %}]]></step>
 {% if not carry_forward %}    <step id="d"><![CDATA[Run `ceremony-finding-screen` over this round's findings, except the step b findings and the REQ/ADR findings of step c, which are never ceremony. Drop what it screens out and list each drop with its reason in the report.]]></step>
 {% endif %}
