@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.0] - 2026-10-06
+
+### Added
+- `.claude/skills/atm-bd-orchestration/scripts/bead-queues` (`.claude/skills/atm-bd-orchestration/scripts/tests/test_bead_queues.py`), ported from sc-observability `scripts/bead_queues.py` @ e1866dca (#55): read-only oversight of one phase root's descendants in the 0.9+ bead model (plan review, dev, sanity, QA, fix groups, finding beads, sanity-FAIL children, closable containers), joined with live ATM tasks and the gh stack (dev complete with no `PR #<n>` recorded, phase PRs on no open stack, an open stack that is not coherent or not one merge). `--json` follows the Hermes cron contract with edge-triggered rows (bead/PR id + queue) kept in `.atm-bd/bead-queues/<root>.json` and a `--min-age` window. The lead runs it on each Loop pass.
+
 ## [0.10.4] - 2026-10-06
 
 ### Fixed

@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.20
+version: 0.7.0
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -338,6 +338,7 @@ Then, on each task close:
 
 Re-run `bd ready` after every close. Never cache the ready list. The open
 phase root also appears in it; it is never dispatched.
+On each Loop pass also run `.claude/skills/atm-bd-orchestration/scripts/bead-queues --phase <x>` and act on every row it reports.
 
 Close a sprint container when every child is closed (`bd children <sprint>
 --json | jq -e 'all(.[]; .status == "closed")'`): `bd close <sprint> --reason
