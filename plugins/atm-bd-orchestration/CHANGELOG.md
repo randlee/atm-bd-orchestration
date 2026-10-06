@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.5] - 2026-10-06
+
+### Changed
+- The Jev transport ships inside the skill that uses it, `.claude/skills/atm-bd-orchestration/scripts/jev_client.py`; nothing is installed at the repository root. An upgrade removes the `<repo>/scripts/jev_client.py` an earlier version placed when unchanged and refuses it, naming it, when modified (`--overwrite` moves it to `.backup/`). Every script path in the agents, skills, references and templates is written from the repository root (`dev-sanity` 2.16.3, `sc-sanity-jev` 0.8.1, `atm-bd-orchestration` 0.6.21, `atm-beads` 0.3.5, `dev-sanity-template` 2.17.1).
+
 ## [0.10.4] - 2026-10-06
 
 ### Fixed

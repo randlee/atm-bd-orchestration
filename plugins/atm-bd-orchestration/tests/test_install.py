@@ -55,7 +55,7 @@ def test_render_list_covers_exactly_the_placeholder_files():
 
 def test_no_repo_or_team_specific_strings_in_sources():
     hits = []
-    for cat in ("skills", "agents", "assets", "config"):
+    for cat in ("skills", "agents", "config"):
         for path in (PKG / cat).rglob("*"):
             if not path.is_file() or "node_modules" in path.parts or "__pycache__" in path.parts:
                 continue
@@ -83,7 +83,7 @@ def test_config_template_declares_exactly_the_spec_variables_without_defaults():
 
 def test_versions_agree():
     version = install.package_version(PKG)
-    assert version == "0.10.4"
+    assert version == "0.10.5"
     assert json.loads((PKG / ".claude-plugin/plugin.json").read_text())["version"] == version
     assert f"## [{version}]" in (PKG / "CHANGELOG.md").read_text()
 
@@ -247,8 +247,8 @@ def test_fresh_install(tmp_path, capsys):
     assert config["reviewers_round1"] == ["req-qa", "arch-qa"]
     # the install record: version and the sha256 of every file written
     record = lock(repo)
-    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.10.4"
-    expected = {f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]} | {"scripts/jev_client.py", install.CONFIG_OUT}
+    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.10.5"
+    expected = {f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]} | {install.CONFIG_OUT}
     assert set(record["files"]) == expected
     assert all(sha((repo / k).read_bytes()) == v for k, v in record["files"].items())
     # roles written, the rest of registry.yaml kept
@@ -263,7 +263,9 @@ def test_fresh_install(tmp_path, capsys):
     example = (dest / "skills/atm-bd-orchestration/examples/dev-sanity-template-vars.json").read_text()
     assert "https://github.com/owner/my-repo/pull/" in example and str(repo.resolve().parent / "my-repo-worktrees") in example
     assert '"parent": "myp-workflow-issues"' in (dest / "skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json").read_text()
-    assert (repo / "scripts/jev_client.py").read_bytes() == (PKG / "assets/scripts/jev_client.py").read_bytes()
+    assert (dest / "skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes() == \
+        (PKG / "skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes()
+    assert not (repo / "scripts").exists()
     assert (dest / "skills/atm-beads/scripts/validate-plan").stat().st_mode & 0o111
     assert (dest / "skills/atm-bd-orchestration/templates/qa-template.xml.j2").read_bytes() == \
         (PKG / "skills/atm-bd-orchestration/templates/qa-template.xml.j2").read_bytes()
@@ -454,6 +456,45 @@ def test_files_no_longer_shipped_are_removed_when_unchanged(tmp_path, pkg_copy, 
     assert not any(k.startswith(".claude/skills/sprint-review/") for k in lock(repo)["files"])
 
 
+@needs_sc_compose
+def test_upgrade_removes_the_repo_root_jev_client_0_10_4_placed(tmp_path, capsys):
+    # 0.10.4 placed the Jev transport at <repo>/scripts/jev_client.py and recorded it in the lock
+    repo = make_repo(tmp_path)
+    assert run(repo, *QA)[0] == 0
+    old = (PKG / "skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes()
+    (repo / "scripts").mkdir()
+    (repo / "scripts/jev_client.py").write_bytes(old)
+    record = lock(repo)
+    record["files"]["scripts/jev_client.py"] = sha(old)
+    (repo / install.LOCK_OUT).write_text(json.dumps(record))
+    rc, err = run(repo, capsys=capsys)
+    assert rc == 0, err
+    assert not (repo / "scripts").exists() and "scripts/jev_client.py" not in lock(repo)["files"]
+    assert (repo / ".claude/skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes() == old
+
+
+@needs_sc_compose
+def test_upgrade_refuses_a_modified_repo_root_jev_client_and_backs_it_up_with_overwrite(tmp_path, capsys):
+    repo = make_repo(tmp_path)
+    assert run(repo, *QA)[0] == 0
+    old = (PKG / "skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes()
+    (repo / "scripts").mkdir()
+    (repo / "scripts/jev_client.py").write_bytes(b"edited\n")
+    (repo / "scripts/other.sh").write_text("the repository's own script\n")
+    record = lock(repo)
+    record["files"]["scripts/jev_client.py"] = sha(old)
+    (repo / install.LOCK_OUT).write_text(json.dumps(record))
+    rc, err = run(repo, capsys=capsys)
+    assert rc == 1 and "scripts/jev_client.py was modified" in err and "no longer ships it" in err
+    assert (repo / "scripts/jev_client.py").read_bytes() == b"edited\n"
+    rc, err = run(repo, "--overwrite", capsys=capsys)
+    assert rc == 0, err
+    [backup] = [p for p in (repo / ".backup").iterdir() if p.name != ".gitignore"]
+    assert (backup / "scripts/jev_client.py").read_bytes() == b"edited\n"
+    assert not (repo / "scripts/jev_client.py").exists() and (repo / "scripts/other.sh").is_file()
+    assert "scripts/jev_client.py" not in lock(repo)["files"]
+
+
 
 @needs_sc_compose
 def test_upgrade_from_0_6_removes_the_legacy_sanity_teammates_and_role_sheet(tmp_path, pkg_copy, capsys):
@@ -499,7 +540,7 @@ def test_migration_owns_shipped_and_legacy_bytes_and_fails_on_others(tmp_path, p
     assert rc == 0, err
     assert (repo / ".claude" / script).read_bytes() == (PKG / script).read_bytes()
     assert not (repo / ".claude" / dropped).exists()
-    assert lock(repo)["version"] == "0.10.4"
+    assert lock(repo)["version"] == "0.10.5"
 
 
 def _git_has(rev: str) -> bool:
@@ -543,7 +584,8 @@ def test_real_upgrade_from_a_0_2_3_install(tmp_path, capsys):
         rc, err = run(repo, *QA, capsys=capsys)
     assert rc == 0, err
     files = lock(repo)["files"]
-    assert ".claude/skills/atm-beads/scripts/validate-plan" in files and "scripts/jev_client.py" in files
+    assert ".claude/skills/atm-beads/scripts/validate-plan" in files and "scripts/jev_client.py" not in files
+    assert ".claude/skills/atm-bd-orchestration/scripts/jev_client.py" in files and not (repo / "scripts/jev_client.py").exists()
     assert all(sha((repo / k).read_bytes()) == v for k, v in files.items())
 
 

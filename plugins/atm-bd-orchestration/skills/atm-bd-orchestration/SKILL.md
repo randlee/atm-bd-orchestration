@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.20
+version: 0.6.21
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -90,17 +90,17 @@ each use with its verbatim error in the log or evidence and announce it the same
 Repository values live in one file, `.claude/project/atm-bd-orchestration.yaml`,
 which the installer renders from the consuming repository. Scripts read it at
 run time through
-[`../atm-beads/scripts/repo_config.py`](../atm-beads/scripts/repo_config.py);
+[`.claude/skills/atm-beads/scripts/repo_config.py`](../atm-beads/scripts/repo_config.py);
 a missing file or key is a named error, never a default. Dispatch templates
 declare these values as required variables with no defaults, so the lead fills
-them from that file (start each vars file from `repo_config.py json`); a missing
+them from that file (start each vars file from `.claude/skills/atm-beads/scripts/repo_config.py json`); a missing
 one fails the render.
 
 | Key | Consumed by |
 | --- | --- |
 | `bead_prefix` | `sprint_index_common.py` when no root id is given (a root id `<prefix>-phase-<x>` wins) |
 | `lead` | `roles.lead` and the install-time lead placeholders |
-| `dev_sanity_member` | the `dev-sanity` role (`resolve-role dev-sanity`); a team member, which may have no `.claude/agents/<name>.md` |
+| `dev_sanity_member` | the `dev-sanity` role (`.claude/skills/atm-beads/scripts/resolve-role dev-sanity`); a team member, which may have no `.claude/agents/<name>.md` |
 | `qa_member` | `qa-bead.json.j2` (`qa_member`), a parallel quick fix's QA bead |
 | `worktree_base` | sprint bead `worktree` = `<worktree_base>/<branch>` |
 | `test_command` | `dev-template`, `fix-assignment`, `dev-fix` |
@@ -201,7 +201,7 @@ on every restack and show up as out-of-scope work in that sprint's PR.
    integration branch for a bug in merged code, or the stack layer whose
    types the change uses.
 3. The finder cuts `fix/<thing>` from the stack's current top
-   (`assignment-gates.py stack-top --pr-target <pr_target>`) in its own worktree,
+   (`.claude/skills/atm-bd-orchestration/scripts/assignment-gates.py stack-top --pr-target <pr_target>`) in its own worktree,
    with only the change, the implementors and call sites the compiler
    forces, and one test when it is a bug. The test command passes; push; PR
    against that top: a new layer, never a PR into a lower layer or the
@@ -298,7 +298,7 @@ open findings. Run it after every task close, before any other work, and dispatc
 ready bead. Assign a bead only while `bd ready` lists it. Order and hold work only with bead edges, gates and `atm task move`;
 never tell an agent not to run a task in its queue. The lead may step in at critical points, preferably through a background developer subagent (Parallel Quick Fix step 3); lead work is never part of the original plan.
 While a workflow outage class bead is open, re-test its cause on each pass
-(Jev: `python3 scripts/jev_client.py --startup`; any other cause: the command
+(Jev: `python3 .claude/skills/atm-bd-orchestration/scripts/jev_client.py --startup`; any other cause: the command
 in the bead's `remedy`, its `design`) and on success close it (`bd close <bead> --reason
 "re-test PASS"`), which releases the re-dispatches held on it. A passing probe
 does not close a Jev class bead a JEV child opened while a sanity task is ready
@@ -311,7 +311,7 @@ For each ready bead:
 | --- | --- | --- |
 | plan review (`stage:plan-review`) | [`plan-review-template.xml.j2`](templates/plan-review-template.xml.j2) | quality-mgr |
 | dev (`stage:dev`) | [`dev-template.xml.j2`](templates/dev-template.xml.j2) | the member the lead picks for its `difficulty` |
-| sanity check (`stage:dev-sanity`) | [`dev-sanity-template.xml.j2`](templates/dev-sanity-template.xml.j2) | `resolve-role dev-sanity` |
+| sanity check (`stage:dev-sanity`) | [`dev-sanity-template.xml.j2`](templates/dev-sanity-template.xml.j2) | `.claude/skills/atm-beads/scripts/resolve-role dev-sanity` |
 | QA (`stage:qa`) | [`qa-template.xml.j2`](templates/qa-template.xml.j2) | quality-mgr |
 | fix (`stage:fix`) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2) | the member the lead picks for its `difficulty` |
 | finding from a quick-fix QA (its `discovered-from` QA bead has `metadata.quick_fix` true) | [`fix-assignment.xml.j2`](templates/fix-assignment.xml.j2), no sanity bead; once every finding from that failed QA has closed, one more quick-fix QA bead (Parallel Quick Fix step 4) | an idle dev whose model fits its `difficulty`, by priority |
@@ -343,7 +343,7 @@ Close a sprint container when every child is closed (`bd children <sprint>
 --json | jq -e 'all(.[]; .status == "closed")'`): `bd close <sprint> --reason
 "<n> fix groups closed; QA PASS"`. bd refuses the close while a child is open.
 
-After every bead write, run `validate-plan --phase <x>`. On any problem,
+After every bead write, run `.claude/skills/atm-beads/scripts/validate-plan --phase <x>`. On any problem,
 stop dispatching and report it to the user; never repair the graph
 (`bd dep`, `--parent`) beyond adding a dependency discovered in motion. A DAG problem is fixed by replanning: edit
 the plan file in a `/sc-git-worktree` branch off the root's
@@ -451,7 +451,7 @@ atm task assign <agent> --task-id <bead> \
   `pr_target` is the sprint's first layer's branch.
 - Set the bead's assignee to the recipient first:
   `bd update <bead> --assignee <agent>`. For a role, the recipient is
-  `resolve-role <role>`. A claim fails when the bead is
+  `.claude/skills/atm-beads/scripts/resolve-role <role>`. A claim fails when the bead is
   assigned to anyone else.
 - Build vars from the template's `required_variables`, with `task_id` = the
   bead id; the bead supplies most of the rest

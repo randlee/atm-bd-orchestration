@@ -99,10 +99,10 @@ RENDER_VARIABLES = (
 )
 PLACEHOLDER_RE = re.compile(r"\{\{ (" + "|".join(RENDER_VARIABLES) + r") \}\}")
 
-# Repository files placed outside the target directory: assets/<path> lands at <repo>/<path>.
-# scripts/jev_client.py is the Jev transport that sc-sanity-jev and post_mortem_jev.py call by
-# that repository-relative path (`--client` default).
-REPO_ASSETS = ("assets/scripts/jev_client.py",)
+# Repository-root files an earlier version placed (0.10.4 and before); removed on upgrade like
+# any file no longer shipped (repo path -> package source). The Jev transport now ships inside
+# the atm-bd-orchestration skill.
+RETIRED_REPO_FILES = {"scripts/jev_client.py": "assets/scripts/jev_client.py"}
 
 
 class InstallError(RuntimeError):
@@ -421,9 +421,6 @@ def desired_files(pkg_dir: Path, target_prefix: str, *, codex: bool, render_valu
             if rel in renders:
                 data = render_text(data.decode("utf-8"), render_values).encode("utf-8")
             out[target_prefix + rel] = (data, bool(src.stat().st_mode & stat.S_IXUSR), rel)
-    for rel in REPO_ASSETS:
-        src = pkg_dir / rel
-        out[str(Path(rel).relative_to("assets"))] = (src.read_bytes(), bool(src.stat().st_mode & stat.S_IXUSR), rel)
     out[CONFIG_OUT] = (config_bytes, False, CONFIG_TEMPLATE)
     return out
 
@@ -503,10 +500,13 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
         plan.lock_files[key] = sha256(data)
 
     # Files an earlier install placed that this version no longer ships (this target only).
-    stale: Dict[str, Optional[str]] = {k: v for k, v in locked.items() if k.startswith(target_prefix) and k not in wanted}
+    stale: Dict[str, Optional[str]] = {k: v for k, v in locked.items() if (k.startswith(target_prefix) or k in RETIRED_REPO_FILES) and k not in wanted}
     for pkg_rel in legacy:
         key = target_prefix + pkg_rel
         if pkg_rel.startswith(("skills/", "agents/")) and key not in wanted and key not in stale:
+            stale[key] = None
+    for key, pkg_rel in RETIRED_REPO_FILES.items():
+        if pkg_rel in legacy and key not in stale:
             stale[key] = None
     for key, recorded in sorted(stale.items()):
         path = repo_root / key
@@ -522,7 +522,7 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
             else:
                 plan.problems.append(f"{key} was modified since {PACKAGE} installed it and this version no longer "
                                      f"ships it; move it out of the way and rerun{OVERWRITE_HINT}")
-        elif digest in legacy.get(key[len(target_prefix):], set()):
+        elif digest in legacy.get(RETIRED_REPO_FILES.get(key, key[len(target_prefix):]), set()):
             plan.removals.append(key)
 
     try:
@@ -532,7 +532,7 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
 
     # Keep the other target's records.
     for key, digest in locked.items():
-        if not key.startswith(target_prefix) and key not in plan.lock_files and key not in wanted:
+        if not key.startswith(target_prefix) and key not in plan.lock_files and key not in wanted and key not in RETIRED_REPO_FILES:
             plan.lock_files[key] = digest
     return plan, config
 
@@ -622,7 +622,7 @@ def apply_plan(plan: Plan, version: str) -> int:
         path.unlink(missing_ok=True)   # a backed-up file is already gone
         parent = path.parent
         stop = root / plan.target_prefix
-        while parent != stop and parent.is_dir() and not any(parent.iterdir()):
+        while parent not in (stop, root) and parent.is_dir() and not any(parent.iterdir()):
             parent.rmdir()
             parent = parent.parent
     lock = {"package": PACKAGE, "version": version, "files": dict(sorted(plan.lock_files.items()))}
