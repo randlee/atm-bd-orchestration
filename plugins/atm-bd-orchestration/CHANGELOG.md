@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.2] - 2026-10-06
+
+### Fixed
+- Jev children: `sc-sanity-jev` (0.7.1) says Jev is reached only by `python3 scripts/jev_client.py --request <file>`, with no tool or executable to look for, and is unavailable only when that command exits 2; `dev-sanity` (2.16.2) gives a child spawned without an agent type the full text of its agent file. sc-obs Codex sanity children, spawned untyped, looked for a Jev tool and `command -v jev` and reported Jev unavailable.
+
 ## [0.10.1] - 2026-10-06
 
 ### Fixed
