@@ -219,10 +219,10 @@ class TemplateContractTests(unittest.TestCase):
     def test_sc_sanity_jev_hands_the_client_an_assignment_it_accepts(self):
         import importlib.util
         text = (ROOT.parents[1] / "agents" / "sc-sanity-jev.md").read_text()
-        self.assertIn("python3 scripts/jev_client.py --assignment <file>", text)
+        self.assertIn("python3 .claude/skills/atm-bd-orchestration/scripts/jev_client.py --assignment <file>", text)
         self.assertNotIn("--request", text)
         assignment = json.loads(re.search(r"## Inputs\n\n```json\n(.*?)\n```", text, re.S).group(1))
-        spec = importlib.util.spec_from_file_location("jev_client", ROOT.parents[2] / "scripts" / "jev_client.py")
+        spec = importlib.util.spec_from_file_location("jev_client", ROOT / "scripts" / "jev_client.py")
         client = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(client)
         # every field the client reads is in the documented input; only the example's paths are not a repository

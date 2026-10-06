@@ -6,7 +6,7 @@ registry.yaml from the package tree, or check them (--check).
     python3 tests/gen_manifest.py --check  # exit 1 if any block is stale
 
 Artifacts are every file under skills/ and agents/ (sc-install copies files, not
-directories); assets/ files are placed by install.py complete(). The render list is every artifact that contains an install-time
+directories). The render list is every artifact that contains an install-time
 placeholder; .j2 dispatch templates are never rendered at install time.
 """
 from __future__ import annotations

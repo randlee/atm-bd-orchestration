@@ -1,7 +1,7 @@
 """Run the skills' own test suites against an installed, rendered copy.
 
 The upstream suites resolve paths from the repository layout (`.claude/skills/...`,
-`scripts/jev_client.py`) and some scripts carry install-time values, so they run
+`.claude/skills/atm-bd-orchestration/scripts/jev_client.py`) and some scripts carry install-time values, so they run
 inside a throwaway repository installed with a non-default bead prefix (`myp`).
 Needs `sc-compose`; skipped (and says so) without it.
 """

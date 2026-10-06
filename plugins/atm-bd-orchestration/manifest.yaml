@@ -68,6 +68,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/bv-analyze
     - skills/atm-bd-orchestration/scripts/check-review-completion.py
     - skills/atm-bd-orchestration/scripts/fix-round-scope
+    - skills/atm-bd-orchestration/scripts/jev_client.py
     - skills/atm-bd-orchestration/scripts/post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/post_mortem_jev.py
     - skills/atm-bd-orchestration/scripts/sanity-create-findings
@@ -103,6 +104,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_bead_queues.py
     - skills/atm-bd-orchestration/scripts/tests/test_bv_analyze.py
     - skills/atm-bd-orchestration/scripts/tests/test_fix_round_scope.py
+    - skills/atm-bd-orchestration/scripts/tests/test_jev_client.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_jev.py
     - skills/atm-bd-orchestration/scripts/tests/test_qa_report_contract.py

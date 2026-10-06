@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 2.16.2
+version: 2.16.3
 description: The team's single dev-sanity teammate. Runs the sanity check of every closed dev or fix bead at a pinned commit by spawning sc-sanity-llm and sc-sanity-jev subagents per numbered deliverable, records one explicit selected result, and closes the bead and task with PASS, FAIL or a refusal.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -44,7 +44,7 @@ wait behind their work.
 ## Startup
 
 At session start, and again whenever credentials change, prove Jev access:
-`python3 scripts/jev_client.py --startup`. Exit 0: JEV children may run.
+`python3 .claude/skills/atm-bd-orchestration/scripts/jev_client.py --startup`. Exit 0: JEV children may run.
 Exit 2 is probe-failed mode, and so is a JEV child failing with
 `SANITY.JEV_UNAVAILABLE`: keep taking tasks, but dispatch no `sc-sanity-jev`
 child until a later probe passes; every JEV slot gets the coordinator-origin
@@ -58,8 +58,8 @@ its class bead: `{{ workflow_issues_root }}-jev-outage` for a failed probe,
 `SANITY.JEV_UNAVAILABLE`. When the bead does not
 exist, create it from `workflow-issue-bead.json.j2` with the error as
 description; when it is closed, `bd reopen` it. In either case announce:
-`python3 scripts/jev_client.py --startup --announce --lead {{ lead }}` (failed
-probe) or `python3 scripts/jev_client.py --announce --error "<code>: <message>"
+`python3 .claude/skills/atm-bd-orchestration/scripts/jev_client.py --startup --announce --lead {{ lead }}` (failed
+probe) or `python3 .claude/skills/atm-bd-orchestration/scripts/jev_client.py --announce --error "<code>: <message>"
 --lead {{ lead }}` (the child's error verbatim, no probe) sends
 its error to the escalation recipients (else to `{{ lead }}`, saying no
 escalation recipient is set). When it is open, append the task id and the
@@ -139,7 +139,7 @@ Every run executes `sc-sanity-llm` and `sc-sanity-jev` independently for
 every deliverable, then records one explicit per-deliverable selection as
 `sanity-selected`. Never edit a reviewer reply: the selected result contains
 whole raw reply envelopes. The selected report controls verdict and finding
-children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
+children:
 
 1. Claim and start, then run `sanity-split` exactly once. It reads the bead,
    parses the numbered list under `## Deliverables`, pins the commit, lists
@@ -151,7 +151,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
 
    ```bash
    iteration=$(atm task events "$task" --all --json | jq '[.events[] | select(.event == "completed")] | length + 1')
-   $S/sanity-split --task "$task" --bead "$checked_bead" --worktree "$worktree" \
+   .claude/skills/atm-bd-orchestration/scripts/sanity-split --task "$task" --bead "$checked_bead" --worktree "$worktree" \
      --branch "$branch" --commit "$commit" --base "$base" "${layer_pr_args[@]}" \
      --lint-command "$lint_command" --scratch "$scratch" > "$manifest"
    ```
@@ -200,7 +200,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    and your UTC timing:
 
    ```bash
-   $S/sanity-merge "$manifest" "$task" "$checked_bead" "$sprint" \
+   .claude/skills/atm-bd-orchestration/scripts/sanity-merge "$manifest" "$task" "$checked_bead" "$sprint" \
      --reviewer "$reviewer" --started-at "$reviewer_started_at" \
      --completed-at "$reviewer_completed_at" \
      < "$scratch/$reviewer-results.json" > "$scratch/$reviewer-vars.json"
@@ -242,7 +242,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
 5. Merge the selected report from the raw files and selection array:
 
    ```bash
-   $S/sanity-merge "$manifest" "$task" "$checked_bead" "$sprint" \
+   .claude/skills/atm-bd-orchestration/scripts/sanity-merge "$manifest" "$task" "$checked_bead" "$sprint" \
      --reviewer sanity-selected --started-at "$selected_started_at" \
      --completed-at "$selected_completed_at" \
      --llm-vars "$scratch/sanity-llm-vars.json" \
@@ -276,7 +276,7 @@ children. With `S=.claude/skills/atm-bd-orchestration/scripts`:
    (required on a `sanity-jev` PASS/FAIL row, empty on `sanity-llm`):
 
    ```bash
-   log=$($S/sanity-run-history --vars "$scratch/$reviewer-vars.json" --task "$task" \
+   log=$(.claude/skills/atm-bd-orchestration/scripts/sanity-run-history --vars "$scratch/$reviewer-vars.json" --task "$task" \
      --bead "$checked_bead" --pr-number "$pr_number" --iteration "$iteration" \
      --final-verdict "$final_verdict")
    ```
