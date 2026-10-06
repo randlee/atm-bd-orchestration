@@ -121,7 +121,6 @@ def init_workspace(w: Workspace) -> None:
     root = w.root
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     w.bd("init", "--prefix", "t", "--proxied-server", "--non-interactive", "--quiet", "--skip-agents", "--skip-hooks")
-    (root / ".beads" / "formulas").mkdir(exist_ok=True)
     ignore = shutil.ignore_patterns("__pycache__", "tests")
     shutil.copytree(SKILL, root / ".claude/skills/atm-bd-orchestration", ignore=ignore)
     shutil.copytree(ATM_BEADS, root / ".claude/skills/atm-beads", ignore=ignore)

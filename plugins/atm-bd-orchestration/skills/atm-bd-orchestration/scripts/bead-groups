@@ -219,6 +219,7 @@ class Run:
             if any(self.bd.show(attach_id(parent, ref, step)) is None for step in self.steps(target)):
                 raise TargetError("BEAD_GROUPS_QA_CLOSED", f"{target['compose']['filed_by']} is closed; quality-mgr pours the fix groups of its blocking findings before closing it")
         active = Path(json.loads(self.bd.run("where", "--json").stdout)["path"]).resolve()
+        (active / "formulas").mkdir(exist_ok=True)  # the rendered formula goes in bd's registry; a fresh .beads has none
         template = bead_formulas.template(formula, self.repo).resolve()
         try:
             template = template.relative_to(self.repo.resolve())
