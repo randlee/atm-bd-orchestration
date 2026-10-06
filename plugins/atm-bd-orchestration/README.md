@@ -85,8 +85,8 @@ as written), which is the map `resolve-role` reads.
 The files listed under `render:` in `registry.yaml` (examples, a few docs and
 tests) also carry install-time placeholders: `{{ lead }}`,
 `{{ dev_sanity_member }}`, `{{ bead_prefix }}`, `{{ worktree_base }}` from the
-configuration, and `{{ repo_slug }}`, `{{ repo_name }}` (git origin),
-`{{ repo_root }}` and `{{ workflow_issues_root }}` (`<bead_prefix>-workflow-issues`)
+configuration, and `{{ repo_slug }}`, `{{ repo_name }}` (git origin)
+and `{{ workflow_issues_root }}` (`<bead_prefix>-workflow-issues`)
 derived from the repository. Every other file, including every `*.j2` dispatch
 template, is copied byte for byte. `assets/scripts/jev_client.py` is placed at
 `<repo>/scripts/jev_client.py`, the path `sc-sanity-jev` and

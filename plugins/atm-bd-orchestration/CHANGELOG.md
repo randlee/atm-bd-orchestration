@@ -10,6 +10,7 @@
 - `assignment-gates.py sanity`: `bd history` output that is not a JSON list of snapshots each with an `Issue` object is `GATE_CANNOT_RUN` with the output in the message on stderr, no longer an empty history and `READY`; every `GATE_CANNOT_RUN` from `evaluate` now prints its reason to stderr.
 - `assignment-gates.py dev`: `PLAN_INVALID` (validate-plan exit 5) prints validate-plan's problems to stderr, and any other validate-plan failure (exit 2, e.g. no `.atm-bd/<phase>.toml`) is `GATE_CANNOT_RUN` with its message, no longer a silent `PLAN_INVALID`.
 - `validate-plan --ci` runs without pydantic (CI runners have none): `bead_schema` is imported only by the bead checks.
+- Example vars files no longer bake the installer's absolute path into the consuming repo: `primary_checkout` examples read `/path/to/<repo_name>`, and the unused `repo_root` install placeholder is gone.
 
 ## [0.9.0] - 2026-10-04
 

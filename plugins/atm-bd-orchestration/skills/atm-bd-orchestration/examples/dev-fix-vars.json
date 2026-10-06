@@ -6,7 +6,7 @@
   "branch": "fix/d-4-otlp-sync-exporter-sanity",
   "sanity_bead": "{{ bead_prefix }}-d-4-sanity",
   "pr_target": "sprint/d-4-otlp-sync-exporter",
-  "primary_checkout": "{{ repo_root }}",
+  "primary_checkout": "/path/to/{{ repo_name }}",
   "phase_root": "{{ bead_prefix }}-phase-d",
   "test_command": "make test"
 }
