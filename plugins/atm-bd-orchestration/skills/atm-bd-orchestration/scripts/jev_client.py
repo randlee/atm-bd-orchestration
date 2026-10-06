@@ -16,7 +16,7 @@ import time
 
 MODEL = "jev-1.13.0"
 HOST = "api.typesafe.ai"
-MAX_REQUEST_BYTES = 24000  # Conservative pilot bound, not a vendor token count.
+MAX_REQUEST_BYTES = 96000  # Jev documents 32k state tokens of a 64k request budget; ~3 bytes per token of code.
 MAX_RESPONSE_BYTES = 1048576
 
 
@@ -85,7 +85,7 @@ def validate_request(request):
     except (TypeError, ValueError):
         raise JevError("VALIDATION.INPUT", "Request must contain finite JSON values") from None
     if len(body) > MAX_REQUEST_BYTES:
-        raise JevError("SANITY.JEV_INCONCLUSIVE", "Pilot request exceeds 24000 bytes; split evidence without dropping checks")
+        raise JevError("SANITY.JEV_INCONCLUSIVE", "Request exceeds 96000 bytes, the Jev state budget; no Jev evaluation ran")
     return body
 
 
@@ -132,7 +132,7 @@ CLIENT_MESSAGES = re.compile("|".join([
     r"Unexpected Jev response model or shape", r"Missing or unexpected answer IDs", r"Answer must be an object",
     r"Invalid Choice answer", r"Expected pinned model, state and nonempty questions",
     r"Pilot supports well-formed Choice questions only", r"Request must contain finite JSON values",
-    r"Pilot request exceeds 24000 bytes; split evidence without dropping checks",
+    r"Request exceeds 96000 bytes, the Jev state budget; no Jev evaluation ran",
     r"Jev connection failed or timed out", r"Jev HTTP \d{3}; response body withheld",
     r"Jev response exceeded size limit", r"Jev response was not JSON", r"Jev retry budget exhausted",
     r"Startup probe returned the wrong literal choice", r"Request file unavailable or invalid JSON",

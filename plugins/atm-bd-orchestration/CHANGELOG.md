@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.3] - 2026-10-06
+
+### Fixed
+- `jev_client.py` request cap 24000 -> 96000 bytes, Jev's documented 32k-token state budget (64k per request) at about 3 bytes per token; `judge.py` follows. The old 24000-byte "pilot bound" (~6k tokens) predates 0.10.4, which sends the real diff and context files, so a multi-file bead exceeded it: sc-obs obs-f-8.group-sanity lost all 7 Jev slots (`SANITY.JEV_INCONCLUSIVE`, recorded `CANNOT_RUN`) and went LLM-only. A request over the budget still refuses with a typed error and no Jev call.
+
 ## [0.11.2] - 2026-10-06
 
 ### Fixed
