@@ -26,10 +26,35 @@ class JevError(Exception):
         self.code, self.message, self.recoverable = code, message, recoverable
 
 
+REPORT = "Report this error unchanged; the coordinator records the slot unavailable."
+RETRY = "Transient: wait 60 seconds and run the same command once more. If it fails again, " + REPORT[0].lower() + REPORT[1:]
+FIXES = (  # message prefix -> what the calling agent does next
+    ("TYPESAFE_API_KEY is missing", "No Jev call is possible without TYPESAFE_API_KEY. " + REPORT),
+    ("TYPESAFE_API_KEY has invalid formatting", "TYPESAFE_API_KEY holds whitespace, quotes or control characters. " + REPORT),
+    ("Assignment lacks", "Write the assignment you received unchanged: it needs `deliverable.text`, `worktree_path`, "
+     "`commit`, `base_sha`, `changed_files` and `context`. If the received assignment lacks one, " + REPORT[0].lower() + REPORT[1:]),
+    ("Committed evidence unreadable", "Run `git -C <worktree_path> fetch origin` so `commit` and `base_sha` exist, then run "
+     "the same command again. If it still fails, a `changed_files` or `context` path is missing at `commit`: " + REPORT[0].lower() + REPORT[1:]),
+    ("Request file unavailable", "Write the file as the JSON object you were given, outside the worktree, and run the command again."),
+    ("Jev connection failed", RETRY),
+    ("Jev retry budget exhausted", RETRY),
+)
+
+
+def suggested_action(exc):
+    if exc.message.startswith("Request exceeds"):
+        return (f"The request is {exc.size} bytes. Reduce context and retry: remove entries from the assignment's "
+                "`context` list, largest file first, and rerun `--assignment <file>` until it fits. Never remove the "
+                "deliverable text or `changed_files`. If it still exceeds with `context` empty, report this error unchanged.")
+    if exc.message.startswith("Jev HTTP"):
+        return RETRY if exc.recoverable else "Jev rejected the request or the key. " + REPORT
+    return next((fix for prefix, fix in FIXES if exc.message.startswith(prefix)), REPORT)
+
+
 def failure(exc):
     return {"success": False, "data": None, "error": {
         "code": exc.code, "message": exc.message, "recoverable": exc.recoverable,
-        "suggested_action": "set TYPESAFE_API_KEY; until then dev-sanity records every JEV slot as unavailable" if "TYPESAFE_API_KEY is missing" in exc.message else "dev-sanity records every JEV slot as unavailable; correct Jev access or request data and rerun the startup probe",
+        "suggested_action": suggested_action(exc),
     }}
 
 
@@ -85,7 +110,9 @@ def validate_request(request):
     except (TypeError, ValueError):
         raise JevError("VALIDATION.INPUT", "Request must contain finite JSON values") from None
     if len(body) > MAX_REQUEST_BYTES:
-        raise JevError("SANITY.JEV_INCONCLUSIVE", "Request exceeds 96000 bytes, the Jev state budget; no Jev evaluation ran")
+        exc = JevError("SANITY.JEV_INCONCLUSIVE", "Request exceeds 96000 bytes, the Jev state budget; no Jev evaluation ran", True)
+        exc.size = len(body)
+        raise exc
     return body
 
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.4] - 2026-10-06
+
+### Fixed
+- A request over the Jev budget now tells the agent what to do: the `SANITY.JEV_INCONCLUSIVE` envelope is `recoverable` and its `suggested_action` gives the request size and says to remove `context` entries (largest first) and rerun `--assignment`, never the deliverable text or `changed_files`. Every other client error with a known fix returns its steps too (fetch for unreadable commits, one retry after 60 s for connection, 429 and 5xx failures, rewrite an unreadable assignment file); the rest say to report the error unchanged. `sc-sanity-jev` (0.8.2) does what `suggested_action` says before returning an error. Before, the size refusal read as an outage and every slot fell back to LLM-only.
+
 ## [0.11.3] - 2026-10-06
 
 ### Fixed
