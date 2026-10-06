@@ -3,7 +3,10 @@
 ## [0.10.2] - 2026-10-06
 
 ### Changed
-- Plan review: an ADR the plan adds or changes that institutes ceremony the user did not explicitly request is a blocking finding (`plan-review-template` 3.9.0).
+- Plan review runs `ceremony-qa` on every piped sprint container file and the root's file (`plan-review-template` 3.9.0).
+
+### Added
+- `agents/ceremony-qa.md` 0.2.0, from the atm-core and sc-observability copies (0.1.0): a new `unrequested_ceremony_adr` finding (important) rejects an ADR the plan adds or changes that institutes a rule, constraint, gate, check, artifact or review step the user did not explicitly request (e.g. a crate count, an API shape fixed in the ADR). A repository with its own `.claude/agents/ceremony-qa.md` deletes it before installing.
 
 ## [0.10.1] - 2026-10-06
 

@@ -187,6 +187,7 @@ artifacts:
     - skills/sprint-review/SKILL.md
     - skills/sprint-review/scripts/sprint-review
   agents:
+    - agents/ceremony-qa.md
     - agents/dev-sanity.md
     - agents/parallax.md
     - agents/sc-sanity-jev.md
