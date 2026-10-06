@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.2] - 2026-10-06
+
+### Fixed
+- Lead Role Loop: the stopped-assignee message puts the checklist outside the worktree's tracked tree, as dev-template step d already says. sc-obs cobs2 wrote `.obs-f-3.group-dev-checklist.md` untracked in its sprint worktree and dev-sanity refused the dirty worktree.
+
 ## [0.11.1] - 2026-10-06
 
 ### Changed
