@@ -47,7 +47,7 @@ def test_installed_suite_passes(installed, suite):
     env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(scripts), str(scripts.parent)])}
     proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", suite],
                           cwd=installed, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    assert proc.returncode == 0, proc.stdout[-4000:]
+    assert proc.returncode == 0, proc.stdout[-16000:]   # room for the pour test's server log tails
 
 
 def test_dev_bead_ids_take_the_installed_prefix(installed):
