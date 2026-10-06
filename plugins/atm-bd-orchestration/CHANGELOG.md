@@ -3,7 +3,7 @@
 ## [0.10.1] - 2026-10-06
 
 ### Fixed
-- `bead-groups` pour creates bd's `formulas` registry directory before rendering into it; sc-compose refuses a rendered formula path whose directory is missing, so every pour on a fresh `.beads` failed with `BEADS_TEMPLATE_PATH_INVALID`. The pour tests no longer pre-create the directory (found by the sc-obs Phase F pour).
+- `bead-groups` pour renders each formula to `.atm-bd/pour/<target>.<ref>.<formula>.formula.toml`, beside its request and receipt, instead of bd's `.beads/formulas` registry. sc-compose refused the registry path on a fresh `.beads` (`BEADS_TEMPLATE_PATH_INVALID`, found by the sc-obs Phase F pour), and sprint-specific formulas left there were listed by `bd formula list` and could be poured by name with stale values. The attach reads the formula by path, so `sc-compose-pour-mock` drops its active-registry check.
 
 ## [0.10.0] - 2026-10-05
 

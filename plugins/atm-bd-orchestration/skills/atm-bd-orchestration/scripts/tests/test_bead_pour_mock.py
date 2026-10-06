@@ -175,6 +175,10 @@ class BeadPourMockTests(unittest.TestCase):
         entry = target(ws.groups("--sprint", sprint), sprint)
         assert entry["ids"] == {"dev": dev, "sanity": sanity, "qa": qa}
         assert [n["action"] for n in entry["nodes"]] == ["created"] * 3
+        # each formula is rendered beside its request and receipt; nothing is written into bd's registry
+        pour = ws.root / ".atm-bd" / "pour"
+        assert sorted(f.name for f in pour.glob(f"{sprint}.*.formula.toml"))
+        assert not (ws.root / ".beads" / "formulas").exists()
         assert [(e["from"], e["to"], e["type"], e["action"]) for e in entry["edges"]] == [(qa, dev, "validates", "added")]
         assert ws.deps(dev) == {sprint: "parent-child"}
         assert ws.deps(sanity) == {sprint: "parent-child", dev: "blocks"}
