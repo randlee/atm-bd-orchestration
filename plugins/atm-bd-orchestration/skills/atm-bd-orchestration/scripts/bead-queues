@@ -50,6 +50,7 @@ SKIP_CLOSE = ("not_reproducible", "superseded")
 QUEUES = [  # key, label, next actor
     ("in_flight", "In flight (ATM task open)", "assignee"),
     ("task_bead_closed", "ATM task open, bead closed", "assignee (close task)"),
+    ("task_stalled", "Active task, assignee stopped (reminders unanswered)", "lead -> re-engage assignee"),
     ("claimed_no_task", "Claimed (in_progress), no ATM task", "lead (verify)"),
     ("needs_plan_review", "Plan review ready -> needs dispatch", "lead -> quality-mgr"),
     ("needs_dev", "Dev ready -> needs dispatch", "lead -> dev"),
@@ -69,6 +70,7 @@ QUEUES = [  # key, label, next actor
     ("not_ready", "Not ready (prerequisite open)", "-"),
 ]
 QUIET = {"in_flight", "not_ready"}  # never reported by --json
+STALL_REMINDERS = 3  # ATM reminds only an idle assignee, so reminders on an active task mean it stopped
 
 
 class Fail(Exception):
@@ -197,6 +199,8 @@ def build(args, repo: Path) -> dict:
         if b is None or tid not in scope:
             continue
         key = "task_bead_closed" if b["status"] == "closed" else "in_flight"
+        if key == "in_flight" and t.get("state") == "active" and (t.get("reminder_count") or 0) >= STALL_REMINDERS:
+            key = "task_stalled"
         when = b.get("closed_at") if key == "task_bead_closed" else t.get("assigned_at")
         add(key, b, when, f"task {t.get('state')}, assignee {t.get('assignee')}, {t.get('reminder_count', 0)} reminders")
 

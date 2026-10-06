@@ -55,8 +55,9 @@ class Queues:
         self.ws.groups("--sprint", bead)
         return bead
 
-    def tasks(self, task_ids: list[str]) -> None:
-        rows = [{"task_id": t, "assignee": "dev1", "state": "active", "assigned_at": "2026-01-01T00:00:00Z"} for t in task_ids]
+    def tasks(self, task_ids: list[str], reminders: int = 0) -> None:
+        rows = [{"task_id": t, "assignee": "dev1", "state": "active", "assigned_at": "2026-01-01T00:00:00Z",
+                 "reminder_count": reminders} for t in task_ids]
         (self.dir / "tasks.json").write_text(json.dumps(rows))
 
     def github(self, stacks: list[dict], prs: list[dict]) -> None:
@@ -136,6 +137,10 @@ class BeadQueuesTests(unittest.TestCase):
         assert dev not in str(q.queues())
         human = q.run().stdout
         assert "In flight (ATM task open)" in human and dev in human
+        q.tasks([dev], reminders=2)                                  # under the stall threshold: still quiet
+        assert dev not in str(q.queues())
+        q.tasks([dev], reminders=10)                                 # active, reminders unanswered: the lead re-engages
+        assert q.queues() == {"task_stalled": {dev}}
 
         q.tasks([])
         self.ws.bd("update", dev, "--claim", "--actor", "dev1")
