@@ -29,7 +29,11 @@ package version and the sha256 of every file the install wrote. A rerun replaces
 a recorded file only when it is unchanged since it was written and fails, naming
 it, when it was modified; it never writes over a file it does not own, and it
 fails when a target skill directory exists that it does not own. Files a newer
-version stops shipping are removed when unchanged. A repository installed by
+version stops shipping are removed when unchanged. With `--overwrite` (sc-install:
+`overwrite` or `force`), a modified or foreign file at a shipped path, or a
+modified file no longer shipped, is warned about and moved to
+`<repo>/.backup/<UTC time>/<path>` instead of failing the install; the package's
+file then takes its place. A repository installed by
 0.x (no lock file) is migrated once: an existing file is owned when its bytes are
 the bytes this version ships or bytes some 0.x version shipped
 (`config/legacy-owned.json`); any other existing file fails the install.
@@ -52,6 +56,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -61,6 +66,8 @@ REGISTRY_FILE = "registry.yaml"
 MANIFEST_FILE = "manifest.yaml"
 CONFIG_TEMPLATE = "config/atm-bd-orchestration.yaml.j2"
 LEGACY_OWNED = "config/legacy-owned.json"
+BACKUP_DIR = ".backup"
+OVERWRITE_HINT = f" (or rerun with --overwrite to move it to {BACKUP_DIR}/)"
 CONFIG_OUT = ".claude/project/atm-bd-orchestration.yaml"
 LOCK_OUT = ".claude/project/atm-bd-orchestration.lock.json"
 CONSUMER_REGISTRY = ".claude/agents/registry.yaml"
@@ -381,6 +388,7 @@ class Plan:
     removals: List[str] = field(default_factory=list)
     problems: List[str] = field(default_factory=list)
     lock_files: Dict[str, str] = field(default_factory=dict)
+    backups: List[str] = field(default_factory=list)     # files in the way, moved to .backup/ by --overwrite
     registry_text: Optional[str] = None                  # registry.yaml with the roles written, if it changes
 
 
@@ -420,7 +428,8 @@ def desired_files(pkg_dir: Path, target_prefix: str, *, codex: bool, render_valu
     return out
 
 
-def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex: bool) -> Tuple[Plan, Dict[str, Any]]:
+def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex: bool,
+                 overwrite: bool = False) -> Tuple[Plan, Dict[str, Any]]:
     """Resolve, render and check everything; return the plan. Writes nothing."""
     pkg_dir = Path(pkg_dir).resolve()
     repo_root = repo_root_for(dest)
@@ -479,11 +488,13 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
         path = repo_root / key
         if path.is_file():
             state = owned(key, path.read_bytes(), pkg_rel)
-            if state is None:
-                plan.problems.append(f"{key} was modified since {PACKAGE} installed it; restore it (or delete it) and rerun")
+            if state is not True and overwrite:
+                plan.backups.append(key)
+            elif state is None:
+                plan.problems.append(f"{key} was modified since {PACKAGE} installed it; restore it (or delete it) and rerun{OVERWRITE_HINT}")
                 continue
-            if state is False:
-                plan.problems.append(f"{key} exists and is not owned by {PACKAGE}; remove or rename it and rerun")
+            elif state is False:
+                plan.problems.append(f"{key} exists and is not owned by {PACKAGE}; remove or rename it and rerun{OVERWRITE_HINT}")
                 continue
         elif path.exists():
             plan.problems.append(f"{key} exists and is not a file")
@@ -505,9 +516,12 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
         if recorded is not None:
             if digest == recorded:
                 plan.removals.append(key)
+            elif overwrite:
+                plan.backups.append(key)
+                plan.removals.append(key)
             else:
                 plan.problems.append(f"{key} was modified since {PACKAGE} installed it and this version no longer "
-                                     "ships it; move it out of the way and rerun")
+                                     f"ships it; move it out of the way and rerun{OVERWRITE_HINT}")
         elif digest in legacy.get(key[len(target_prefix):], set()):
             plan.removals.append(key)
 
@@ -586,6 +600,15 @@ def apply_plan(plan: Plan, version: str) -> int:
     """Write the plan; return the number of files whose bytes changed."""
     root = plan.repo_root
     changed = 0
+    if plan.backups:
+        backup = root / BACKUP_DIR / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for key in plan.backups:
+            print(f"warning: {key} is modified or not {PACKAGE}'s; moved to {(backup / key).relative_to(root)}", file=sys.stderr)
+            (backup / key).parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(root / key), str(backup / key))
+        ignore = root / BACKUP_DIR / ".gitignore"   # backups are for local review; git history already has the files
+        if not ignore.exists():
+            ignore.write_text("*\n")
     for key, (data, executable) in plan.writes.items():
         path = root / key
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -596,7 +619,7 @@ def apply_plan(plan: Plan, version: str) -> int:
             path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     for key in plan.removals:
         path = root / key
-        path.unlink()
+        path.unlink(missing_ok=True)   # a backed-up file is already gone
         parent = path.parent
         stop = root / plan.target_prefix
         while parent != stop and parent.is_dir() and not any(parent.iterdir()):
@@ -632,7 +655,8 @@ def _plan_or_fail(source_path: str, destination_path: str, options: dict) -> Tup
     try:
         check_tools()
         plan, config = plan_install(Path(source_path), Path(destination_path), dict(options.get("args") or {}),
-                                    codex=_codex(destination_path, options))
+                                    codex=_codex(destination_path, options),
+                                    overwrite=bool(options.get("overwrite") or options.get("force")))
     except InstallError as exc:
         return None, {}, _fail(str(exc))
     if plan.problems:
@@ -657,7 +681,7 @@ def complete(source_path: str, destination_path: str, options: dict) -> dict:
     version = package_version(Path(source_path))
     changed = apply_plan(plan, version)
     print(f"{PACKAGE} {version}: {changed} file(s) written, {len(plan.writes) - changed} unchanged, "
-          f"{len(plan.removals)} removed; roles {'updated' if plan.registry_text is not None else 'unchanged'} "
+          f"{len(plan.removals)} removed, {len(plan.backups)} backed up to {BACKUP_DIR}/; roles {'updated' if plan.registry_text is not None else 'unchanged'} "
           f"in {CONSUMER_REGISTRY}; config {CONFIG_OUT}; record {LOCK_OUT}")
     return _ok()
 
@@ -678,6 +702,8 @@ def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
     parser.add_argument("--codex", action="store_true", help="the destination is a .codex directory (skills only, no agents)")
     parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
                         help="set a config variable (wins over registry.yaml); lists take a JSON array or a,b,c")
+    parser.add_argument("--overwrite", action="store_true",
+                        help=f"move modified or foreign files in the way to {BACKUP_DIR}/<time>/ and install over them")
     args = parser.parse_args(argv)
     try:
         overrides = parse_set(args.set)
@@ -686,7 +712,7 @@ def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
         return 1
     dest = Path(args.dest).expanduser().resolve()
     options = {"global": False, "local": True, "user": False, "project": False,
-               "codex": args.codex or dest.name == ".codex", "force": False, "expand": True, "args": overrides}
+               "codex": args.codex or dest.name == ".codex", "force": False, "overwrite": args.overwrite, "expand": True, "args": overrides}
     for step in (prepare, complete):
         result = step(str(pkg_dir), str(dest), options)
         if result["result"] != "success":

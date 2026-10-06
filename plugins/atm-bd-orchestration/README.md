@@ -106,7 +106,11 @@ transport and the config file). On every run:
   (`skills/atm-beads`, `skills/atm-bd-orchestration`, `skills/prompt-rewrite-judge`,
   `skills/qa-report`, `skills/sprint-report`, `skills/sprint-review`) that exists without any file it
   owns;
-- a failed install writes nothing.
+- a failed install writes nothing;
+- `--overwrite` (sc-install: `overwrite` or `force`) turns each failing file
+  above into a warning: the file is moved to `<repo>/.backup/<UTC time>/<path>`
+  (git-ignored) and the package's file takes its place. A foreign skill
+  directory still fails.
 
 A pre-0.4.0 install has no lock file. The first 0.4.0 install adopts an existing
 file when its bytes are what 0.4.0 installs or what any 0.x version shipped

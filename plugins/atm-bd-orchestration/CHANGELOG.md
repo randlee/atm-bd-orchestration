@@ -1,9 +1,19 @@
 # Changelog
 
-## [0.10.2] - 2026-10-06
+## [0.10.3] - 2026-10-06
 
 ### Fixed
 - Jev children: `sc-sanity-jev` (0.7.1) says Jev is reached only by `python3 scripts/jev_client.py --request <file>`, with no tool or executable to look for, and is unavailable only when that command exits 2; `dev-sanity` (2.16.2) gives a child spawned without an agent type the full text of its agent file. sc-obs Codex sanity children, spawned untyped, looked for a Jev tool and `command -v jev` and reported Jev unavailable.
+- The pour tests' failure messages carry the proxied server's `proxy.log` and `server.log` tails; a macOS CI run lost a `bd create` connection mid-pour (`unexpected EOF`, `ping db: invalid connection`) with no server evidence kept.
+
+## [0.10.2] - 2026-10-06
+
+### Changed
+- Plan review runs `ceremony-qa` on every piped sprint container file and the root's file (`plan-review-template` 3.9.0).
+
+### Added
+- `agents/ceremony-qa.md` 0.2.0, from the atm-core and sc-observability copies (0.1.0): a new `unrequested_ceremony_adr` finding (important) rejects an ADR the plan adds or changes that institutes a rule, constraint, gate, check, artifact or review step the user did not explicitly request (e.g. a crate count, an API shape fixed in the ADR). A repository's own `.claude/agents/ceremony-qa.md` is moved aside by `install.py --overwrite`.
+- `install.py --overwrite`: a modified or foreign file at a shipped path, or a modified file the version no longer ships, is warned about and moved to `<repo>/.backup/<UTC time>/<path>` (git-ignored) instead of failing the install; without it the failure names each file and the flag. Every consumer has its own copies of some shipped agents.
 
 ## [0.10.1] - 2026-10-06
 
