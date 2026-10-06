@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.1] - 2026-10-06
+
+### Changed
+- Lead Role Loop: when an assignee stops on an active task (acting as if pair-programming, stating its next step and waiting for a user who does not exist: a turn ending on a promise of future work, status-only replies to reminders, `lead_notified` mail, or no new commits), the lead re-engages on the first sign with the checklist message instead of waiting for the reminder budget. `dev-template` (3.14.1): no user approves a step; never end a turn on a promise of future work while the task is active. sc-obs obs-f-3/obs-f-4 sat idle 7h and 4.5h after status-only replies to nine reminders (#81).
+
 ## [0.11.0] - 2026-10-06
 
 ### Added
