@@ -164,6 +164,75 @@ class ValidatePlan(Repo):
                                      "run: scripts/bead_schema.py export schemas")
 
 
+class CiCheck(Repo):
+    """--ci: every tracked .atm-bd/phase-*.toml loads and its plan file parses; bd is never run."""
+
+    def setUp(self):
+        super().setUp()
+        bin_dir = self.base / "bin"
+        bin_dir.mkdir()
+        self.bd_ran = self.base / "bd-ran"
+        (bin_dir / "bd").write_text(f"#!/bin/sh\ntouch {self.bd_ran}\nexit 1\n")
+        (bin_dir / "bd").chmod(0o755)
+        # CI runners have no pydantic: make it unimportable so --ci must not need it.
+        blocked = self.base / "no-pydantic/pydantic"
+        blocked.mkdir(parents=True)
+        (blocked / "__init__.py").write_text("raise ImportError('pydantic is not installed')\n")
+        self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                    "PYTHONPATH": str(blocked.parent)}
+        (self.repo / "plans").mkdir()
+        (self.repo / "plans/phase-t.jsonl").write_text(lines(PLAN))
+
+    def ci(self, *tracked: str) -> subprocess.CompletedProcess:
+        if tracked:
+            git(self.repo, "add", "--", *tracked)
+        out = self.run_vp("--ci", env=self.env)
+        self.assertFalse(self.bd_ran.exists(), "--ci ran bd")
+        return out
+
+    def test_valid_and_untracked_files_are_ignored(self):
+        (self.repo / ".atm-bd/phase-u.toml").write_text("not toml")
+        out = self.ci(".atm-bd/phase-t.toml", "plans/phase-t.jsonl")
+        self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 1 tracked phase file(s)\n"), out.stderr)
+
+    def test_no_tracked_phase_file_is_a_note(self):
+        out = self.ci()
+        self.assertEqual((out.returncode, out.stdout), (0, "plan valid: no tracked .atm-bd/phase-*.toml to check\n"), out.stderr)
+
+    def test_each_problem_names_its_file(self):
+        cases = {
+            "malformed toml": ("plan = \n", None, ".atm-bd/phase-t.toml: "),
+            "missing key": (TOML.replace('integration_branch = "integrate/phase-t"\n', ""), None,
+                            ".atm-bd/phase-t.toml: "),
+            "bad plan row": (TOML, [{"sprint": "t-1"}, {"sprint": "t-2", "after": ["t-1"]}], "plans/phase-t.jsonl:2: each line is"),
+            "missing plan file": (TOML.replace("phase-t.jsonl", "phase-gone.jsonl"), None, ".atm-bd/phase-t.toml: "),
+        }
+        for name, (toml, plan, want) in cases.items():
+            with self.subTest(problem=name):
+                (self.repo / ".atm-bd/phase-t.toml").write_text(toml)
+                (self.repo / "plans/phase-t.jsonl").write_text(lines(plan or PLAN))
+                out = self.ci(".atm-bd/phase-t.toml", "plans/phase-t.jsonl")
+                self.assertEqual(out.returncode, 5, out.stdout + out.stderr)
+                got = out.stdout.splitlines()
+                self.assertEqual(len(got), 1, got)
+                self.assertTrue(got[0].startswith(want), got)
+
+    def test_every_tracked_phase_file_is_checked(self):
+        (self.repo / ".atm-bd/phase-u.toml").write_text("not toml")
+        (self.repo / "plans/phase-t.jsonl").write_text(lines([{"sprint": "t-1", "depends_on": ["t-9"]}]))
+        out = self.ci(".atm-bd/phase-t.toml", ".atm-bd/phase-u.toml", "plans/phase-t.jsonl")
+        self.assertEqual(out.returncode, 5, out.stderr)
+        got = out.stdout.splitlines()
+        self.assertEqual(len(got), 2, got)
+        self.assertIn("plans/phase-t.jsonl: t-1 depends_on unknown sprint(s): t-9", got[0])
+        self.assertTrue(got[1].startswith(".atm-bd/phase-u.toml: "), got)
+
+    def test_ci_takes_no_other_option(self):
+        out = self.run_vp("--ci", "--phase", "t", env=self.env)
+        self.assertEqual(out.returncode, 2)
+        self.assertFalse(self.bd_ran.exists())
+
+
 FAKE_BD = """#!/usr/bin/env python3
 import json, os, sys
 beads = json.load(open(os.environ["FAKE_BD_BEADS"]))

@@ -1,6 +1,6 @@
 ---
 name: atm-bd-orchestration
-version: 0.6.19
+version: 0.6.20
 description: Bead-driven phase orchestration for the lead. Use when running a phase whose plan is in beads, dispatching from `bd ready` with ATM tasks, and landing it as one gh stack.
 requires:
   cli:
@@ -60,6 +60,9 @@ tasks keep their assigner.
 The lead (or its work-orchestrator) is the only stack writer, one at a time (`gh stack link`, `unstack`, `sync`,
 `rebase`, `merge`). quality-mgr files the finding beads from QA; the lead
 files those from a phase-end review.
+
+The lead keeps BV, the read-only graph analysis it runs at plan review, wave
+boundaries, stalls and phase end: [`references/bv.md`](references/bv.md).
 
 Before treating a finding or unresolved decision as a development stop, read
 [`blocking-findings-guidelines.md`](blocking-findings-guidelines.md). Scope the

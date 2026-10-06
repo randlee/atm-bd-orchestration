@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0] - 2026-10-05
+
+### Added
+- `scripts/bv-analyze` and `references/bv.md`: the lead's read-only BV graph analysis of a fresh `bd --readonly export` (or a rendered plan file before import), fail-closed on any incomplete or stale load. bd 1.3 memory rows are dropped (raw export in `export.jsonl`, issues in `issues.jsonl`); `--target`'s blocker chain runs on the target and everything it transitively waits on (`prerequisites.jsonl`), so an unrelated bad row cannot fail it; a partial load names the rejected bead ids and BV's warnings. `bv.md` says when the lead runs it and what it decides: plan shape only before import, only added edges in motion, priority with a reason, staffing to the user (`SKILL.md` 0.6.20 links it from Lead Role).
+- `validate-plan --ci`: offline (no bd, no fetch), every git-tracked `.atm-bd/phase-*.toml` loads and its plan file parses; one line per problem, exit 5 on problems, 0 when there are none or no phase file is tracked (`atm-beads` 0.3.4).
+
+### Fixed
+- `assignment-gates.py sanity`: `bd history` output that is not a JSON list of snapshots each with an `Issue` object is `GATE_CANNOT_RUN` with the output in the message on stderr, no longer an empty history and `READY`; every `GATE_CANNOT_RUN` from `evaluate` now prints its reason to stderr.
+- `assignment-gates.py dev`: `PLAN_INVALID` (validate-plan exit 5) prints validate-plan's problems to stderr, and any other validate-plan failure (exit 2, e.g. no `.atm-bd/<phase>.toml`) is `GATE_CANNOT_RUN` with its message, no longer a silent `PLAN_INVALID`.
+- `validate-plan --ci` runs without pydantic (CI runners have none): `bead_schema` is imported only by the bead checks.
+- Example vars files no longer bake the installer's absolute path into the consuming repo: `primary_checkout` examples read `/path/to/<repo_name>`, and the unused `repo_root` install placeholder is gone.
+
 ## [0.9.0] - 2026-10-04
 
 ### Added

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
 import json
@@ -151,6 +151,16 @@ class AssignmentGateTests(unittest.TestCase):
         behind = dev_runner({("git", "-C", "/other", "merge-base", "--is-ancestor", "origin/target", "HEAD"): (1, "")})
         self.assertEqual(gates.evaluate(ns("dev", worktree="/other"), behind), "WRONG_BASE")
 
+    def test_dev_gate_names_why_the_plan_check_refused(self):
+        plan = (gates.VALIDATE_PLAN, "--root", "{{ bead_prefix }}-phase-d")
+        for code, stderr, expected in ((5, "e-1: missing sprint bead", "PLAN_INVALID"),
+                                       (2, "phase-d.toml does not exist", "GATE_CANNOT_RUN")):
+            with self.subTest(code=code):
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    self.assertEqual(gates.evaluate(ns("dev"), dev_runner({plan: (code, "", stderr)})), expected)
+                self.assertIn(stderr, err.getvalue())
+
     def test_sanity_refusals_and_ready(self):
         cases = [
             ("pr-required.json", ns("sanity", pr_number=""), sanity_runner()),
@@ -185,6 +195,18 @@ class AssignmentGateTests(unittest.TestCase):
     def test_sanity_rebase_check_that_cannot_run_is_not_a_refusal(self):
         runner = sanity_runner({("git", "merge-base", "--is-ancestor", "origin/target", "head"): (128, "")})
         self.assertEqual(gates.evaluate(ns("sanity"), runner), "GATE_CANNOT_RUN")
+
+    def test_sanity_history_that_is_not_snapshots_cannot_run(self):
+        """Malformed `bd history` output is GATE_CANNOT_RUN naming the output, never an empty history (READY)."""
+        for output in (dumped({"verdict": "PASS"}), dumped([{"description": "lint passes"}]), dumped([{"Issue": "closed"}]),
+                       dumped([HISTORY_NEVER_PASSED[0], "PASS at abc1234"]), "not json"):
+            with self.subTest(output=output):
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    code = gates.evaluate(ns("sanity"), sanity_runner({("bd", "history", "bead", "--json"): (0, output)}))
+                self.assertEqual(code, "GATE_CANNOT_RUN")
+                self.assertIn(output, err.getvalue())
+        self.assertEqual(gates.evaluate(ns("sanity"), sanity_runner({("bd", "history", "bead", "--json"): (0, "[]")})), "READY")
 
     def test_sanity_stack_checks_that_cannot_run_are_not_refusals(self):
         for override in ({STACKS: (1, "", "gh: Not Found (HTTP 404)")}, {STACKS: (0, "not json")},

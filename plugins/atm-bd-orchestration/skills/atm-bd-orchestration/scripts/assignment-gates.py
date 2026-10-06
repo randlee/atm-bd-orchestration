@@ -52,12 +52,17 @@ def claimable(bead: dict[str, Any], identity: str) -> bool:
     return bead.get("status") == "open" and (not bead.get("assignee") or bead.get("assignee") == identity)
 
 
-def has_prior_pass(history: Any) -> bool:
+def has_prior_pass(output: str) -> bool:
     """A `bd history --json` snapshot of the bead closed with reason `PASS at <sha>`; a note or reason that merely
-    mentions PASS is not one."""
-    snapshots = [row.get("Issue", row) for row in history if isinstance(row, dict)] if isinstance(history, list) else []
-    return any(isinstance(issue, dict) and issue.get("status") == "closed"
-               and str(issue.get("close_reason") or "").startswith("PASS at ") for issue in snapshots)
+    mentions PASS is not one. Output that is not a JSON list of snapshots, each with an `Issue` object, raises."""
+    try:
+        history = json.loads(output)
+    except ValueError:
+        history = None
+    if not isinstance(history, list) or not all(isinstance(row, dict) and isinstance(row.get("Issue"), dict) for row in history):
+        raise ValueError(f"bd history --json is not a JSON list of snapshots with an Issue object: {output}")
+    return any(row["Issue"].get("status") == "closed"
+               and str(row["Issue"].get("close_reason") or "").startswith("PASS at ") for row in history)
 
 
 def is_clean(status: str) -> bool:
@@ -161,8 +166,12 @@ def stacked_base(runner: Runner, pr_number: str) -> str | None:
 
 
 def dev_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
-    if runner([VALIDATE_PLAN, "--root", args.root], capture_output=True, text=True, cwd=str(PRIMARY)).returncode:
+    plan = runner([VALIDATE_PLAN, "--root", args.root], capture_output=True, text=True, cwd=str(PRIMARY))
+    if plan.returncode == 5:
+        print((plan.stdout + plan.stderr).strip(), file=sys.stderr)
         return "PLAN_INVALID"
+    if plan.returncode:
+        raise RuntimeError(f"validate-plan exit {plan.returncode}: {(plan.stderr or plan.stdout).strip()}")
     ready = run_json(runner, "bd", "ready", "-n", "0", "--json")
     if not any(row.get("id") == args.bead for row in ready):
         return "NOT_READY"
@@ -204,7 +213,7 @@ def sanity_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
         raise RuntimeError(rebased.stderr.strip() or "git merge-base failed")
     if not is_clean(run(runner, "git", *git, "status", "--porcelain", "--untracked-files=no")):
         return "DIRTY_TREE"
-    if has_prior_pass(run_json(runner, "bd", "history", args.bead, "--json")):
+    if has_prior_pass(run(runner, "bd", "history", args.bead, "--json")):
         return "SANITY_FROZEN"
     return "READY"
 
@@ -246,7 +255,8 @@ def evaluate(args: argparse.Namespace, runner: Runner = subprocess.run) -> str:
         if args.kind == "sanity":
             return sanity_gate(args, runner, identity)
         return qa_gate(args, runner, identity)
-    except (RuntimeError, OSError, IndexError, TypeError, ValueError, KeyError):
+    except (RuntimeError, OSError, IndexError, TypeError, ValueError, KeyError) as exc:
+        print(f"assignment-gates: {exc}", file=sys.stderr)
         return "GATE_CANNOT_RUN"
 
 

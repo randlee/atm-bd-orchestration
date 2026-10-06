@@ -79,7 +79,7 @@ ROLE_KEYS = {"lead": "lead", "dev_sanity_member": "dev-sanity", "qa_member": "qu
 AGENT_VARIABLES = ("qa_member", "reviewers_round1")
 
 # Install-time placeholders in installed skill/agent files (the files listed under
-# `render:` in registry.yaml). repo_slug, repo_name, repo_root and
+# `render:` in registry.yaml). repo_slug, repo_name and
 # workflow_issues_root are derived from the repository, not configured.
 RENDER_VARIABLES = (
     "lead",
@@ -88,7 +88,6 @@ RENDER_VARIABLES = (
     "workflow_issues_root",
     "repo_slug",
     "repo_name",
-    "repo_root",
     "worktree_base",
 )
 PLACEHOLDER_RE = re.compile(r"\{\{ (" + "|".join(RENDER_VARIABLES) + r") \}\}")
@@ -263,7 +262,6 @@ def derived_values(repo_root: Path, config: Dict[str, Any]) -> Dict[str, str]:
     return {
         "repo_slug": slug,
         "repo_name": slug.rsplit("/", 1)[-1],
-        "repo_root": str(repo_root),
         "workflow_issues_root": f"{config['bead_prefix']}-workflow-issues",
     }
 
