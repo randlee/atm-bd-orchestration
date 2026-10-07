@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.9] - 2026-10-07
+
+### Fixed
+- No append locks. Each QA metrics row (`qa-template.xml.j2` step j) is built into a variable and appended with one `printf ... >>`. Each `sanity-run-history` and `post_mortem_jev.py` row is one `os.write` on an `O_APPEND` descriptor. A single append write is atomic, so concurrent writers cannot interleave rows. The QA template's `mkdir` spin-lock is gone; it proceeded without the lock after 10 s of contention. So are the two `fcntl.flock`s and `sanity-run-history`'s `.lock` file. `sanity-run-history` still refuses a retry whose run/reviewer row differs from the logged one.
+
 ## [0.11.8] - 2026-10-07
 
 ### Fixed
