@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.7] - 2026-10-07
+
+### Fixed
+- The real-bd tests' dolt server can no longer outlive a killed test run. `start_server` now runs dolt under a small supervisor that stops it when the process that started it is gone, so a SIGKILLed pytest, which never reaches class cleanup, no longer leaves a server behind. It no longer starts a new session, so Ctrl-C reaches the server too. `stop_server` reads untruncated `ps` output. A new test SIGKILLs a process that started a server and asserts the server and its port are gone; against 0.11.6's `start_server` it fails with the server still running.
+
 ## [0.11.6] - 2026-10-07
 
 ### Fixed
