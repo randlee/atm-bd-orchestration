@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.11.9] - 2026-10-07
+
+### Fixed
+- No append locks. Each QA metrics row (`qa-template.xml.j2` step j) is built into a variable and appended with one `printf ... >>`. Each `sanity-run-history` and `post_mortem_jev.py` row is one `os.write` on an `O_APPEND` descriptor. A single append write is atomic, so concurrent writers cannot interleave rows. The QA template's `mkdir` spin-lock is gone; it proceeded without the lock after 10 s of contention. So are the two `fcntl.flock`s and `sanity-run-history`'s `.lock` file. `sanity-run-history` still refuses a retry whose run/reviewer row differs from the logged one.
+
+## [0.11.8] - 2026-10-07
+
+### Fixed
+- `bead-queues` no longer needs `ATM_IDENTITY` or `ATM_TEAM`. It picks the ATM caller from `--as`, then `$ATM_IDENTITY`, then the repository's `lead` in `.claude/project/atm-bd-orchestration.yaml`. It picks the team from `--team`, then `$ATM_TEAM`, then `[atm].default_team` in the repository's `.atm.toml`. With neither an identity nor a configured lead, it exits 3 and says to pass `--as`, set `ATM_IDENTITY`, or set `roles.lead` and rerun the installer. Before, it refused outright without `ATM_IDENTITY` (the cron and the lead's monitor shell often have neither variable set).
+
+## [0.11.7] - 2026-10-07
+
+### Fixed
+- The real-bd tests' dolt server can no longer outlive a killed test run. `start_server` now runs dolt under a small supervisor that stops it when the process that started it is gone, so a SIGKILLed pytest, which never reaches class cleanup, no longer leaves a server behind. It no longer starts a new session, so Ctrl-C reaches the server too. `stop_server` reads untruncated `ps` output. A new test SIGKILLs a process that started a server and asserts the server and its port are gone; against 0.11.6's `start_server` it fails with the server still running.
+
 ## [0.11.6] - 2026-10-07
 
 ### Fixed
