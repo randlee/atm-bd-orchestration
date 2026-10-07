@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.8] - 2026-10-07
+
+### Fixed
+- `bead-queues` no longer needs `ATM_IDENTITY` or `ATM_TEAM`. It picks the ATM caller from `--as`, then `$ATM_IDENTITY`, then the repository's `lead` in `.claude/project/atm-bd-orchestration.yaml`. It picks the team from `--team`, then `$ATM_TEAM`, then `[atm].default_team` in the repository's `.atm.toml`. With neither an identity nor a configured lead, it exits 3 and says to pass `--as`, set `ATM_IDENTITY`, or set `roles.lead` and rerun the installer. Before, it refused outright without `ATM_IDENTITY` (the cron and the lead's monitor shell often have neither variable set).
+
 ## [0.11.7] - 2026-10-07
 
 ### Fixed
