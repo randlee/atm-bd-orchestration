@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.6] - 2026-10-07
+
+### Fixed
+- The real-bd pour and bead-queues tests start their own `dolt sql-server` on a free loopback port and run `bd init --server --external` against it, the mode consuming repositories run in, instead of `--proxied-server`. The proxy stops and restarts its dolt child, and the restart could find the old child still on the port ("Port 46151 already in use"), failing `bd init` or a later `bd create` with `ping db: invalid connection` (#88; CI runs 37573955297 and 37412959658). `bd cook --dry-run` now really runs in these tests instead of being skipped as `proxy.formula.unsupported`.
+
 ## [0.11.5] - 2026-10-06
 
 ### Fixed
