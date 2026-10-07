@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.5] - 2026-10-06
+
+### Fixed
+- `atm-bd-orchestration` SKILL.md (0.7.3): the plan-review and phase-end review beads are created with `--id`, then attached with `bd update <id> --parent <root>`; bd 1.3.1 refuses `bd create` with both `--id` and `--parent` ("cannot specify both --id and --parent flags"), reported by team-lead@sc-compose on phase t's Plan Gate.
+
 ## [0.11.4] - 2026-10-06
 
 ### Fixed
