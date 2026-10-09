@@ -18,7 +18,7 @@ PRIORITY_SPRINT: int = 2
 DIFFICULTY_MODELS: dict[str, tuple[str, ...]] = {
     "hard": ("fable", "opus", "astra"),
     "normal": ("terra", "opus", "sonnet"),
-    "fast": ("luna",),
+    "fast": ("luna", "haiku"),
 }
 DIFFICULTIES: tuple[str, ...] = tuple(DIFFICULTY_MODELS)
 

@@ -51,7 +51,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 
 29. `assignment-gates.py dev` prints one code; exit 0 `READY`, 2 `GATE_CANNOT_RUN`, 5 otherwise. `stack-top --pr-target <b>` prints, exit 0, the head of the last open PR of the one open stack based on or containing `<b>` (its base when none is open); with no stack, the top of the one chain of open unlinked PRs based on `<b>`, else `<b>`; several stacks or a branching chain: `STACK_AMBIGUOUS` (5); `GATE_CANNOT_RUN` (2).
 30. Checks in order: `validate-plan` (`PLAN_INVALID`), in `bd ready` (`NOT_READY`), open and unassigned or self (`UNCLAIMABLE`), `pr_target` (the sprint container's for a poured dev bead) is `--pr-target` or its ancestor (`PR_TARGET_MISMATCH`), roster model fits `difficulty` (`DIFFICULTY_MISMATCH`), `origin/<pr_target>` ancestor of HEAD (`WRONG_BASE`).
-31. Difficulty models (substring): hard fable/opus/astra; normal terra/opus/sonnet; fast luna.
+31. Difficulty models (substring): hard fable/opus/astra; normal terra/opus/sonnet; fast luna/haiku.
 
 ## Unresolved
 
