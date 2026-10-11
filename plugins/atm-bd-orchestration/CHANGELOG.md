@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.0] - 2026-10-10
+
+### Changed
+- The lead, not a script, decides who takes a bead (#98). The dev gate's difficulty check (gate 5, `DIFFICULTY_MISMATCH`) is removed from `assignment-gates.py dev` and the dev, dev-fix and fix-assignment templates; base is now check (5). `difficulty` is a minimum: the lead picks a dev at that tier, or one tier up when none is idle (fast to terra/sonnet), never far above it.
+- `sprint-report --dispatch` recommends only idle roster members of type `dev` (`atm teams update-member <team> <member> --agent-type dev`), at the bead's tier, else one tier up; publisher, QA, sanity and lead members are never listed. Its header says when no roster member has type `dev`.
+
 ## [0.11.10] - 2026-10-10
 
 ### Fixed
