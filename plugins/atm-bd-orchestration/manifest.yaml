@@ -1,5 +1,5 @@
 name: atm-bd-orchestration
-version: 0.11.9
+version: 0.12.0
 description: >
   Bead-driven phase orchestration for ATM agent teams: the phase plan as a
   beads graph (atm-beads), dispatch, dev-sanity, QA and stack landing driven
@@ -77,7 +77,6 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/sanity-split
     - skills/atm-bd-orchestration/scripts/sc-compose-pour-mock
     - skills/atm-bd-orchestration/scripts/tests/fixtures/dev-ready.json
-    - skills/atm-bd-orchestration/scripts/tests/fixtures/difficulty-mismatch.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/dirty-tree.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/not-ready.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/not-rebased.json
