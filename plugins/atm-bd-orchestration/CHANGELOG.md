@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.11.10] - 2026-10-10
+
+### Fixed
+- `bead-queues` no longer calls `gh pr list --state open --limit 1000`, which tripped GitHub's secondary rate limit and froze `gh stack` for every agent on the account. Stack rows now come from `gh stack view --json`, run in the worktree checked out on the phase integration branch; `gh api repos/{owner}/{repo}/stacks` is kept only to enumerate open stacks. A stack that cannot be read (no trunk worktree, a gh error, a view on another trunk) prints `stack: stack not checked: <reason>` and the rest of the report still prints, exit 0 (it used to exit 2).
+- The install test's repo-string scan skips git-ignored `.sc-compose/` logs, which a local test run leaves behind with absolute home paths.
+
 ## [0.11.9] - 2026-10-07
 
 ### Fixed
