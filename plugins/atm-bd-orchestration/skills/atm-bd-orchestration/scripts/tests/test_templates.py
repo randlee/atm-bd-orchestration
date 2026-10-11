@@ -568,9 +568,9 @@ class PlanFixRoundTests(unittest.TestCase):
 
 # Config-backed dispatch variables (the lead fills them from .claude/project/atm-bd-orchestration.yaml).
 CONFIG_VARS = {
-    "dev-template.xml.j2": ("test_command", "policy_path"),
-    "fix-assignment.xml.j2": ("test_command", "policy_path", "requirements_globs", "adr_globs"),
-    "dev-fix.xml.j2": ("test_command",),
+    "dev-template.xml.j2": ("test_command", "lint_command", "policy_path"),
+    "fix-assignment.xml.j2": ("test_command", "lint_command", "policy_path", "requirements_globs", "adr_globs"),
+    "dev-fix.xml.j2": ("test_command", "lint_command"),
     "dev-sanity-template.xml.j2": ("lint_command",),
     "qa-template.xml.j2": ("policy_path", "reviewers_round1"),
     "plan-review-template.xml.j2": ("integration_branch", "plans_dir", "requirements_globs", "adr_globs"),
