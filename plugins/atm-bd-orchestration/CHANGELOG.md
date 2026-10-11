@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.1] - 2026-10-10
+
+### Changed
+- The lead's `bead-queues` run is a cron, mandatory while phase work is under way: every 15 minutes, and the lead acts on every row, since it is the only report of what the loop missed. The cron is disabled when phase work is paused or the phase is complete. It replaces "on each Loop pass", which leads skipped.
+- The dev, dev-fix and fix-assignment templates require `lint_command` and run it with `test_command` to zero failures, again after the stack-top rebase. A lint failure inherited from a lower layer is the dev's to fix on its own layer; sanity still FAILs on lint.
+
 ## [0.12.0] - 2026-10-10
 
 ### Changed
