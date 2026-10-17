@@ -1,10 +1,13 @@
 """The interactive console: one Textual app over an injected step function."""
 from __future__ import annotations
 
+import json
+import os
 import sys
 import threading
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
 
@@ -58,28 +61,46 @@ class StatusPanel(ScrollableContainer):
         self.post_message(self.Resized())
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
-        self._selection_start = (int(event.x), int(event.y))
-        self._selection_end = None
+        self._trace_mouse("status.mouse_down", event)
+        self._pan_position = (int(event.x), int(event.y))
+        self.capture_mouse()
+        self.suppress_click()
         event.stop()
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
-        if getattr(self, "_selection_start", None) is not None:
-            self._selection_end = (int(event.x), int(event.y))
+        previous = getattr(self, "_pan_position", None)
+        if previous is not None:
+            position = (int(event.x), int(event.y))
+            self.scroll_relative(
+                x=previous[0] - position[0],
+                y=previous[1] - position[1],
+                animate=False,
+            )
+            self._pan_position = position
+            self._trace_mouse("status.pan", event)
         event.stop()
 
     def on_mouse_up(self, event: events.MouseUp) -> None:
-        start = getattr(self, "_selection_start", None)
-        end = getattr(self, "_selection_end", None)
-        self._selection_start = self._selection_end = None
+        self._trace_mouse("status.mouse_up", event)
+        self._pan_position = None
+        self.capture_mouse(False)
         event.stop()
-        if start is not None and end is not None and start != end:
-            self.app.copy_status_selection(start, end, int(self.scroll_x), int(self.scroll_y))
+
+    def on_click(self, event: events.Click) -> None:
+        self._trace_mouse("status.click", event)
+        event.stop()
+
+    def _trace_mouse(self, action: str, event: events.MouseEvent) -> None:
+        if isinstance(self.app, ConsoleApp):
+            self.app.trace_mouse(action, event, scroll_x=int(self.scroll_x), scroll_y=int(self.scroll_y))
 
 
 class SprintList(OptionList):
     async def _on_click(self, event: events.Click) -> None:
-        await super()._on_click(event)
+        if isinstance(self.app, ConsoleApp):
+            self.app.trace_mouse("sprints.click", event, highlighted=self.highlighted)
         event.stop()
+        await super()._on_click(event)
 
 
 class ConsoleApp(App[int]):
@@ -118,6 +139,31 @@ class ConsoleApp(App[int]):
         self._pending_forced_refresh = False
         self._status_view_initialized = False
         self.show_pr_history = False
+        self.mouse_log_path = os.environ.get("ATM_BD_CONSOLE_MOUSE_LOG")
+
+    def trace_mouse(self, action: str, event: events.MouseEvent, **details: int | str | None) -> None:
+        """Append opt-in interaction diagnostics without risking the running console."""
+        if self.mouse_log_path is None:
+            return
+        target = event.widget
+        record = {
+            "at": datetime.now(UTC).isoformat(),
+            "action": action,
+            "target": target.id if target is not None else None,
+            "target_type": type(target).__name__ if target is not None else None,
+            "x": event.x,
+            "y": event.y,
+            "screen_x": event.screen_x,
+            "screen_y": event.screen_y,
+            "active_tab": self.query_one(TabbedContent).active,
+            **details,
+        }
+        try:
+            with Path(self.mouse_log_path).open("a", encoding="utf-8") as log_file:
+                log_file.write(f"{json.dumps(record, sort_keys=True)}\n")
+        except OSError as error:
+            self.log.error(f"mouse trace disabled: {error}")
+            self.mouse_log_path = None
 
     def compose(self) -> ComposeResult:
         with TabbedContent(initial="dispatch"):
@@ -154,21 +200,6 @@ class ConsoleApp(App[int]):
     def action_toggle_pr_history(self) -> None:
         self.show_pr_history = not self.show_pr_history
         self.refresh_views()
-
-    def copy_status_selection(self, start: tuple[int, int], end: tuple[int, int], scroll_x: int, scroll_y: int) -> None:
-        points = sorted(((start[1] + scroll_y, start[0] + scroll_x), (end[1] + scroll_y, end[0] + scroll_x)))
-        (first_line, first_column), (last_line, last_column) = points
-        lines = self.status_text.splitlines()
-        selected = []
-        for line_number in range(first_line, min(last_line + 1, len(lines))):
-            line = lines[line_number]
-            left = first_column if line_number == first_line else 0
-            right = last_column + 1 if line_number == last_line else len(line)
-            selected.append(line[left:right])
-        text = "\n".join(selected)
-        if text:
-            self.copy_to_clipboard(text)
-            self.notify(f"Copied {len(text)} chars", timeout=2)
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.pane.id == "prs":
