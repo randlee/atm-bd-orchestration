@@ -12,7 +12,7 @@ One file per agent, with its subagents and scripts: what it does, when, in what 
 | [parallax.md](parallax.md) | work-orchestrator teammate (optional) |
 | [task-close-hook.md](task-close-hook.md) | `atm-task-close.py`: the one way a dev, fix, sanity or qa task completes; mechanical sanity and qa assignment as the lead |
 | [sanity-stack.md](sanity-stack.md) | sanity-stack subagent: links one next-top layer under the stack bead lock; the race, lean mode, lock timeout |
-| [console.md](console.md) | `atm-bd console` and `atm-bd cron`: identity, time, log, GitHub polling, rows |
+| [console.md](console.md) | `atm-bd console` and `atm-bd cron`: identity, time, log, independent collectors, persisted state, events, rows |
 
 ## Who does what
 
