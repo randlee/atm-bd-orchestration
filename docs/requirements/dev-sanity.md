@@ -27,7 +27,7 @@ Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `tem
 16. Claim and `atm task start`; iteration = completed events of the task + 1.
 17. Run `sanity-split` exactly once (after a dev-fix, over the sprint's own layer PRs, the checked PR last); its run id, sha and reviewers apply to the whole run.
 18. Split failure: refuse with its actual code before dispatch; `SANITY.PLAN_INVALID`: tell the task assigner planning failed for that bead.
-19. Dispatch every deliverable's assignment unchanged as fenced JSON to one `sc-sanity-llm` and one `sc-sanity-jev` child, both families before waiting; record each family's start and completion times.
+19. Dispatch every deliverable's assignment unchanged as fenced JSON to one `sc-sanity-llm` child, and send the deliverable's request array (51) to `jev_client.py`, both families before waiting; record each family's start and completion times.
 20. Keep each reply unchanged in its own reviewer's array; never mix arrays.
 21. Stop a child silent 30 minutes and keep its failure envelope; a failed child is yours: fix its assignment or context and rerun it; the rerun reply replaces the failed envelope before its merge; the replaced envelope goes in notes.
 22. Rerun fails, dispatch fails or the Jev probe has not passed: a coordinator failure envelope in that slot (in probe-failed mode the probe's own code and message verbatim); say that reviewer could not run; never substitute one reviewer for the other in that slot; one failed reviewer is not a blocker or CANNOT_RUN.
@@ -50,7 +50,7 @@ Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `tem
 37. Read only the pinned diff and files at `<commit>`, never the working tree; unreadable: `SANITY.TARGET_UNREADABLE`.
 38. Existing code may satisfy a deliverable; PR, QA, linking, merging are not judged.
 39. Not done: exactly one `skipped` finding at a real relative file and line; missing file: line 1 of the nearest file that should reference it.
-40. JEV: ask Jev for every deliverable through `jev_client.py --request` (one Choice question `written`, `yes`/`no`); `no` is exactly one `skipped` finding, `yes` none; return the client's receipt verbatim (it cannot be written without the call); Jev unavailable, timed out or invalid: failure envelope with the client's error verbatim, never an unaided result labelled Jev.
+40. JEV: ask Jev for every deliverable through `jev_client.py --request` (one Choice question `written`, `yes`/`no`); the client's JSON return is copied unchanged (53), and no agent turns it into a finding or verdict; Jev unavailable, timed out or invalid: failure envelope with the client's error verbatim, never an unaided result labelled Jev.
 41. Return fenced JSON `{success, data, error}`; failure: `data:null`, `error:{code, message, recoverable, suggested_action, deliverable}`.
 42. Never edit, commit, push, build, test, lint or run `bd`/`atm`; empty findings is success.
 
@@ -64,6 +64,15 @@ Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `tem
 49. `sanity-close-vars`: `--manifest`, `--selected`, optional `--stack-input` and `--stack-result`; prints the complete close-hook vars for the selected verdict and, for a fixed PASS, writes the stack input; exit 2 on invalid or mismatched input. Never hand-edited.
 50. `sanity-stack-link --input <stack-input.json> [--notify-lead <lead>]`: under the stack bead lock links the PASS layer and prints `stacked`, `stack_failed`, `lock_timeout` or `rebase_required`; a non-`stacked` result is sent to the lead; it never reopens the sanity task or counts a sanity round.
 
+### Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365)
+51. Rand (#497): "context packing LLM must split and send array of requests to jev." The dev-sanity agent that holds the full context splits each deliverable's evidence into an array of requests and sends that array to `jev_client.py`.
+52. `jev_client.py` never splits, packs or halves a request in Python: no `split_request`, no `diff_pieces`, no chunking, and no halving after an HTTP 413. It sends each request to Jev as given. A request over the input budget returns a named error, never a silent cut.
+53. Rand (#365): "the jev call should be returned. I do NOT want an agent 'interpreting' what the jev python call returns. the return must be json and included in the final result/data written to sanity log." `jev_client.py` returns JSON, and that JSON is copied unchanged into the final result and the sanity log. No agent interprets the return.
+54. Rand (#365): "the elapsed time for the jev call is calculated in jev-py". `jev_client.py` measures the elapsed time of each Jev call and returns it in its JSON; no agent computes it.
+55. Rand (#365): "jev-py includes retry for known API 'busy' error (it does not stupidly retry on other errors like out-of-tokens, context-too-large)." `jev_client.py` retries only the known API-busy error and returns the number of retries in its JSON (zero when none). It never retries any other error.
+56. Rand (#365): "jev should return an enum with all known errors which is exhaustively checked in match." Every known `jev_client.py` error is a member of one enum, and the code that handles an error checks that enum exhaustively in a `match`.
+
 ## Unresolved
 
 1. Clean tree: all three ignore `.beads.gate.lock`/`.sc-compose/`; `assignment-gates.py` also ignores untracked files, while `sanity-split` and `sanity-merge` fail `COMMIT_MISMATCH` on any other `git status --porcelain` output.
+2. Jev child: requirements 20, 22, 24, 33 and 45 still describe an `sc-sanity-jev` child and a Jev reply screened by `sanity-merge --reviewer sanity-jev` (a reply whose choice contradicts its findings, a receipt check). Requirements 19, 40 and 51 to 53 now have dev-sanity send the request array to `jev_client.py` and copy its JSON unchanged with no agent interpreting it. How a Jev result becomes a verdict, and whether the `sc-sanity-jev` child remains, awaits a ruling and the phase-bl design.
