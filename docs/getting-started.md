@@ -48,7 +48,7 @@ You need eight command-line tools and two Python packages. Check them once per m
 | `git` | Branches and worktrees | Homebrew | `git --version` |
 | `gh` | Reads pull requests from GitHub | Homebrew, then `gh auth login` | `gh auth status` |
 | `jq` | Used by the installed scripts | Ships with macOS | `jq --version` |
-| `sc-compose` | Renders templates during install; needs 1.7.0 or newer | Tap `randlee/tap` | `sc-compose --version` |
+| `sc-compose` | Renders templates during install; needs 1.7.0 or newer | `brew update`, then `brew install randlee/tap/sc-compose` | `sc-compose --version` |
 
 The host Python also needs these packages, because the installed scripts run with plain `python3`:
 
@@ -56,7 +56,7 @@ The host Python also needs these packages, because the installed scripts run wit
 python3 -m pip install pydantic pyyaml 'sc-compose>=1.7.0,<2'
 ```
 
-Keep `atm-bd` current with `uv tool upgrade atm-bd`.
+The Python package must be the same version as the `sc-compose` CLI; the installer checks both. Keep `atm-bd` current with `uv tool upgrade atm-bd`.
 
 ## One-time repo setup
 
