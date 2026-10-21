@@ -21,8 +21,8 @@ Step 1: check the machine (read-only)
 Report one line per item with its version, or MISSING:
 - `atm-bd`. It needs 0.18.2 or newer. If it's missing, the fix is `uv tool install atm-bd`; if it's older, `uv tool upgrade atm-bd`.
 - `atm`, `bd`, `dolt`, `git`, `jq` and `gh` must be on PATH. `gh auth status` must show a logged-in account.
-- The `sc-compose` CLI must be 1.7.0 or newer. The Homebrew tap may only offer 1.6.1. If so, say so and don't try to build it.
-- `python3 -c "import pydantic, yaml, sc_compose"` must succeed. If it doesn't, the fix is `python3 -m pip install pydantic pyyaml 'sc-compose>=1.7.0,<2'`.
+- The `sc-compose` CLI must be 1.7.0 or newer. If it's older, run `brew update` first, because a stale tap shows an old version; the fix is then `brew upgrade randlee/tap/sc-compose`.
+- `python3 -c "import pydantic, yaml, sc_compose"` must succeed, and the `sc-compose` Python package must be the same version as the CLI. If the import fails, report the full error. If it is simply missing, the fix is `python3 -m pip install pydantic pyyaml 'sc-compose==<CLI version>'`.
 - `$ATM_IDENTITY` and `$ATM_TEAM`: report their values, or note that they aren't set.
 STOP. Show me the list and the fixes. Install only what I approve.
 
