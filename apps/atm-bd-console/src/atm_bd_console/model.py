@@ -135,7 +135,7 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
         assigned = outcome.actions
         errors.extend(outcome.errors)
 
-    pr_rows, top_pr = _pr_rows(phase, prs, merges)
+    pr_rows, top_pr = _pr_rows(phase, prs, merges, inputs.stack_prs)
     top_ci = top_pr.ci if top_pr else None
     proposed = _problems(phase, held, merges, prs, top_pr, inputs, state, now) if stopped is None else ()
     agents = _agent_views(members, tasks, phase, inputs.task_beads, now, inputs.repo.bead_prefix,
@@ -415,7 +415,8 @@ def _metrics(phase: Phase | None, now: datetime) -> Metrics:
 
 
 def _pr_rows(
-    phase: Phase | None, prs: tuple[PullRequest, ...], merges: tuple[Merge, ...]
+    phase: Phase | None, prs: tuple[PullRequest, ...], merges: tuple[Merge, ...],
+    stack_prs: Result[tuple[int, ...]] | None = None,
 ) -> tuple[tuple[PrRow, ...], PullRequest | None]:
     if phase is None:
         return (), None
@@ -434,6 +435,12 @@ def _pr_rows(
     # the HIGHEST stack layer. Never let a stale lower layer win just because it
     # appears first in GitHub's tuple order (that produces frozen-edit advice).
     top_candidates = [pr for pr in relevant if active_pr(pr) and pr.head not in bases]
+    if isinstance(stack_prs, Ok):
+        # Hosted-stack membership is authoritative: a checkpoint/sprint PR that
+        # is not registered and linked in the stack is never the top, whatever
+        # layer it claims.
+        linked = set(stack_prs.value)
+        top_candidates = [pr for pr in top_candidates if pr.number in linked]
     layered = [(layer_of(pr.head), pr) for pr in top_candidates]
     known = [(layer, pr) for layer, pr in layered if layer is not None]
     # Without layer information the canonical top is unprovable. Do NOT fall

@@ -50,7 +50,7 @@ TEST_QA_MEMBER = "test-qa"
 TEST_REVIEWER = "test-reviewer"
 OPTIONAL_ADDITIONS = {"agent_type", "model", "harness", "qa_state", "close_reason", "severity", "assignee", "code_checkout",
                       "core_remaining", "core_limit", "core_reset", "graphql_remaining", "graphql_limit",
-                      "graphql_reset", "quota_at"}
+                      "graphql_reset", "quota_at", "stack_prs"}
 
 
 def test_pre_enum_snapshot_decodes_to_typed_states() -> None:

@@ -243,6 +243,9 @@ class Inputs:
     task_beads: Result[tuple[Bead, ...]]
     # Ids of would-be dispatch candidates whose ATM task history ends closed (`atm task events`); see candidates().
     closed_tasks: Result[tuple[str, ...]]
+    # PR numbers registered+linked in the hosted phase stack (REST stack membership).
+    # Ok = authoritative membership; None = not read; Err = read failed. See model._pr_rows.
+    stack_prs: Result[tuple[int, ...]] | None = None
 
 
 @dataclass(frozen=True)

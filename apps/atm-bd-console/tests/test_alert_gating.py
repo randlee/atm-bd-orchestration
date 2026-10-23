@@ -117,6 +117,28 @@ def test_unknown_layer_metadata_never_authorizes_a_frozen_branch_edit() -> None:
         assert "fix them on" not in getattr(action, "text", "")
 
 
+def test_unlinked_higher_layer_checkpoint_is_not_selected_as_top() -> None:
+    """Hosted-stack membership beats layer order: an unlinked checkpoint loses.
+
+    Defect 3: a checkpoint/sprint PR claiming a higher layer but not registered
+    and linked in the hosted stack must never become the top.
+    """
+    value = make_phase(
+        step("atm-bk-26", "atm-bk-26", layer=26, branch="sprint/bk-26", target="main"),
+        step("atm-bk-26-ckpt", "atm-bk-26", layer=2208, kind="sanity",
+             branch="sprint/bk-26-ckpt", target="main"),
+        sprints=(sprint(26),),
+    )
+    prs = Ok((
+        pr(2206, "sprint/bk-26", "main"),
+        pr(2208, "sprint/bk-26-ckpt", "main"),
+    ))
+
+    snapshot, _, _ = tick(inputs(value, prs=prs, stack_prs=Ok((2206,))), STATE, NOW, render)
+
+    assert snapshot.top_pr == 2206, f"expected linked top 2206, got {snapshot.top_pr}"
+
+
 def test_missing_pr_not_advised_for_not_ready_dependency_blocked_step() -> None:
     """A dependency-blocked (not ready) step must not get submit-PR advice."""
     value = make_phase(
