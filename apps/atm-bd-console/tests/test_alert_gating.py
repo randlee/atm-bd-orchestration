@@ -182,3 +182,24 @@ def test_unreadable_membership_suppresses_top_and_reports_it() -> None:
 
     assert snapshot.top_pr is None
     assert "stack_membership:unavailable" in {problem.key for problem in snapshot.problems}
+
+
+def test_snapshot_behind_stack_names_no_top_and_says_so() -> None:
+    """A correct selector fed a stale candidate set must not emit yesterday's top.
+
+    Third D1/D3 instance: membership advanced to #2211 but the polled PR snapshot
+    still ended at #2208, so the alert named #2208 (the previous top) with
+    frozen-edit advice.
+    """
+    value = make_phase(
+        step("atm-bk-26", "atm-bk-26", layer=26, branch="sprint/bk-26", target="main"),
+        step("atm-bk-27", "atm-bk-27", layer=27, branch="sprint/bk-27", target="main"),
+        sprints=(sprint(26), sprint(27)),
+    )
+    # Snapshot only holds #2208; the stack's last entry is #2211, absent here.
+    prs = Ok((pr(2208, "sprint/bk-26", "main"),))
+
+    snapshot, _, _ = tick(inputs(value, prs=prs, stack_prs=Ok((2206, 2208, 2211))), STATE, NOW, render)
+
+    assert snapshot.top_pr is None
+    assert "stack_snapshot:stale" in {problem.key for problem in snapshot.problems}

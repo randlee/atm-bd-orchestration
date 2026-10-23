@@ -436,13 +436,19 @@ def _pr_rows(
     # appears first in GitHub's tuple order (that produces frozen-edit advice).
     top_candidates = [pr for pr in relevant if active_pr(pr) and pr.head not in bases]
     if isinstance(stack_prs, Ok):
-        # Hosted-stack membership is authoritative AND ordered base -> top: the
-        # last linked candidate is the canonical top. A PR absent from the
-        # membership (an unlinked checkpoint/sprint PR) is never the top,
-        # whatever layer it claims.
-        order = {number: index for index, number in enumerate(stack_prs.value)}
-        top = max((pr for pr in top_candidates if pr.number in order),
-                  key=lambda pr: order[pr.number], default=None)
+        membership = stack_prs.value
+        present = {pr.number for pr in prs}
+        # A PR snapshot older than the stack cannot name the canonical top. If the
+        # last linked entry is missing from the read, refuse: falling back to the
+        # newest linked PR we happen to hold names yesterday's top and advises
+        # editing a frozen layer.
+        if membership and membership[-1] not in present:
+            top = None
+        else:
+            # Membership is ordered base -> top: the last linked candidate wins.
+            order = {number: index for index, number in enumerate(membership)}
+            top = max((pr for pr in top_candidates if pr.number in order),
+                      key=lambda pr: order[pr.number], default=None)
     elif isinstance(stack_prs, Err):
         # Membership was configured but is unreadable: name no top at all rather
         # than fall back to a rule that can re-crown an unlinked checkpoint.
@@ -518,6 +524,18 @@ def _problems(
             f"hosted stack membership is unreadable ({inputs.stack_prs.error.kind}): no top PR is named and no "
             f"top-dependent advice is sent until the stack read succeeds; check console.stack trunk/number in "
             f"console.toml and GitHub access",
+            now,
+        ))
+    elif (
+        isinstance(inputs.stack_prs, Ok)
+        and inputs.stack_prs.value
+        and inputs.stack_prs.value[-1] not in {pr.number for pr in prs}
+    ):
+        problems.append(Problem(
+            "stack_snapshot:stale", None, inputs.lead,
+            f"the PR snapshot is behind the hosted stack: canonical top #{inputs.stack_prs.value[-1]} is absent "
+            f"from this read, so no top PR is named and no top-dependent advice is sent; the snapshot refreshes "
+            f"on the github_poll_interval cadence",
             now,
         ))
     not_ready = {row.bead_id for row in held if row.reason == "not ready"}
