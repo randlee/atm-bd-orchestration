@@ -45,7 +45,7 @@ FIELDS: dict[str, str] = {
     "GhStatus": "mode ok error at truncated quota_remaining quota_limit quota_reset paused rate_limited poll_interval_s quota_threshold core_remaining core_limit core_reset graphql_remaining graphql_limit graphql_reset quota_at",
     "RepoConfig": "bead_prefix sanity_member qa_member primary_checkout worktree_base lint_command policy_path "
                   "reviewers_round1 plans_dir",
-    "Config": "phase lead team github interval_s dry_run no_fetch repo_root state_dir notification_sender github_poll_interval_s github_quota_threshold code_root github_repo",
+    "Config": "phase lead team github interval_s dry_run no_fetch repo_root state_dir notification_sender github_poll_interval_s github_quota_threshold code_root github_repo stack_trunk stack_number stack_repo",
     "DispatchContext": "step sprint phase_id phase_title lead commit base worktree_path pr layer_prs repo",
     "Inputs": "now lead repo interval_s phase members tasks worktrees remotes merges prs gh task_beads closed_tasks stack_prs",
     "Row": "task_id state kind difficulty tag marker age_s description",

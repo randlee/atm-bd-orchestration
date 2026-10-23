@@ -18,7 +18,7 @@ import pytest
 
 from atm_bd_console.enums import CiState, PrState, SprintState
 from atm_bd_console.model import tick
-from atm_bd_console.result import Ok
+from atm_bd_console.result import Err, NotFound, Ok
 from atm_bd_console.types import GhStatus, Inputs, PullRequest, RemoteRef, RepoConfig, Sprint, State, Step
 
 NOW = datetime(2026, 10, 23, 19, 0, tzinfo=UTC)
@@ -138,6 +138,14 @@ def test_unlinked_higher_layer_checkpoint_is_not_selected_as_top() -> None:
 
     assert snapshot.top_pr == 2206, f"expected linked top 2206, got {snapshot.top_pr}"
 
+    # Membership order is the SSOT: when the stack lists 2208 before 2206, 2206 is
+    # the last linked entry and therefore the top, even though 2208 claims a
+    # higher layer.
+    snapshot, _, _ = tick(inputs(value, prs=Ok((pr(2206, "sprint/bk-26", "main"),
+                                               pr(2208, "sprint/bk-26-ckpt", "main"))),
+                              stack_prs=Ok((2208, 2206))), STATE, NOW, render)
+    assert snapshot.top_pr == 2206, f"expected last-linked top 2206, got {snapshot.top_pr}"
+
 
 def test_missing_pr_not_advised_for_not_ready_dependency_blocked_step() -> None:
     """A dependency-blocked (not ready) step must not get submit-PR advice."""
@@ -155,3 +163,22 @@ def test_missing_pr_not_advised_for_not_ready_dependency_blocked_step() -> None:
     keys = {problem.key for problem in snapshot.problems}
     assert not any(key.startswith("missing_pr:") for key in keys), keys
     assert not any("has no open PR" in action.text for action in actions)
+
+
+def test_unreadable_membership_suppresses_top_and_reports_it() -> None:
+    """Fail loud: an unreadable stack membership names no top and says so.
+
+    Falling back to a layer rule here could re-crown an unlinked checkpoint,
+    which is the exact hazard this fix exists to kill.
+    """
+    value = make_phase(
+        step("atm-bk-26", "atm-bk-26", layer=26, branch="sprint/bk-26", target="main"),
+        sprints=(sprint(26),),
+    )
+    prs = Ok((pr(2206, "sprint/bk-26", "main"),))
+    failure = Err(NotFound("not_found", "gh", "stack 2180"))
+
+    snapshot, _, _ = tick(inputs(value, prs=prs, stack_prs=failure), STATE, NOW, render)
+
+    assert snapshot.top_pr is None
+    assert "stack_membership:unavailable" in {problem.key for problem in snapshot.problems}

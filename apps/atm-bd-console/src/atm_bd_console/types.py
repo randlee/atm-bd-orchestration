@@ -209,6 +209,11 @@ class Config:
     github_quota_threshold: int = 50
     code_root: str = ""
     github_repo: str = ""
+    # Config-driven hosted-stack membership: [console.stack] trunk/number/repo.
+    # trunk is the integration branch; number is the stack id; repo defaults to github_repo.
+    stack_trunk: str = ""
+    stack_number: int | None = None
+    stack_repo: str = ""
 
 
 @dataclass(frozen=True)

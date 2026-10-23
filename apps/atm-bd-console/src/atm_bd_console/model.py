@@ -436,17 +436,24 @@ def _pr_rows(
     # appears first in GitHub's tuple order (that produces frozen-edit advice).
     top_candidates = [pr for pr in relevant if active_pr(pr) and pr.head not in bases]
     if isinstance(stack_prs, Ok):
-        # Hosted-stack membership is authoritative: a checkpoint/sprint PR that
-        # is not registered and linked in the stack is never the top, whatever
-        # layer it claims.
-        linked = set(stack_prs.value)
-        top_candidates = [pr for pr in top_candidates if pr.number in linked]
-    layered = [(layer_of(pr.head), pr) for pr in top_candidates]
-    known = [(layer, pr) for layer, pr in layered if layer is not None]
-    # Without layer information the canonical top is unprovable. Do NOT fall
-    # back to PR number: a number-ordered guess can silently authorize editing
-    # a frozen lower layer, so report no top instead.
-    top = max(known, key=lambda pair: (pair[0], pair[1].number))[1] if known else None
+        # Hosted-stack membership is authoritative AND ordered base -> top: the
+        # last linked candidate is the canonical top. A PR absent from the
+        # membership (an unlinked checkpoint/sprint PR) is never the top,
+        # whatever layer it claims.
+        order = {number: index for index, number in enumerate(stack_prs.value)}
+        top = max((pr for pr in top_candidates if pr.number in order),
+                  key=lambda pr: order[pr.number], default=None)
+    elif isinstance(stack_prs, Err):
+        # Membership was configured but is unreadable: name no top at all rather
+        # than fall back to a rule that can re-crown an unlinked checkpoint.
+        top = None
+    else:
+        layered = [(layer_of(pr.head), pr) for pr in top_candidates]
+        known = [(layer, pr) for layer, pr in layered if layer is not None]
+        # Without layer information the canonical top is unprovable. Do NOT fall
+        # back to PR number: a number-ordered guess can silently authorize
+        # editing a frozen lower layer, so report no top instead.
+        top = max(known, key=lambda pair: (pair[0], pair[1].number))[1] if known else None
     merge_by_branch = {merge.branch: merge for merge in merges}
     rows = tuple(PrRow(
         pr=pr,
@@ -505,6 +512,14 @@ def _problems(
         if merge.state == MergeState.CONFLICT and (step := by_branch.get(merge.branch)) is not None
     }
     problems: list[Problem] = []
+    if isinstance(inputs.stack_prs, Err):
+        problems.append(Problem(
+            "stack_membership:unavailable", None, inputs.lead,
+            f"hosted stack membership is unreadable ({inputs.stack_prs.error.kind}): no top PR is named and no "
+            f"top-dependent advice is sent until the stack read succeeds; check console.stack trunk/number in "
+            f"console.toml and GitHub access",
+            now,
+        ))
     not_ready = {row.bead_id for row in held if row.reason == "not ready"}
     for row in held:
         if row.bead_id in not_ready:
