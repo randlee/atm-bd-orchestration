@@ -423,7 +423,23 @@ def _pr_rows(
     by_branch.update({sprint.branch: None for sprint in phase.sprints if sprint.branch not in by_branch})
     relevant = tuple(pr for pr in prs if pr.head in by_branch)
     bases = {pr.base for pr in relevant}
-    top = next((pr for pr in relevant if active_pr(pr) and pr.head not in bases), None)
+
+    def layer_of(head: str) -> int | None:
+        owner = by_branch.get(head)
+        if owner is not None:
+            return owner.layer
+        return next((sprint.layer for sprint in phase.sprints if sprint.branch == head), None)
+
+    # Canonical top: among active PRs whose head is not another PR's base, take
+    # the HIGHEST stack layer. Never let a stale lower layer win just because it
+    # appears first in GitHub's tuple order (that produces frozen-edit advice).
+    top_candidates = [pr for pr in relevant if active_pr(pr) and pr.head not in bases]
+    layered = [(layer_of(pr.head), pr) for pr in top_candidates]
+    known = [(layer, pr) for layer, pr in layered if layer is not None]
+    # Without layer information the canonical top is unprovable. Do NOT fall
+    # back to PR number: a number-ordered guess can silently authorize editing
+    # a frozen lower layer, so report no top instead.
+    top = max(known, key=lambda pair: (pair[0], pair[1].number))[1] if known else None
     merge_by_branch = {merge.branch: merge for merge in merges}
     rows = tuple(PrRow(
         pr=pr,
@@ -509,9 +525,25 @@ def _problems(
         heads = {pr.head for pr in prs if active_pr(pr)}
         remotes = inputs.remotes.value if isinstance(inputs.remotes, Ok) else state.remotes
         pushed = {remote.branch for remote in remotes}
+        closed_sprints = {sprint.id for sprint in phase.sprints if sprint.closed}
+        blocked_sprints = {
+            sprint.id for sprint in phase.sprints
+            if any(dependency not in closed_sprints for dependency in sprint.depends_on)
+        }
+
+        def submit_advice_allowed(step: Step) -> bool:
+            # Suppress submit-PR advice for work blocked behind an open
+            # dependency (BK10 class). Dependency state arrives two ways: bd's
+            # own ready computation ("not ready" held rows) and sprint-level
+            # depends_on that is not yet closed.
+            if step.bead_id in not_ready:
+                return False
+            return step.sprint not in blocked_sprints
+
         open_branches = {
             step.branch for step in phase.steps
             if step.status != SprintState.CLOSED and step.kind in ("dev", "fix", "sanity", "qa")
+            and submit_advice_allowed(step)
         }
         for branch, step in by_branch.items():
             if branch in open_branches and branch in pushed and branch not in heads:
