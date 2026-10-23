@@ -275,3 +275,33 @@ def _open_prs(mode, code_root, branch_groups, budget, github_repo):
                 return Err(error), _status(mode, False, error)
         rows = tuple(updates.get(pr.number, pr) for pr in rows)
     return Ok(rows), _status(mode, True, truncated=truncated)
+
+
+def stack_argv(github_repo: str, number: int) -> tuple[str, ...]:
+    _repo_parts(github_repo)
+    return ("gh", "api", f"repos/{github_repo}/stacks/{int(number)}")
+
+
+def stack_membership(mode: Literal["graphql", "rest", "off"], code_root: str | Path | None,
+                     github_repo: str, number: int) -> Result[tuple[int, ...]]:
+    """The PR numbers registered in the hosted stack, in stack order: base first, top last.
+
+    This is the canonical membership for top-PR selection: a PR absent from this list is not
+    linked in the stack, whatever layer its sprint claims, and must never be named the top.
+    """
+    argv = stack_argv(github_repo, number)
+    if mode == "off":
+        return Err(Rejected("rejected", argv, 0, "github reads are off", "set console.github to graphql or rest"))
+    result = command.run(argv, "check the phase stack membership on GitHub", cwd=code_root, timeout_s=REQUEST_TIMEOUT_S)
+    if isinstance(result, Err):
+        return result
+    try:
+        view = json.loads(result.value.stdout)
+    except ValueError as error:
+        return Err(ParseFailed("parse_failed", "stack", str(error), "check the GitHub stack API response"))
+    rows = view.get("pull_requests") if isinstance(view, dict) else None
+    if not isinstance(rows, list):
+        return Err(ParseFailed("parse_failed", "stack", "no pull_requests list",
+                              "check the GitHub stack API response; stack membership names the linked PRs"))
+    return Ok(tuple(int(row["number"]) for row in rows
+                    if isinstance(row, dict) and isinstance(row.get("number"), int)))

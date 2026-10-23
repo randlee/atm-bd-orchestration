@@ -135,7 +135,7 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
         assigned = outcome.actions
         errors.extend(outcome.errors)
 
-    pr_rows, top_pr = _pr_rows(phase, prs, merges)
+    pr_rows, top_pr = _pr_rows(phase, prs, merges, inputs.stack_prs)
     top_ci = top_pr.ci if top_pr else None
     proposed = _problems(phase, held, merges, prs, top_pr, inputs, state, now) if stopped is None else ()
     agents = _agent_views(members, tasks, phase, inputs.task_beads, now, inputs.repo.bead_prefix,
@@ -415,7 +415,8 @@ def _metrics(phase: Phase | None, now: datetime) -> Metrics:
 
 
 def _pr_rows(
-    phase: Phase | None, prs: tuple[PullRequest, ...], merges: tuple[Merge, ...]
+    phase: Phase | None, prs: tuple[PullRequest, ...], merges: tuple[Merge, ...],
+    stack_prs: Result[tuple[int, ...]] | None = None,
 ) -> tuple[tuple[PrRow, ...], PullRequest | None]:
     if phase is None:
         return (), None
@@ -423,7 +424,42 @@ def _pr_rows(
     by_branch.update({sprint.branch: None for sprint in phase.sprints if sprint.branch not in by_branch})
     relevant = tuple(pr for pr in prs if pr.head in by_branch)
     bases = {pr.base for pr in relevant}
-    top = next((pr for pr in relevant if active_pr(pr) and pr.head not in bases), None)
+
+    def layer_of(head: str) -> int | None:
+        owner = by_branch.get(head)
+        if owner is not None:
+            return owner.layer
+        return next((sprint.layer for sprint in phase.sprints if sprint.branch == head), None)
+
+    # Canonical top: among active PRs whose head is not another PR's base, take
+    # the HIGHEST stack layer. Never let a stale lower layer win just because it
+    # appears first in GitHub's tuple order (that produces frozen-edit advice).
+    top_candidates = [pr for pr in relevant if active_pr(pr) and pr.head not in bases]
+    if isinstance(stack_prs, Ok):
+        membership = stack_prs.value
+        present = {pr.number for pr in prs}
+        # A PR snapshot older than the stack cannot name the canonical top. If the
+        # last linked entry is missing from the read, refuse: falling back to the
+        # newest linked PR we happen to hold names yesterday's top and advises
+        # editing a frozen layer.
+        if membership and membership[-1] not in present:
+            top = None
+        else:
+            # Membership is ordered base -> top: the last linked candidate wins.
+            order = {number: index for index, number in enumerate(membership)}
+            top = max((pr for pr in top_candidates if pr.number in order),
+                      key=lambda pr: order[pr.number], default=None)
+    elif isinstance(stack_prs, Err):
+        # Membership was configured but is unreadable: name no top at all rather
+        # than fall back to a rule that can re-crown an unlinked checkpoint.
+        top = None
+    else:
+        layered = [(layer_of(pr.head), pr) for pr in top_candidates]
+        known = [(layer, pr) for layer, pr in layered if layer is not None]
+        # Without layer information the canonical top is unprovable. Do NOT fall
+        # back to PR number: a number-ordered guess can silently authorize
+        # editing a frozen lower layer, so report no top instead.
+        top = max(known, key=lambda pair: (pair[0], pair[1].number))[1] if known else None
     merge_by_branch = {merge.branch: merge for merge in merges}
     rows = tuple(PrRow(
         pr=pr,
@@ -482,6 +518,26 @@ def _problems(
         if merge.state == MergeState.CONFLICT and (step := by_branch.get(merge.branch)) is not None
     }
     problems: list[Problem] = []
+    if isinstance(inputs.stack_prs, Err):
+        problems.append(Problem(
+            "stack_membership:unavailable", None, inputs.lead,
+            f"hosted stack membership is unreadable ({inputs.stack_prs.error.kind}): no top PR is named and no "
+            f"top-dependent advice is sent until the stack read succeeds; check console.stack trunk/number in "
+            f"console.toml and GitHub access",
+            now,
+        ))
+    elif (
+        isinstance(inputs.stack_prs, Ok)
+        and inputs.stack_prs.value
+        and inputs.stack_prs.value[-1] not in {pr.number for pr in prs}
+    ):
+        problems.append(Problem(
+            "stack_snapshot:stale", None, inputs.lead,
+            f"the PR snapshot is behind the hosted stack: canonical top #{inputs.stack_prs.value[-1]} is absent "
+            f"from this read, so no top PR is named and no top-dependent advice is sent; the snapshot refreshes "
+            f"on the github_poll_interval cadence",
+            now,
+        ))
     not_ready = {row.bead_id for row in held if row.reason == "not ready"}
     for row in held:
         if row.bead_id in not_ready:
@@ -509,9 +565,25 @@ def _problems(
         heads = {pr.head for pr in prs if active_pr(pr)}
         remotes = inputs.remotes.value if isinstance(inputs.remotes, Ok) else state.remotes
         pushed = {remote.branch for remote in remotes}
+        closed_sprints = {sprint.id for sprint in phase.sprints if sprint.closed}
+        blocked_sprints = {
+            sprint.id for sprint in phase.sprints
+            if any(dependency not in closed_sprints for dependency in sprint.depends_on)
+        }
+
+        def submit_advice_allowed(step: Step) -> bool:
+            # Suppress submit-PR advice for work blocked behind an open
+            # dependency (BK10 class). Dependency state arrives two ways: bd's
+            # own ready computation ("not ready" held rows) and sprint-level
+            # depends_on that is not yet closed.
+            if step.bead_id in not_ready:
+                return False
+            return step.sprint not in blocked_sprints
+
         open_branches = {
             step.branch for step in phase.steps
             if step.status != SprintState.CLOSED and step.kind in ("dev", "fix", "sanity", "qa")
+            and submit_advice_allowed(step)
         }
         for branch, step in by_branch.items():
             if branch in open_branches and branch in pushed and branch not in heads:

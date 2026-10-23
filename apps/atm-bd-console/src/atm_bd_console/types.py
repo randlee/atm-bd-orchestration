@@ -209,6 +209,11 @@ class Config:
     github_quota_threshold: int = 50
     code_root: str = ""
     github_repo: str = ""
+    # Config-driven hosted-stack membership: [console.stack] trunk/number/repo.
+    # trunk is the integration branch; number is the stack id; repo defaults to github_repo.
+    stack_trunk: str = ""
+    stack_number: int | None = None
+    stack_repo: str = ""
 
 
 @dataclass(frozen=True)
@@ -243,6 +248,9 @@ class Inputs:
     task_beads: Result[tuple[Bead, ...]]
     # Ids of would-be dispatch candidates whose ATM task history ends closed (`atm task events`); see candidates().
     closed_tasks: Result[tuple[str, ...]]
+    # PR numbers registered+linked in the hosted phase stack (REST stack membership).
+    # Ok = authoritative membership; None = not read; Err = read failed. See model._pr_rows.
+    stack_prs: Result[tuple[int, ...]] | None = None
 
 
 @dataclass(frozen=True)

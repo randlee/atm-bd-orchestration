@@ -399,7 +399,14 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
                 unavailable = Merge(branch, target, MergeState.ERROR, (), (verification_reason(checked.error),), now)
                 merges[branch] = unavailable
                 merge_results.append(Ok(unavailable))
-    inputs = Inputs(now, config.lead, repo.value, config.interval_s, phase, members, tasks, worktrees, remotes, tuple(merge_results) if due else tuple(Ok(item) for item in merges.values()), prs_input, gh, task_beads, closed_tasks)
+    stack_prs = None
+    if config.stack_number is not None:
+        stack_prs = logger.result(
+            "github.stack_membership",
+            github_source.stack_membership(gh.mode, config.code_root,
+                                           config.stack_repo or config.github_repo, config.stack_number),
+        )
+    inputs = Inputs(now, config.lead, repo.value, config.interval_s, phase, members, tasks, worktrees, remotes, tuple(merge_results) if due else tuple(Ok(item) for item in merges.values()), prs_input, gh, task_beads, closed_tasks, stack_prs=stack_prs)
     snapshot, actions, next_state = model.tick(inputs, state, now, partial(atm_bd.dispatch_spec, templates=file.value.templates))
     if not snapshot.phase:
         snapshot = replace(snapshot, phase=config.phase)  # the header keeps the configured id when the phase read failed
