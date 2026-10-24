@@ -39,6 +39,8 @@ COMPLETED = "completed"
 REFUSED = "refused"
 # The result outcomes fix-complete.md.j2 accepts; not_reproducible is a fix outcome, so dev accepts only fixed.
 RESULT_OUTCOMES = {"dev": ("fixed",), "fix": ("fixed", "not_reproducible")}
+# Agents write the ATM task close word for the result outcome; it means fixed.
+OUTCOME_ALIASES = {COMPLETED: "fixed"}
 # Dolt drops connections under host load (load 40-55 with parallel cargo builds): a dropped bd call is retried.
 # Worst case for one bd call that keeps dropping = (DOLT_RETRIES + 1) * COMMAND_TIMEOUT + DOLT_RETRIES * DOLT_RETRY_SLEEP_S;
 # a call that times out is not retried and fails after COMMAND_TIMEOUT. See docs/requirements/task-close-hook.md.
@@ -130,11 +132,15 @@ def merge_result(values, result, role):
 
 
 def validate_outcome(values, role, path):
-    """Refuse a bad result outcome before the template's undefined-filter guard reports it as an unknown filter."""
+    """Map an aliased result outcome, and refuse a bad one before the template's undefined-filter guard reports it as an unknown filter."""
     allowed = RESULT_OUTCOMES[role]
-    if "outcome" in values and values["outcome"] not in allowed:
+    if "outcome" not in values:
+        return values
+    values = {**values, "outcome": OUTCOME_ALIASES.get(values["outcome"], values["outcome"])}
+    if values["outcome"] not in allowed:
         raise CloseError("VARS.INVALID", f"{role} outcome must be {' or '.join(allowed)}, got {json.dumps(values['outcome'])}",
                          f"Set outcome to {' or '.join(allowed)} in {path}, then rerun the hook.")
+    return values
 
 
 def validate_shared_vars(values, role):
@@ -885,7 +891,7 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
                 raise CloseError("ARGS.INVALID", "--result is required for dev and fix",
                                  "Pass the fixer's result file with --result <result-file>.")
             values = merge_result(values, read_vars(args.result), args.role)
-            validate_outcome(values, args.role, args.result)
+            values = validate_outcome(values, args.role, args.result)
         validate_shared_vars(values, args.role)
         hook = Hook(args.role, values, args.vars, runner, clock, sleep, sample)
         if args.role == "fix" and values.get("outcome") == "not_reproducible":

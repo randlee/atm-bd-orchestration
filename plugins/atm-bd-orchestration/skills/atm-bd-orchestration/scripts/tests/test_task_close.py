@@ -1069,10 +1069,16 @@ def test_dev_and_fix_close_require_a_result_file(world):
 
 @pytest.mark.parametrize("role,allowed", [("dev", "fixed"), ("fix", "fixed or not_reproducible")])
 def test_bad_result_outcome_names_field_value_and_allowed_values_before_commands(world, role, allowed):
-    output = world.run(role, outcome="completed")
-    assert output["err"] == {"code": "VARS.INVALID", "message": f'{role} outcome must be {allowed}, got "completed"',
+    output = world.run(role, outcome="done")
+    assert output["err"] == {"code": "VARS.INVALID", "message": f'{role} outcome must be {allowed}, got "done"',
                              "fix": f"Set outcome to {allowed} in {world.result_path}, then rerun the hook."}
     assert world.calls == []
+
+
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_completed_result_outcome_closes_as_fixed(world, role):
+    assert "ok" in world.run(role, outcome="completed")
+    assert hook.validate_outcome({"outcome": "completed"}, role, world.result_path) == {"outcome": "fixed"}
 
 
 @pytest.mark.parametrize("role", ["dev", "fix"])
