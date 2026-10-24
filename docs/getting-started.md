@@ -37,36 +37,52 @@ The lead does not write code. If you find it implementing, that's a stall.
 
 ## One-time machine setup
 
-You need eight command-line tools and two Python packages. Check them once per machine.
+You need these command-line tools and three Python packages. Check them once per machine. The installer refuses to run when a tool it checks is missing or older than the version shown.
 
-| Tool | Why | Install | Check |
-| --- | --- | --- | --- |
-| `atm-bd` | The console and the skill installer | `uv tool install atm-bd` | `atm-bd --version` |
-| `atm` | Agent messaging and task assignment | Homebrew | `atm --version` |
-| `bd` | Beads, the issue tracker the work runs on | Homebrew | `bd --version` |
-| `dolt` | The database behind beads, run as a server | Homebrew | `which dolt` |
-| `git` | Branches and worktrees | Homebrew | `git --version` |
-| `gh` | Reads pull requests from GitHub | Homebrew, then `gh auth login` | `gh auth status` |
-| `jq` | Used by the installed scripts | Ships with macOS | `jq --version` |
-| `sc-compose` | Renders templates during install; needs 1.7.0 or newer | `brew update`, then `brew install randlee/tap/sc-compose` | `sc-compose --version` |
+| Tool | Why | Needs | Install | Check |
+| --- | --- | --- | --- | --- |
+| `python3` | Runs the installed scripts | 3.11 or newer | your system package manager | `python3 --version` |
+| `atm-bd` | The console and the skill installer | 0.19.0 for these steps | `uv tool install atm-bd` | `atm-bd --version` |
+| `atm` | Agent messaging and task assignment | 1.6.1 or newer | `brew install randlee/tap/atm` | `atm --version` |
+| `bd` | Beads, the issue tracker the work runs on | 1.3.0 or newer | `brew install beads` | `bd --version` |
+| `dolt` | The database server behind beads (server mode) | not checked | Homebrew | `which dolt` |
+| `git` | Branches and worktrees | 2.27 or newer | `brew install git` | `git --version` |
+| `jq` | Used by the installed scripts | 1.6 or newer | ships with macOS 15 and later; otherwise `brew install jq` | `jq --version` |
+| `sc-compose` | Renders templates during install | 1.7.0 or newer, below 2 | `brew update`, then `brew install randlee/tap/sc-compose` | `sc-compose --version` |
+| `gh` | Reads pull requests from GitHub | not checked | Homebrew, then `gh auth login` | `gh auth status` |
+| `gh-stack` | The `gh stack` extension the lead uses to land the stack | not checked | a `gh` extension | `gh stack --version` |
 
-The host Python also needs these packages, because the installed scripts run with plain `python3`:
+`gh` and `gh-stack` are not checked by the installer, but the orchestration skill checks both before it starts.
+
+The host `python3` also needs pydantic, PyYAML and the sc-compose wheel, because the installed scripts run with plain `python3`. The wheel must be the same version as the `sc-compose` CLI; the installer checks both and refuses a mismatch. Pin it to the CLI's version:
 
 ```bash
-python3 -m pip install pydantic pyyaml 'sc-compose>=1.7.0,<2'
+python3 -m pip install pydantic pyyaml "sc-compose==$(sc-compose --version | awk '{print $NF}')"
 ```
 
-The Python package must be the same version as the `sc-compose` CLI; the installer checks both. Keep `atm-bd` current with `uv tool upgrade atm-bd`.
+Keep `atm-bd` current with `uv tool upgrade atm-bd`.
 
 ## One-time repo setup
 
-Each repo your agents work in needs four things in place before `atm-bd skill` will install. Ask Claude to check and create them, then run the installer.
+Each repo your agents work in needs these in place. Ask Claude to check and create them, then run the installer.
 
-- [ ] A git `origin` on GitHub.
+The installer checks:
+
+- [ ] A git `origin` with an `owner/name` URL. The console also needs it to be on GitHub.
 - [ ] Beads in server mode: `.beads/metadata.json` has `"dolt_mode": "server"`.
-- [ ] `.atm.toml` at the repo root, with the team name under `[atm]` as `default_team`.
 - [ ] `.claude/agents/registry.yaml` naming the team's agents and the install variables. Any it lacks can be passed as `--set name=value`.
+- [ ] `.claude/agents/<name>.md` for each agent named in `qa_member` and `reviewers_round1`. Agents the package ships count.
+
+The installer does not check these, but the console needs them:
+
+- [ ] `.atm.toml` at the repo root, with the team name under `[atm]` as `default_team`.
+- [ ] These lines in `.gitignore`, for the files 0.19.0 writes: `.atm-bd/sanity-close/`, `.atm-bd/*.bd-cache.sqlite3*` and `.atm-bd/*.bd-cache.drain.*`.
+
+Then:
+
 - [ ] Run `atm-bd skill` from the repo root.
+
+Upgrading a repo from 0.18.x to 0.19.0: rerun `atm-bd skill`, add the `.gitignore` lines above, and run `.claude/skills/atm-bd-orchestration/scripts/close_fields_backfill.py --phase <x> --apply` once for each active phase, so its open beads pass validation. Without `--apply` it only reports what it would change.
 
 The installer does three things:
 
@@ -82,10 +98,10 @@ A phase starts from a design and ends when its plan has passed review and its be
 
 1. **Create the phase file.** `.claude/skills/atm-beads/scripts/phase-config init --phase <x> --lead <member>` writes `.atm-bd/phase-<x>.toml`.
 2. **Write the plan.** It lives at `<plans_dir>/phase-<x>.jsonl`: one line per sprint, with what it depends on. Everything else about a sprint lives in its beads.
-3. **Validate it.** `validate-plan --phase <x>` must pass. Never edit the plan or the script just to make it pass.
-4. **Import and pour.** `bd import`, then `bead-groups --phase <x>` creates the dev, sanity and QA beads for each sprint.
-5. **Review the plan.** Quality-mgr reviews it, for up to three rounds. No dev work starts until it passes.
-6. **Commit** the plan and phase file to the integration branch.
+3. **Validate it.** Before import, `.claude/skills/atm-beads/scripts/validate-plan --file <plan.jsonl> --phase <x> --index <plans_dir>/phase-<x>.jsonl` must pass. After import, `validate-plan --phase <x>` checks the live beads. Never edit the plan or the script just to make it pass.
+4. **Import and pour.** `bd import -i <plan.jsonl>`, then `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <x>` creates the dev, sanity and QA beads for each sprint.
+5. **Commit** the plan and phase file and push them to the integration branch.
+6. **Review the plan.** Quality-mgr reviews it, for up to three rounds. No dev work starts until it passes.
 
 A prompt that works: *"Use atm-beads to turn docs/design/x.md into a phase plan for phase bk with solar as lead, validate it, pour the beads, and send it for plan review."*
 
@@ -123,7 +139,7 @@ atm-bd console --phase bk             # the real thing
 ```
 
 - `--github off` stops it reading pull requests, which saves GitHub quota.
-- `atm-bd show --phase bk` prints the last saved picture without starting anything.
+- `atm-bd show --phase bk` prints the last saved picture without starting anything. If that picture is stale and the console is not stopped, it says the console is not running instead.
 - Defaults for these options can live in `.atm-bd/console.toml`, under `[console]`.
 
 Run it from the repo root exactly; it fails from a subfolder.
@@ -136,7 +152,7 @@ Every error names the setting or tool at fault, so paste it to Claude and ask fo
 | --- | --- | --- |
 | `--phase <phase> is required` | No phase given | Add `--phase <x>`; lowercase letters and digits only |
 | `config_invalid: set lead in .atm-bd/phase-<x>.toml` | The phase file is from an older version | Add `lead = "<member>"` and a `[templates]` table, or recreate it with `phase-config init` |
-| `config_invalid` naming `dev_fix` or another template | A template entry is wrong | Keep exactly six: dev, fix, sanity, qa, plan_review, review |
+| `config_invalid` naming a `templates.` key | A template entry is missing, unknown, or names a missing file | Keep exactly six: dev, fix, sanity, qa, plan_review, review. A leftover `dev_fix` is ignored |
 | `not_found: install atm-bd-orchestration` | No settings file for the team | Run `atm-bd skill` in the repo |
 | `not_found: install bd` (or atm, git) | A tool is missing from PATH | Install it (see machine setup) |
 | `not_found` with an `atm teams add-member` hint | The console's sender isn't on the team | Run the command it prints |
