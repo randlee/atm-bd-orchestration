@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import redirect_stderr, redirect_stdout
 from collections import Counter
 import copy
+import importlib.machinery
 import importlib.util
 import inspect
 import io
@@ -93,14 +94,15 @@ def test_dev_handoff_is_immediate_and_closes_the_dev_task_as_the_dev(world, monk
     assert dict(hook.os.environ) == before
     calls = [argv for argv, _kwargs in world.calls if not cache_call(argv)]
     close_index = next(index for index, argv in enumerate(calls) if argv[:2] == ["bd", "close"])
+    # The sanity assignment (and its beads_dir) is built and size-checked before the bead closes.
+    assert ["bd", "where", "--json"] in calls[:close_index]
     assert calls[close_index + 1][:2] == ["atm", "send"]
-    assert calls[close_index + 2] == ["bd", "where", "--json"]
-    assert calls[close_index + 3][:3] == ["atm", "task", "assign"]
+    assert calls[close_index + 2][:3] == ["atm", "task", "assign"]
     # The dev is free for its next queued task once the hook returns; sanity runs on its own task.
     dev_task = world.tasks[world.values["dev_task_id"]]
     assert dev_task[-1]["to_state"] == "complete" and dev_task[-1]["close_outcome"] == "completed"
     assert world.tasks[world.values["sanity_task_id"]][-1]["to_state"] == "assigned"
-    assert calls[close_index + 4] == ["atm", "task", "close", world.values["dev_task_id"], "completed",
+    assert calls[close_index + 3] == ["atm", "task", "close", world.values["dev_task_id"], "completed",
                                       f"dev complete at {world.values['commit']}"]
     for argv, sender in world.writes:
         assert sender == ("phase-lead" if argv[:3] == ["atm", "task", "assign"] else "caller")
@@ -1151,6 +1153,92 @@ def test_assignment_consumes_completion_vars_before_the_temporary_file_is_remove
     assert assignment["values"]["commit"] == world.head
     assert world.values["checked_bead"] in assignment["body"]
     assert json.loads(world.path.read_text())
+
+
+# The dev/fix fields sanity-close-vars and the sanity close read back from close_context (#557).
+SANITY_READ = {"base", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+               "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
+               "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"}
+
+
+def sanity_close_vars():
+    loader = importlib.machinery.SourceFileLoader("sanity_close_vars_for_close", str(SCRIPTS / "sanity-close-vars"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("role,outcome", [("dev", "fixed"), ("fix", "fixed"), ("fix", "not_reproducible")])
+def test_sanity_close_context_carries_only_the_fields_the_sanity_close_reads(world, role, outcome):
+    if outcome == "not_reproducible":
+        world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    assert "ok" in world.run(role, outcome=outcome)
+    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    context = assignment["close_context"]
+    assert set(context) == (SANITY_READ & set(assignment)) | {"phase_lead", "budget"}
+    assert context == {**{name: assignment[name] for name in SANITY_READ & set(assignment)},
+                       "phase_lead": "phase-lead", "budget": "full"}
+    # No other top-level field is written a second time inside close_context, and nothing nests.
+    assert not (set(assignment) - SANITY_READ) & set(context)
+    assert "close_context" not in context
+    for name in ("stack_view", "validation_md", "deliverables_md", "lint_command", "pr_target", "rebased_onto"):
+        assert name not in context
+
+
+def test_sanity_close_context_subset_builds_the_same_sanity_close(world):
+    assert "ok" in world.run()
+    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    close = sanity_close_vars()
+    full = {**{name: value for name, value in assignment.items() if name not in ("close_context", "beads_dir")},
+            "phase_lead": "phase-lead", "budget": "full"}
+
+    def built(context, tmp):
+        manifest = {"run_id": "run", "sha": assignment["commit"], "sanity_bead": assignment["sanity_bead"],
+                    "dev_bead": assignment["checked_bead"], "branch": assignment["branch"],
+                    "worktree_path": assignment["worktree_path"], "deliverables_total": 1, "close_context": context,
+                    "checked_bead_data": {"title": "Checked", "labels": []}, "assignments": [{"number": 1}]}
+        selected = {"run_id": "run", "reviewer": "sanity-selected", "commit": assignment["commit"],
+                    "task_id": assignment["sanity_bead"], "checked_bead": assignment["checked_bead"],
+                    "sprint": assignment["sprint"], "completed_at": "2026-10-24T00:00:00Z", "verdict": "PASS",
+                    "findings_count": 0, "findings": [], "findings_md": "D1: done"}
+        values = close.build(manifest, selected)
+        stack_input = world.root / f"stack-input-{tmp}.json"
+        assert close.write_stack_input(stack_input, values, manifest)
+        return values, json.loads(stack_input.read_text())
+
+    subset_values, subset_stack = built(assignment["close_context"], "subset")
+    full_values, full_stack = built(full, "full")
+    assert subset_stack == full_stack
+    read = set(hook.header(hook.TEMPLATES / "task-close-vars.j2")["render_variables_by_role"]["sanity"]) | {"carry_forward"}
+    for name in ("dev-sanity-complete.md.j2", "sanity-fail.xml.j2", "qa-template.xml.j2"):
+        header = hook.header(hook.TEMPLATES / name)
+        read |= set(header["required_variables"]) | set(header.get("defaults") or {})
+    assert {name: subset_values.get(name) for name in read} == {name: full_values.get(name) for name in read}
+    # The only differences are fields the sanity close never reads, which fall back to their defaults.
+    differing = {name for name in full_values if subset_values.get(name) != full_values[name]}
+    assert differing and not differing & read
+
+
+def test_the_incident_stack_view_fits_in_one_sanity_assignment(world):
+    # 785,090 bytes: the stack view whose sanity assignment, sent twice over, exceeded ATM's limit (#557).
+    assert "ok" in world.run(stack_view="x" * 785_090)
+    command = next(argv for argv, _ in world.calls if argv[:3] == ["atm", "task", "assign"])
+    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert assignment["stack_view"] == "x" * 785_090
+    assert len(json.dumps(assignment).encode()) + len(Path(command[command.index("--template") + 1]).read_bytes()) <= 1_114_112
+
+
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_oversized_sanity_assignment_is_refused_before_the_bead_closes(world, role):
+    output = world.run(role, stack_view="x" * 1_200_000)
+    assert output["err"]["code"] == "ASSIGNMENT.TOO_LARGE", output
+    assert "1114112" in output["err"]["message"]
+    assert "stack_view (1200002 bytes)" in output["err"]["message"]
+    assert "--compact-json" in output["err"]["fix"]
+    assert not any(argv[:2] == ["bd", "close"] for argv, _ in world.calls)
+    assert world.writes == []
 
 
 class ScriptedRunner:

@@ -46,6 +46,16 @@ DOLT_RETRY_SLEEP_S = 10
 # Bead writes go through the bd-cache journal and are drained at once; a drain held by the cron is waited for.
 DRAIN_TRIES = 5
 DRAIN_BUSY_SLEEP_S = 2
+# ATM's HTTP request body limit: the ATM daemon's DEFAULT_MAX_MESSAGE_BYTES (1,048,576) plus
+# CANONICAL_WRITE_ENVELOPE_OVERHEAD_BYTES (65,536), crates/atm-daemon-bootstrap/src/lib.rs.
+ATM_MAX_REQUEST_BYTES = 1_114_112
+# The dev/fix fields the sanity close reads back from close_context: sanity-close-vars build() and
+# write_stack_input(), then atm-task-close.py --role sanity and the templates it renders and sends
+# (dev-sanity-complete, sanity-fail, qa-template). Every other field is overwritten there or never read.
+SANITY_CLOSE_CONTEXT = frozenset((
+    "base", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+    "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
+    "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"))
 
 
 def is_terminal(events):
@@ -629,22 +639,34 @@ class Hook:
     def send(self, recipient, template):
         self.run(["atm", "send", recipient, "--template", str(TEMPLATES / template), "--vars", str(self.path)])
 
-    def assign(self, member, bead, template, *, path=None, due=None):
+    def sanity_dispatch(self, context):
+        """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
+        template = "dev-sanity-template.xml.j2"
+        close_context = {name: context[name] for name in SANITY_CLOSE_CONTEXT if name in context}
+        close_context.update(phase_lead=self.lead, budget=context.get("budget", "full"))
+        dispatch = {**context, "close_context": close_context, "beads_dir": self.beads_directory()}
+        self.render(template, dispatch)
+        size = len(json.dumps(dispatch).encode()) + len((TEMPLATES / template).read_bytes())
+        if size > ATM_MAX_REQUEST_BYTES:
+            largest = sorted(dispatch, key=lambda name: len(json.dumps(dispatch[name]).encode()), reverse=True)[:3]
+            named = ", ".join(f"{name} ({len(json.dumps(dispatch[name]).encode())} bytes)" for name in largest)
+            raise CloseError("ASSIGNMENT.TOO_LARGE",
+                             f"sanity assignment is {size} bytes, over ATM's {ATM_MAX_REQUEST_BYTES}-byte request limit; largest fields: {named}",
+                             f"Shorten {largest[0]} in --result (pass the stack view with --compact-json, or cite the full "
+                             "view by file path), then rerun with the same vars file; nothing was closed.")
+        return dispatch
+
+    def assign(self, member, bead, template, *, path=None, due=None, dispatch=None):
         events = self.task_history[bead]
         if due is None:
             due = not events or (is_terminal(events) and self.bead(bead).get("status") == "open")
         if due:
             if template == "dev-sanity-template.xml.j2":
-                context = read_vars(Path(path or self.path))
                 with tempfile.TemporaryDirectory(prefix="sanity-dispatch-") as directory:
-                    dispatch = Path(directory) / "completion-vars.json"
-                    close_context = {**context, "phase_lead": self.lead,
-                                     "budget": context.get("budget", "full")}
-                    dispatch.write_text(json.dumps({**context, "close_context": close_context,
-                                                    "beads_dir": self.beads_directory()}))
-                    self.render(template, read_vars(dispatch))
+                    dispatch_path = Path(directory) / "completion-vars.json"
+                    dispatch_path.write_text(json.dumps(dispatch))
                     self.run(["atm", "task", "assign", member, "--task-id", bead, "--template", str(TEMPLATES / template),
-                              "--vars", str(dispatch)], lead=True)
+                              "--vars", str(dispatch_path)], lead=True)
             else:
                 self.run(["atm", "task", "assign", member, "--task-id", bead, "--template", str(TEMPLATES / template),
                           "--vars", str(path or self.path)], lead=True)
@@ -721,10 +743,7 @@ class Hook:
             completion = Path(directory) / "completion-vars.json"
             if values["outcome"] == "not_reproducible":
                 branch, commit = self.stack_top()
-                assignment = {**values, "branch": branch, "commit": commit,
-                              "close_context": {**values, "phase_lead": self.lead},
-                              "beads_dir": self.beads_directory()}
-                self.render("dev-sanity-template.xml.j2", assignment)
+                assignment = {**values, "branch": branch, "commit": commit}
                 assignment_path = Path(directory) / "sanity-vars.json"
                 assignment_path.write_text(json.dumps(assignment), encoding="utf-8")
                 self.render(template)
@@ -755,13 +774,15 @@ class Hook:
         assign = (not terminal or self.bead(sanity).get("status") == "open") and (sha_changed or not open_assignment)
         if not assign and sha_changed:
             raise CloseError("REPLAY.CONFLICT", "sanity is closed at a different sha", "Request a new sanity assignment before changing the checked sha.")
+        # The assignment is built and checked against ATM's limit before the bead closes: after it, a refused send strands the close.
+        dispatch = self.sanity_dispatch(assignment_values) if assign else None
         self.metadata(values["checked_bead"], {"commit": assignment_values["commit"], "branch": assignment_values["branch"], "pr_number": values.get("pr_number", ""),
                                              "pr_url": values["pr_url"]})
         reason = f"not reproducible: {values['evidence']}" if values["outcome"] == "not_reproducible" else f"{'fixed' if self.role == 'fix' else 'dev complete'} at {values['commit']}"
         self.close_bead(values["checked_bead"], reason)
         if assign and not open_assignment:
             self.send(self.lead, template)
-        self.assign(self.config["dev_sanity_member"], sanity, "dev-sanity-template.xml.j2", path=path, due=assign)
+        self.assign(self.config["dev_sanity_member"], sanity, "dev-sanity-template.xml.j2", due=assign, dispatch=dispatch)
         # The dev's work is finished: free the dev for its next queued task and stop reminders.
         # Sanity state lives on the sanity task; a FAIL re-assigns this task through the lead.
         self.close_task(self.task, reason=reason)
