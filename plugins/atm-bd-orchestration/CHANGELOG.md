@@ -4,6 +4,7 @@
 
 ### Fixed
 - `atm-task-close.py` writes each dev/fix field once: the sanity assignment's `close_context` carries only the fields the sanity close reads, and an assignment over ATM's 1,114,112-byte request limit is refused (`ASSIGNMENT.TOO_LARGE`, naming the largest fields) before the bead closes (#557).
+- `atm-task-close.py` checks a dev or fix result's `outcome` before rendering (dev: `fixed`; fix: `fixed` or `not_reproducible`) and refuses a bad value with `VARS.INVALID` naming the value, the allowed values and the result file, instead of an sc-compose "unknown filter" error (#557).
 
 ## [0.19.1] - 2026-10-24
 

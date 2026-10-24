@@ -1067,6 +1067,14 @@ def test_dev_and_fix_close_require_a_result_file(world):
     assert world.calls == []
 
 
+@pytest.mark.parametrize("role,allowed", [("dev", "fixed"), ("fix", "fixed or not_reproducible")])
+def test_bad_result_outcome_names_field_value_and_allowed_values_before_commands(world, role, allowed):
+    output = world.run(role, outcome="completed")
+    assert output["err"] == {"code": "VARS.INVALID", "message": f'{role} outcome must be {allowed}, got "completed"',
+                             "fix": f"Set outcome to {allowed} in {world.result_path}, then rerun the hook."}
+    assert world.calls == []
+
+
 @pytest.mark.parametrize("role", ["dev", "fix"])
 @pytest.mark.parametrize("skip", [False, True])
 def test_empty_derived_commit_never_writes_even_when_checks_are_skipped(world, role, skip):
