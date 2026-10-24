@@ -1028,7 +1028,8 @@ def test_close_from_documented_dispatch_and_result_files_derives_handoff(world, 
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", assignment["values"]["generated_at"])
     update = next(argv for argv, _ in world.writes if argv[:3] == ["bd", "update", dispatch["checked_bead"]])
     written = dict(update[index + 1].split("=", 1) for index, flag in enumerate(update) if flag == "--set-metadata")
-    assert written == {"branch": dispatch["branch"], **{name: derived[name] for name in ("commit", "pr_number", "pr_url")}}
+    assert written == {"branch": dispatch["branch"], "pr_base": "deliberately-different",
+                       **{name: derived[name] for name in ("commit", "pr_number", "pr_url")}}
     assert json.loads(world.path.read_text()) == dispatch
     assert json.loads(world.result_path.read_text()) == result
 
@@ -1114,6 +1115,30 @@ def test_skipped_checks_preserve_recorded_pr_identity(world, role):
     assert assignment["values"]["pr_url"] == world.values["pr_url"]
     assert assignment["values"]["rebased_onto"] == "b" * 40
 
+
+
+def checked_metadata_write(world):
+    update = next(argv for argv, _ in world.writes if argv[:3] == ["bd", "update", world.values["checked_bead"]])
+    return dict(update[index + 1].split("=", 1) for index, flag in enumerate(update) if flag == "--set-metadata")
+
+
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_close_records_the_pr_base_from_the_same_pr_lookup(world, role):
+    # QA reviews against the PR's actual base (the layer below), not the poured pr_target.
+    output = world.run(role)
+    assert "ok" in output, output
+    assert checked_metadata_write(world)["pr_base"] == "deliberately-different"
+    assert len([argv for argv, _ in world.calls if argv[0] == "gh"]) == 1
+
+
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_offline_close_keeps_the_recorded_pr_base(world, role):
+    world.github_failure = True
+    world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] = "fix/recorded-layer"
+    output = world.run(role)
+    assert "ok" in output, output
+    assert "pr_base" not in checked_metadata_write(world)
+    assert world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] == "fix/recorded-layer"
 
 def test_multiple_open_prs_at_head_are_refused_before_writes(world):
     prs = [{"number": number, "head": {"sha": world.head}} for number in (351, 352)]

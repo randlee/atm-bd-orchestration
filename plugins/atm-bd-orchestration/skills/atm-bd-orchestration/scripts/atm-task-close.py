@@ -349,6 +349,8 @@ class Hook:
         self.env = dict(os.environ)
         self.lead_env = {**self.env, "ATM_IDENTITY": self.lead, "ATM_TEAM": team}
         self.github = "ok"
+        # The PR's actual base, recorded on the checked bead for its QA assignment; not a vars field.
+        self.pr_base = ""
         self.github_error = ""
         self.closed, self.assigned = [], []
         self.task = values[{"dev": "dev_task_id", "fix": "dev_task_id", "sanity": "sanity_task_id", "qa": "qa_task_id"}[role]]
@@ -636,6 +638,7 @@ class Hook:
                                  "Close the duplicate PRs so exactly one open PR names this branch and pushed head, then rerun the hook.")
             values["pr_number"] = str(matches[0]["number"] or "")
             values["pr_url"] = f"https://github.com/{owner}/{repo}/pull/{values['pr_number']}" if values["pr_number"] else ""
+            self.pr_base = str((matches[0].get("base") or {}).get("ref") or "")
             return
         self.github = "unavailable"
         self.keep_recorded_pr()
@@ -645,6 +648,7 @@ class Hook:
         metadata = self.bead(self.task).get("metadata") or {}
         self.values["pr_number"] = str(metadata.get("pr_number") or "")
         self.values["pr_url"] = str(metadata.get("pr_url") or "")
+        self.pr_base = str(metadata.get("pr_base") or "")
 
     def render(self, template, values=None):
         try:
@@ -793,7 +797,7 @@ class Hook:
         # The assignment is built and checked against ATM's limit before the bead closes: after it, a refused send strands the close.
         dispatch = self.sanity_dispatch(assignment_values) if assign else None
         self.metadata(values["checked_bead"], {"commit": assignment_values["commit"], "branch": assignment_values["branch"], "pr_number": values.get("pr_number", ""),
-                                             "pr_url": values["pr_url"]})
+                                             "pr_url": values["pr_url"], **({"pr_base": self.pr_base} if self.pr_base else {})})
         reason = f"not reproducible: {values['evidence']}" if values["outcome"] == "not_reproducible" else f"{'fixed' if self.role == 'fix' else 'dev complete'} at {values['commit']}"
         self.close_bead(values["checked_bead"], reason)
         if assign and not open_assignment:
