@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- `atm-task-close.py` writes each dev/fix field once: the sanity assignment's `close_context` carries only the fields the sanity close reads, and an assignment over ATM's 1,114,112-byte request limit is refused (`ASSIGNMENT.TOO_LARGE`, naming the largest fields) before the bead closes (#557).
+- `atm-task-close.py` checks a dev or fix result's `outcome` before rendering (dev: `fixed`; fix: `fixed` or `not_reproducible`) and refuses a bad value with `VARS.INVALID` naming the value, the allowed values and the result file, instead of an sc-compose "unknown filter" error (#557). `completed`, the ATM task close word, is accepted and recorded as `fixed`, and the dev and fix assignments list the accepted values.
+- `assignment-gates.py dev` accepts the caller's own claimed bead: an `in_progress` bead assigned to the caller with no open `blocks` dependency is no longer a false `NOT_READY` on a rerun after the claim.
+- A dev or fix close records its PR's actual base as `pr_base` on the checked bead, read from the PR lookup it already makes, and `close-vars --qa-assignment` sends that as `base` instead of the poured `pr_target`; a bead closed without one keeps the poured `base` (#557).
+
+## [0.19.1] - 2026-10-24
+
 ### Changed
 - sprint-report and sprint-review read one phase's beads through the bd-cache (`scripts/phase_beads.py`) instead of `bd list --all`, which read every bead in the database.
   - A failed sync renders from the cached rows, and an unavailable cache reads `bd list -l phase-<p>`. Both are announced on stderr.
