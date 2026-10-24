@@ -251,9 +251,11 @@ artifacts:
     - skills/sprint-report/renderer/package.json
     - skills/sprint-report/renderer/render.cjs
     - skills/sprint-report/report.md.j2
+    - skills/sprint-report/scripts/phase_beads.py
     - skills/sprint-report/scripts/sprint-report
     - skills/sprint-report/scripts/sprint_dag.py
     - skills/sprint-report/scripts/sprint_qa.py
+    - skills/sprint-report/tests/test_phase_beads.py
     - skills/sprint-report/tests/test_sprint_dag.py
     - skills/sprint-report/tests/test_sprint_report.py
     - skills/sprint-report/tests/test_sprint_review.py
