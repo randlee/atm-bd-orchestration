@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- sprint-report and sprint-review read one phase's beads through the bd-cache (`scripts/phase_beads.py`) instead of `bd list --all`, which read every bead in the database.
+  - A failed sync renders from the cached rows, and an unavailable cache reads `bd list -l phase-<p>`. Both are announced on stderr.
+  - `bd ready` and `bd blocked` are scoped to the phase label and to the stages each view needs.
+- The DAG renderer pins `@viz-js/viz` 3.31.0.
+
 ## [0.19.0] - 2026-10-24
 
 Task-close hooks and the bd-cache (#557). Every validated open task bead carries its close fields from the pour, so a close reads one bead and no agent assembles vars by hand.
