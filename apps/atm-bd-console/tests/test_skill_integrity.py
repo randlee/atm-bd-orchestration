@@ -560,6 +560,52 @@ def test_build_identity_allocates_managed_dir_without_manifest_first(controlled_
     assert list(temporary.glob("atm-bd-skill-manifest-*")) == []
 
 
+def _add_local_artifacts(plugin: Path) -> list[str]:
+    """Untracked local files a dev or release machine has (npm ci, sc-compose logs); never part of the package."""
+    junk = {
+        "skills/demo/renderer/node_modules/esbuild/bin/esbuild": b"\xcf\xfa\xed\xfe\x07\x00\x00\x01\xff\xfe",
+        "skills/demo/.sc-compose/render.log": b"\xff\xfe log",
+    }
+    for rel, data in junk.items():
+        (plugin / rel).parent.mkdir(parents=True, exist_ok=True)
+        (plugin / rel).write_bytes(data)
+    return sorted(junk)
+
+
+def test_build_excludes_local_artifacts_from_manifest_and_force_include(controlled_build_hook) -> None:
+    hatch_build, package, temporary = controlled_build_hook
+    plugin = package.parents[1] / "plugins/atm-bd-orchestration"
+    junk = _add_local_artifacts(plugin)
+    expected = ["install.py", "manifest.yaml", "registry.yaml", "skills/demo/SKILL.md", "skills/demo/scripts/tool.py"]
+
+    manifest = skill_integrity.build_manifest(plugin, VERSION)
+    assert [entry["path"] for entry in manifest["files"]] == expected
+
+    hook = hatch_build.CustomBuildHook(str(package), {}, {}, None, str(package), "wheel")
+    build_data = {"force_include": {}}
+    hook.initialize(VERSION, build_data)
+    managed, = temporary.glob("atm-bd-skill-manifest-*")
+    published = json.loads((managed / "skill-manifest.json").read_text(encoding="utf-8"))
+    assert [entry["path"] for entry in published["files"]] == expected
+    prefix = "atm_bd_console/_skills/"
+    bundled = {dest[len(prefix):]: Path(source) for source, dest in build_data["force_include"].items()
+               if dest.startswith(prefix)}
+    assert sorted(bundled) == expected
+    assert all(bundled[rel] == plugin / rel for rel in expected)
+    assert not any(str(plugin / rel) in build_data["force_include"] for rel in junk)
+    hook.finalize(VERSION, build_data, "artifact")
+
+
+def test_install_manifest_generator_excludes_the_same_local_artifacts_as_the_wheel() -> None:
+    path = REPO / "plugins/atm-bd-orchestration/tests/gen_manifest.py"
+    spec = importlib.util.spec_from_file_location("atm_bd_gen_manifest", path)
+    assert spec is not None and spec.loader is not None
+    gen_manifest = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen_manifest)
+    assert gen_manifest.UNSHIPPED_DIRS == skill_integrity.UNSHIPPED_DIRS
+    assert gen_manifest.UNSHIPPED_SUFFIXES == skill_integrity.UNSHIPPED_SUFFIXES
+
+
 def _bundled(archive: Path) -> dict[str, bytes]:
     if archive.suffix == ".whl":
         with zipfile.ZipFile(archive) as wheel:

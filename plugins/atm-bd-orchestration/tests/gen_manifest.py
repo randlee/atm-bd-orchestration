@@ -20,13 +20,18 @@ sys.path.insert(0, str(PKG))
 import install  # noqa: E402
 
 CATEGORIES = ("skills", "agents")
+# Local, gitignored artifacts (npm ci, byte-compiled Python, sc-compose render logs, tool caches). The same as
+# skill_integrity.UNSHIPPED_DIRS/UNSHIPPED_SUFFIXES in apps/atm-bd-console, which a console test holds equal.
+UNSHIPPED_DIRS = frozenset({"node_modules", "__pycache__", ".sc-compose", ".pytest_cache", ".ruff_cache", ".venv"})
+UNSHIPPED_SUFFIXES = frozenset({".pyc"})
 
 
 def tree_artifacts() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for cat in CATEGORIES:
         files = [p for p in (PKG / cat).rglob("*")
-                 if p.is_file() and not {"node_modules", "__pycache__", ".sc-compose"} & set(p.parts)]  # .sc-compose/: gitignored render logs
+                 if p.is_file() and not UNSHIPPED_DIRS & set(p.relative_to(PKG).parts)
+                 and p.suffix not in UNSHIPPED_SUFFIXES]
         out[cat] = sorted(str(p.relative_to(PKG)) for p in files)
     return out
 

@@ -8,6 +8,9 @@
   - `bd ready` and `bd blocked` are scoped to the phase label and to the stages each view needs.
 - The DAG renderer pins `@viz-js/viz` 3.31.0.
 
+### Fixed
+- The atm-bd wheel and its skill manifest bundle only package files: local artifacts such as `node_modules/` (from `npm ci` in the sprint-report renderer), `__pycache__/`, `.sc-compose/` and tool caches are excluded, so a build on a machine that ran `npm ci` no longer fails or ships them.
+
 ## [0.19.0] - 2026-10-24
 
 Task-close hooks and the bd-cache (#557). Every validated open task bead carries its close fields from the pour, so a close reads one bead and no agent assembles vars by hand.
