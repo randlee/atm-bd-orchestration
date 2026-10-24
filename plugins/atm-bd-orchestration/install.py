@@ -44,6 +44,12 @@ same version, in the manifest's `sc-compose >= X.Y.Z, < N` range, pydantic and P
 `qa_member` and `reviewers_round1` has `.claude/agents/<name>.md` (in the
 repository or shipped by this install). `dev_sanity_member` is not checked: it
 names a team member, which may have no agent file.
+
+Team. complete() adds `atm-bd@tool`, and for a .claude install adds the
+`dev_sanity_member` to the repository's own team (`[atm] default_team` in
+`.atm.toml`; claude-code, sonnet) when `atm members` does not list it. When that
+cannot be done the install still succeeds and prints the exact
+`atm teams add-member` command to run. It never edits `.atm.toml`.
 """
 from __future__ import annotations
 
@@ -56,6 +62,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
@@ -74,6 +81,7 @@ CONFIG_OUT = ".claude/project/atm-bd-orchestration.yaml"
 LOCK_OUT = ".claude/project/atm-bd-orchestration.lock.json"
 CONSUMER_REGISTRY = ".claude/agents/registry.yaml"
 BEADS_METADATA = ".beads/metadata.json"
+ATM_CONFIG = ".atm.toml"
 
 # Variables whose value is a list (YAML list in registry.yaml; `--set` takes a
 # JSON array or a comma-separated list).
@@ -537,6 +545,8 @@ class Plan:
     lock_files: Dict[str, str] = field(default_factory=dict)
     backups: List[str] = field(default_factory=list)     # files in the way, moved to .backup/ by --overwrite
     registry_text: Optional[str] = None                  # registry.yaml with the roles written, if it changes
+    dev_sanity_member: Optional[str] = None              # team member to add for the dev-sanity role (.claude only)
+    notices: List[str] = field(default_factory=list)     # steps the install could not do; printed for the user
 
 
 def _read_lock(repo_root: Path) -> Optional[Dict[str, Any]]:
@@ -589,7 +599,8 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
     lock = _read_lock(repo_root)
     locked: Dict[str, str] = dict(lock["files"]) if lock else {}
     legacy = load_legacy_owned(pkg_dir) if lock is None else {}
-    plan = Plan(repo_root=repo_root, target_prefix=target_prefix)
+    plan = Plan(repo_root=repo_root, target_prefix=target_prefix,
+                dev_sanity_member=None if codex else config["dev_sanity_member"])
 
     def owned(key: str, data: bytes, pkg_rel: Optional[str]) -> Optional[bool]:
         """True owned and unmodified, False in the way, None for locked-but-modified."""
@@ -762,10 +773,55 @@ def provision_tool_identity(repo_root: Path) -> None:
     raise InstallError(f"could not provision atm-bd@tool: {added.stderr.strip() or added.stdout.strip()}; run {' '.join(command)}")
 
 
+def atm_default_team(repo_root: Path) -> Optional[str]:
+    """`[atm] default_team` from the repository's .atm.toml, or None when absent or unreadable."""
+    path = repo_root / ATM_CONFIG
+    try:
+        team = tomllib.loads(path.read_text(encoding="utf-8")).get("atm", {}).get("default_team")
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        return None
+    return team if isinstance(team, str) and team else None
+
+
+def provision_dev_sanity_member(repo_root: Path, member: str) -> Optional[str]:
+    """Add the dev-sanity member to the repository's own team when the roster lacks it.
+
+    Returns None when the member is present or was added; otherwise a notice naming
+    the exact command for the user to run. Never fails the install."""
+    team = atm_default_team(repo_root)
+    command = ["atm", "teams", "add-member", team or "<team>", member, "--agent-type", "claude-code",
+               "--model", "sonnet", "--home-dir", str(repo_root)]
+    if team is None:
+        return (f"dev-sanity member {member} not added: no [atm] default_team in {repo_root / ATM_CONFIG}; "
+                f"set it, then run: {' '.join(command)}")
+    try:
+        listed = subprocess.run(["atm", "members", "--team", team, "--json"], cwd=repo_root,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if listed.returncode != 0:
+            reason = listed.stderr.strip() or listed.stdout.strip() or f"exit {listed.returncode}"
+            return f"dev-sanity member {member} not checked: atm members failed ({reason}); run: {' '.join(command)}"
+        members = json.loads(listed.stdout).get("members", [])
+        if any(isinstance(m, dict) and m.get("name") == member for m in members):
+            return None
+        added = subprocess.run(command, cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if added.returncode == 0:
+            print(f"{PACKAGE}: added dev-sanity member {member}@{team}")
+            return None
+        reason = added.stderr.strip() or added.stdout.strip() or f"exit {added.returncode}"
+        return f"dev-sanity member {member} not added: {reason}; run: {' '.join(command)}"
+    except (OSError, ValueError, AttributeError, TypeError) as exc:
+        return f"dev-sanity member {member} not added: {exc}; run: {' '.join(command)}"
+
+
 def apply_plan(plan: Plan, version: str) -> int:
     """Write the plan; return the number of files whose bytes changed."""
     root = plan.repo_root
     provision_tool_identity(root)
+    if plan.dev_sanity_member:
+        notice = provision_dev_sanity_member(root, plan.dev_sanity_member)
+        if notice:
+            plan.notices.append(notice)
+            print(f"warning: {notice}", file=sys.stderr)
     changed = 0
     if plan.backups:
         backup = root / BACKUP_DIR / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -853,6 +909,8 @@ def complete(source_path: str, destination_path: str, options: dict) -> dict:
     print(f"{PACKAGE} {version}: {changed} file(s) written, {len(plan.writes) - changed} unchanged, "
           f"{len(plan.removals)} removed, {len(plan.backups)} backed up to {BACKUP_DIR}/; roles {'updated' if plan.registry_text is not None else 'unchanged'} "
           f"in {CONSUMER_REGISTRY}; config {CONFIG_OUT}; record {LOCK_OUT}")
+    for notice in plan.notices:
+        print(f"{PACKAGE}: NOT DONE: {notice}")
     return _ok()
 
 

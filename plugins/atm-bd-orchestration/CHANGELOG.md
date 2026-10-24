@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- The installer adds the dev-sanity member (`roles.dev-sanity`) to the repository's team (`[atm] default_team` in `.atm.toml`) as a claude-code agent on sonnet when `atm members` does not list it, for `.claude` installs. When it cannot (no team, `atm` missing or refusing), the install still succeeds and prints the exact `atm teams add-member` command to run. `.atm.toml` is not edited; docs/getting-started.md shows the recommended `[startup.<member>]` block.
 - `atm-task-close.py` writes each dev/fix field once: the sanity assignment's `close_context` carries only the fields the sanity close reads, and an assignment over ATM's 1,114,112-byte request limit is refused (`ASSIGNMENT.TOO_LARGE`, naming the largest fields) before the bead closes (#557).
 - `atm-task-close.py` checks a dev or fix result's `outcome` before rendering (dev: `fixed`; fix: `fixed` or `not_reproducible`) and refuses a bad value with `VARS.INVALID` naming the value, the allowed values and the result file, instead of an sc-compose "unknown filter" error (#557). `completed`, the ATM task close word, is accepted and recorded as `fixed`, and the dev and fix assignments list the accepted values.
 - `assignment-gates.py dev` accepts the caller's own claimed bead: an `in_progress` bead assigned to the caller with no open `blocks` dependency is no longer a false `NOT_READY` on a rerun after the claim.

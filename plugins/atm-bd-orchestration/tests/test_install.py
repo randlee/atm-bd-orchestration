@@ -98,6 +98,132 @@ def test_provision_failure_stops_install_before_writes_and_is_reported(tmp_path,
     assert install.complete("source", "destination", {}) == {"result": "fail", "message": "provision failed"}
 
 
+def _atm_toml(repo: Path, team: str = "my-team") -> None:
+    (repo / ".atm.toml").write_text(f'[atm]\ndefault_team = "{team}"\n')
+
+
+def _members(*names: str) -> str:
+    return json.dumps({"members": [{"name": n, "agent_type": "claude-code"} for n in names]})
+
+
+def _add_sanity(repo: Path) -> list:
+    return ["atm", "teams", "add-member", "my-team", "my-sanity", "--agent-type", "claude-code",
+            "--model", "sonnet", "--home-dir", str(repo)]
+
+
+def test_dev_sanity_member_missing_is_added_to_the_repo_team(tmp_path, monkeypatch, capsys):
+    _atm_toml(tmp_path)
+    calls = []
+    outcomes = iter([subprocess.CompletedProcess([], 0, _members("my-lead"), ""),
+                     subprocess.CompletedProcess([], 0, "added", "")])
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs["cwd"]))
+        return next(outcomes)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert install.provision_dev_sanity_member(tmp_path, "my-sanity") is None
+    assert calls == [(["atm", "members", "--team", "my-team", "--json"], tmp_path), (_add_sanity(tmp_path), tmp_path)]
+    assert "added dev-sanity member my-sanity@my-team" in capsys.readouterr().out
+
+
+def test_dev_sanity_member_present_is_not_added(tmp_path, monkeypatch):
+    _atm_toml(tmp_path)
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess([], 0, _members("my-lead", "my-sanity"), "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert install.provision_dev_sanity_member(tmp_path, "my-sanity") is None
+    assert calls == [["atm", "members", "--team", "my-team", "--json"]]
+
+
+@pytest.mark.parametrize("outcomes, reason", [
+    ([subprocess.CompletedProcess([], 1, "", "daemon unreachable")], "atm members failed (daemon unreachable)"),
+    ([subprocess.CompletedProcess([], 0, "atm 1.6.6", "")], "not added: "),
+    ([subprocess.CompletedProcess([], 0, '{"members": []}', ""), subprocess.CompletedProcess([], 4, "", "permission denied")],
+     "not added: permission denied"),
+    ([OSError("No such file or directory: 'atm'")], "not added: No such file or directory: 'atm'"),
+])
+def test_dev_sanity_member_failure_returns_the_command_to_run(tmp_path, monkeypatch, outcomes, reason):
+    _atm_toml(tmp_path)
+    queue = iter(outcomes)
+
+    def run(argv, **kwargs):
+        result = next(queue)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(subprocess, "run", run)
+    notice = install.provision_dev_sanity_member(tmp_path, "my-sanity")
+    assert notice is not None and reason in notice
+    assert notice.endswith("run: " + " ".join(_add_sanity(tmp_path)))
+
+
+def test_dev_sanity_member_without_a_team_names_atm_toml_and_runs_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("no atm call without a team"))
+    notice = install.provision_dev_sanity_member(tmp_path, "my-sanity")
+    assert notice == (f"dev-sanity member my-sanity not added: no [atm] default_team in {tmp_path / '.atm.toml'}; "
+                      f"set it, then run: atm teams add-member <team> my-sanity --agent-type claude-code "
+                      f"--model sonnet --home-dir {tmp_path}")
+
+
+def _intercept_atm(monkeypatch, members_stdout: str, add_rc: int = 0) -> list:
+    """Answer only atm roster calls; tool checks, sc-compose and git still run for real."""
+    real = subprocess.run
+    calls = []
+
+    def run(argv, *args, **kwargs):
+        if argv[:1] == ["atm"] and argv[1] in ("members", "teams"):
+            calls.append(list(argv))
+            if argv[1] == "members":
+                return subprocess.CompletedProcess(argv, 0, members_stdout, "")
+            return subprocess.CompletedProcess(argv, add_rc, "", "" if add_rc == 0 else "refused")
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(install, "provision_tool_identity", lambda _root: None)
+    return calls
+
+
+@needs_sc_compose
+def test_install_adds_the_missing_dev_sanity_member(tmp_path, monkeypatch, capsys):
+    repo = make_repo(tmp_path)
+    _atm_toml(repo)
+    before = (repo / ".atm.toml").read_bytes()
+    calls = _intercept_atm(monkeypatch, _members("my-lead"))
+    rc, err = run(repo, *QA, capsys=capsys)
+    assert rc == 0, err
+    assert calls == [["atm", "members", "--team", "my-team", "--json"], _add_sanity(repo.resolve())]
+    assert (repo / ".atm.toml").read_bytes() == before   # the startup block is the user's to add
+
+
+@needs_sc_compose
+def test_install_reports_an_unadded_dev_sanity_member_and_succeeds(tmp_path, monkeypatch, capsys):
+    repo = make_repo(tmp_path)
+    _atm_toml(repo)
+    _intercept_atm(monkeypatch, _members(), add_rc=2)
+    rc = install.main(["--dest", str(repo / ".claude"), *QA], pkg_dir=PKG)
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    command = " ".join(_add_sanity(repo.resolve()))
+    assert f"warning: dev-sanity member my-sanity not added: refused; run: {command}" in err
+    assert f"NOT DONE: dev-sanity member my-sanity not added: refused; run: {command}" in out
+
+
+@needs_sc_compose
+def test_codex_install_does_not_touch_the_dev_sanity_member(tmp_path, monkeypatch, capsys):
+    repo = make_repo(tmp_path)
+    _atm_toml(repo)
+    calls = _intercept_atm(monkeypatch, _members())
+    rc, err = run(repo, *QA, target=".codex", capsys=capsys)
+    assert rc == 0, err
+    assert calls == []
+
+
 # ---------------------------------------------------------------- consistency
 
 
