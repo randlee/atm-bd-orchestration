@@ -39,7 +39,7 @@ close script assigns it, as the lead, to the dev-sanity member.
 
 | Bead | ATM task held by | Assigned by, template |
 | --- | --- | --- |
-| dev | a dev, by `difficulty` | the lead, `templates.dev`; after a sanity FAIL the lead re-assigns the same task |
+| dev | a dev, by `difficulty` | the lead, `templates.dev`; a sanity FAIL reopens the same bead and the lead re-assigns the same task, with no new template. The sanity close hook (`sanity_task_close_hook.py`) journals the reopen through the bd-cache and sends the dev `sanity-failed-template.md.j2`; a legacy-mode close (`atm-task-close.py --role sanity`) sends `sanity-fail.xml.j2` |
 | fix | a dev, by `difficulty` | the lead, `templates.fix` |
 | sanity | dev-sanity | `atm-task-close.py` at dev or fix close, `dev-sanity-template.xml.j2` |
 | qa | quality-mgr | the lead, `templates.qa`, vars from `close-vars.py --qa-assignment` |
