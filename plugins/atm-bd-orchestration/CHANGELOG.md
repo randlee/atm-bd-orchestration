@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-10-24
+
 ### Fixed
 - The installer adds the dev-sanity member (`roles.dev-sanity`) to the repository's team (`[atm] default_team` in `.atm.toml`) for `.claude` installs, as a claude-code, sonnet, herdr agent, when `atm members` does not list it.
   - Its host name (the alias of its `.atm.toml` `[[rmux.windows.panes]]` entry, passed as `--alias`, else the member name) must be unique on the host. The installer reads every team's members and does not add a name another member already uses; it suggests a free `<prefix>-sanity` instead (`raptor` -> `rap-sanity`).
@@ -12,6 +14,10 @@
 - `dev-template` 3.17.1 and `fix-assignment` 3.18.1 drop the `CARGO_BUILD_JOBS=4` instruction, one repository's host policy; repositories that need it put it in their `policy_path`.
 - `bd_cache_cron.py` sends its escalations as `atm-bd@tool` (the installer's member), not `cron@tool`, which atm reserves for its scheduler and refuses for ordinary sends, so every send failed; a message counts as announced only when `atm send` succeeds, as before.
 - The manifest requires `atm >= 1.6.3`, the first release with `atm hook` and `atm cron`, which the phase setup and the sanity close hook run (was `>= 1.6.1`).
+- Console top-PR selection no longer names a frozen lower layer (#558). With `[console.stack]` configured (`trunk`, `number`, optional `repo`), the hosted stack's last linked PR is the top; an unreadable membership raises `stack_membership:unavailable` and a PR read behind the stack raises `stack_snapshot:stale`, and neither names a top. Without a configured stack, the candidate on the highest sprint layer wins and no known layer means no top. `missing_pr:` advice is not sent for a bead that is not ready or whose sprint dependencies are open.
+- Console GitHub use is bounded (#558). One GraphQL call per poll reads the open PRs, the 10 newest closed or merged PRs of each phase branch and each stack member, instead of paging all PR history (about 23 calls per poll on a 2,250-PR repository). The stack read runs on the poll cadence, not every tick. Each call is gated on its own quota resource; a skipped read keeps the cache and reports once.
+- A stopped phase's console view reads its caches from the store the ticks write, so a bead prefix other than `atm` no longer shows an empty stopped view (#558).
+- `docs/getting-started.md` covers team setup, who sends which work, the sanity `task.close` hook, the bd-cache cron and the phase cron (#575); `docs/bootstrap-prompt.md` is a prompt that sets a repository up from the guide (#555).
 
 ## [0.19.1] - 2026-10-24
 
