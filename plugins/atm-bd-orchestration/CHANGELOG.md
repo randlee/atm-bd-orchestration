@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-10-24
+
 ### Fixed
 - The installer adds the dev-sanity member (`roles.dev-sanity`) to the repository's team (`[atm] default_team` in `.atm.toml`) for `.claude` installs, as a claude-code, sonnet, herdr agent, when `atm members` does not list it.
   - Its host name (the alias of its `.atm.toml` `[[rmux.windows.panes]]` entry, passed as `--alias`, else the member name) must be unique on the host. The installer reads every team's members and does not add a name another member already uses; it suggests a free `<prefix>-sanity` instead (`raptor` -> `rap-sanity`).
