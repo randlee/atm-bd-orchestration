@@ -81,6 +81,10 @@ class Step:
     carry_forward: str | None
     close_reason: str | None = None
     severity: str | None = None
+    # QA steps: the QA bead and its checked bead as bd rows (id, title, status, labels, metadata). Dispatch builds the
+    # QA vars from them with the canonical resolver, close_fields.qa_assignment_vars, the one producer of QA vars (#557).
+    qa_row: Mapping[str, Any] | None = None
+    checked_row: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -209,6 +213,11 @@ class Config:
     github_quota_threshold: int = 50
     code_root: str = ""
     github_repo: str = ""
+    # Config-driven hosted-stack membership: [console.stack] trunk/number/repo.
+    # trunk is the integration branch; number is the stack id; repo defaults to github_repo.
+    stack_trunk: str = ""
+    stack_number: int | None = None
+    stack_repo: str = ""
 
 
 @dataclass(frozen=True)
@@ -243,6 +252,9 @@ class Inputs:
     task_beads: Result[tuple[Bead, ...]]
     # Ids of would-be dispatch candidates whose ATM task history ends closed (`atm task events`); see candidates().
     closed_tasks: Result[tuple[str, ...]]
+    # PR numbers registered+linked in the hosted phase stack (REST stack membership).
+    # Ok = authoritative membership; None = not read; Err = read failed. See model._pr_rows.
+    stack_prs: Result[tuple[int, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -416,6 +428,10 @@ class PrsFile:
     gh: GhStatus
     prs: tuple[PullRequest, ...]
     attempted_at: datetime | None = None
+    # Hosted-stack membership read in the same refresh as prs (membership first), for stack_number.
+    # Replaced only when both reads succeed, so the cached membership never runs ahead of the cached PRs.
+    stack_number: int | None = None
+    stack_prs: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True)

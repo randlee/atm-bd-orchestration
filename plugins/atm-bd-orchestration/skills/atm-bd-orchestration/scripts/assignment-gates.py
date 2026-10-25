@@ -11,8 +11,10 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import time
 from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
@@ -27,12 +29,21 @@ VALIDATE_PLAN = str(PRIMARY / ".claude/skills/atm-beads/scripts/validate-plan")
 MIN_VALIDATE_PLAN_TIMEOUT = 300
 COMMAND_TIMEOUT = import_timeout()
 VALIDATE_PLAN_TIMEOUT = max(MIN_VALIDATE_PLAN_TIMEOUT, COMMAND_TIMEOUT)
+DOLT_DROP = re.compile(r"invalid connection|i/o timeout", re.IGNORECASE)  # local mirror of atm-task-close.py, 2026-10-20
+DOLT_RETRIES = 3
+DOLT_RETRY_SLEEP_S = 10  # validate-plan takes 60-90s under host load (2026-10-20, load 45-55); mirror PR upstream
 
 
 def invoke(runner: Runner, argv: list[str], *, timeout: float | None = None, **kwargs: Any) -> subprocess.CompletedProcess[str]:
     limit = COMMAND_TIMEOUT if timeout is None else timeout
     try:
-        return runner(argv, timeout=limit, **kwargs)
+        for attempt in range(DOLT_RETRIES + 1):
+            result = runner(argv, timeout=limit, **kwargs)
+            text = (getattr(result, "stderr", "") or "") + (getattr(result, "stdout", "") or "")
+            if not getattr(result, "returncode", 0) or attempt == DOLT_RETRIES or not DOLT_DROP.search(str(text)):
+                return result
+            time.sleep(DOLT_RETRY_SLEEP_S)  # Dolt dropped the connection under host load; retry (local mirror of the close hook, 2026-10-20)
+        raise AssertionError("the last attempt always returns")
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(f"{argv!r} timed out after {limit}s; {RAISE_FIX} "
                            f"(now {COMMAND_TIMEOUT}s per command, {VALIDATE_PLAN_TIMEOUT}s for validate-plan)") from error
@@ -57,6 +68,11 @@ def metadata(bead: dict[str, Any]) -> dict[str, Any]:
 
 def claimable(bead: dict[str, Any], identity: str) -> bool:
     return bead.get("status") == "open" and (not bead.get("assignee") or bead.get("assignee") == identity)
+
+
+def own_claim(bead: dict[str, Any], identity: str) -> bool:
+    """A replay finds its own claimed bead in progress, which `bd ready` no longer lists."""
+    return bead.get("status") == "in_progress" and bead.get("assignee") == identity
 
 
 def has_prior_pass(output: str) -> bool:
@@ -128,10 +144,12 @@ def dev_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
     if plan.returncode:
         raise RuntimeError(f"validate-plan exit {plan.returncode}: {(plan.stderr or plan.stdout).strip()}")
     ready = run_json(runner, "bd", "ready", "-n", "0", "--json")
-    if not any(row.get("id") == args.bead for row in ready):
-        return "NOT_READY"
     bead = run_json(runner, "bd", "show", args.bead, "--json")[0]
-    if not claimable(bead, identity):
+    if not any(row.get("id") == args.bead for row in ready):
+        if not own_claim(bead, identity) or any(dep.get("dependency_type") == "blocks" and dep.get("status") != "closed"
+                                                for dep in bead.get("dependencies") or []):
+            return "NOT_READY"
+    elif not claimable(bead, identity):
         return "UNCLAIMABLE"
     declared = declared_pr_target(runner, bead)
     if declared is not None and not descends(runner, str(declared), args.pr_target, git_dir(args)):
@@ -146,9 +164,8 @@ def sanity_gate(args: argparse.Namespace, runner: Runner, identity: str) -> str:
         return "COMMIT_REQUIRED"
     ready = run_json(runner, "bd", "ready", "-n", "0", "--json")
     if not any(row.get("id") == args.bead for row in ready):
-        # A replay finds its own claimed bead in progress, which `bd ready` no longer lists.
         bead = run_json(runner, "bd", "show", args.bead, "--json")[0]
-        if not (bead.get("status") == "in_progress" and bead.get("assignee") == identity):
+        if not own_claim(bead, identity):
             return "NOT_READY"
     if has_prior_pass(run(runner, "bd", "history", args.bead, "--json")):
         return "SANITY_FROZEN"

@@ -73,12 +73,23 @@ def read_build_commit(identity_file: Path) -> str | None:
     return None
 
 
+# Local, gitignored artifacts that are never part of the package. plugins/atm-bd-orchestration/tests/gen_manifest.py
+# applies the same exclusion to the install manifest; a test holds the two equal.
+UNSHIPPED_DIRS = frozenset({"node_modules", "__pycache__", ".sc-compose", ".pytest_cache", ".ruff_cache", ".venv"})
+UNSHIPPED_SUFFIXES = frozenset({".pyc"})
+
+
+def is_shipped(rel: Path) -> bool:
+    """Whether a root-relative file path is part of the package, as opposed to a local artifact."""
+    return not UNSHIPPED_DIRS & set(rel.parts) and rel.suffix not in UNSHIPPED_SUFFIXES
+
+
 def shipped_files(root: Path) -> list[str]:
-    """Every file under root in sorted relative-path order, without byte-compiled Python."""
+    """Every package file under root in sorted relative-path order: the wheel's bundle and the manifest's paths."""
     return sorted(
         path.relative_to(root).as_posix()
         for path in root.rglob("*")
-        if path.is_file() and "__pycache__" not in path.relative_to(root).parts and path.suffix != ".pyc"
+        if path.is_file() and is_shipped(path.relative_to(root))
     )
 
 

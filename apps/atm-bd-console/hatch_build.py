@@ -82,12 +82,15 @@ class CustomBuildHook(BuildHookInterface):
         source = bundled if (package / "PKG-INFO").is_file() else (plugin if plugin.is_dir() else bundled)
         if not source.is_dir():
             raise RuntimeError(f"cannot bundle skills: neither {plugin} nor {bundled} exists")
-        _force_include(build_data)[str(source)] = self._dest("_skills")
-        self._include_manifest(package, source, build_data, package_version)
-
-    def _include_manifest(self, package: Path, source: Path, build_data: dict[str, object], package_version: str) -> None:
-        """Publish skill-manifest.json beside the bundled skills; it exists only in the built artifacts, never in git."""
         integrity = _load_integrity(package / "src" / "atm_bd_console" / "skill_integrity.py")
+        # File by file, so the bundle is exactly the manifest's paths and never a local artifact such as node_modules.
+        force_include = _force_include(build_data)
+        for rel in integrity.shipped_files(source):
+            force_include[str(source / rel)] = self._dest(f"_skills/{rel}")
+        self._include_manifest(integrity, source, build_data, package_version)
+
+    def _include_manifest(self, integrity, source: Path, build_data: dict[str, object], package_version: str) -> None:
+        """Publish skill-manifest.json beside the bundled skills; it exists only in the built artifacts, never in git."""
         output = self._managed_build_dir() / integrity.MANIFEST_NAME
         output.write_text(json.dumps(integrity.build_manifest(source, package_version), indent=2) + "\n", encoding="utf-8")
         _force_include(build_data)[str(output)] = self._dest(integrity.MANIFEST_NAME)

@@ -239,3 +239,34 @@ def test_absent_empty_or_non_string_default_team_is_config_invalid(tmp_path, tex
     assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
     assert result.error.key == "atm.default_team" and result.error.value == value
     assert "set atm.default_team in .atm.toml to a nonempty team name" in result.error.fix
+
+
+def test_stack_membership_config_is_parsed_and_validated(tmp_path) -> None:
+    """[console.stack] is the only place a stack id is configured: no code default, no hardcoded phase ids."""
+    _team_config(tmp_path)
+    path = tmp_path / ".atm-bd" / "console.toml"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("[console.stack]\ntrunk = 'integrate/phase-bh'\nnumber = 2180\nrepo = 'randlee/atm-core'\n")
+
+    loaded = load_config(tmp_path, "bh")
+
+    assert isinstance(loaded, Ok)
+    assert (loaded.value.stack_trunk, loaded.value.stack_number, loaded.value.stack_repo) == (
+        "integrate/phase-bh", 2180, "randlee/atm-core")
+
+    for body, key in (
+        ("[console.stack]\nnumber = 2180\n", "console.stack.trunk"),
+        ("[console.stack]\ntrunk = 'x'\nnumber = 0\n", "console.stack.number"),
+        ("[console.stack]\ntrunk = 'x'\nnumber = 2180\nrepo = 'bad'\n", "console.stack.repo"),
+    ):
+        path.write_text(body)
+        invalid = load_config(tmp_path, "bh")
+        assert isinstance(invalid, Err) and isinstance(invalid.error, ConfigInvalid), body
+        assert invalid.error.key == key
+
+
+def test_stack_membership_defaults_to_unconfigured(tmp_path) -> None:
+    _team_config(tmp_path)
+    loaded = load_config(tmp_path, "bh")
+    assert isinstance(loaded, Ok)
+    assert (loaded.value.stack_trunk, loaded.value.stack_number, loaded.value.stack_repo) == ("", None, "")
