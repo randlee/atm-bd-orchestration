@@ -84,11 +84,25 @@ Then:
 
 Upgrading a repo from 0.18.x to 0.19.0: rerun `atm-bd skill`, add the `.gitignore` lines above, and run `.claude/skills/atm-bd-orchestration/scripts/close_fields_backfill.py --phase <x> --apply` once for each active phase, so its open beads pass validation. Without `--apply` it only reports what it would change.
 
-The installer does three things:
+The installer does four things:
 
 1. It copies the orchestration skills and templates into `.claude/` (or `.codex/` with `--codex`).
 2. It writes the team's settings to `.claude/project/atm-bd-orchestration.yaml`.
 3. It adds the `atm-bd@tool` member to the team, which the console sends notices from.
+4. For a `.claude` install, it adds the dev-sanity member (`roles.dev-sanity` in `registry.yaml`) to your team as a Claude Code agent on sonnet, if the team doesn't have it yet. If it can't, the install still finishes and prints `NOT DONE:` with what to do, usually the exact `atm teams add-member` command to run.
+
+When it finishes, the installer lists every change it made: the files written, removed or backed up, the roles it set, and the members it added.
+
+A member's name only has to be unique in its team, like `team-lead`. Herdr finds an agent by its alias, like `atm-lead`, or by its member name when it has no alias, and that name must be unique on the computer: agents with the same name on one machine can't be told apart. So give the dev-sanity member a name or alias no other team on the computer uses, like `<repo>-sanity` (`rap-sanity` for raptor). The installer reads the alias from the member's `[[rmux.windows.panes]]` entry in `.atm.toml`, and refuses to add a name another team already uses. The herdr agent must have that same name (`herdr agent rename <pane> <name>`), or nudges won't reach it.
+
+The installer does not touch `.atm.toml`. When the file has no startup block for the dev-sanity member, the installer prints a recommended one under "Recommended addition to .atm.toml (not written)", filled in with your member and lead. We recommend adding it, so the agent reads its role sheet whenever it starts:
+
+```toml
+[startup.<dev-sanity-member>]
+all = ["Your role is dev-sanity under atm-bd-orchestration: read .claude/agents/dev-sanity.md now (again after every compaction) and run its Startup section",
+       "Use native atm send or atm ack for messages to <lead>",
+       "Use native atm read to read messages from team-members" ]
+```
 
 A prompt that works: *"Check this repo is ready for atm-bd skill, list what's missing, then install it."*
 

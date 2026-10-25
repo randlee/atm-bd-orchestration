@@ -98,6 +98,274 @@ def test_provision_failure_stops_install_before_writes_and_is_reported(tmp_path,
     assert install.complete("source", "destination", {}) == {"result": "fail", "message": "provision failed"}
 
 
+def _atm_toml(repo: Path, team: str = "my-team", *, alias: str | None = None, startup: bool = False) -> None:
+    text = f'[atm]\ndefault_team = "{team}"\n'
+    if startup:
+        text += '\n[startup.my-sanity]\nall = ["mine"]\n'
+    text += '\n[[rmux.windows]]\nname = "agents"\n\n[[rmux.windows.panes]]\nname = "my-sanity"\n'
+    if alias:
+        text += f'alias = "{alias}"\n'
+    (repo / ".atm.toml").write_text(text)
+
+
+def _roster(*members) -> str:
+    """members: names or (name, alias) pairs."""
+    rows = [{"name": m, "agent_type": "claude-code"} if isinstance(m, str) else
+            {"name": m[0], "agent_type": "claude-code", "alias": m[1]} for m in members]
+    return json.dumps({"members": rows})
+
+
+def _add_sanity(repo: Path, alias: str | None = None) -> list:
+    return ["atm", "teams", "add-member", "my-team", "my-sanity", "--agent-type", "claude-code",
+            "--model", "sonnet", "--home-dir", str(repo), "--backend", "herdr", *(["--alias", alias] if alias else [])]
+
+
+class FakeAtm:
+    """The atm roster boundary: `members --team T`, `teams`, `teams add-member`. Records every call."""
+
+    def __init__(self, rosters: dict, *, add_rc: int = 0, fail: dict | None = None):
+        self.rosters, self.add_rc, self.fail, self.calls = rosters, add_rc, fail or {}, []
+
+    def __call__(self, argv, **_kwargs):
+        argv = list(argv)
+        self.calls.append(argv)
+        key = " ".join(argv)
+        if key in self.fail:
+            result = self.fail[key]
+            if isinstance(result, Exception):
+                raise result
+            return result
+        if argv[1] == "members":
+            return subprocess.CompletedProcess(argv, 0, self.rosters[argv[3]], "")
+        if argv[1:] == ["teams", "--json"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"teams": [{"name": t, "member_count": 0} for t in self.rosters]}), "")
+        if argv[1:3] == ["teams", "add-member"]:
+            return subprocess.CompletedProcess(argv, self.add_rc, "", "" if self.add_rc == 0 else "refused")
+        raise AssertionError(f"unexpected atm call {argv}")
+
+
+MEMBERS = lambda team: ["atm", "members", "--team", team, "--json"]
+TEAMS = ["atm", "teams", "--json"]
+
+
+def test_dev_sanity_member_missing_is_added_under_its_member_name(tmp_path, monkeypatch):
+    _atm_toml(tmp_path)
+    fake = FakeAtm({"my-team": _roster("my-lead"), "other": _roster("other-sanity")})
+    monkeypatch.setattr(subprocess, "run", fake)
+    result = install.provision_dev_sanity_member(tmp_path, "my-sanity")
+    assert (result.added, result.notice, result.host_name) == (True, None, "my-sanity")
+    assert fake.calls == [MEMBERS("my-team"), TEAMS, MEMBERS("other"), _add_sanity(tmp_path)]
+
+
+def test_dev_sanity_member_is_added_with_the_pane_alias(tmp_path, monkeypatch):
+    _atm_toml(tmp_path, alias="myr-sanity")
+    fake = FakeAtm({"my-team": _roster("my-lead"), "other": _roster("my-sanity")})   # same member name elsewhere is fine
+    monkeypatch.setattr(subprocess, "run", fake)
+    result = install.provision_dev_sanity_member(tmp_path, "my-sanity")
+    assert (result.added, result.notice, result.host_name) == (True, None, "myr-sanity")
+    assert fake.calls[-1] == _add_sanity(tmp_path, "myr-sanity")
+
+
+def test_dev_sanity_member_present_in_our_team_is_not_added(tmp_path, monkeypatch):
+    _atm_toml(tmp_path)
+    fake = FakeAtm({"my-team": _roster("my-lead", "my-sanity"), "other": _roster("my-sanity")})
+    monkeypatch.setattr(subprocess, "run", fake)
+    result = install.provision_dev_sanity_member(tmp_path, "my-sanity")
+    assert (result.added, result.notice) == (False, None)
+    assert fake.calls == [MEMBERS("my-team")]
+
+
+@pytest.mark.parametrize("alias, other_roster, holder", [
+    (None, _roster("my-sanity"), "my-sanity@other"),                     # member name is another member's name
+    (None, _roster(("x", "my-sanity")), "x@other"),                       # member name is another member's alias
+    ("myr-sanity", _roster(("y", "myr-sanity")), "y@other"),              # pane alias is another member's alias
+    ("myr-sanity", _roster("myr-sanity"), "myr-sanity@other"),            # pane alias is another member's name
+])
+def test_dev_sanity_host_name_taken_in_another_team_is_not_added(tmp_path, monkeypatch, alias, other_roster, holder):
+    repo = tmp_path / "raptor"
+    repo.mkdir()
+    _atm_toml(repo, alias=alias)
+    fake = FakeAtm({"my-team": _roster("my-lead"), "other": other_roster})
+    monkeypatch.setattr(subprocess, "run", fake)
+    result = install.provision_dev_sanity_member(repo, "my-sanity")
+    notice = result.notice
+    assert not result.added and result.suggest_alias == "rap-sanity" and notice is not None
+    assert all(call[1:3] != ["teams", "add-member"] for call in fake.calls)
+    assert f"{alias or 'my-sanity'} is taken by {holder} on this host" in notice
+    assert "such as rap-sanity, either as roles.dev-sanity in .claude/agents/registry.yaml" in notice
+    assert "herdr agent rename <pane> rap-sanity, then rerun the install" in notice
+
+
+@pytest.mark.parametrize("name, expected", [("raptor", "rap-sanity"), ("atm-core", "atm-sanity"),
+                                            ("Atm_BD.orchestration", "atm-sanity"), ("ab", "ab-sanity")])
+def test_suggested_alias_is_the_repo_name_prefix(tmp_path, name, expected):
+    assert install.suggested_alias(tmp_path / name) == expected
+
+
+def test_suggested_alias_skips_host_names_in_use(tmp_path):
+    assert install.suggested_alias(tmp_path / "raptor", {"rap-sanity", "rap-sanity2"}) == "rap-sanity3"
+
+
+def test_dev_sanity_suggestion_is_never_the_taken_name(tmp_path, monkeypatch):
+    repo = tmp_path / "raptor"
+    repo.mkdir()
+    _atm_toml(repo, alias="rap-sanity")
+    monkeypatch.setattr(subprocess, "run", FakeAtm({"my-team": _roster("my-lead"), "raptor": _roster(("dev-sanity", "rap-sanity"))}))
+    result = install.provision_dev_sanity_member(repo, "my-sanity")
+    notice = result.notice
+    assert notice is not None and "rap-sanity is taken by dev-sanity@raptor on this host" in notice
+    assert result.suggest_alias == "rap-sanity2" and "such as rap-sanity2," in notice
+
+
+@pytest.mark.parametrize("fail, reason", [
+    ({"atm members --team my-team --json": subprocess.CompletedProcess([], 1, "", "daemon unreachable")},
+     "not checked: atm members --team my-team --json failed (daemon unreachable)"),
+    ({"atm members --team my-team --json": subprocess.CompletedProcess([], 0, "atm 1.6.6", "")},
+     "not checked: atm members --team my-team --json printed no JSON"),
+    ({"atm teams --json": subprocess.CompletedProcess([], 1, "", "no teams")},
+     "not checked for host name my-sanity on this host: atm teams --json failed (no teams)"),
+    ({"atm members --team other --json": subprocess.CompletedProcess([], 1, "", "locked")},
+     "not checked for host name my-sanity in team other: atm members --team other --json failed (locked)"),
+    ({"atm members --team my-team --json": OSError("No such file or directory: 'atm'")},
+     "not checked: atm members --team my-team --json: No such file or directory: 'atm'"),
+])
+def test_dev_sanity_read_failure_names_the_command_and_adds_nothing(tmp_path, monkeypatch, fail, reason):
+    _atm_toml(tmp_path)
+    fake = FakeAtm({"my-team": _roster("my-lead"), "other": _roster()}, fail=fail)
+    monkeypatch.setattr(subprocess, "run", fake)
+    result = install.provision_dev_sanity_member(tmp_path, "my-sanity")
+    notice = result.notice
+    assert not result.added and notice is not None and reason in notice
+    assert notice.endswith(" ".join(_add_sanity(tmp_path)))
+    assert all(call[1:3] != ["teams", "add-member"] for call in fake.calls)
+
+
+def test_dev_sanity_refused_add_names_the_command(tmp_path, monkeypatch):
+    _atm_toml(tmp_path)
+    monkeypatch.setattr(subprocess, "run", FakeAtm({"my-team": _roster()}, add_rc=4))
+    result = install.provision_dev_sanity_member(tmp_path, "my-sanity")
+    assert not result.added
+    assert result.notice == f"dev-sanity member my-sanity not added: refused; run: {' '.join(_add_sanity(tmp_path))}"
+
+
+def test_dev_sanity_member_without_a_team_names_atm_toml_and_runs_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("no atm call without a team"))
+    result = install.provision_dev_sanity_member(tmp_path, "my-sanity")
+    assert result.notice == (f"dev-sanity member my-sanity not added: no [atm] default_team in {tmp_path / '.atm.toml'}; "
+                             f"set it, then run: atm teams add-member <team> my-sanity --agent-type claude-code "
+                             f"--model sonnet --home-dir {tmp_path} --backend herdr")
+
+
+STARTUP_BLOCK = [
+    "[startup.my-sanity]",
+    'all = ["Your role is dev-sanity under atm-bd-orchestration: read .claude/agents/dev-sanity.md now (again after '
+    'every compaction) and run its Startup section",',
+    '       "Use native atm send or atm ack for messages to my-lead",',
+    '       "Use native atm read to read messages from team-members" ]',
+]
+
+
+def _report_plan(repo: Path, **kw) -> install.Plan:
+    plan = install.Plan(repo_root=repo, target_prefix=".claude/", dev_sanity_member="my-sanity", **kw)
+    return plan
+
+
+def test_change_report_lists_each_change_and_recommends_the_startup_block(tmp_path):
+    _atm_toml(tmp_path)
+    plan = _report_plan(tmp_path, removals=[".claude/old.md"], backups=[".claude/x.md"], registry_text="roles: {}\n")
+    plan.written = [".claude/agents/dev-sanity.md", install.CONFIG_OUT]
+    plan.members_added = ["atm-bd@tool", "my-sanity@my-team (host name my-sanity)"]
+    plan.sanity = install.SanityMember(added=True, host_name="my-sanity")
+    config = {"dev_sanity_member": "my-sanity", "qa_member": "quality-mgr", "team_lead_member": "my-lead"}
+    assert install.change_report(plan, config) == [
+        "Changes:",
+        "  written: .claude/agents/dev-sanity.md",
+        f"  written: {install.CONFIG_OUT}",
+        "  removed: .claude/old.md",
+        "  backed up to .backup/: .claude/x.md",
+        "  roles set in .claude/agents/registry.yaml: dev-sanity: my-sanity, quality-mgr: quality-mgr, lead: my-lead",
+        "  member added: atm-bd@tool",
+        "  member added: my-sanity@my-team (host name my-sanity)",
+        "  then: name the dev-sanity herdr agent my-sanity or nudges will not reach it: herdr agent rename <pane> my-sanity",
+        "Recommended addition to .atm.toml (not written):",
+        *STARTUP_BLOCK,
+    ]
+    assert install.tomllib.loads("\n".join(STARTUP_BLOCK))["startup"]["my-sanity"]["all"][1].endswith("to my-lead")
+
+
+def test_change_report_omits_an_existing_startup_block_and_recommends_a_free_alias(tmp_path):
+    _atm_toml(tmp_path, startup=True)
+    plan = _report_plan(tmp_path)
+    assert install.change_report(plan, {"team_lead_member": "my-lead"}) == ["Changes:", "  none"]
+    plan.sanity = install.SanityMember(notice="taken", suggest_alias="tmp-sanity")
+    assert install.change_report(plan, {"team_lead_member": "my-lead"}) == [
+        "Changes:", "  none", "Recommended addition to .atm.toml (not written):",
+        "[[rmux.windows.panes]]", 'name = "my-sanity"', 'alias = "tmp-sanity"']
+
+
+def test_change_report_without_a_known_lead_says_lead(tmp_path):
+    plan = _report_plan(tmp_path)   # no .atm.toml at all
+    assert "messages to <lead>" in "\n".join(install.change_report(plan, {}))
+
+
+def _intercept_atm(monkeypatch, fake: FakeAtm) -> FakeAtm:
+    """Answer only atm roster calls; tool checks, sc-compose and git still run for real."""
+    real = subprocess.run
+
+    def run(argv, *args, **kwargs):
+        if argv[:1] == ["atm"] and argv[1] in ("members", "teams"):
+            return fake(argv, **kwargs)
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(install, "provision_tool_identity", lambda _root: True)
+    return fake
+
+
+@needs_sc_compose
+def test_install_adds_the_missing_dev_sanity_member_and_lists_the_changes(tmp_path, monkeypatch, capsys):
+    repo = make_repo(tmp_path)
+    _atm_toml(repo)
+    before = (repo / ".atm.toml").read_bytes()
+    fake = _intercept_atm(monkeypatch, FakeAtm({"my-team": _roster("my-lead")}))
+    rc = install.main(["--dest", str(repo / ".claude"), *QA], pkg_dir=PKG)
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    assert fake.calls == [MEMBERS("my-team"), TEAMS, _add_sanity(repo.resolve())]
+    assert (repo / ".atm.toml").read_bytes() == before   # recommended, never written
+    lines = out.splitlines()
+    assert "  written: .claude/agents/dev-sanity.md" in lines and f"  written: {install.CONFIG_OUT}" in lines
+    assert "  roles set in .claude/agents/registry.yaml: dev-sanity: my-sanity, quality-mgr: quality-mgr, lead: my-lead" in lines
+    assert "  member added: atm-bd@tool" in lines and "  member added: my-sanity@my-team (host name my-sanity)" in lines
+    at = lines.index("Recommended addition to .atm.toml (not written):")
+    assert lines[at + 1:at + 5] == STARTUP_BLOCK
+    assert any(re.match(r"atm-bd-orchestration \S+: \d+ file\(s\) written", line) for line in lines)   # the count line stays
+
+
+@needs_sc_compose
+def test_install_reports_an_unadded_dev_sanity_member_and_succeeds(tmp_path, monkeypatch, capsys):
+    repo = make_repo(tmp_path)
+    _atm_toml(repo, startup=True)
+    _intercept_atm(monkeypatch, FakeAtm({"my-team": _roster()}, add_rc=2))
+    rc = install.main(["--dest", str(repo / ".claude"), *QA], pkg_dir=PKG)
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    command = " ".join(_add_sanity(repo.resolve()))
+    assert f"warning: dev-sanity member my-sanity not added: refused; run: {command}" in err
+    assert f"NOT DONE: dev-sanity member my-sanity not added: refused; run: {command}" in out
+    assert "Recommended addition" not in out and "member added: my-sanity" not in out
+
+
+@needs_sc_compose
+def test_codex_install_does_not_touch_the_dev_sanity_member(tmp_path, monkeypatch, capsys):
+    repo = make_repo(tmp_path)
+    _atm_toml(repo)
+    fake = _intercept_atm(monkeypatch, FakeAtm({"my-team": _roster()}))
+    rc, err = run(repo, *QA, target=".codex", capsys=capsys)
+    assert rc == 0, err
+    assert fake.calls == []
+
+
 # ---------------------------------------------------------------- consistency
 
 

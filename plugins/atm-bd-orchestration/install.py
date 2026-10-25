@@ -44,6 +44,15 @@ same version, in the manifest's `sc-compose >= X.Y.Z, < N` range, pydantic and P
 `qa_member` and `reviewers_round1` has `.claude/agents/<name>.md` (in the
 repository or shipped by this install). `dev_sanity_member` is not checked: it
 names a team member, which may have no agent file.
+
+Team. complete() adds `atm-bd@tool`, and for a .claude install adds the
+`dev_sanity_member` to the repository's own team (`[atm] default_team` in
+`.atm.toml`; claude-code, sonnet, herdr) when `atm members` does not list it.
+Its host name (the alias of its `.atm.toml` `[[rmux.windows.panes]]` entry, else
+the member name) must not be any other member's host name on this host; every
+team is read and only our own is changed. When the member cannot be added the
+install still succeeds and says what to run. complete() prints every change it
+made and the `.atm.toml` additions it recommends; it never edits `.atm.toml`.
 """
 from __future__ import annotations
 
@@ -56,6 +65,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
@@ -74,6 +84,7 @@ CONFIG_OUT = ".claude/project/atm-bd-orchestration.yaml"
 LOCK_OUT = ".claude/project/atm-bd-orchestration.lock.json"
 CONSUMER_REGISTRY = ".claude/agents/registry.yaml"
 BEADS_METADATA = ".beads/metadata.json"
+ATM_CONFIG = ".atm.toml"
 
 # Variables whose value is a list (YAML list in registry.yaml; `--set` takes a
 # JSON array or a comma-separated list).
@@ -537,6 +548,11 @@ class Plan:
     lock_files: Dict[str, str] = field(default_factory=dict)
     backups: List[str] = field(default_factory=list)     # files in the way, moved to .backup/ by --overwrite
     registry_text: Optional[str] = None                  # registry.yaml with the roles written, if it changes
+    dev_sanity_member: Optional[str] = None              # team member to add for the dev-sanity role (.claude only)
+    notices: List[str] = field(default_factory=list)     # steps the install could not do; printed for the user
+    written: List[str] = field(default_factory=list)     # files whose bytes changed (filled by apply_plan)
+    members_added: List[str] = field(default_factory=list)  # team members created (filled by apply_plan)
+    sanity: Optional["SanityMember"] = None              # the dev-sanity roster outcome (filled by apply_plan)
 
 
 def _read_lock(repo_root: Path) -> Optional[Dict[str, Any]]:
@@ -589,7 +605,8 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
     lock = _read_lock(repo_root)
     locked: Dict[str, str] = dict(lock["files"]) if lock else {}
     legacy = load_legacy_owned(pkg_dir) if lock is None else {}
-    plan = Plan(repo_root=repo_root, target_prefix=target_prefix)
+    plan = Plan(repo_root=repo_root, target_prefix=target_prefix,
+                dev_sanity_member=None if codex else config["dev_sanity_member"])
 
     def owned(key: str, data: bytes, pkg_rel: Optional[str]) -> Optional[bool]:
         """True owned and unmodified, False in the way, None for locked-but-modified."""
@@ -743,29 +760,240 @@ def write_roles(registry: Path, roles: Dict[str, str]) -> bool:
     return True
 
 
-def provision_tool_identity(repo_root: Path) -> None:
-    """Create the default notification identity, tolerating a verified existing member."""
+def provision_tool_identity(repo_root: Path) -> bool:
+    """Create the default notification identity, tolerating a verified existing member.
+    Returns True when the member was created."""
     command = ["atm", "teams", "add-member", "tool", "atm-bd", "--agent-type", "tool", "--model", "none"]
     try:
         added = subprocess.run(command, cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if added.returncode == 0:
-            return
+            return True
         existing = subprocess.run(["atm", "members", "--team", "tool", "--json"], cwd=repo_root,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if existing.returncode == 0:
             members = json.loads(existing.stdout).get("members", [])
             if any(isinstance(member, dict) and member.get("name") == "atm-bd" and member.get("agent_type") == "tool"
                    for member in members):
-                return
+                return False
     except (OSError, ValueError, AttributeError, TypeError) as exc:
         raise InstallError(f"could not provision atm-bd@tool: {exc}; run {' '.join(command)}") from exc
     raise InstallError(f"could not provision atm-bd@tool: {added.stderr.strip() or added.stdout.strip()}; run {' '.join(command)}")
 
 
+def atm_default_team(repo_root: Path) -> Optional[str]:
+    """`[atm] default_team` from the repository's .atm.toml, or None when absent or unreadable."""
+    atm = _atm_toml(repo_root).get("atm")
+    team = atm.get("default_team") if isinstance(atm, dict) else None
+    return team if isinstance(team, str) and team else None
+
+
+def _atm_json(argv: List[str], repo_root: Path) -> Tuple[Optional[Any], str]:
+    """Run a read-only atm command; (parsed JSON, "") or (None, reason)."""
+    try:
+        done = subprocess.run(argv, cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except OSError as exc:
+        return None, f"{' '.join(argv)}: {exc}"
+    if done.returncode != 0:
+        return None, f"{' '.join(argv)} failed ({done.stderr.strip() or done.stdout.strip() or f'exit {done.returncode}'})"
+    try:
+        return json.loads(done.stdout), ""
+    except ValueError as exc:
+        return None, f"{' '.join(argv)} printed no JSON ({exc})"
+
+
+def _members(data: Any) -> Optional[List[Dict[str, Any]]]:
+    members = data.get("members") if isinstance(data, dict) else None
+    if not isinstance(members, list):
+        return None
+    return [m for m in members if isinstance(m, dict)]
+
+
+def _team_names(data: Any) -> Optional[List[str]]:
+    teams = data.get("teams") if isinstance(data, dict) else None
+    if not isinstance(teams, list):
+        return None
+    names: List[str] = []
+    for entry in teams:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name:
+            return None
+        names.append(name)
+    return names
+
+
+def _atm_toml(repo_root: Path) -> Dict[str, Any]:
+    try:
+        return tomllib.loads((repo_root / ATM_CONFIG).read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def pane_alias(repo_root: Path, member: str) -> Optional[str]:
+    """The `alias` of the .atm.toml `[[rmux.windows.panes]]` entry named `member`, if any."""
+    rmux = _atm_toml(repo_root).get("rmux")
+    windows = rmux.get("windows") if isinstance(rmux, dict) else None
+    for window in windows if isinstance(windows, list) else []:
+        panes = window.get("panes") if isinstance(window, dict) else None
+        for pane in panes if isinstance(panes, list) else []:
+            if isinstance(pane, dict) and pane.get("name") == member:
+                alias = pane.get("alias")
+                return alias if isinstance(alias, str) and alias else None
+    return None
+
+
+def suggested_alias(repo_root: Path, taken: Iterable[str] = ()) -> str:
+    """`<prefix>-sanity`: the prefix is the repository directory name's first word
+    (split on -, _ or .), lowercased and cut to three letters: raptor -> rap-sanity,
+    atm-core -> atm-sanity. A name in `taken` gets the first free number appended."""
+    first = re.split(r"[-_.]", repo_root.name.lower(), maxsplit=1)[0] or "repo"
+    base, used = f"{first[:3]}-sanity", set(taken)
+    return next(name for name in (base, *(f"{base}{n}" for n in range(2, len(used) + 3))) if name not in used)
+
+
+def herdr_rename_hint(name: str) -> str:
+    return f"name the dev-sanity herdr agent {name} or nudges will not reach it: herdr agent rename <pane> {name}"
+
+
+def _host_name(member: Dict[str, Any]) -> Optional[str]:
+    """The name Herdr targets a member by on this host: its alias, else its member name."""
+    alias = member.get("alias")
+    return alias if isinstance(alias, str) and alias else member.get("name")
+
+
+@dataclass
+class SanityMember:
+    added: bool = False
+    notice: Optional[str] = None
+    host_name: Optional[str] = None        # the alias, else the member name, it was added under
+    suggest_alias: Optional[str] = None    # an alias to recommend for the .atm.toml pane entry
+
+
+def provision_dev_sanity_member(repo_root: Path, member: str) -> SanityMember:
+    """Add the dev-sanity member to the repository's own team when the roster lacks it.
+
+    The member name is team-scoped. Herdr targets a member by its host name: the
+    roster alias when it has one, else the member name, and that must be unique on
+    the host. The alias comes from the `.atm.toml` `[[rmux.windows.panes]]` entry
+    named for the member; `--alias` is passed only when that entry declares one.
+    The member is not added when any other member on this host already has the same
+    host name: every team is read, none but our own is changed. The notice names
+    what the user must do. Never fails the install."""
+    team = atm_default_team(repo_root)
+    alias = pane_alias(repo_root, member)
+    host_name = alias or member
+
+    def command(use_alias: Optional[str]) -> List[str]:
+        argv = ["atm", "teams", "add-member", team or "<team>", member, "--agent-type", "claude-code",
+                "--model", "sonnet", "--home-dir", str(repo_root), "--backend", "herdr"]
+        return argv + (["--alias", use_alias] if use_alias else [])
+
+    run_it = f"run: {' '.join(command(alias))}"
+    if team is None:
+        return SanityMember(notice=f"dev-sanity member {member} not added: no [atm] default_team in "
+                                   f"{repo_root / ATM_CONFIG}; set it, then {run_it}")
+    own, reason = _atm_json(["atm", "members", "--team", team, "--json"], repo_root)
+    own_members = _members(own) if reason == "" else None
+    if own_members is None:
+        return SanityMember(notice=f"dev-sanity member {member} not checked: "
+                                   f"{reason or 'atm members gave no members list'}; {run_it}")
+    if any(m.get("name") == member for m in own_members):
+        return SanityMember()
+    listed, reason = _atm_json(["atm", "teams", "--json"], repo_root)
+    teams = _team_names(listed) if reason == "" else None
+    if teams is None:
+        return SanityMember(notice=f"dev-sanity member {member} not checked for host name {host_name} on this host: "
+                                   f"{reason or 'atm teams gave no teams list'}; check every team's members, then {run_it}")
+    host_names: Dict[str, str] = {}   # host name -> member@team, our own team first
+    for other in [team, *(t for t in teams if t != team)]:
+        if other == team:
+            members: Optional[List[Dict[str, Any]]] = own_members
+        else:
+            data, reason = _atm_json(["atm", "members", "--team", other, "--json"], repo_root)
+            members = _members(data) if reason == "" else None
+        if members is None:
+            return SanityMember(notice=f"dev-sanity member {member} not checked for host name {host_name} in team "
+                                       f"{other}: {reason or 'atm members gave no members list'}; check it, then {run_it}")
+        for m in members:
+            name = _host_name(m)
+            if isinstance(name, str):
+                host_names.setdefault(name, f"{m.get('name')}@{other}")
+    holder = host_names.get(host_name)
+    if holder is not None:
+        suggestion = suggested_alias(repo_root, host_names)
+        return SanityMember(notice=f"dev-sanity member {member} not added: {host_name} is taken by {holder} "
+                                   f"on this host, and agents with one name on one machine cannot be told apart; "
+                                   f"give it a unique name such as {suggestion}, either as roles.dev-sanity in "
+                                   f"{CONSUMER_REGISTRY} or as the alias of its pane in {ATM_CONFIG} (see the "
+                                   f"recommended addition above), {herdr_rename_hint(suggestion)}, then rerun the install",
+                            suggest_alias=suggestion)
+    try:
+        added = subprocess.run(command(alias), cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except OSError as exc:
+        return SanityMember(notice=f"dev-sanity member {member} not added: {exc}; {run_it}")
+    if added.returncode == 0:
+        return SanityMember(added=True, host_name=host_name)
+    reason = added.stderr.strip() or added.stdout.strip() or f"exit {added.returncode}"
+    return SanityMember(notice=f"dev-sanity member {member} not added: {reason}; {run_it}")
+
+
+def _toml_key(name: str) -> str:
+    return name if re.fullmatch(r"[A-Za-z0-9_-]+", name) else json.dumps(name)
+
+
+def recommended_startup_block(repo_root: Path, member: str, lead: Optional[str]) -> Optional[str]:
+    """The `[startup.<member>]` block to recommend for .atm.toml, or None when it has one."""
+    startup = _atm_toml(repo_root).get("startup")
+    if isinstance(startup, dict) and member in startup:
+        return None
+    lines = [
+        "Your role is dev-sanity under atm-bd-orchestration: read .claude/agents/dev-sanity.md now "
+        "(again after every compaction) and run its Startup section",
+        f"Use native atm send or atm ack for messages to {lead or '<lead>'}",
+        "Use native atm read to read messages from team-members",
+    ]
+    body = ",\n       ".join(json.dumps(line) for line in lines)
+    return f"[startup.{_toml_key(member)}]\nall = [{body} ]\n"
+
+
+def change_report(plan: Plan, config: Dict[str, Any]) -> List[str]:
+    """The itemized list of what the install changed, plus the .atm.toml recommendation."""
+    out = ["Changes:"]
+    out += [f"  written: {key}" for key in plan.written]
+    out += [f"  removed: {key}" for key in plan.removals]
+    out += [f"  backed up to {BACKUP_DIR}/: {key}" for key in plan.backups]
+    if plan.registry_text is not None:
+        roles = ", ".join(f"{role}: {config[var]}" for var, role in ROLE_KEYS.items() if var in config)
+        out.append(f"  roles set in {CONSUMER_REGISTRY}: {roles}")
+    out += [f"  member added: {name}" for name in plan.members_added]
+    if len(out) == 1:
+        out.append("  none")
+    sanity, member = plan.sanity, plan.dev_sanity_member
+    if sanity is not None and sanity.added and sanity.host_name:
+        out.append(f"  then: {herdr_rename_hint(sanity.host_name)}")
+    if member:
+        recommend: List[str] = []
+        if sanity is not None and sanity.suggest_alias:
+            recommend += ["[[rmux.windows.panes]]", f"name = {json.dumps(member)}", f"alias = {json.dumps(sanity.suggest_alias)}", ""]
+        block = recommended_startup_block(plan.repo_root, member, config.get("team_lead_member"))
+        if block:
+            recommend += block.rstrip("\n").splitlines()
+        if recommend:
+            out += [f"Recommended addition to {ATM_CONFIG} (not written):", *(recommend if block else recommend[:-1])]
+    return out
+
+
 def apply_plan(plan: Plan, version: str) -> int:
     """Write the plan; return the number of files whose bytes changed."""
     root = plan.repo_root
-    provision_tool_identity(root)
+    if provision_tool_identity(root):
+        plan.members_added.append("atm-bd@tool")
+    if plan.dev_sanity_member:
+        plan.sanity = provision_dev_sanity_member(root, plan.dev_sanity_member)
+        if plan.sanity.added:
+            plan.members_added.append(f"{plan.dev_sanity_member}@{atm_default_team(root)} (host name {plan.sanity.host_name})")
+        if plan.sanity.notice:
+            plan.notices.append(plan.sanity.notice)
+            print(f"warning: {plan.sanity.notice}", file=sys.stderr)
     changed = 0
     if plan.backups:
         backup = root / BACKUP_DIR / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -781,6 +1009,7 @@ def apply_plan(plan: Plan, version: str) -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.is_file() or path.read_bytes() != data:
             path.write_bytes(data)
+            plan.written.append(key)
             changed += 1
         if executable:
             path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -853,6 +1082,10 @@ def complete(source_path: str, destination_path: str, options: dict) -> dict:
     print(f"{PACKAGE} {version}: {changed} file(s) written, {len(plan.writes) - changed} unchanged, "
           f"{len(plan.removals)} removed, {len(plan.backups)} backed up to {BACKUP_DIR}/; roles {'updated' if plan.registry_text is not None else 'unchanged'} "
           f"in {CONSUMER_REGISTRY}; config {CONFIG_OUT}; record {LOCK_OUT}")
+    for line in change_report(plan, config):
+        print(line)
+    for notice in plan.notices:
+        print(f"{PACKAGE}: NOT DONE: {notice}")
     return _ok()
 
 
