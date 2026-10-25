@@ -159,6 +159,24 @@ def load_config(
     if type(quota_threshold) is not int or not 0 <= quota_threshold <= 100:
         return Err(ConfigInvalid("config_invalid", "github_quota_threshold", repr(quota_threshold), "use an integer percentage from 0 to 100"))
 
+    stack = console.get("stack", {})
+    if not isinstance(stack, dict):
+        return Err(ConfigInvalid("config_invalid", "console.stack", repr(stack),
+                                 "use a [console.stack] table with trunk and number"))
+    stack_trunk = stack.get("trunk", "")
+    stack_number = stack.get("number")
+    stack_repo = stack.get("repo", "")
+    if stack_number is not None:
+        if type(stack_number) is not int or stack_number <= 0:
+            return Err(ConfigInvalid("config_invalid", "console.stack.number", repr(stack_number),
+                                     "use the positive integer id of the hosted stack"))
+        if not isinstance(stack_trunk, str) or not stack_trunk:
+            return Err(ConfigInvalid("config_invalid", "console.stack.trunk", repr(stack_trunk),
+                                     "name the integration branch the stack is built on"))
+    if not isinstance(stack_repo, str) or (stack_repo and stack_repo.count("/") != 1):
+        return Err(ConfigInvalid("config_invalid", "console.stack.repo", repr(stack_repo),
+                                 "use owner/name, or omit it to use the code checkout's repository"))
+
     phase_settings = phase_file(str(root), phase)
     if isinstance(phase_settings, Err):
         return phase_settings
@@ -169,4 +187,6 @@ def load_config(
     return Ok(Config(phase, phase_settings.value.lead, team.value, chosen_github, chosen_interval, dry_run, no_fetch,
                      str(root), str(state_dir), notification_sender=notification_sender,
                      github_poll_interval_s=poll_interval, github_quota_threshold=quota_threshold,
-                     code_root=code_repo.value[0], github_repo=code_repo.value[1]))
+                     code_root=code_repo.value[0], github_repo=code_repo.value[1],
+                     stack_trunk=stack_trunk, stack_number=stack_number,
+                     stack_repo=stack_repo))

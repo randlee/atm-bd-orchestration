@@ -7,10 +7,6 @@
   - Its host name (the alias of its `.atm.toml` `[[rmux.windows.panes]]` entry, passed as `--alias`, else the member name) must be unique on the host. The installer reads every team's members and does not add a name another member already uses; it suggests a free `<prefix>-sanity` instead (`raptor` -> `rap-sanity`).
   - When it cannot add the member (no team, `atm` missing, a failed read, a taken name, a refused add), the install still succeeds and prints `NOT DONE:` with the exact command or rename to make.
 - The install output lists every change: the files written, removed and backed up, the roles set, and the members added. When `.atm.toml` has no `[startup.<member>]` block for the dev-sanity member, it prints the recommended block, with the member and lead filled in, under "Recommended addition to .atm.toml (not written)". `.atm.toml` is never edited.
-- `atm-task-close.py` writes each dev/fix field once: the sanity assignment's `close_context` carries only the fields the sanity close reads, and an assignment over ATM's 1,114,112-byte request limit is refused (`ASSIGNMENT.TOO_LARGE`, naming the largest fields) before the bead closes (#557).
-- `atm-task-close.py` checks a dev or fix result's `outcome` before rendering (dev: `fixed`; fix: `fixed` or `not_reproducible`) and refuses a bad value with `VARS.INVALID` naming the value, the allowed values and the result file, instead of an sc-compose "unknown filter" error (#557). `completed`, the ATM task close word, is accepted and recorded as `fixed`, and the dev and fix assignments list the accepted values.
-- `assignment-gates.py dev` accepts the caller's own claimed bead: an `in_progress` bead assigned to the caller with no open `blocks` dependency is no longer a false `NOT_READY` on a rerun after the claim.
-- A dev or fix close records its PR's actual base as `pr_base` on the checked bead, read from the PR lookup it already makes, and `close-vars --qa-assignment` sends that as `base` instead of the poured `pr_target`; a bead closed without one keeps the poured `base` (#557).
 - `atm-bd skill` prints the same change list, `.atm.toml` recommendation and `NOT DONE:` lines as the sc-install hook; both print `install.completion_report()`.
 - The dev or fix close sets the sanity assignment's `sanity_close_mode` to `daemon` when `atm hook list --phase <x> --json` shows an active `task.close` registration of `sanity_task_close_hook.py` enabling the dev-sanity member, and `legacy` otherwise; nothing set `daemon` before. A failed `atm hook list` refuses the close before anything is written.
 - `dev-template` 3.17.1 and `fix-assignment` 3.18.1 drop the `CARGO_BUILD_JOBS=4` instruction, one repository's host policy; repositories that need it put it in their `policy_path`.
@@ -25,6 +21,10 @@
 - The DAG renderer pins `@viz-js/viz` 3.31.0.
 
 ### Fixed
+- `atm-task-close.py` writes each dev/fix field once: the sanity assignment's `close_context` carries only the fields the sanity close reads, and an assignment over ATM's 1,114,112-byte request limit is refused (`ASSIGNMENT.TOO_LARGE`, naming the largest fields) before the bead closes (#557).
+- `atm-task-close.py` checks a dev or fix result's `outcome` before rendering (dev: `fixed`; fix: `fixed` or `not_reproducible`) and refuses a bad value with `VARS.INVALID` naming the value, the allowed values and the result file, instead of an sc-compose "unknown filter" error (#557). `completed`, the ATM task close word, is accepted and recorded as `fixed`, and the dev and fix assignments list the accepted values.
+- `assignment-gates.py dev` accepts the caller's own claimed bead: an `in_progress` bead assigned to the caller with no open `blocks` dependency is no longer a false `NOT_READY` on a rerun after the claim.
+- A dev or fix close records its PR's actual base as `pr_base` on the checked bead, read from the PR lookup it already makes, and `close-vars --qa-assignment` sends that as `base` instead of the poured `pr_target`; a bead closed without one keeps the poured `base` (#557).
 - The atm-bd wheel and its skill manifest bundle only package files: local artifacts such as `node_modules/` (from `npm ci` in the sprint-report renderer), `__pycache__/`, `.sc-compose/` and tool caches are excluded, so a build on a machine that ran `npm ci` no longer fails or ships them.
 
 ## [0.19.0] - 2026-10-24

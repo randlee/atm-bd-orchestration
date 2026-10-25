@@ -48,9 +48,10 @@ TEST_LEAD = "test-lead"
 TEST_SANITY_MEMBER = "test-sanity"
 TEST_QA_MEMBER = "test-qa"
 TEST_REVIEWER = "test-reviewer"
+ALLOW_EMPTY = {"stack_trunk", "stack_repo"}  # an unconfigured optional config block
 OPTIONAL_ADDITIONS = {"agent_type", "model", "harness", "qa_state", "close_reason", "severity", "qa_row", "checked_row", "assignee", "code_checkout",
                       "core_remaining", "core_limit", "core_reset", "graphql_remaining", "graphql_limit",
-                      "graphql_reset", "quota_at"}
+                      "graphql_reset", "quota_at", "stack_prs", "stack_trunk", "stack_number", "stack_repo"}
 
 
 def test_pre_enum_snapshot_decodes_to_typed_states() -> None:
@@ -135,7 +136,9 @@ def test_legacy_bead_step_and_qa_strings_decode_to_enums() -> None:
 
 
 def test_config_round_trip_and_literal_rejection() -> None:
-    value = Config("bh", TEST_LEAD, "atm-dev", "rest", 60, False, False, "/repo", "/state")
+    value = Config("bh", TEST_LEAD, "atm-dev", "rest", 60, False, False, "/repo", "/state",
+                   stack_trunk="integrate/phase-bh-tool-cron", stack_number=2180,
+                   stack_repo="randlee/atm-core")
     decoded = from_json(Config, to_json(value))
     assert decoded == Ok(value)
     invalid = from_json(Config, to_json(value).replace('"rest"', '"wrong"'))
@@ -173,6 +176,8 @@ def test_samples_cover_every_contract_type_populated() -> None:
                 f"{type(sample).__name__}.{field.name} is None"
             )
             if field.name in OPTIONAL_ADDITIONS and value is None:
+                continue
+            if field.name in ALLOW_EMPTY and value == "":
                 continue
             assert not (isinstance(value, (tuple, Mapping, str)) and len(value) == 0), (
                 f"{type(sample).__name__}.{field.name} is empty"
