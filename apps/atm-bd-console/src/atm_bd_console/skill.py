@@ -78,7 +78,7 @@ def run(argv: list[str] | None = None) -> int:
                       f"in {len(differing)} file(s); nothing installed", file=sys.stderr)
                 return 1
             try:
-                plan, _config = installer.plan_install(
+                plan, config = installer.plan_install(
                     source.pkg_dir, dest, overrides, codex=args.codex or dest.name == ".codex", overwrite=args.overwrite,
                 )
                 package_version = installer.package_version(source.pkg_dir)
@@ -107,6 +107,8 @@ def run(argv: list[str] | None = None) -> int:
                 f"{len(plan.writes) - changed} unchanged, {len(plan.removals)} removed, "
                 f"{len(plan.backups)} backed up; config and registry updated"
             )
+            for line in installer.completion_report(plan, config):
+                print(line)
             print(_source_line(source.name, source.commit))
     except (skill_source.SkillSourceError, skill_integrity.IntegrityError) as error:
         print(f"atm-bd skill: {error}", file=sys.stderr)

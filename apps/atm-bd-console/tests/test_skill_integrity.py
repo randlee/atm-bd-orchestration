@@ -199,6 +199,9 @@ class FakeInstaller:
             (root / key).write_bytes(data)
         return len(plan.writes)
 
+    def completion_report(self, plan, config):
+        return ["Changes:", *(f"  written: {key}" for key in plan.writes)]
+
 
 class Upstream:
     """Injected git and GitHub: tags, the tree each tag clones to, and each release's published assets."""

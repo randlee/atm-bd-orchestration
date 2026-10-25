@@ -982,6 +982,11 @@ def change_report(plan: Plan, config: Dict[str, Any]) -> List[str]:
     return out
 
 
+def completion_report(plan: Plan, config: Dict[str, Any]) -> List[str]:
+    """What every install front end prints after apply_plan: the change list, then one NOT DONE line per notice."""
+    return [*change_report(plan, config), *(f"{PACKAGE}: NOT DONE: {notice}" for notice in plan.notices)]
+
+
 def apply_plan(plan: Plan, version: str) -> int:
     """Write the plan; return the number of files whose bytes changed."""
     root = plan.repo_root
@@ -1082,10 +1087,8 @@ def complete(source_path: str, destination_path: str, options: dict) -> dict:
     print(f"{PACKAGE} {version}: {changed} file(s) written, {len(plan.writes) - changed} unchanged, "
           f"{len(plan.removals)} removed, {len(plan.backups)} backed up to {BACKUP_DIR}/; roles {'updated' if plan.registry_text is not None else 'unchanged'} "
           f"in {CONSUMER_REGISTRY}; config {CONFIG_OUT}; record {LOCK_OUT}")
-    for line in change_report(plan, config):
+    for line in completion_report(plan, config):
         print(line)
-    for notice in plan.notices:
-        print(f"{PACKAGE}: NOT DONE: {notice}")
     return _ok()
 
 

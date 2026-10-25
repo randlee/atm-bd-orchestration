@@ -431,7 +431,7 @@ def shim_sc_compose(bin_dir: Path, cli: str, wheel: str, python_version: str = "
     bin_dir.mkdir(exist_ok=True)
     for name, out in (("sc-compose", f"sc-compose {cli}"),
                       ("atm-bd", f"atm-bd {install.manifest_requirement_floor('atm-bd')}"),
-                      ("atm", "atm 1.6.1"), ("bd", "bd 1.3.0"),
+                      ("atm", f"atm {install.manifest_requirement_floor('atm')}"), ("bd", "bd 1.3.0"),
                       ("jq", "jq-1.6"), ("git", "git version 2.27.0")):
         (bin_dir / name).write_text(f"#!/bin/sh\necho '{out}'\n")
         (bin_dir / name).chmod(0o755)
@@ -524,6 +524,19 @@ def test_check_tools_refuses_a_declared_tool_below_its_manifest_floor(tmp_path, 
         install.check_tools()
 
 
+def test_check_tools_refuses_an_atm_without_hook_and_cron(tmp_path, monkeypatch):
+    # atm prerelease 1.6.3 is the first with `atm hook` and `atm cron`, which the phase setup and the sanity
+    # close hook run; 1.6.2 has neither.
+    bin_dir = tmp_path / "bin"
+    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    (bin_dir / "atm").write_text("#!/bin/sh\necho 'atm 1.6.2'\n")
+    (bin_dir / "atm").chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    with pytest.raises(install.InstallError, match=r"atm is 1\.6\.2, older than required 1\.6\.3"):
+        install.check_tools()
+
+
 def test_check_tools_refuses_python_below_its_manifest_floor(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
     shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.10.0")
@@ -539,7 +552,7 @@ def test_the_manifest_requires_sc_compose_from_1_7_0_below_2():
 
 def test_manifest_declares_every_installer_verified_cli():
     assert install.declared_tool_requirements() == [
-        ("atm", "1.6.1"),
+        ("atm", "1.6.3"),
         ("bd", "1.3.0"),
         ("jq", "1.6"),
         ("git", "2.27"),

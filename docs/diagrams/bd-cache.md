@@ -118,4 +118,4 @@ flowchart TB
 An outage counts no attempt, so a long bd stall escalates nothing by itself;
 a reachable bd that refuses or fails a write still counts toward the five
 attempts. A passing `bd version` does not clear an outage. Messages go to
-`<lead>@<team>` from the cron, through `atm send`.
+`<lead>@<team>` from the cron, through `atm send` as `atm-bd@tool`.
