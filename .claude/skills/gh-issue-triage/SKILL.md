@@ -64,9 +64,12 @@ after every wave instead of trusting the report.
 2. **Re-type doubtful issues.** Any issue whose type looks wrong (a "bug"
    that is a design or policy request, a feature that is a real defect).
 3. **Backlog completion sweep.** For old issues that may already be fixed:
-   split into items, cite `file:line` plus a test per item at the release.
-   All items cited: mark `fixed-released` and comment with the evidence; do
-   not close without a QA record (the lead closes).
+   split into items, cite `file:line` plus a test per item at the release,
+   and find the merged PR (or QA record) that names the issue. Run checks 3
+   and 4 of the reference on its landed commit. All hold: mark
+   `fixed-released` and post the FIXED-RELEASED line (with `commit=`) plus
+   the evidence; do not close without a QA record (the lead closes). Any
+   fails: change nothing and report which.
 
 ### Wave 3: opus, calibration and scheduling
 

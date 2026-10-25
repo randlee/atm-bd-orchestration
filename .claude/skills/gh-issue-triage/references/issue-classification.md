@@ -97,9 +97,10 @@ Any fails: change nothing, report which check failed.
 Old issues were fixed before this process existed. A sweep wave may mark them
 `fixed-released` only with all of: each numbered item of the issue cited at
 `file:line` in the release, a named test that exercises it, and a QA record or
-merged PR that names the issue. A CHANGELOG line alone is never evidence.
-Without a QA record the issue gets `fixed-released` but is closed only by the
-lead.
+merged PR that names the issue, whose landed commit passes verification checks
+3 and 4 above. The FIXED-RELEASED line carries that commit. A CHANGELOG line
+alone is never evidence. With a merged PR but no QA record the issue gets
+`fixed-released` but is closed only by the lead.
 
 ## Pitfalls
 
