@@ -59,6 +59,10 @@ class FakeInstaller:
         self.calls.append(("apply_plan", plan, version))
         return 1
 
+    def completion_report(self, plan, config):
+        self.calls.append(("completion_report", plan, config))
+        return ["Changes:", "  written: .claude/one", "atm-bd-orchestration: NOT DONE: fake notice"]
+
 
 def source_context(source: skill_source.SkillSource):
     @contextmanager
@@ -245,12 +249,15 @@ def test_bundled_default_calls_installer_functions_in_the_app_interpreter(instal
 
     assert skill.run(["--dest", str(target)]) == 0
 
-    assert [call[0] for call in fake.calls] == ["check_tools", "parse_set", "plan_install", "package_version", "apply_plan"]
+    assert [call[0] for call in fake.calls] == [
+        "check_tools", "parse_set", "plan_install", "package_version", "apply_plan", "completion_report",
+    ]
     plan_call = next(call for call in fake.calls if call[0] == "plan_install")
     assert plan_call[1] == source.pkg_dir
     assert plan_call[2] == target / ".claude"
     assert plan_call[3:] == ({}, False, False)
     output = capsys.readouterr().out
+    assert "\nChanges:\n  written: .claude/one\natm-bd-orchestration: NOT DONE: fake notice\n" in output
     assert output.endswith(f"installed atm-bd-orchestration orchestration from bundled @ {COMMIT} (atm-bd {__version__})\n")
 
 
@@ -430,6 +437,36 @@ def test_bundled_skill_matches_install_py_file_for_file_offline_with_legacy_owne
     installed = consumer_files(through_skill)
     assert installed.pop(f"{subdir}/{skill_integrity.RECORD_NAME}")
     assert installed == consumer_files(direct)
+
+
+def _report(output: str) -> list[str]:
+    """The install output from the change list on: the Changes lines, the .atm.toml recommendation, NOT DONE lines."""
+    lines = output.splitlines()
+    return lines[lines.index("Changes:"):] if "Changes:" in lines else []
+
+
+def test_skill_prints_the_installer_change_list_and_not_done_notices(
+    tmp_path: Path, monkeypatch, host_tools, capsys,
+) -> None:
+    module = load_bundled_installer()
+    direct = make_consumer(tmp_path / "direct", module)
+    through_skill = make_consumer(tmp_path / "through-skill", module)
+    monkeypatch.setattr(skill.skill_source, "_run_git", lambda *_: (_ for _ in ()).throw(AssertionError("network")))
+    monkeypatch.setattr(skill.skill_source, "_http_get", lambda *_: (_ for _ in ()).throw(AssertionError("network")))
+    monkeypatch.setattr(skill.skill_source, "bundled_manifest", lambda: published(PLUGIN))
+    monkeypatch.setattr(skill.skill_source, "bundled_directory", lambda: PLUGIN)
+
+    assert module.main(["--dest", str(direct / ".claude")], pkg_dir=PLUGIN) == 0
+    expected = _report(capsys.readouterr().out.replace(str(direct), "<repo>"))
+    assert skill.run(["--dest", str(through_skill)]) == 0
+    printed = capsys.readouterr().out.replace(str(through_skill), "<repo>")
+
+    assert expected[:1] == ["Changes:"]
+    assert "  member added: atm-bd@tool" in expected
+    assert any(line.startswith("atm-bd-orchestration: NOT DONE: ") for line in expected)
+    # the same change list and NOT DONE lines install.py prints, before the source line
+    assert _report(printed)[:-1] == expected
+    assert _report(printed)[-1].startswith("installed atm-bd-orchestration orchestration from bundled @ ")
 
 
 def test_skill_is_wired_into_cli_and_help(capsys) -> None:
