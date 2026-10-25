@@ -10,6 +10,7 @@
 - `atm-bd skill` prints the same change list, `.atm.toml` recommendation and `NOT DONE:` lines as the sc-install hook; both print `install.completion_report()`.
 - The dev or fix close sets the sanity assignment's `sanity_close_mode` to `daemon` when `atm hook list --phase <x> --json` shows an active `task.close` registration of `sanity_task_close_hook.py` enabling the dev-sanity member, and `legacy` otherwise; nothing set `daemon` before. A failed `atm hook list` refuses the close before anything is written.
 - `dev-template` 3.17.1 and `fix-assignment` 3.18.1 drop the `CARGO_BUILD_JOBS=4` instruction, one repository's host policy; repositories that need it put it in their `policy_path`.
+- `bd_cache_cron.py` sends its escalations as `atm-bd@tool` (the installer's member), not `cron@tool`, which atm reserves for its scheduler and refuses for ordinary sends, so every send failed; a message counts as announced only when `atm send` succeeds, as before.
 - The manifest requires `atm >= 1.6.3`, the first release with `atm hook` and `atm cron`, which the phase setup and the sanity close hook run (was `>= 1.6.1`).
 
 ## [0.19.1] - 2026-10-24

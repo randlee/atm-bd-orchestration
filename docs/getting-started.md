@@ -32,8 +32,7 @@ The next sprint's dev starts as soon as this one's sanity passes; it doesn't wai
 | Dev | Builds one bead on its own branch and opens a PR |
 | Dev-sanity | Checks every promised deliverable exists and lint passes; not a quality review |
 | Quality-mgr | Runs QA, plan review and the phase-end review through a panel of reviewers |
-| `atm-bd@tool` | The console's sender address, not an agent |
-| `cron@tool` | The bd-cache cron's sender address, not an agent |
+| `atm-bd@tool` | The sender address of the console and the bd-cache cron, not an agent |
 
 The lead does not write code. If you find it implementing, that's a stall.
 
@@ -132,7 +131,7 @@ The installer does these things:
 
 1. It copies the orchestration skills and templates into `.claude/` (or `.codex/` with `--codex`).
 2. It writes the team's settings to `.claude/project/atm-bd-orchestration.yaml`, writes the role members back into `roles:` in `registry.yaml`, and records every file it wrote in `.claude/project/atm-bd-orchestration.lock.json`. `atm-bd skill` also writes an install record, `.claude/atm-bd-install.json`.
-3. It adds the `atm-bd` member to the separate ATM team `tool` (not your team), which the console sends notices from as `atm-bd@tool`. If it can't, the install stops with the command to run.
+3. It adds the `atm-bd` member to the separate ATM team `tool` (not your team), which the console and the bd-cache cron send notices from as `atm-bd@tool`. If it can't, the install stops with the command to run.
 4. For a `.claude` install, it adds the dev-sanity member (`roles.dev-sanity` in `registry.yaml`) to your team as a Claude Code agent on sonnet, if the team doesn't have it yet. If it can't, the install still finishes and prints `NOT DONE:` with what to do, usually the exact `atm teams add-member` command to run.
 
 In 0.19.2, when it finishes, `atm-bd skill` lists every change it made: the files written, removed or backed up, the roles it set, and the members it added. It also prints the `NOT DONE:` lines and the recommended `.atm.toml` block below.
@@ -195,7 +194,7 @@ all = ["Your role is dev under atm-bd-orchestration: work arrives by atm task as
 
 The dev-sanity block is the one the installer recommends, shown above.
 
-The bd-cache cron sends its notices as `cron@tool`. atm-bd 0.19.2's installer adds that member; with 0.19.1, add it yourself: `atm teams add-member tool cron --agent-type tool --model none`.
+The bd-cache cron sends its notices as `atm-bd@tool`, the member the installer adds; there is no `cron` member to add. `cron@tool` is reserved by atm for its own scheduler, and atm refuses any other sender with that name.
 
 ## Starting a phase
 
