@@ -33,7 +33,7 @@ Package sources: `apps/atm-bd-console` (`atm-bd console`, `atm-bd cron`); `.clau
 
 14. An agent task row reads `<sprint or fix id>: <bead title>`, truncated to the pane width; never `<phase>: <ATM message text>`.
 
-15. When Jev returned no evaluation for a deliverable (a Jev error rather than an answer), the console shows a red circle with a diagonal line do-not-enter icon on that deliverable, distinct from a negative verdict (candidate `nf-fa-ban` U+F05E, not `nf-md-minus_circle`; Rand, 2026-10-21).
+15. When Jev returned no evaluation for a deliverable (a Jev error rather than an answer), the console shows a red circle with a diagonal line do-not-enter icon on that deliverable, distinct from a negative verdict (candidate `nf-fa-ban` U+F05E, not `nf-md-minus_circle`; Rand, 2026-10-21). Not yet implemented (phase bl).
 
 ## Unresolved
 
