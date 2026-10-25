@@ -33,6 +33,18 @@ Package sources: `apps/atm-bd-console` (`atm-bd console`, `atm-bd cron`); `.clau
 
 14. An agent task row reads `<sprint or fix id>: <bead title>`, truncated to the pane width; never `<phase>: <ATM message text>`.
 
+### Collector, state, and event pipeline — not yet implemented (phase bl)
+
+Not yet implemented (phase bl): items 15 to 21 state the ruled target. Today `apps/atm-bd-console` has no collector, state-stage or ATM message-request code.
+
+15. "collect-data (cron and/or tui) and save to db -> process data (determine state) and save to db -> fire events (after debouncing & aggregation)" describes the console architecture. Its persistence is JSON files in the phase state directory; it does not introduce a database. Not yet implemented (phase bl).
+16. "we do NOT need to collect data from all sources at the same rate." BD/dolt, ATM, and GitHub are separate collectors with their own rules and persisted freshness/error records. Their default eligible periods are BD/dolt 60 seconds, ATM 60 seconds, and GitHub 600 seconds; GitHub rate limiting and BD/dolt command deadlines remain source-specific rules. Not yet implemented (phase bl).
+17. A collector records its current value plus last successful collection, last attempt, typed error, and failure-since time. Only a successful collection suppresses its next eligible attempt. A failed or partial collection remains eligible on the next request and never makes prior valid data look current. Not yet implemented (phase bl).
+18. Cron and the TUI may request the same collector. Per-collector nonblocking deduplication prevents duplicate bd/dolt, ATM, or GitHub load; a request that does not collect returns the current persisted information and its freshness/error state. Cron therefore prints the same current information even when it did not collect it, including data a running TUI collected. Not yet implemented (phase bl).
+19. A state stage reads current collector records and writes aggregate state for display. Carried valid data shows its age and typed reason; never-read or invalid data has a labelled placeholder and is not forced into an error. Not yet implemented (phase bl).
+20. "ATM messages occur on a specified schedule based on timing... nothing to do with either tui or cron." State transitions create durable ATM message requests; a separate delivery schedule aggregates and debounces those requests, sends due messages, and records the outcome. Collection and TUI display never send ATM messages. Not yet implemented (phase bl).
+21. "multiple collectors each in separate module governed by it's own rules (i.e. gh rate limited, dolt timeouts, atm no limits today). state evaluation based on current state. specific state transitions would trigger 'atm message request'." No rule requires all collectors to refresh together or requires a fresh BD-and-ATM read before an event request. Not yet implemented (phase bl).
+
 ## Unresolved
 
 - `input.log`, the console's hand-written input trace, is a second file outside the structured log. ADR-067 reviews it against D1; whether it is folded into the log or removed awaits a ruling.
