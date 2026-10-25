@@ -43,7 +43,7 @@ You need these command-line tools and three Python packages. Check them once per
 | --- | --- | --- | --- | --- |
 | `python3` | Runs the installed scripts | 3.11 or newer | your system package manager | `python3 --version` |
 | `atm-bd` | The console and the skill installer | 0.19.1 for these steps | `uv tool install atm-bd` | `atm-bd --version` |
-| `atm` | Agent messaging and task assignment | 1.6.1 or newer | `brew install randlee/tap/atm` | `atm --version` |
+| `atm` | Agent messaging and task assignment | 1.6.3 or newer (`atm hook`, `atm cron`) | `brew install randlee/tap/atm` | `atm --version` |
 | `bd` | Beads, the issue tracker the work runs on | 1.3.0 or newer | `brew install beads` | `bd --version` |
 | `dolt` | The database server behind beads (server mode) | not checked | Homebrew | `which dolt` |
 | `git` | Branches and worktrees | 2.27 or newer | `brew install git` | `git --version` |
