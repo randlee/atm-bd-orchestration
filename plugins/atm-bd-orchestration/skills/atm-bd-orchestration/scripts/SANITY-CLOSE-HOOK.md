@@ -34,7 +34,7 @@ atm hook register task.close --phase <x> --cwd . \
 use default processing without querying bd. Bead labels additionally verify the
 role for those agents.
 
-Disable with `atm hook disable --phase bk task.close`. Registration is local daemon state, not a commit or deployment.
+Disable with `atm hook disable --phase <x> task.close`. Registration is local daemon state, not a commit or deployment.
 
 ## Inputs and actions
 
