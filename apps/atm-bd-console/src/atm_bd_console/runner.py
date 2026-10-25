@@ -14,7 +14,7 @@ from .dispatch import candidates, sprint_of, verification_reason
 from .enums import MergeState, PrState, SprintState
 from .log import EventAction, TickLog, create_console_logger, error_message
 from .result import Err, Error, NotFound, Ok, Result
-from .state import StateStore, load_merges, load_prs, load_snapshot
+from .state import StateStore, read_snapshot
 from .types import (
     Action,
     ActionLine,
@@ -135,7 +135,15 @@ def _branch_groups(phase, repo) -> tuple[tuple[str, ...], ...]:
     )))) for sprint in phase.sprints)
 
 
-def _refresh_github(config: Config, now: datetime, gh: GhStatus, groups=()):
+def _phase_heads(phase) -> tuple[str, ...]:
+    """Every branch the model can match a PR to: the sprint branches and every step's branch (dev, fix, ...)."""
+    if not isinstance(phase, Ok):
+        return ()
+    return tuple(dict.fromkeys(branch for branch in (*(sprint.branch for sprint in phase.value.sprints),
+                                                     *(step.branch for step in phase.value.steps)) if branch))
+
+
+def _refresh_github(config: Config, now: datetime, gh: GhStatus, groups=(), heads: tuple[str, ...] = ()):
     """One GitHub refresh: the configured stack's membership (None when no stack is configured), then the PRs.
 
     Membership is read first and through the same quota budget, so every PR it names was linked before the PR
@@ -148,7 +156,9 @@ def _refresh_github(config: Config, now: datetime, gh: GhStatus, groups=()):
     stack = None if config.stack_number is None else github_source.stack_membership(
         config.github, code_root, config.stack_repo or config.github_repo, config.stack_number,
         config.stack_trunk, budget)
-    result, status = github_source.open_prs(config.github, code_root, groups, budget, config.github_repo)
+    numbers = stack.value if isinstance(stack, Ok) else ()
+    result, status = github_source.open_prs(config.github, code_root, groups, budget, config.github_repo,
+                                            heads, numbers)
     if status.paused and gh.mode == config.github:
         status = replace(status, ok=gh.ok, error=None, at=gh.at, truncated=gh.truncated)
     return result, status, stack
@@ -211,9 +221,11 @@ def _stopped_tick(config: Config, state: State, now: datetime, store: StateStore
     phase = shown if isinstance(shown, Err) else atm_bd.phase(file, root_bead, (), (), shown.value)
     if root_bead is not None and root_bead.status == SprintState.CLOSED and isinstance(phase, Ok):
         phase = Ok(replace(phase.value, step_errors=()))
-    cached_prs = load_prs(config.repo_root, file.root_id)
-    cached_merges = load_merges(config.repo_root, file.root_id)
-    cached_snapshot = load_snapshot(config.repo_root, file.root_id)
+    # Read the caches from the held store, the directory the running ticks write: the console names it
+    # atm-phase-<x> whatever the bead prefix, so the phase file's root id (<prefix>-phase-<x>) is not its name.
+    cached_prs = store.load_prs()
+    cached_merges = store.load_merges()
+    cached_snapshot = read_snapshot(store.directory)
     history = store.load_actions()
     prs = Ok(cached_prs.value.prs) if isinstance(cached_prs, Ok) else Ok(())
     gh = cached_prs.value.gh if config.github != "off" and isinstance(cached_prs, Ok) else _gh(config.github)
@@ -222,7 +234,7 @@ def _stopped_tick(config: Config, state: State, now: datetime, store: StateStore
     prs_read_at = cached_prs.value.read_at if isinstance(cached_prs, Ok) else None
     if force_github and config.github != "off":
         groups = _branch_groups(phase.value, repo) if config.github == "rest" and isinstance(phase, Ok) else ()
-        refreshed, gh, stack = _refresh_github(config, now, gh, groups)
+        refreshed, gh, stack = _refresh_github(config, now, gh, groups, _phase_heads(phase))
         stack_prs = _cached_stack(config, cached_prs.value if isinstance(cached_prs, Ok) else None)
         if isinstance(refreshed, Ok):
             prs = refreshed
@@ -386,7 +398,7 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
     stack_read = None
     if config.github != "off" and (force_github or (due and github_due)):
         branch_groups = _branch_groups(phase.value, repo.value) if config.github == "rest" and isinstance(phase, Ok) else ()
-        refreshed_prs, gh, stack_read = _refresh_github(config, now, gh, branch_groups)
+        refreshed_prs, gh, stack_read = _refresh_github(config, now, gh, branch_groups, _phase_heads(phase))
         stack_read = logger.result("github.stack_membership", stack_read) if stack_read is not None else None
         attempted_at = now
         if isinstance(refreshed_prs, Ok):

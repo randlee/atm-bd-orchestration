@@ -218,9 +218,10 @@ def test_closed_root_hydrates_history_without_dispatch_or_fetch(monkeypatch) -> 
         raise AssertionError("stopped history must not dispatch or fetch")
 
     store = Store()
-    monkeypatch.setattr(runner, "load_prs", lambda *_: Ok(PRS_FILE))
-    monkeypatch.setattr(runner, "load_merges", lambda *_: Ok(MERGE_FILE))
-    monkeypatch.setattr(runner, "load_snapshot", lambda *_: Ok(SNAPSHOT))
+    # The stopped tick reads its caches from the held store (its directory is the one the running ticks write).
+    monkeypatch.setattr(store, "load_prs", lambda: Ok(PRS_FILE))
+    monkeypatch.setattr(store, "load_merges", lambda: Ok(MERGE_FILE))
+    monkeypatch.setattr(runner, "read_snapshot", lambda *_: Ok(SNAPSHOT))
     for source, name in (
         (runner.atm_source, "send"), (runner.atm_source, "assign"),
         (runner.git_source, "fetch"),
@@ -804,7 +805,7 @@ def test_github_interval_is_independent_and_paused_refresh_keeps_cache(github_ru
         @classmethod
         def now(cls, tz=None): return clock[0]
 
-    def refresh(_config, now, gh, _groups):
+    def refresh(_config, now, gh, _groups, _heads=()):
         calls.append(now)
         if len(calls) == 1:
             return Err(TIMEOUT), replace(gh, paused=True, quota_remaining=2450, quota_limit=5000,
@@ -1008,13 +1009,15 @@ def test_refresh_github_uses_configured_code_checkout_and_repo_slug(monkeypatch)
     monkeypatch.setattr(github_source, "open_prs", open_prs)
     config = replace(CONFIG, code_root="/code-checkout", github_repo="sample/code")
 
-    result, status, stack = runner._refresh_github(config, NOW, GhStatus("graphql", None, None, None, False), (("branch",),))
+    result, status, stack = runner._refresh_github(config, NOW, GhStatus("graphql", None, None, None, False), (("branch",),),
+                                                   ("branch", "fix/branch"))
 
     assert isinstance(result, Ok) and status.ok and stack is None
     assert captured["budget"] == ("rest", "/code-checkout", config.github_quota_threshold,
                                   config.github_poll_interval_s, NOW, GhStatus("graphql", None, None, None, False),
                                   "sample/code")
-    assert captured["open_prs"] == ("rest", "/code-checkout", (("branch",),), budget_instance, "sample/code")
+    assert captured["open_prs"] == ("rest", "/code-checkout", (("branch",),), budget_instance, "sample/code",
+                                    ("branch", "fix/branch"), ())
 
 
 def test_failed_action_is_returned_for_snapshot_errors(monkeypatch) -> None:

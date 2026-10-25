@@ -7,6 +7,7 @@ clock, a fake command boundary and a real on-disk state store. Nothing sleeps.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Self, cast
@@ -106,7 +107,11 @@ PHASE = Phase(PHASE_FILE.root_id, "phase:bk", "Phase BK", False,
 class World:
     """GitHub as the runner sees it: the linked stack and the PR list, both changeable between ticks."""
 
-    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, phase_file=PHASE_FILE, lock_id: str | None = None) -> None:
+        self.file = phase_file
+        # The console locks its state directory as atm-phase-<x> (cli.py), whatever the phase file's root id is.
+        self.lock_id = lock_id or phase_file.root_id
+        self.root_closed = False
         self.now = T0
         self.linked: tuple[int, ...] = (1, 2)
         self.prs_fail = False
@@ -119,21 +124,25 @@ class World:
             def now(cls, tz: tzinfo | None = None) -> Self:
                 return cast(Self, world.now)
 
-        root = replace(BEAD, id=PHASE_FILE.root_id, status=SprintState.OPEN)
+        def root_bead():
+            return replace(BEAD, id=world.file.root_id,
+                           status=SprintState.CLOSED if world.root_closed else SprintState.OPEN)
         monkeypatch.setattr(runner, "datetime", Clock)
         monkeypatch.setattr(runner, "create_console_logger", lambda *_: Err(CommandFailed("command_failed", (), 1, "", "")))
-        monkeypatch.setattr(runner.atm_bd, "phase_file", lambda *_: Ok(PHASE_FILE))
+        monkeypatch.setattr(runner.atm_bd, "phase_file", lambda *_: Ok(world.file))
         monkeypatch.setattr(runner.atm_bd, "repo_config", lambda *_: Ok(REPO_CONFIG))
-        monkeypatch.setattr(runner.beads_source, "show", lambda ids: Ok((root,) if PHASE_FILE.root_id in ids else ()))
+        monkeypatch.setattr(runner.beads_source, "show",
+                            lambda ids: Ok((root_bead(),) if world.file.root_id in ids else ()))
         monkeypatch.setattr(runner.beads_source, "open_rows", lambda *_: Ok(runner.beads_source.BeadRows((), ())))
         monkeypatch.setattr(runner.beads_source, "ready", lambda *_: Ok(()))
-        monkeypatch.setattr(runner.atm_bd, "phase", lambda *_: Ok(PHASE))
+        monkeypatch.setattr(runner.atm_bd, "phase",
+                            lambda *_: Ok(replace(PHASE, root_id=world.file.root_id, closed=world.root_closed)))
         monkeypatch.setattr(runner.atm_source, "members", lambda *_: Ok(()))
         monkeypatch.setattr(runner.atm_source, "tasks", lambda *_: Ok(()))
         monkeypatch.setattr(runner.git_source, "worktrees", lambda *_: Ok(()))
         monkeypatch.setattr(runner.model, "due", lambda *_: Due(False, (), True))
 
-        def open_prs(mode, *_args):
+        def open_prs(mode, *_args, **_kwargs):
             world.calls.append("prs")
             if world.prs_fail:
                 error = CommandFailed("command_failed", ("gh",), 1, "boom", "retry")
@@ -153,13 +162,13 @@ def world(monkeypatch):
     return World(monkeypatch)
 
 
-def tick(world: World, tmp_path, state=STATE):
+def tick(world: World, tmp_path, state=STATE, force_github=False, stack_number: int | None = 7):
     config = replace(CONFIG, github="graphql", repo_root=str(tmp_path), github_repo=REPO, github_poll_interval_s=600,
-                     stack_number=7, stack_trunk=TRUNK)
-    locked = acquire_lock(tmp_path, PHASE_FILE.root_id)
+                     stack_number=stack_number, stack_trunk=TRUNK)
+    locked = acquire_lock(tmp_path, world.lock_id)
     assert isinstance(locked, Ok)
     with locked.value as store:
-        snapshot, next_state = runner.step(config, state, False, store)
+        snapshot, next_state = runner.step(config, state, force_github, store)
     return snapshot, next_state
 
 
@@ -263,8 +272,17 @@ class GitHub:
                 nodes = [{"number": n, "url": f"https://x/{n}", "state": "OPEN", "isDraft": False,
                           "headRefName": f"sprint/bk-{n}", "baseRefName": TRUNK if n == 1 else f"sprint/bk-{n - 1}",
                           "headRefOid": f"sha{n}", "commits": {"nodes": []}} for n in github.linked]
-                body = {"data": {"repository": {"pullRequests": {
-                    "totalCount": len(nodes), "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}}}
+                repository: dict = {"pullRequests": {
+                    "totalCount": len(nodes), "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}
+                # The phase-head history and stack-number lookups: every PR here is open, so no history;
+                # each linked number resolves to its open PR.
+                named = [argv[index + 1].split("=", 1) for index in range(len(argv) - 1) if argv[index] in ("-f", "-F")]
+                for key, value in named:
+                    if re.fullmatch(r"h\d+", key):
+                        repository[key] = {"totalCount": 0, "nodes": []}
+                    elif re.fullmatch(r"n\d+", key):
+                        repository[key] = next(node for node in nodes if node["number"] == int(value))
+                body = {"data": {"repository": repository}}
             else:
                 raise AssertionError(f"unexpected command {argv}")
             return Ok(Output(0, json.dumps(body)))
