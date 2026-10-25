@@ -2,6 +2,64 @@
 
 ## [Unreleased]
 
+### Fixed
+- The installer adds the dev-sanity member (`roles.dev-sanity`) to the repository's team (`[atm] default_team` in `.atm.toml`) for `.claude` installs, as a claude-code, sonnet, herdr agent, when `atm members` does not list it.
+  - Its host name (the alias of its `.atm.toml` `[[rmux.windows.panes]]` entry, passed as `--alias`, else the member name) must be unique on the host. The installer reads every team's members and does not add a name another member already uses; it suggests a free `<prefix>-sanity` instead (`raptor` -> `rap-sanity`).
+  - When it cannot add the member (no team, `atm` missing, a failed read, a taken name, a refused add), the install still succeeds and prints `NOT DONE:` with the exact command or rename to make.
+- The install output lists every change: the files written, removed and backed up, the roles set, and the members added. When `.atm.toml` has no `[startup.<member>]` block for the dev-sanity member, it prints the recommended block, with the member and lead filled in, under "Recommended addition to .atm.toml (not written)". `.atm.toml` is never edited.
+- `atm-task-close.py` writes each dev/fix field once: the sanity assignment's `close_context` carries only the fields the sanity close reads, and an assignment over ATM's 1,114,112-byte request limit is refused (`ASSIGNMENT.TOO_LARGE`, naming the largest fields) before the bead closes (#557).
+- `atm-task-close.py` checks a dev or fix result's `outcome` before rendering (dev: `fixed`; fix: `fixed` or `not_reproducible`) and refuses a bad value with `VARS.INVALID` naming the value, the allowed values and the result file, instead of an sc-compose "unknown filter" error (#557). `completed`, the ATM task close word, is accepted and recorded as `fixed`, and the dev and fix assignments list the accepted values.
+- `assignment-gates.py dev` accepts the caller's own claimed bead: an `in_progress` bead assigned to the caller with no open `blocks` dependency is no longer a false `NOT_READY` on a rerun after the claim.
+- A dev or fix close records its PR's actual base as `pr_base` on the checked bead, read from the PR lookup it already makes, and `close-vars --qa-assignment` sends that as `base` instead of the poured `pr_target`; a bead closed without one keeps the poured `base` (#557).
+
+## [0.19.1] - 2026-10-24
+
+### Changed
+- sprint-report and sprint-review read one phase's beads through the bd-cache (`scripts/phase_beads.py`) instead of `bd list --all`, which read every bead in the database.
+  - A failed sync renders from the cached rows, and an unavailable cache reads `bd list -l phase-<p>`. Both are announced on stderr.
+  - `bd ready` and `bd blocked` are scoped to the phase label and to the stages each view needs.
+- The DAG renderer pins `@viz-js/viz` 3.31.0.
+
+### Fixed
+- The atm-bd wheel and its skill manifest bundle only package files: local artifacts such as `node_modules/` (from `npm ci` in the sprint-report renderer), `__pycache__/`, `.sc-compose/` and tool caches are excluded, so a build on a machine that ran `npm ci` no longer fails or ships them.
+
+## [0.19.0] - 2026-10-24
+
+Task-close hooks and the bd-cache (#557). Every validated open task bead carries its close fields from the pour, so a close reads one bead and no agent assembles vars by hand.
+
+### Added
+- `bd_cache.py`: a per-dolt-database SQLite bead cache and write journal (`scripts/BD-CACHE.md`).
+  - The journal drain has one writer (flock). It re-reads pending beads once, skips writes already achieved, checks each write's precondition and stores bd's read-back.
+  - A bead whose write keeps failing is escalated after 5 attempts.
+  - Sync is incremental.
+  - An unreachable backend is an outage: no attempt is counted, it is announced once, and it clears on the first successful `bd list`.
+  - Every failure ends in applied, refused or escalated, with a typed error.
+- `bd_cache_cron.py`: the ATM cron module that syncs active phases, drains the journal, and announces outages and sync failures once per cause.
+- `sanity_task_close_hook.py`: the ATM `task.close` hook for sanity tasks (`scripts/SANITY-CLOSE-HOOK.md`).
+  - PASS closes the sanity bead, and FAIL reopens the dev bead.
+  - Bead writes are journaled through bd-cache.
+  - A failure the hook cannot finish escalates to the phase lead as a `<task>.close-error-<id>` task.
+  - Repair tasks assigned before the cutover finish through `sanity-close-repair.py` and `sanity_close_legacy.py`.
+- `close-vars.py`: prints a poured bead's close vars, or with `--qa-assignment` the `templates.qa` vars.
+  - It reads the cache and re-reads bd once only when a needed field is missing.
+  - A checked bead with no recorded PR is refused, never sent with an empty PR.
+- `close_fields_backfill.py`: fills the close fields on open task beads poured before this release.
+- `close_fields` (atm-beads) and bead-schema `CloseFields`: the close fields every open dev, fix, sanity and QA bead must carry. `validate-plan` checks them.
+- New templates: `sanity-task-close.md.j2`, `sanity-dev-close.md.j2`, `sanity-failed-template.md.j2`, `sanity-close-error.md.j2`, `sanity-bead-repair.xml.j2`, `hook-close-escalation.xml.j2` and `pr-body.md.j2`, each with example vars.
+
+### Changed
+- `atm-task-close.py` writes every bead update and close through the bd-cache journal and drains at once.
+  - A write not yet applied is `BEADS.WRITE_PENDING`; rerunning with the same vars applies it once.
+  - A write bd refuses is `BEADS.WRITE_ESCALATED`.
+- The sprint-group and finding-group formulas, the QA bead and the dev-sanity bead pour the close fields.
+- `dev-sanity` gains a daemon-mode verification override.
+- The console makes QA dispatch take the checked bead's recorded PR and resolves relative bead worktrees (one producer of QA vars).
+
+### Install notes
+- Add to the repository's `.gitignore`:
+  `.atm-bd/sanity-close/`, `.atm-bd/*.bd-cache.sqlite3*`, `.atm-bd/*.bd-cache.drain.*`.
+- Run `close_fields_backfill.py` once per active phase so its open beads pass validation.
+
 ## [0.18.4] - 2026-10-20
 
 ### Fixed

@@ -3,6 +3,8 @@
 
 Every bd, git and gh command is bounded by `ATM_BD_GATE_TIMEOUT_S` seconds (default 180, shared with
 assignment-gates.py); a timeout is `COMMAND.FAILED` whose fix says to retry once or raise the variable.
+Bead writes go through the bd-cache journal and are drained at once (BD-CACHE.md, Scope); a write not yet
+applied is `BEADS.WRITE_PENDING` and a rerun with the same vars applies it once.
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bd_cache
 import repo_config
 import sc_render
 from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout
@@ -34,12 +37,29 @@ ASSIGNMENT_EVENTS = frozenset(("assigned", "reassigned", "reopened"))
 TERMINAL_STATES = frozenset(("complete",))
 COMPLETED = "completed"
 REFUSED = "refused"
+# The result outcomes fix-complete.md.j2 accepts; not_reproducible is a fix outcome, so dev accepts only fixed.
+RESULT_OUTCOMES = {"dev": ("fixed",), "fix": ("fixed", "not_reproducible")}
+# Agents write the ATM task close word for the result outcome; it means fixed.
+OUTCOME_ALIASES = {COMPLETED: "fixed"}
 # Dolt drops connections under host load (load 40-55 with parallel cargo builds): a dropped bd call is retried.
 # Worst case for one bd call that keeps dropping = (DOLT_RETRIES + 1) * COMMAND_TIMEOUT + DOLT_RETRIES * DOLT_RETRY_SLEEP_S;
 # a call that times out is not retried and fails after COMMAND_TIMEOUT. See docs/requirements/task-close-hook.md.
 DOLT_DROP = re.compile(r"invalid connection|i/o timeout", re.IGNORECASE)
 DOLT_RETRIES = 3
 DOLT_RETRY_SLEEP_S = 10
+# Bead writes go through the bd-cache journal and are drained at once; a drain held by the cron is waited for.
+DRAIN_TRIES = 5
+DRAIN_BUSY_SLEEP_S = 2
+# ATM's HTTP request body limit: the ATM daemon's DEFAULT_MAX_MESSAGE_BYTES (1,048,576) plus
+# CANONICAL_WRITE_ENVELOPE_OVERHEAD_BYTES (65,536), crates/atm-daemon-bootstrap/src/lib.rs.
+ATM_MAX_REQUEST_BYTES = 1_114_112
+# The dev/fix fields the sanity close reads back from close_context: sanity-close-vars build() and
+# write_stack_input(), then atm-task-close.py --role sanity and the templates it renders and sends
+# (dev-sanity-complete, sanity-fail, qa-template). Every other field is overwritten there or never read.
+SANITY_CLOSE_CONTEXT = frozenset((
+    "base", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+    "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
+    "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"))
 
 
 def is_terminal(events):
@@ -54,6 +74,16 @@ def load_sample():
         return {"load_avg": None, "cpu_pct": None}
     return {"load_avg": [round(one, 2), round(five, 2), round(fifteen, 2)],
             "cpu_pct": round(100 * one / (os.cpu_count() or 1), 1)}
+
+
+def bd_value(item):
+    """A metadata value as bd stores it: lists and objects as their JSON text (readers decode them, e.g.
+    sanity_round_key) and integer text as the integer (a vars file carries pr_number as "351")."""
+    if isinstance(item, (list, dict)):
+        return json.dumps(item, separators=(",", ":"))
+    if isinstance(item, str) and item.isdigit() and str(int(item)) == item:
+        return int(item)
+    return item
 
 
 class CloseError(RuntimeError):
@@ -99,6 +129,18 @@ def merge_result(values, result, role):
         raise CloseError("VARS.INVALID", ", ".join(sorted(overlap)),
                          "Pass each completion field once: remove it from the lead's dispatch file or from --result.")
     return {**values, **result}
+
+
+def validate_outcome(values, role, path):
+    """Map an aliased result outcome, and refuse a bad one before the template's undefined-filter guard reports it as an unknown filter."""
+    allowed = RESULT_OUTCOMES[role]
+    if "outcome" not in values:
+        return values
+    values = {**values, "outcome": OUTCOME_ALIASES.get(values["outcome"], values["outcome"])}
+    if values["outcome"] not in allowed:
+        raise CloseError("VARS.INVALID", f"{role} outcome must be {' or '.join(allowed)}, got {json.dumps(values['outcome'])}",
+                         f"Set outcome to {' or '.join(allowed)} in {path}, then rerun the hook.")
+    return values
 
 
 def validate_shared_vars(values, role):
@@ -307,12 +349,16 @@ class Hook:
         self.env = dict(os.environ)
         self.lead_env = {**self.env, "ATM_IDENTITY": self.lead, "ATM_TEAM": team}
         self.github = "ok"
+        # The PR's actual base, recorded on the checked bead for its QA assignment; not a vars field.
+        self.pr_base = ""
         self.github_error = ""
         self.closed, self.assigned = [], []
         self.task = values[{"dev": "dev_task_id", "fix": "dev_task_id", "sanity": "sanity_task_id", "qa": "qa_task_id"}[role]]
         self.key = [self.task, values.get("verdict", ""), values.get("commit", "")]
         self.records, self.task_history = {}, {}
         self.attempts = []
+        self.beads = None
+        self.assignment_id = None
 
     def run(self, argv, *, lead=False, git=False, check=True):
         started = self.clock()
@@ -419,16 +465,54 @@ class Hook:
         _, self.assignment_id, self.assignment_round = assignment_details(events, self.task)
         return self.check_replay()
 
+    def cache(self):
+        """The bd-cache every bead write goes through, so cache readers (close-vars, hooks) see it at once (#557)."""
+        if self.beads is None:
+            try:
+                self.beads = bd_cache.BdCache(self.root, runner=self.cache_runner)
+            except bd_cache.CacheError as error:
+                raise CloseError(error.code, error.detail, error.fix) from error
+        return self.beads
+
+    def cache_runner(self, command, **_):
+        """bd calls made by the cache keep this hook's environment, retries and attempt log."""
+        try:
+            return self.run(command, check=False)
+        except CloseError as error:
+            raise OSError(str(error)) from error
+
+    def write_bead(self, bead, op, args):
+        """Journal one bead write and drain it now; the cache stores bd's read-back row."""
+        cache = self.cache()
+        key = json.dumps([*self.key, self.assignment_id, bead, op, args], sort_keys=True)
+        try:
+            seq = cache.write(bead, op, args, idem_key=key, actor=self.identity)["seq"]
+            for _ in range(DRAIN_TRIES):
+                if not cache.drain()["busy"]:
+                    break
+                self.sleep(DRAIN_BUSY_SLEEP_S)
+            entry = cache.entry(seq)
+        except bd_cache.CacheError as error:
+            raise CloseError(error.code, f"{bead} {op}: {error.detail}", error.fix) from error
+        if entry["state"] == "applied":
+            return
+        if entry["state"] == "escalated":
+            raise CloseError("BEADS.WRITE_ESCALATED", f"{bead} {op} (bd-cache journal #{seq}) was not applied: {entry['last_error']}",
+                             f"Ask the phase lead to set {bead} in bd and run `bd_cache.py resolve {seq} --note <what> --actor <lead>`, "
+                             "then rerun with the same vars file.")
+        raise CloseError("BEADS.WRITE_PENDING", f"{bead} {op} is journaled (bd-cache #{seq}) but not applied yet: "
+                         f"{entry['last_error'] or 'the drain is busy'}",
+                         "Rerun with the same vars file once bd answers; the journaled write is applied once "
+                         "(the bd-cache cron also applies it within a tick).")
+
     def update(self, bead, **fields):
-        argv = ["bd", "update", bead]
+        args = {}
         for name, value in fields.items():
             if name == "metadata":
-                for key, item in value.items():
-                    encoded = json.dumps(item, separators=(",", ":")) if isinstance(item, (list, dict, bool)) else str(item)
-                    argv += ["--set-metadata", f"{key}={encoded}"]
+                args["set_metadata"] = {key: bd_value(item) for key, item in value.items()}
             else:
-                argv += ["--" + name.replace("_", "-"), str(value)]
-        self.run([*argv, "--actor", self.identity])
+                args[name] = str(value)
+        self.write_bead(bead, "update", args)
         record = self.bead(bead)
         for name, value in fields.items():
             if name == "metadata":
@@ -554,6 +638,7 @@ class Hook:
                                  "Close the duplicate PRs so exactly one open PR names this branch and pushed head, then rerun the hook.")
             values["pr_number"] = str(matches[0]["number"] or "")
             values["pr_url"] = f"https://github.com/{owner}/{repo}/pull/{values['pr_number']}" if values["pr_number"] else ""
+            self.pr_base = str((matches[0].get("base") or {}).get("ref") or "")
             return
         self.github = "unavailable"
         self.keep_recorded_pr()
@@ -563,6 +648,7 @@ class Hook:
         metadata = self.bead(self.task).get("metadata") or {}
         self.values["pr_number"] = str(metadata.get("pr_number") or "")
         self.values["pr_url"] = str(metadata.get("pr_url") or "")
+        self.pr_base = str(metadata.get("pr_base") or "")
 
     def render(self, template, values=None):
         try:
@@ -573,22 +659,34 @@ class Hook:
     def send(self, recipient, template):
         self.run(["atm", "send", recipient, "--template", str(TEMPLATES / template), "--vars", str(self.path)])
 
-    def assign(self, member, bead, template, *, path=None, due=None):
+    def sanity_dispatch(self, context):
+        """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
+        template = "dev-sanity-template.xml.j2"
+        close_context = {name: context[name] for name in SANITY_CLOSE_CONTEXT if name in context}
+        close_context.update(phase_lead=self.lead, budget=context.get("budget", "full"))
+        dispatch = {**context, "close_context": close_context, "beads_dir": self.beads_directory()}
+        self.render(template, dispatch)
+        size = len(json.dumps(dispatch).encode()) + len((TEMPLATES / template).read_bytes())
+        if size > ATM_MAX_REQUEST_BYTES:
+            largest = sorted(dispatch, key=lambda name: len(json.dumps(dispatch[name]).encode()), reverse=True)[:3]
+            named = ", ".join(f"{name} ({len(json.dumps(dispatch[name]).encode())} bytes)" for name in largest)
+            raise CloseError("ASSIGNMENT.TOO_LARGE",
+                             f"sanity assignment is {size} bytes, over ATM's {ATM_MAX_REQUEST_BYTES}-byte request limit; largest fields: {named}",
+                             f"Shorten {largest[0]} in --result (pass the stack view with --compact-json, or cite the full "
+                             "view by file path), then rerun with the same vars file; nothing was closed.")
+        return dispatch
+
+    def assign(self, member, bead, template, *, path=None, due=None, dispatch=None):
         events = self.task_history[bead]
         if due is None:
             due = not events or (is_terminal(events) and self.bead(bead).get("status") == "open")
         if due:
             if template == "dev-sanity-template.xml.j2":
-                context = read_vars(Path(path or self.path))
                 with tempfile.TemporaryDirectory(prefix="sanity-dispatch-") as directory:
-                    dispatch = Path(directory) / "completion-vars.json"
-                    close_context = {**context, "phase_lead": self.lead,
-                                     "budget": context.get("budget", "full")}
-                    dispatch.write_text(json.dumps({**context, "close_context": close_context,
-                                                    "beads_dir": self.beads_directory()}))
-                    self.render(template, read_vars(dispatch))
+                    dispatch_path = Path(directory) / "completion-vars.json"
+                    dispatch_path.write_text(json.dumps(dispatch))
                     self.run(["atm", "task", "assign", member, "--task-id", bead, "--template", str(TEMPLATES / template),
-                              "--vars", str(dispatch)], lead=True)
+                              "--vars", str(dispatch_path)], lead=True)
             else:
                 self.run(["atm", "task", "assign", member, "--task-id", bead, "--template", str(TEMPLATES / template),
                           "--vars", str(path or self.path)], lead=True)
@@ -608,7 +706,7 @@ class Hook:
         record = self.bead(bead)
         wrote = False
         if record.get("status") != "closed":
-            self.run(["bd", "close", bead, "--reason", reason, "--actor", self.identity])
+            self.write_bead(bead, "close", {"reason": reason})
             record.update(status="closed", close_reason=reason)
             wrote = True
         self.closed.append(bead)
@@ -665,10 +763,7 @@ class Hook:
             completion = Path(directory) / "completion-vars.json"
             if values["outcome"] == "not_reproducible":
                 branch, commit = self.stack_top()
-                assignment = {**values, "branch": branch, "commit": commit,
-                              "close_context": {**values, "phase_lead": self.lead},
-                              "beads_dir": self.beads_directory()}
-                self.render("dev-sanity-template.xml.j2", assignment)
+                assignment = {**values, "branch": branch, "commit": commit}
                 assignment_path = Path(directory) / "sanity-vars.json"
                 assignment_path.write_text(json.dumps(assignment), encoding="utf-8")
                 self.render(template)
@@ -699,13 +794,15 @@ class Hook:
         assign = (not terminal or self.bead(sanity).get("status") == "open") and (sha_changed or not open_assignment)
         if not assign and sha_changed:
             raise CloseError("REPLAY.CONFLICT", "sanity is closed at a different sha", "Request a new sanity assignment before changing the checked sha.")
+        # The assignment is built and checked against ATM's limit before the bead closes: after it, a refused send strands the close.
+        dispatch = self.sanity_dispatch(assignment_values) if assign else None
         self.metadata(values["checked_bead"], {"commit": assignment_values["commit"], "branch": assignment_values["branch"], "pr_number": values.get("pr_number", ""),
-                                             "pr_url": values["pr_url"]})
+                                             "pr_url": values["pr_url"], **({"pr_base": self.pr_base} if self.pr_base else {})})
         reason = f"not reproducible: {values['evidence']}" if values["outcome"] == "not_reproducible" else f"{'fixed' if self.role == 'fix' else 'dev complete'} at {values['commit']}"
         self.close_bead(values["checked_bead"], reason)
         if assign and not open_assignment:
             self.send(self.lead, template)
-        self.assign(self.config["dev_sanity_member"], sanity, "dev-sanity-template.xml.j2", path=path, due=assign)
+        self.assign(self.config["dev_sanity_member"], sanity, "dev-sanity-template.xml.j2", due=assign, dispatch=dispatch)
         # The dev's work is finished: free the dev for its next queued task and stop reminders.
         # Sanity state lives on the sanity task; a FAIL re-assigns this task through the lead.
         self.close_task(self.task, reason=reason)
@@ -798,6 +895,7 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
                 raise CloseError("ARGS.INVALID", "--result is required for dev and fix",
                                  "Pass the fixer's result file with --result <result-file>.")
             values = merge_result(values, read_vars(args.result), args.role)
+            values = validate_outcome(values, args.role, args.result)
         validate_shared_vars(values, args.role)
         hook = Hook(args.role, values, args.vars, runner, clock, sleep, sample)
         if args.role == "fix" and values.get("outcome") == "not_reproducible":
