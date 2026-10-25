@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
-
 from atm_bd_console.enums import CiState, PrState, SprintState
 from atm_bd_console.model import tick
 from atm_bd_console.result import Err, NotFound, Ok

@@ -808,8 +808,8 @@ def test_github_interval_is_independent_and_paused_refresh_keeps_cache(github_ru
         calls.append(now)
         if len(calls) == 1:
             return Err(TIMEOUT), replace(gh, paused=True, quota_remaining=2450, quota_limit=5000,
-                                         quota_reset=NOW + timedelta(hours=1))
-        return Ok(cache[0].prs), replace(gh, paused=False, error=None, ok=True)
+                                         quota_reset=NOW + timedelta(hours=1)), None
+        return Ok(cache[0].prs), replace(gh, paused=False, error=None, ok=True), None
 
     monkeypatch.setattr(runner, "datetime", FixedDateTime)
     monkeypatch.setattr(runner, "_refresh_github", refresh)
@@ -839,8 +839,8 @@ def test_paused_refresh_preserves_cached_availability_and_read_time(monkeypatch)
     paused = replace(cached, ok=False, at=NOW, error=TIMEOUT, paused=True,
                      quota_remaining=2450, quota_limit=5000, quota_reset=NOW + timedelta(hours=1))
     monkeypatch.setattr(runner.github_source, "open_prs", lambda *_: (Err(TIMEOUT), paused))
-    result, status = runner._refresh_github(replace(CONFIG, github="graphql"), NOW, cached)
-    assert isinstance(result, Err)
+    result, status, stack = runner._refresh_github(replace(CONFIG, github="graphql"), NOW, cached)
+    assert isinstance(result, Err) and stack is None
     assert status.paused and status.ok is True and status.error is None and status.at == EARLIER
 
 
@@ -1008,9 +1008,9 @@ def test_refresh_github_uses_configured_code_checkout_and_repo_slug(monkeypatch)
     monkeypatch.setattr(github_source, "open_prs", open_prs)
     config = replace(CONFIG, code_root="/code-checkout", github_repo="sample/code")
 
-    result, status = runner._refresh_github(config, NOW, GhStatus("graphql", None, None, None, False), (("branch",),))
+    result, status, stack = runner._refresh_github(config, NOW, GhStatus("graphql", None, None, None, False), (("branch",),))
 
-    assert isinstance(result, Ok) and status.ok
+    assert isinstance(result, Ok) and status.ok and stack is None
     assert captured["budget"] == ("rest", "/code-checkout", config.github_quota_threshold,
                                   config.github_poll_interval_s, NOW, GhStatus("graphql", None, None, None, False),
                                   "sample/code")

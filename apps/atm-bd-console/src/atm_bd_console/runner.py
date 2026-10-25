@@ -136,15 +136,44 @@ def _branch_groups(phase, repo) -> tuple[tuple[str, ...], ...]:
 
 
 def _refresh_github(config: Config, now: datetime, gh: GhStatus, groups=()):
+    """One GitHub refresh: the configured stack's membership (None when no stack is configured), then the PRs.
+
+    Membership is read first and through the same quota budget, so every PR it names was linked before the PR
+    list was read and is in it."""
     if config.github == "off":
-        return Ok(()), _gh("off")
+        return Ok(()), _gh("off"), None
     code_root = config.code_root or config.repo_root
     budget = github_source.Budget(config.github, code_root, config.github_quota_threshold,
                                   config.github_poll_interval_s, now, gh, config.github_repo)
+    stack = None if config.stack_number is None else github_source.stack_membership(
+        config.github, code_root, config.stack_repo or config.github_repo, config.stack_number,
+        config.stack_trunk, budget)
     result, status = github_source.open_prs(config.github, code_root, groups, budget, config.github_repo)
     if status.paused and gh.mode == config.github:
         status = replace(status, ok=gh.ok, error=None, at=gh.at, truncated=gh.truncated)
-    return result, status
+    return result, status, stack
+
+
+def _cached_stack(config: Config, cached: PrsFile | None) -> tuple[int, ...] | None:
+    """The cached membership, only when it was read for the stack configured now."""
+    if cached is None or config.stack_number is None or cached.stack_number != config.stack_number:
+        return None
+    return cached.stack_prs
+
+
+def _stack_input(config: Config, cached: tuple[int, ...] | None, read) -> Result[tuple[int, ...]] | None:
+    """Membership for this tick: the cached pair when present, else this tick's read, else a typed not-read."""
+    if config.stack_number is None:
+        return None
+    if config.github == "off":
+        return github_source.stack_membership("off", None, config.stack_repo or config.github_repo,
+                                              config.stack_number, config.stack_trunk)
+    if cached is not None:
+        return Ok(cached)
+    if read is not None:
+        return read
+    return Err(NotFound("not_found", "hosted stack membership",
+                        "wait for the next GitHub poll (github_poll_interval) or force a GitHub refresh"))
 
 
 def _show_closed(closed: ClosedBeads, ids: tuple[str, ...], logger: TickLog) -> Result[tuple[Bead, ...]]:
@@ -193,12 +222,17 @@ def _stopped_tick(config: Config, state: State, now: datetime, store: StateStore
     prs_read_at = cached_prs.value.read_at if isinstance(cached_prs, Ok) else None
     if force_github and config.github != "off":
         groups = _branch_groups(phase.value, repo) if config.github == "rest" and isinstance(phase, Ok) else ()
-        refreshed, gh = _refresh_github(config, now, gh, groups)
+        refreshed, gh, stack = _refresh_github(config, now, gh, groups)
+        stack_prs = _cached_stack(config, cached_prs.value if isinstance(cached_prs, Ok) else None)
         if isinstance(refreshed, Ok):
             prs = refreshed
+            if isinstance(stack, Ok):
+                stack_prs = stack.value
         previous_read = cached_prs.value.read_at if isinstance(cached_prs, Ok) else now
         prs_read_at = now if isinstance(refreshed, Ok) else prs_read_at
-        saved = store.write_prs(PrsFile(now if isinstance(refreshed, Ok) else previous_read, gh, prs.value, attempted_at=now))
+        saved = store.write_prs(PrsFile(now if isinstance(refreshed, Ok) else previous_read, gh, prs.value, attempted_at=now,
+                                        stack_number=config.stack_number if stack_prs is not None else None,
+                                        stack_prs=stack_prs))
         if isinstance(saved, Err):
             cache_errors = (saved.error,)
             logger.event("error", source="prs.write", error=asdict(saved.error))
@@ -348,12 +382,21 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
     github_due = (attempted_at is None or cached_prs is None or cached_prs.gh.mode != config.github
                   or now - attempted_at >= timedelta(seconds=config.github_poll_interval_s))
     refresh_errors = []
+    cached_stack = _cached_stack(config, cached_prs)
+    stack_read = None
     if config.github != "off" and (force_github or (due and github_due)):
         branch_groups = _branch_groups(phase.value, repo.value) if config.github == "rest" and isinstance(phase, Ok) else ()
-        refreshed_prs, gh = _refresh_github(config, now, gh, branch_groups)
+        refreshed_prs, gh, stack_read = _refresh_github(config, now, gh, branch_groups)
+        stack_read = logger.result("github.stack_membership", stack_read) if stack_read is not None else None
         attempted_at = now
         if isinstance(refreshed_prs, Ok):
             prs_input, prs, prs_read_at = refreshed_prs, refreshed_prs.value, now
+            # Membership and PRs are replaced together or not at all, so the cache never pairs a membership
+            # with an older PR list (the false stack_snapshot:stale alert).
+            if isinstance(stack_read, Ok):
+                cached_stack = stack_read.value
+            elif isinstance(stack_read, Err):
+                cached_stack = None
         elif cached_prs is None:
             prs_input = refreshed_prs
         else:
@@ -399,13 +442,7 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
                 unavailable = Merge(branch, target, MergeState.ERROR, (), (verification_reason(checked.error),), now)
                 merges[branch] = unavailable
                 merge_results.append(Ok(unavailable))
-    stack_prs = None
-    if config.stack_number is not None:
-        stack_prs = logger.result(
-            "github.stack_membership",
-            github_source.stack_membership(gh.mode, config.code_root,
-                                           config.stack_repo or config.github_repo, config.stack_number),
-        )
+    stack_prs = _stack_input(config, cached_stack, stack_read)
     inputs = Inputs(now, config.lead, repo.value, config.interval_s, phase, members, tasks, worktrees, remotes, tuple(merge_results) if due else tuple(Ok(item) for item in merges.values()), prs_input, gh, task_beads, closed_tasks, stack_prs=stack_prs)
     snapshot, actions, next_state = model.tick(inputs, state, now, partial(atm_bd.dispatch_spec, templates=file.value.templates))
     if not snapshot.phase:
@@ -419,12 +456,15 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
                     "hold", task_ids=[held.bead_id], recipient=held_step.assignee or config.lead if held_step else config.lead,
                     outcome="held", reason=held.reason,
                 )
+    prs_file = PrsFile(prs_read_at, gh, tuple(prs), attempted_at=attempted_at,
+                       stack_number=config.stack_number if cached_stack is not None else None, stack_prs=cached_stack)
+
     def persist(store: StateStore):
             reported, action_errors = _run_actions(config, actions, store, now, logger)
             errors = [*store.load_errors, *closed_errors, *action_errors, *refresh_errors]
             durable = state if config.dry_run else _durable_state(state, next_state, actions, reported)
             reported_sent = (*state.sent, *reported)[-5:]
-            for written in (store.write_merges(MergeFile(now, merges)), store.write_prs(PrsFile(prs_read_at, gh, tuple(prs), attempted_at=attempted_at)), store.write_state(durable)):
+            for written in (store.write_merges(MergeFile(now, merges)), store.write_prs(prs_file), store.write_state(durable)):
                 if isinstance(written, Err): errors.append(written.error)
             for error in (*snapshot.errors, *errors):
                 logger.error(error)

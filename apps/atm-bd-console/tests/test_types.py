@@ -64,7 +64,7 @@ FIELDS: dict[str, str] = {
     "State": "problems cycle_first_send last_batch last_cycle idle_since sent remotes batch_due collision_notices",
     "PhaseFile": "phase root_id label sprints depends_on lead templates code_checkout",
     "MergeFile": "checked_at merges",
-    "PrsFile": "read_at gh prs attempted_at",
+    "PrsFile": "read_at gh prs attempted_at stack_number stack_prs",
     "ActionLine": "at kind to bead text",
 }
 

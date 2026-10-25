@@ -12,7 +12,7 @@ from . import command
 from .ci import ci_failure_key
 from .enums import CiState, PrState
 from .pr_selection import select_pr
-from .result import CommandFailed, Err, Ok, ParseFailed, Rejected, Timeout, Unreachable
+from .result import CommandFailed, ConfigInvalid, Err, Ok, ParseFailed, Rejected, Result, Timeout, Unreachable
 from .types import GhStatus, PullRequest
 
 GRAPHQL = """query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { pullRequests(states: [OPEN, CLOSED, MERGED], first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) { totalCount pageInfo { hasNextPage endCursor } nodes { number url state isDraft headRefName baseRefName headRefOid commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { name conclusion } ... on StatusContext { context state } } } } } } } } } } }"""
@@ -283,16 +283,20 @@ def stack_argv(github_repo: str, number: int) -> tuple[str, ...]:
 
 
 def stack_membership(mode: Literal["graphql", "rest", "off"], code_root: str | Path | None,
-                     github_repo: str, number: int) -> Result[tuple[int, ...]]:
+                     github_repo: str, number: int, trunk: str,
+                     budget: Budget | None = None) -> Result[tuple[int, ...]]:
     """The PR numbers registered in the hosted stack, in stack order: base first, top last.
 
     This is the canonical membership for top-PR selection: a PR absent from this list is not
     linked in the stack, whatever layer its sprint claims, and must never be named the top.
+    The stack must be built on the configured trunk; a stack on any other base is the wrong
+    stack and is refused. With a budget the read goes through the same quota gate as the PR read.
     """
     argv = stack_argv(github_repo, number)
     if mode == "off":
         return Err(Rejected("rejected", argv, 0, "github reads are off", "set console.github to graphql or rest"))
-    result = command.run(argv, "check the phase stack membership on GitHub", cwd=code_root, timeout_s=REQUEST_TIMEOUT_S)
+    run = budget.run if budget is not None else command.run
+    result = run(argv, "check the phase stack membership on GitHub", cwd=code_root, timeout_s=REQUEST_TIMEOUT_S)
     if isinstance(result, Err):
         return result
     try:
@@ -303,5 +307,14 @@ def stack_membership(mode: Literal["graphql", "rest", "off"], code_root: str | P
     if not isinstance(rows, list):
         return Err(ParseFailed("parse_failed", "stack", "no pull_requests list",
                               "check the GitHub stack API response; stack membership names the linked PRs"))
+    base = view.get("base")
+    base_ref = base.get("ref") if isinstance(base, dict) else None
+    if not isinstance(base_ref, str):
+        return Err(ParseFailed("parse_failed", "stack", "no base.ref",
+                              "check the GitHub stack API response; the stack's base is its trunk"))
+    if base_ref != trunk:
+        return Err(ConfigInvalid("config_invalid", "console.stack.trunk", repr(base_ref),
+                                 f"stack {number} is built on {base_ref}, not {trunk}; set console.stack.number "
+                                 f"to the stack on {trunk} or correct console.stack.trunk"))
     return Ok(tuple(int(row["number"]) for row in rows
                     if isinstance(row, dict) and isinstance(row.get("number"), int)))

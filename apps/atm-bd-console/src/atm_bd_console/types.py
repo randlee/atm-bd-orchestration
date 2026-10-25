@@ -428,6 +428,10 @@ class PrsFile:
     gh: GhStatus
     prs: tuple[PullRequest, ...]
     attempted_at: datetime | None = None
+    # Hosted-stack membership read in the same refresh as prs (membership first), for stack_number.
+    # Replaced only when both reads succeed, so the cached membership never runs ahead of the cached PRs.
+    stack_number: int | None = None
+    stack_prs: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True)
