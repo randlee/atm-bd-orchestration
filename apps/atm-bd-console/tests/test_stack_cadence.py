@@ -213,3 +213,116 @@ def test_an_unreadable_stack_stays_loud_between_polls_without_rereading(world, t
         assert snapshot.top_pr is None
         assert "stack_membership:unavailable" in keys(snapshot)
     assert world.calls.count("stack") == 2
+
+
+# --- the real quota gate, end to end: every GitHub command the runner sends is recorded ----------------------
+
+def test_core_quota_below_threshold_skips_the_stack_read_in_graphql_mode(monkeypatch) -> None:
+    calls: list = []
+    resources = {"graphql": {"remaining": 4000, "limit": 5000, "reset": int((T0 + timedelta(hours=1)).timestamp())},
+                 "core": {"remaining": 100, "limit": 5000, "reset": int((T0 + timedelta(hours=1)).timestamp())}}
+
+    def run(argv, *_args, **_kwargs):
+        calls.append(argv)
+        return Ok(Output(0, json.dumps({"resources": resources} if argv == QUOTA_ARGV else stack_body((1,)))))
+
+    monkeypatch.setattr(github_source.command, "run", run)
+    budget = github_source.Budget("graphql", "/code", 50, 600, T0, GhStatus("graphql", None, None, None, False), REPO)
+
+    result = github_source.stack_membership("graphql", "/code", REPO, 7, TRUNK, budget)
+
+    assert isinstance(result, Err) and github_source.throttled(result.error)
+    assert calls == [QUOTA_ARGV], "a REST call is not sent while the REST (core) quota is below the threshold"
+    assert budget.status.paused is False, "low core quota does not pause the graphql PR read"
+
+
+class GitHub:
+    """The gh boundary: rate_limit, the GraphQL PR list and the stack endpoint, with settable quotas."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.calls: list[str] = []
+        self.linked: tuple[int, ...] = (1, 2)
+        self.remaining = {"graphql": 4000, "core": 4000}
+        reset = int((T0 + timedelta(hours=1)).timestamp())
+        github = self
+        real_run = github_source.command.run
+
+        def run(argv, *args, **kwargs):
+            argv = tuple(argv)
+            if argv[:1] != ("gh",):
+                return real_run(argv, *args, **kwargs)  # local git plumbing only; no GitHub request
+            if argv == QUOTA_ARGV:
+                github.calls.append("rate_limit")
+                body = {"resources": {name: {"remaining": value, "limit": 5000, "reset": reset}
+                                      for name, value in github.remaining.items()}}
+            elif argv == STACK_ARGV:
+                github.calls.append("stack")
+                body = stack_body(github.linked)
+            elif argv[:3] == ("gh", "api", "graphql"):
+                github.calls.append("graphql")
+                nodes = [{"number": n, "url": f"https://x/{n}", "state": "OPEN", "isDraft": False,
+                          "headRefName": f"sprint/bk-{n}", "baseRefName": TRUNK if n == 1 else f"sprint/bk-{n - 1}",
+                          "headRefOid": f"sha{n}", "commits": {"nodes": []}} for n in github.linked]
+                body = {"data": {"repository": {"pullRequests": {
+                    "totalCount": len(nodes), "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}}}
+            else:
+                raise AssertionError(f"unexpected command {argv}")
+            return Ok(Output(0, json.dumps(body)))
+
+        monkeypatch.setattr(github_source.command, "run", run)
+
+
+@pytest.fixture
+def github(world, monkeypatch):
+    # The World fixture patches the runner's reads; undo its fakes for the GitHub source so the real
+    # Budget, open_prs and stack_membership run against the recorded gh boundary.
+    monkeypatch.setattr(runner.github_source, "open_prs", REAL_OPEN_PRS)
+    monkeypatch.setattr(runner.github_source, "stack_membership", REAL_STACK_MEMBERSHIP)
+    return GitHub(monkeypatch)
+
+
+REAL_OPEN_PRS = github_source.open_prs
+REAL_STACK_MEMBERSHIP = github_source.stack_membership
+
+
+def ticks(world, tmp_path, seconds):
+    snapshots = []
+    for value in seconds:
+        world.now = T0 + timedelta(seconds=value)
+        snapshots.append(tick(world, tmp_path)[0])
+    return snapshots
+
+
+EVERY_TICK_FOR_21_MINUTES = range(0, 1260, 60)
+
+
+def test_normal_quota_sends_exactly_one_refresh_per_poll_interval(world, github, tmp_path) -> None:
+    ticks(world, tmp_path, EVERY_TICK_FOR_21_MINUTES)
+
+    # 21 one-minute ticks, polls due at 0s, 600s and 1200s; nothing is sent between polls.
+    assert github.calls == ["rate_limit", "stack", "rate_limit", "graphql"] * 3
+
+
+def test_low_graphql_quota_sends_one_quota_check_then_nothing_until_reset(world, github, tmp_path) -> None:
+    github.remaining["graphql"] = 100
+
+    snapshots = ticks(world, tmp_path, EVERY_TICK_FOR_21_MINUTES)
+
+    assert github.calls == ["rate_limit"], "below the threshold no stack, PR or check-run call is ever sent"
+    assert all(snapshot.gh.paused for snapshot in snapshots)
+
+
+def test_low_core_quota_keeps_the_cached_membership_and_reports_the_skip_once(world, github, tmp_path) -> None:
+    ticks(world, tmp_path, (0,))
+    github.calls.clear()
+    github.remaining["core"] = 100
+    github.linked = (1, 2, 3)
+
+    snapshots = ticks(world, tmp_path, range(600, 1200, 60))
+
+    assert github.calls == ["rate_limit", "rate_limit", "graphql"], "the REST stack call is skipped, the PR read runs"
+    skipped = [index for index, snapshot in enumerate(snapshots)
+               if any(github_source.throttled(error) for error in snapshot.errors)]
+    assert skipped == [0], "the skipped membership read is reported on its poll only"
+    for snapshot in snapshots:
+        assert not {"stack_membership:unavailable", "stack_snapshot:stale"} & keys(snapshot), keys(snapshot)

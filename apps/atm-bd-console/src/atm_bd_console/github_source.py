@@ -59,7 +59,10 @@ class Budget:
             previous = GhStatus(mode, None, None, None, False)
         self.status = replace(previous, mode=mode, quota_threshold=threshold, poll_interval_s=interval_s)
 
-    def run(self, argv, fix, **kwargs):
+    def run(self, argv, fix, resource: Literal["graphql", "core"] | None = None, **kwargs):
+        """Run one GitHub call behind the quota gate. The mode's resource (graphql, or core for rest) pauses all
+        reads when it is below the threshold; a call that spends the other resource (`resource`, e.g. the REST
+        stack read in graphql mode) is also refused, without a call, when that resource is below the threshold."""
         status = self.status
         if status.paused and status.quota_reset is not None and self.now < status.quota_reset:
             return Err(CommandFailed("command_failed", argv, 1, "GitHub polling paused until reset", "wait for the quota reset"))
@@ -67,19 +70,19 @@ class Budget:
                             timeout_s=REQUEST_TIMEOUT_S)
         if isinstance(quota, Err):
             return quota
-        resource = "graphql" if self.mode == "graphql" else "core"
+        own_resource = "graphql" if self.mode == "graphql" else "core"
         try:
             resources = json.loads(quota.value.stdout)["resources"]
-            remaining, limit, reset_at = _quota_entry(resources, resource)
+            remaining, limit, reset_at = _quota_entry(resources, own_resource)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError, OSError) as exc:
             return Err(ParseFailed("parse_failed", "github quota", str(exc), "retry the GitHub quota request"))
-        other_resource = "core" if resource == "graphql" else "graphql"
+        other_resource = "core" if own_resource == "graphql" else "graphql"
         try:
             other = _quota_entry(resources, other_resource)
         except (KeyError, TypeError, ValueError, OverflowError, OSError):
             other = (None, None, None)
-        core = (remaining, limit, reset_at) if resource == "core" else other
-        graphql = (remaining, limit, reset_at) if resource == "graphql" else other
+        core = (remaining, limit, reset_at) if own_resource == "core" else other
+        graphql = (remaining, limit, reset_at) if own_resource == "graphql" else other
         paused = remaining * 100 < limit * status.quota_threshold
         self.status = replace(status, quota_remaining=remaining, quota_limit=limit, quota_reset=reset_at,
                               paused=paused, rate_limited=False, core_remaining=core[0], core_limit=core[1],
@@ -87,6 +90,11 @@ class Budget:
                               graphql_reset=graphql[2], quota_at=self.now)
         if paused:
             return Err(CommandFailed("command_failed", argv, 1, "GitHub quota below threshold", "wait for quota recovery"))
+        if resource is not None and resource != own_resource:
+            spent = core if resource == "core" else graphql
+            if spent[0] is None or spent[1] is None or spent[0] * 100 < spent[1] * status.quota_threshold:
+                return Err(CommandFailed("command_failed", argv, 1, f"GitHub {resource} quota below threshold",
+                                         "wait for quota recovery"))
         response = command.run(argv, fix, **kwargs)
         if isinstance(response, Err):
             detail = str(response.error).lower()
@@ -166,6 +174,15 @@ def _from_graphql(node: dict) -> PullRequest:
     raw_state = node.get("state", "OPEN")
     return PullRequest(node["number"], node["url"], node["headRefName"], node["baseRefName"], node["headRefOid"],
                        ci_state_of(raw_ci, None, failed), failed, state, raw_ci, raw_state)
+
+
+THROTTLED = ("GitHub polling paused until reset", "GitHub quota below threshold",
+             "GitHub core quota below threshold", "GitHub graphql quota below threshold")
+
+
+def throttled(error) -> bool:
+    """True when the quota gate refused the call before it was made (no GitHub request was sent)."""
+    return isinstance(error, CommandFailed) and error.stderr in THROTTLED
 
 
 def open_prs(mode: Literal["graphql", "rest", "off"], code_root: str | Path | None,
@@ -295,8 +312,12 @@ def stack_membership(mode: Literal["graphql", "rest", "off"], code_root: str | P
     argv = stack_argv(github_repo, number)
     if mode == "off":
         return Err(Rejected("rejected", argv, 0, "github reads are off", "set console.github to graphql or rest"))
-    run = budget.run if budget is not None else command.run
-    result = run(argv, "check the phase stack membership on GitHub", cwd=code_root, timeout_s=REQUEST_TIMEOUT_S)
+    if budget is not None:
+        result = budget.run(argv, "check the phase stack membership on GitHub", resource="core", cwd=code_root,
+                            timeout_s=REQUEST_TIMEOUT_S)
+    else:
+        result = command.run(argv, "check the phase stack membership on GitHub", cwd=code_root,
+                             timeout_s=REQUEST_TIMEOUT_S)
     if isinstance(result, Err):
         return result
     try:

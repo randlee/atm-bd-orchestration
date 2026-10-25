@@ -395,6 +395,10 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
             # with an older PR list (the false stack_snapshot:stale alert).
             if isinstance(stack_read, Ok):
                 cached_stack = stack_read.value
+            elif isinstance(stack_read, Err) and cached_stack is not None and github_source.throttled(stack_read.error):
+                # Low quota skipped the membership read: keep the cached membership (it is older than the PRs, so it
+                # can only name no top, never a stale one) and report the skip once, on this poll.
+                refresh_errors.append(stack_read.error)
             elif isinstance(stack_read, Err):
                 cached_stack = None
         elif cached_prs is None:
