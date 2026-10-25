@@ -116,6 +116,12 @@ A phase starts from a design and ends when its plan has passed review and its be
 4. **Import and pour.** `bd import -i <plan.jsonl>`, then `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <x>` creates the dev, sanity and QA beads for each sprint.
 5. **Commit** the plan and phase file and push them to the integration branch.
 6. **Review the plan.** Quality-mgr reviews it, for up to three rounds. No dev work starts until it passes.
+7. **Switch on the hook and the crons.** Run these from the repo root before dev work starts. They change local ATM daemon state only; they commit nothing and dispatch nothing.
+   - Register the sanity close hook, with `<prefix>` your bead id prefix and the `dev_sanity_member` from `.claude/project/atm-bd-orchestration.yaml`:
+     `atm hook register task.close --phase <x> --cwd . --module .claude/skills/atm-bd-orchestration/scripts/sanity_task_close_hook.py --custom '{"task_prefix":"<prefix>-<x>-","sanity_agents":["<dev_sanity_member>"]}'`
+   - Start the bd-cache cron, once per repo, with the team from `.atm.toml`. It stops itself when no phase is active:
+     `atm cron start bd-cache --phase <x> --cron "*/30 * * * * *" --until-hook --module .claude/skills/atm-bd-orchestration/scripts/bd_cache_cron.py --cwd . --custom '{"team":"<team>"}'`
+   - Schedule `atm-bd cron --phase <x>` every 15 minutes while the phase runs; it runs one tick and exits. The plugin README's "Phase cron" section has crontab and Hermes examples. Turn it off when the phase is paused or done.
 
 A prompt that works: *"Use atm-beads to turn docs/design/x.md into a phase plan for phase bk with solar as lead, validate it, pour the beads, and send it for plan review."*
 
