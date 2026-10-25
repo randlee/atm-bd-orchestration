@@ -71,10 +71,11 @@ def sanity_close_mode(rows, phase, member):
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
-        custom = row.get("custom") if isinstance(row.get("custom"), dict) else {}
-        agents = custom.get("sanity_agents") if isinstance(custom.get("sanity_agents"), list) else []
+        custom = row.get("custom")
+        agents = custom.get("sanity_agents") if isinstance(custom, dict) else None
         if (row.get("phase") == phase and row.get("hook") == "task.close" and row.get("active") is True
-                and Path(str(row.get("module_path") or "")).name == SANITY_CLOSE_HOOK_MODULE and member in agents):
+                and Path(str(row.get("module_path") or "")).name == SANITY_CLOSE_HOOK_MODULE
+                and isinstance(agents, list) and member in agents):
             return "daemon"
     return "legacy"
 
