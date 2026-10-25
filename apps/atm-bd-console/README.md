@@ -169,14 +169,18 @@ the key before the console starts. A missing phase file, plan file, or
 `plan`, `root`, or `integration_branch` key produces `not_found`; malformed
 TOML or plan rows produce `parse_failed`. Console `--as` is removed; `lead` is read only from
 the phase file, with no environment or repository YAML fallback. Each tick
-reloads these phase settings. Team and sanity/QA recipients still come from
+reloads these phase settings. Team and QA recipients still come from
 `.atm.toml` and `.claude/project/atm-bd-orchestration.yaml`, respectively.
 
-The console automatically assigns ready sanity and QA work using
-`templates.sanity` and `templates.qa`. It passes the configured path to
-`atm task assign --template` and the phase lead to ATM's `--as`. The other
-purposes support orchestration workflows and do not enable additional console
-dispatch kinds.
+The console automatically assigns ready QA work using `templates.qa`. It
+passes the configured path to `atm task assign --template` and the phase lead
+to ATM's `--as`. It does not assign sanity work: with the shipped
+`dev-sanity-template.xml.j2` it refuses (`config_invalid`, `close vars
+unavailable`), because that assignment needs the close context only the dev's
+close has. Sanity is assigned by the dev's close hook, `atm-task-close.py`, from
+the close vars file the lead writes at dispatch (`close-vars.py <bead> --out
+<path>`). The other purposes support orchestration workflows and do not enable
+additional console dispatch kinds.
 
 Plain notifications use `atm-bd@tool` by default, independently of the lead
 used for assignments. The skill installer provisions the default tool identity.
@@ -189,7 +193,7 @@ local to the lead's team (cross-team assignments are tracked by atm-core #1870).
 
 ## Dispatch verification
 
-Ready sanity and QA assignments require a successful merge check for their
+Ready QA assignments require a successful merge check for their
 branch and target. Missing results, missing targets, timeouts, and unsupported
 git commands hold assignment with an actionable problem until verification
 succeeds. The persisted merge states remain `clean` (verified), `conflict`, and
