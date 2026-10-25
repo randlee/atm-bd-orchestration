@@ -163,6 +163,11 @@ def load_snapshot(repo_root: str | Path, root_id: str) -> Result[Snapshot]:
     return _load(repo_root, root_id, "snapshot.json", Snapshot)
 
 
+def read_snapshot(directory: str | Path) -> Result[Snapshot]:
+    """The snapshot in one state directory, e.g. a held StateStore's."""
+    return _read(Path(directory) / "snapshot.json", Snapshot)
+
+
 def load_state(repo_root: str | Path, root_id: str) -> Result[State]:
     return _load(repo_root, root_id, "state.json", State)
 
