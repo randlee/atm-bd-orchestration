@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.6] - 2026-10-26
+
 ### Fixed
 - `close-vars.py` accepts an important or minor finding bead (`stage:finding`) as a fix bead. fix-assignment step f needs lead close vars for exactly that bead, but close-vars refused it with `CLOSE_VARS.NOT_A_TASK_BEAD`. Its close fields come from the finding's own metadata, which the lead stamps at dispatch; an unstamped finding gets `CLOSE_VARS.NOT_POURED`, whose fix names `close_fields_backfill.py`.
 
