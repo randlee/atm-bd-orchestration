@@ -120,6 +120,8 @@ class World:
         elif argv[:3] == ["gh", "stack", "link"]:
             if self.fail_link:
                 status, error = 1, "injected link failure"
+            elif argv[3] == "--base" and len(argv) < 7:
+                status, error = 1, "accepts between 2 and 255 arg(s), received 1"   # gh: a stack needs two PRs
             elif argv[3] == "--base":
                 self.stacks.append({"number": 7, "base": argv[4], "prs": [int(value) for value in argv[5:]]})
             else:
@@ -170,11 +172,17 @@ def test_unlinked_recorded_layer_is_not_reported_as_already_stacked(world):
 
     result = world.link(values)
 
-    assert result['result'] == 'stacked'
-    assert world.bead['metadata']['layers'][-1]['linked'] is True
+    # Layer 0 alone waits unlinked: no one-PR `gh stack link`, which gh refuses (phase bg, PR 2251).
+    assert result['result'] == 'stacked' and result['stack_number'] is None
+    assert world.bead['metadata']['layers'] == [{
+        'branch': values['branch'], 'pr': values['pr_number'], 'head': values['commit'], 'base': 'trunk', 'linked': False}]
+    assert not any(call[:3] == ['gh', 'stack', 'link'] for call in world.calls)
+    second = world.branch('second', 'first', 2)
+    assert world.link(second)['result'] == 'stacked'
     assert [call for call in world.calls if call[:3] == ['gh', 'stack', 'link']] == [
-        ['gh', 'stack', 'link', '--base', 'trunk', '1'],
+        ['gh', 'stack', 'link', '--base', 'trunk', '1', '2'],
     ]
+    assert [layer['linked'] for layer in world.bead['metadata']['layers']] == [True, True]
 
 
 def test_failed_post_close_handoff_notifies_lead_without_task_writes(world):
@@ -428,9 +436,11 @@ def test_release_failure_after_recorded_unlinked_layer_is_retried(world):
     result = world.link(values)
     assert result["result"] == "stacked"
     assert "injected release failure" in result["release_warning"]
-    assert world.bead["metadata"] != before
-    assert world.bead["metadata"]["layers"][0]["linked"] is True
-    assert world.bead["metadata"]["stack_number"] == 7
+    # Layer 0 alone stays unlinked (gh stack link needs two PRs); the retry rewrites the same ledger.
+    assert world.bead["metadata"] == before
+    assert world.bead["metadata"]["layers"][0]["linked"] is False
+    assert world.bead["metadata"]["stack_number"] is None
+    assert not any(call[:3] == ["gh", "stack", "link"] for call in world.calls)
     assert any("--metadata" in call for call in world.calls)
 
 
