@@ -134,3 +134,42 @@ def test_command_failed_fix_names_exit_code_and_keeps_stderr(monkeypatch: pytest
     assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
     assert result.error.code == 3 and result.error.stderr == "dolt down"
     assert "exited 3" in result.error.fix and "Dolt" in result.error.fix
+
+
+# bd 1.3.2: an id with no bead is named on stderr and the others are printed; no bead at all exits 1 (#590).
+SHOW_132 = """
+[ "$1" = show ] || { echo "unexpected: $*" >&2; exit 2; }
+shift
+[ -n "$FAKE_BD_DOWN" ] && { echo "dial tcp 127.0.0.1:3307: connect: connection refused" >&2; exit 1; }
+printf '['
+sep=''
+found=0
+for id in "$@"; do
+  [ "$id" = --json ] && continue
+  if [ -f "$FAKE_BEADS/$id.json" ]; then
+    printf '%s' "$sep"; cat "$FAKE_BEADS/$id.json"; sep=','; found=1
+  else
+    printf 'Issue %s not found\nHint: this ID may have never existed\n' "$id" >&2
+  fi
+done
+printf ']'
+[ "$found" = 1 ] || exit 1
+"""
+
+
+def test_task_ids_without_beads_are_no_beads_not_a_failed_read(fake_bin, beads: Path) -> None:
+    fake_bin.make("bd", SHOW_132)
+    assert beads_source.show_tasks(("atm-bd-integration.sanity-hook-handoff",)) == Ok(())
+    mixed = beads_source.show_tasks(("atm-bh-6", "atm-bd-integration.sanity-hook-handoff"))
+    assert isinstance(mixed, Ok) and [bead.id for bead in mixed.value] == ["atm-bh-6"]
+    # The strict reader still fails on a missing bead: a missing parent is a broken graph.
+    assert isinstance(beads_source.show(("atm-bd-integration.sanity-hook-handoff",)), Err)
+
+
+def test_a_bd_failure_that_is_not_not_found_is_still_an_error(fake_bin, beads: Path,
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_bin.make("bd", SHOW_132)
+    monkeypatch.setenv("FAKE_BD_DOWN", "1")
+    failed = beads_source.show_tasks(("atm-bh-6",))
+    assert isinstance(failed, Err) and isinstance(failed.error, CommandFailed)
+    assert "connection refused" in failed.error.stderr

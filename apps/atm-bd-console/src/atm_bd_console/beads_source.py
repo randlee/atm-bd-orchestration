@@ -69,6 +69,20 @@ def show(ids: tuple[str, ...]) -> Result[tuple[Bead, ...]]:
     return Ok(()) if not ids else _run(["bd", "show", *ids, "--json"])
 
 
+def _only_not_found(stderr: str, ids: tuple[str, ...]) -> bool:
+    lines = [line.strip() for line in stderr.splitlines() if line.strip() and not line.strip().startswith("Hint:")]
+    return bool(lines) and all(line in {f"Issue {bead_id} not found" for bead_id in ids} for line in lines)
+
+
+def show_tasks(ids: tuple[str, ...]) -> Result[tuple[Bead, ...]]:
+    """The beads of open ATM task ids. A task need not be a bead: bd returns the beads it has and names the
+    others on stderr, and exits 1 when no id is a bead, which is no beads, not a failed read (#590)."""
+    found = show(ids)
+    if isinstance(found, Err) and isinstance(found.error, CommandFailed) and _only_not_found(found.error.stderr, ids):
+        return Ok(())
+    return found
+
+
 def open_rows(label: str) -> Result[BeadRows]:
     raw = _raw(["bd", "list", "-l", label, "-n", "0", "--json"])
     if isinstance(raw, Err):
