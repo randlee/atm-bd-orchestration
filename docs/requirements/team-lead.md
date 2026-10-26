@@ -16,7 +16,7 @@ Sources: `plugins/atm-bd-orchestration/`: `skills/atm-bd-orchestration/{SKILL.md
 5. `bd doctor` error: report it; never import into or dispatch from that database.
 6. Import gaps go to the plan's author; when that is you, supply the branch or status rulings asked for; nothing imports on a blocking gap.
 7. Right after import and the pour, create `<root>-plan-qa` with no assignee; every sprint container blocks on it (running phase: `<root>-plan-qa-<n>`, blocking only the new containers).
-8. The plan file and the phase file are committed by hand on origin `integration_branch`, never exported from beads; the phase DAG HTML (`sprint-review`) is written locally, never committed or pushed, opened only with `--view`.
+8. The plan file and the phase file are committed by hand on origin `integration_branch`, never exported from beads; the phase DAG HTML (`sprint-review`) is committed with them by the planner (the script never commits or pushes), opened only with `--view`.
 9. `validate-plan --phase <x>` exits 0 or stop; then `bd ready` lists the plan-review bead and no dev bead.
 10. Dispatch plan review to quality-mgr; no dev bead before it passes.
 11. PASS closed: nothing. PASS handed back open with minor findings: fix each with `bd update`, then close `<root>-plan-qa`.
