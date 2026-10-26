@@ -15,7 +15,7 @@ from .pr_selection import select_pr
 from .result import CommandFailed, ConfigInvalid, Err, Ok, ParseFailed, Rejected, Result, Timeout, Unreachable
 from .types import GhStatus, PullRequest
 
-PR_FIELDS = "number url state isDraft headRefName baseRefName headRefOid commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { name conclusion } ... on StatusContext { context state } } } } } } }"
+PR_FIELDS = "number url state isDraft headRefName baseRefName headRefOid commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { name conclusion databaseId startedAt checkSuite { workflowRun { workflow { name } } app { slug } } } ... on StatusContext { context state createdAt } } } } } } }"
 # Closed/merged PRs read per phase head; a head with more history than this sets `truncated`.
 HEAD_HISTORY = 10
 
@@ -34,7 +34,11 @@ def graphql_query(heads: int = 0, numbers: int = 0) -> str:
 
 
 GRAPHQL = graphql_query()
-FAILURES = {"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT"}
+# CANCELLED is not a failure (#375): GitHub cancels a run when a newer one supersedes it (a retarget, a force push).
+# A genuinely failed run is FAILURE or TIMED_OUT; a cancelled run that is the latest of its name judges nothing.
+FAILURES = {"FAILURE", "ERROR", "TIMED_OUT"}
+NOT_FAILED = (*FAILURES, "SUCCESS", "SKIPPED", "NEUTRAL", "CANCELLED")
+RUNNING = ("QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED")
 REQUEST_TIMEOUT_S = 20
 
 
@@ -137,7 +141,7 @@ def ci_state_of(conclusion: str | None, status: str | None, failed_checks: tuple
     status = status.upper() if status else None
     if failed_checks or conclusion in FAILURES:
         return ci_failure_key(failed_checks)
-    if conclusion not in (None, "", "PENDING", "EXPECTED", "SUCCESS", "SKIPPED", "NEUTRAL"):
+    if conclusion not in (None, "", "PENDING", "EXPECTED", "SUCCESS", "SKIPPED", "NEUTRAL", "CANCELLED"):
         return CiState.UNKNOWN
     if status not in (None, "", "COMPLETED", "QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED"):
         return CiState.UNKNOWN
@@ -145,7 +149,7 @@ def ci_state_of(conclusion: str | None, status: str | None, failed_checks: tuple
         return CiState.RUNNING
     if conclusion == "SUCCESS":
         return CiState.PASS
-    if conclusion in (None, "", "SKIPPED", "NEUTRAL"):
+    if conclusion in (None, "", "SKIPPED", "NEUTRAL", "CANCELLED"):
         if status not in (None, "", "COMPLETED"):
             return CiState.UNKNOWN
         return CiState.NONE
@@ -184,14 +188,62 @@ def _error(mode: Literal["graphql", "rest", "off"], argv: tuple[str, ...], code:
     return Err(error), _status(mode, False, error)
 
 
+def _latest_by_name(rows, name_of, order_of) -> tuple:
+    """The latest row per name: a superseded run of the same check never judges the head (#375).
+
+    `order_of` returns a comparable key (run id, then start time); on equal keys the later row wins. A row with no
+    ordering at all cannot be said to supersede, or be superseded by, anything, so it is always kept."""
+    latest: dict = {}
+    for position, row in enumerate(rows):
+        name = name_of(row)
+        if order_of(row) == (0, ""):
+            latest[("unordered", position)] = row
+            continue
+        if name not in latest or order_of(row) >= order_of(latest[name]):
+            latest[name] = row
+    return tuple(latest.values())
+
+
+def _order(identity, moment) -> tuple[int, str]:
+    return (identity if type(identity) is int else 0, moment if isinstance(moment, str) else "")
+
+
+def _graphql_name(row: dict) -> tuple[str, ...]:
+    # CheckRun reports name/conclusion, StatusContext (commit statuses) context/state; the two never supersede each other.
+    if "context" in row:
+        return ("status", str(row["context"]))
+    suite = row.get("checkSuite") or {}
+    workflow = ((suite.get("workflowRun") or {}).get("workflow") or {}).get("name")
+    # Same-named jobs in different workflows or apps are different checks: one's success must not hide the other's failure.
+    return ("run", str((suite.get("app") or {}).get("slug") or ""), str(workflow or ""), str(row.get("name")))
+
+
+def _graphql_order(row: dict) -> tuple[int, str]:
+    return _order(row.get("databaseId"), row.get("startedAt") or row.get("createdAt"))
+
+
+def _graphql_ci(rollup_state: str, contexts: tuple[dict, ...]) -> str:
+    """The CI conclusion of the latest contexts. The rollup state also counts superseded runs, so it is only the
+    answer when no context was read."""
+    if not contexts:
+        return rollup_state
+    values = [str(row.get("conclusion") or row.get("state") or "").upper() for row in contexts]
+    failure = next((value for value in values if value in FAILURES), "")
+    if failure:
+        return failure
+    if any(value in ("", "PENDING", "EXPECTED") for value in values):
+        return "PENDING"
+    unexpected = next((value for value in values if value not in NOT_FAILED), "")
+    return unexpected or ("SUCCESS" if "SUCCESS" in values else "")
+
+
 def _from_graphql(node: dict) -> PullRequest:
     rollup = (((node.get("commits") or {}).get("nodes") or [{}])[-1].get("commit") or {}).get("statusCheckRollup") or {}
-    contexts = (rollup.get("contexts") or {}).get("nodes") or []
-    # CheckRun reports name/conclusion, StatusContext (commit statuses) context/state.
+    contexts = _latest_by_name((rollup.get("contexts") or {}).get("nodes") or [], _graphql_name, _graphql_order)
     failed = tuple(str(row.get("name") or row.get("context")) for row in contexts
                    if row.get("conclusion") in FAILURES or row.get("state") in FAILURES)
     state = pr_state_of(node.get("state", "OPEN"), bool(node.get("isDraft")))
-    raw_ci = rollup.get("state") or ""
+    raw_ci = _graphql_ci(rollup.get("state") or "", contexts) if rollup else ""
     raw_state = node.get("state", "OPEN")
     return PullRequest(node["number"], node["url"], node["headRefName"], node["baseRefName"], node["headRefOid"],
                        ci_state_of(raw_ci, None, failed), failed, state, raw_ci, raw_state)
@@ -313,16 +365,16 @@ def _open_prs(mode, code_root, branch_groups, budget, github_repo, heads=(), num
                 checks = json.loads(response.value.stdout)
                 runs = checks["check_runs"]
                 truncated = truncated or checks["total_count"] > len(runs)
+                # REST can't tell same-named jobs in different workflows apart; it keys on (app slug, name).
+                runs = _latest_by_name(runs, lambda run: (str((run.get("app") or {}).get("slug") or ""), str(run["name"])), lambda run: _order(run.get("id"), run.get("started_at")))
                 failed = tuple(str(run["name"]) for run in runs if (run.get("conclusion") or "").upper() in FAILURES)
                 statuses = tuple((run.get("status") or "").upper() for run in runs)
-                unexpected_status = next((status for status in statuses if status not in (
-                    "", "COMPLETED", "QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED")), "")
-                running = any(status in ("QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED")
-                              for status in statuses)
+                unexpected_status = next((status for status in statuses if status not in ("", "COMPLETED", *RUNNING)), "")
+                running = any(status in RUNNING for status in statuses)
                 success = any((run.get("conclusion") or "").upper() == "SUCCESS" for run in runs)
                 unexpected = next((str(run.get("conclusion")) for run in runs
                                    if run.get("conclusion") and str(run["conclusion"]).upper()
-                                   not in (*FAILURES, "SUCCESS", "SKIPPED", "NEUTRAL")), "")
+                                   not in NOT_FAILED), "")
                 ci = ci_state_of(unexpected or ("SUCCESS" if success else None),
                                  unexpected_status or ("IN_PROGRESS" if running else None), failed)
                 updates[pr.number] = replace(pr, ci=ci, failed_checks=failed, raw_ci=unexpected or unexpected_status)
