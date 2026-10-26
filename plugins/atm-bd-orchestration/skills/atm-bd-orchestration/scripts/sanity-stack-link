@@ -255,11 +255,11 @@ class Linker:
         if (lean or not layers) and candidate['base'] != base:
             raise StackError(f"pull request base {candidate['base']} differs from stack top {base}")
         new = recorded or {'branch': self.values['branch'], 'pr': self.values['pr_number'], 'head': self.values['commit'], 'base': base, 'linked': False}
+        pending, stack_number = [], metadata.get('stack_number')
         if not lean and layers:
             pending = [entry for entry in layers if not entry['linked']]
             if new not in pending and not new['linked']:
                 pending.append(new)
-            stack_number = metadata.get('stack_number')
         # Layer 0 alone cannot form a stack (gh stack link needs two PRs): it waits unlinked until layer 1 links with it.
         if not lean and layers and (stack_number is not None or len(pending) > 1):
             if stack_number is None:
