@@ -3,7 +3,7 @@
 
 The installer renders `.claude/project/atm-bd-orchestration.yaml` in the
 consuming repository; every script reads it through `load()`. Only
-max_sanity_rounds defaults to 5: a missing file raises `ConfigNotFound`, a missing key raises
+max_sanity_rounds (5) and gate_timeout_s (180) have defaults: a missing file raises `ConfigNotFound`, a missing key raises
 `ConfigKeyMissing`, and both name the file.
 
     repo_config.py get <key>     print one value (a list or mapping as JSON)
@@ -81,6 +81,9 @@ def load(repo: Path | None = None) -> RepoConfig:
     rounds = data.setdefault("max_sanity_rounds", 5)
     if isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1:
         raise ConfigError(f"{path}: max_sanity_rounds must be a positive integer")
+    timeout = data.setdefault("gate_timeout_s", 180)
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 1:
+        raise ConfigError(f"{path}: gate_timeout_s must be a positive integer number of seconds")
     return RepoConfig(path, data)
 
 

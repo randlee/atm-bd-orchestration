@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bd_cache
 import repo_config
 import sc_render
-from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout
+from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
 from stack_top import select_stack_top
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
@@ -912,8 +912,9 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
     output: dict[str, object]
     try:
         args = parser.parse_args(argv)
+        global COMMAND_TIMEOUT
         try:
-            command_timeout()
+            COMMAND_TIMEOUT = repo_timeout()  # resolved per run, so a configuration change applies without a reload
         except ValueError as error:
             raise CloseError("CONFIG.INVALID", str(error), f"Unset {TIMEOUT_ENV} or set it to a positive integer number of seconds, e.g. {TIMEOUT_ENV}=180.") from error
         values = read_vars(args.vars)

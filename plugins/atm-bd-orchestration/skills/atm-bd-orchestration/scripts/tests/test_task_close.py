@@ -227,6 +227,7 @@ def test_github_retries_and_falls_back_without_requiring_pr_base(world, failure)
 @pytest.mark.parametrize("command", [["gh", "api"], ["git", "ls-remote"], ["git", "fetch"]])
 def test_network_timeouts_retry_then_fall_back(world, command, monkeypatch):
     monkeypatch.setattr(hook, "COMMAND_TIMEOUT", 7)
+    monkeypatch.setenv("ATM_BD_GATE_TIMEOUT_S", "7")  # main() resolves the deadline per run
     world.timeout_command = command
     assert world.run()["ok"]["github"] == "unavailable"
     calls = [(argv, kwargs) for argv, kwargs in world.calls if argv[:len(command)] == command]
@@ -254,8 +255,26 @@ def test_deadline_injection_convention_matches_assignment_gates(world, monkeypat
         assert [kwargs["timeout"] for _, kwargs in world.calls] == [deadline, deadline]
 
 
+def test_main_applies_a_yaml_gate_timeout_written_after_import(world, monkeypatch, tmp_path):
+    import command_timeout
+    root = tmp_path / "yaml-root"
+    config = root / ".claude/project/atm-bd-orchestration.yaml"
+    config.parent.mkdir(parents=True)
+    monkeypatch.setattr(command_timeout, "REPO_ROOT", root)
+    monkeypatch.delenv("ATM_BD_GATE_TIMEOUT_S", raising=False)
+    monkeypatch.setattr(hook, "COMMAND_TIMEOUT", hook.COMMAND_TIMEOUT)  # restored after main() reassigns it
+    world.timeout_command = ["git", "rev-parse"]
+    for seconds in (41, 43):
+        config.write_text(f"gate_timeout_s: {seconds}\n")
+        world.calls.clear()
+        error = world.run()["err"]
+        assert error["code"] == "COMMAND.FAILED" and f"{seconds}s" in error["message"]
+        assert world.calls and {kwargs["timeout"] for _, kwargs in world.calls} == {seconds}
+
+
 def test_local_timeout_is_typed_and_names_command_and_deadline(world, monkeypatch):
     monkeypatch.setattr(hook, "COMMAND_TIMEOUT", 7)
+    monkeypatch.setenv("ATM_BD_GATE_TIMEOUT_S", "7")  # main() resolves the deadline per run
     world.timeout_command = ["git", "rev-parse"]
     error = world.run()["err"]
     assert error["code"] == "COMMAND.FAILED"

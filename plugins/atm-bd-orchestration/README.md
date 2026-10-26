@@ -126,8 +126,8 @@ while that phase is paused or complete.
 ## Configuration
 
 The variables are declared once, in `config/atm-bd-orchestration.yaml.j2`. The
-`required_variables` have no defaults; only `max_sanity_rounds` is optional
-(default 5). Install renders the template strictly with the sc-compose Python wheel into
+`required_variables` have no defaults; only `max_sanity_rounds` (default 5) and `gate_timeout_s` (default 180)
+are optional. Install renders the template strictly with the sc-compose Python wheel into
 `<repo>/.claude/project/atm-bd-orchestration.yaml` and fails, naming every
 missing variable and the registry key that sets it. Skills read that file at run
 time (`skills/atm-beads/scripts/repo_config.py`).
@@ -148,6 +148,11 @@ time (`skills/atm-beads/scripts/repo_config.py`).
 | `policy_path` | `policy_path` | `.claude/project/quality-policy.md` |
 | `reviewers_round1` | `reviewers_round1` (list) | `[req-qa, arch-qa]` |
 | `max_sanity_rounds` (optional, default 5) | `max_sanity_rounds` | `5` |
+| `gate_timeout_s` (optional, default 180) | `gate_timeout_s` | `300` |
+
+`gate_timeout_s` is the seconds each gate and close-hook command may take; the
+`ATM_BD_GATE_TIMEOUT_S` environment variable, when set, overrides it, and
+validate-plan keeps a floor of 300.
 
 `--set NAME=VALUE` wins over registry.yaml; a list takes a JSON array or
 `a,b,c`. An unknown name is an error. The resolved `dev_sanity_member`
