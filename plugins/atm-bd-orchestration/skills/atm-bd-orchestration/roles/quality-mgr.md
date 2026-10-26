@@ -119,6 +119,10 @@ QA policy (`policy_path`) requires for the change, for example a flaky-test
 reviewer when tests changed or a schema reviewer when a governed interface is
 in scope, as `quality-mgr.md` ("Reviewer Selection") says.
 
+Upstream-owned installed `.claude/` skill, agent and template content is out of
+QA reviewer scope; the lead accepts such changes by diff review and the
+package's template tests.
+
 ### Fix verification takes precedence
 
 A fix round (`carry_forward` set) dispatches only each carried finding's

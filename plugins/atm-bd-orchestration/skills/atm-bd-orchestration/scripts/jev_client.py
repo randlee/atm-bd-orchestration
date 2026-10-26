@@ -203,7 +203,7 @@ CLIENT_MESSAGES = re.compile("|".join([
     r"Unexpected Jev response model or shape", r"Missing or unexpected answer IDs", r"Answer must be an object",
     r"Invalid Choice answer", r"Expected pinned model, state and nonempty questions",
     r"Pilot supports well-formed Choice questions only", r"Request must contain finite JSON values",
-    r"Jev request oversized; no further split fits the remaining attempt budget",
+    r"Jev request oversized \(\d+ bytes > \d+\); no further split fits the remaining attempt budget",
     r"Jev connection failed or timed out", r"Jev HTTP \d{3}; response body withheld",
     r"Jev response exceeded size limit", r"Jev response was not JSON", r"Jev retry budget exhausted",
     r"Startup probe returned the wrong literal choice", r"Request file unavailable or invalid JSON",
@@ -274,8 +274,9 @@ def size(request):
 
 
 def oversize(request, fix=None):
-    exc = JevError("SANITY.JEV_REQUEST_TOO_LARGE", "Jev request oversized; no further split fits the remaining attempt budget", True)
-    exc.size = size(request)
+    request_size = size(request)
+    exc = JevError("SANITY.JEV_REQUEST_TOO_LARGE", f"Jev request oversized ({request_size} bytes > {MAX_REQUEST_BYTES}); no further split fits the remaining attempt budget", True)
+    exc.size = request_size
     exc.fix = fix and fix.format(size=exc.size)
     return exc
 
@@ -639,7 +640,12 @@ def main(argv=None, *, clock=time.monotonic, sleep=None):
         except (repo_config.ConfigError, RuntimeError, OSError, ValueError) as exc:
             parser.error(str(exc))
     if args.error is not None:
-        announce(f"dev-sanity Jev child failed: {args.error}. Selection takes the LLM reply for JEV slots until a Jev child succeeds.", phase_lead)
+        if args.error.startswith("SANITY.JEV_REQUEST_TOO_LARGE"):
+            # An oversized request is the caller's to rebuild; it never hands the slot to an LLM or haiku check (#365).
+            announce(f"dev-sanity Jev request oversized after the lossless split: {args.error}. The deliverable's Jev slot "
+                     "keeps this error; no LLM or haiku check replaces Jev for it.", phase_lead)
+        else:
+            announce(f"dev-sanity Jev child failed: {args.error}. Selection takes the LLM reply for JEV slots until a Jev child succeeds.", phase_lead)
         print(json.dumps({"success": True, "data": {"announced": args.error}, "error": None}))
         return 0
     result = evaluation_result(args, clock=clock, sleep=sleep)

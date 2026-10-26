@@ -96,6 +96,19 @@ class JevClientTests(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             client.main(["--startup", "--announce"], sleep=no_sleep)
 
+    def test_an_oversized_request_error_is_announced_without_an_llm_fallback(self):
+        error = "SANITY.JEV_REQUEST_TOO_LARGE: Jev request oversized (123456 bytes > 96000); no further split fits the remaining attempt budget"
+        with patch.object(client.http.client, "HTTPSConnection") as http:
+            rc, result, sends = self.startup(["--announce", "--error", error, "--phase", "x"], ["oversight@team"], ["daemon@host"],
+                                             environ={"ATM_TEAM": "t", "TYPESAFE_API_KEY": "test-only-key"})
+            http.assert_not_called()
+        self.assertEqual((rc, result), (0, {"success": True, "data": {"announced": error}, "error": None}))
+        text = sends[0][1]
+        self.assertIn(error, text)
+        self.assertIn("123456 bytes > 96000", text)
+        self.assertIn("no LLM or haiku check replaces Jev", text)
+        self.assertNotIn("Selection takes the LLM reply", text)
+
     def test_error_announces_a_child_failure_verbatim_without_probing(self):
         error = "SANITY.JEV_UNAVAILABLE: Jev HTTP 503; response body withheld"
         with patch.object(client.http.client, "HTTPSConnection") as http:
@@ -417,6 +430,7 @@ class JevClientTests(unittest.TestCase):
         self.assertEqual(result["elapsed_s"], 0.0)
         self.assertEqual(result["error"]["code"], "SANITY.JEV_REQUEST_TOO_LARGE")
         self.assertIn("oversized", result["error"]["message"])
+        self.assertRegex(result["error"]["message"], rf"\b\d+ bytes > {client.MAX_REQUEST_BYTES}\b")
 
     def test_non_text_oversize_state_is_terminal_without_network(self):
         for state in ("x" * client.MAX_REQUEST_BYTES,
@@ -817,7 +831,8 @@ class JevClientTests(unittest.TestCase):
         self.assertGreaterEqual(len(literals), 15)
         for literal in literals:
             with self.subTest(message=literal):
-                self.assertTrue(client.is_client_message(literal.replace("{status}", "503")))
+                self.assertTrue(client.is_client_message(literal.replace("{status}", "503").replace(
+                    "{request_size}", "123456").replace("{MAX_REQUEST_BYTES}", str(client.MAX_REQUEST_BYTES))))
         self.assertFalse(client.is_client_message("Selected model is at capacity"))
 
 
