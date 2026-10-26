@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- The console no longer reports an open ATM task that has no bead as an error. A tick passed every open task id to `bd show`; one bead-less task (an ATM-only handoff) made bd exit 1 with `Issue <id> not found`, so the tick showed `command_failed` and `Held: unavailable`. Task ids with no bead are now read as no beads; any other bd failure is still an error (#590).
+
 ## [0.19.6] - 2026-10-26
 
 ### Fixed

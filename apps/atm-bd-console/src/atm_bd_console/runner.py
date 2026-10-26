@@ -357,7 +357,7 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
     code_root = config.code_root or config.repo_root
     worktrees = logger.result("git.worktrees", git_source.worktrees(code_root))
     task_ids = tuple(task.id for task in tasks.value) if isinstance(tasks, Ok) else ()
-    task_beads = logger.result("beads.show_tasks", beads_source.show(task_ids), task_ids=list(task_ids))
+    task_beads = logger.result("beads.show_tasks", beads_source.show_tasks(task_ids), task_ids=list(task_ids))
     if isinstance(task_beads, Ok) and task_beads.value:
         task_beads = logger.result("beads.task_ancestors", beads_source.ancestors(task_beads.value))
     due = model.due(
