@@ -96,6 +96,19 @@ class JevClientTests(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             client.main(["--startup", "--announce"], sleep=no_sleep)
 
+    def test_an_oversized_request_error_is_announced_without_an_llm_fallback(self):
+        error = "SANITY.JEV_REQUEST_TOO_LARGE: Jev request oversized (123456 bytes > 96000); no further split fits the remaining attempt budget"
+        with patch.object(client.http.client, "HTTPSConnection") as http:
+            rc, result, sends = self.startup(["--announce", "--error", error, "--phase", "x"], ["oversight@team"], ["daemon@host"],
+                                             environ={"ATM_TEAM": "t", "TYPESAFE_API_KEY": "test-only-key"})
+            http.assert_not_called()
+        self.assertEqual((rc, result), (0, {"success": True, "data": {"announced": error}, "error": None}))
+        text = sends[0][1]
+        self.assertIn(error, text)
+        self.assertIn("123456 bytes > 96000", text)
+        self.assertIn("no LLM or haiku check replaces Jev", text)
+        self.assertNotIn("Selection takes the LLM reply", text)
+
     def test_error_announces_a_child_failure_verbatim_without_probing(self):
         error = "SANITY.JEV_UNAVAILABLE: Jev HTTP 503; response body withheld"
         with patch.object(client.http.client, "HTTPSConnection") as http:

@@ -640,7 +640,12 @@ def main(argv=None, *, clock=time.monotonic, sleep=None):
         except (repo_config.ConfigError, RuntimeError, OSError, ValueError) as exc:
             parser.error(str(exc))
     if args.error is not None:
-        announce(f"dev-sanity Jev child failed: {args.error}. Selection takes the LLM reply for JEV slots until a Jev child succeeds.", phase_lead)
+        if args.error.startswith("SANITY.JEV_REQUEST_TOO_LARGE"):
+            # An oversized request is the caller's to rebuild; it never hands the slot to an LLM or haiku check (#365).
+            announce(f"dev-sanity Jev request oversized after the lossless split: {args.error}. The deliverable's Jev slot "
+                     "keeps this error; no LLM or haiku check replaces Jev for it.", phase_lead)
+        else:
+            announce(f"dev-sanity Jev child failed: {args.error}. Selection takes the LLM reply for JEV slots until a Jev child succeeds.", phase_lead)
         print(json.dumps({"success": True, "data": {"announced": args.error}, "error": None}))
         return 0
     result = evaluation_result(args, clock=clock, sleep=sleep)
