@@ -662,7 +662,7 @@ def test_ready_step_without_branch_reports_one_meaningful_configuration_problem(
     assert len(snapshot.sections[0].rows) == 2
     assert snapshot.problems == (Problem(
         "hold:qa", "qa", "fenix",
-        "qa (qa) cannot be dispatched: missing branch configuration; set the branch (and worktree) of bead qa", NOW),)
+        "qa (qa) cannot be dispatched: missing branch configuration; set metadata.branch / metadata.worktree of bead qa", NOW),)
     assert len(actions) == 1
     assert (actions[0].kind, actions[0].to) == ("batch", "fenix")
     assert snapshot.problems[0].text in actions[0].text
@@ -791,6 +791,34 @@ def test_closed_task_read_gates_dispatch_and_a_closed_candidate_is_never_assigne
     error = Timeout("timeout", ("atm", "task", "events"), 20, "retry")
     snapshot, actions, _ = tick(replace(supplied, closed_tasks=Err(error)), STATE, NOW, render)
     assert error in snapshot.errors and actions == ()
+
+
+def test_ready_qa_with_preset_assignee_and_passed_sanity_is_assigned_exactly_once() -> None:
+    sanity = step("atm-bh-1.sanity", "atm-bh-1", kind="sanity", status=SprintState.CLOSED, assignee="dev-sanity",
+                  closed_at=NOW, close_reason="PASS: all deliverables done")
+    qa = step("atm-bh-1.qa", "atm-bh-1", kind="qa", ready=True, branch="topic", target="base",
+              assignee="quality-mgr", checked_bead=sanity.bead_id)
+    supplied = inputs(phase(sanity, qa), remotes=Ok((RemoteRef("topic", "sha"),)),
+                      worktrees=Ok((Worktree(required_worktree(qa), "topic", "sha"),)),
+                      merges=(Ok(Merge("topic", "base", MergeState.CLEAN, (), (), NOW)),))
+    spec = lambda context: Ok(DispatchSpec("qa", {}))
+    _, actions, state = tick(supplied, STATE, NOW, spec)
+    assert [(action.kind, action.to, action.bead_ids) for action in actions] == [("assign", "quality-mgr", (qa.bead_id,))]
+    task = Task(qa.bead_id, "quality-mgr", "assigned", 1, NOW, NOW, "QA")
+    _, actions, _ = tick(replace(supplied, tasks=Ok((task,))), state, NOW + timedelta(seconds=60), spec)
+    assert actions == ()
+
+
+def test_missing_pr_is_not_raised_for_a_branch_pushed_after_the_pr_list_was_read() -> None:
+    # PR list read at T0; remote refs read at T1 > T0. Controlled timestamps, no clock.
+    t0 = NOW
+    t1 = NOW + timedelta(seconds=30)
+    prior = replace(STATE, last_cycle=t0 - timedelta(seconds=60), remotes=(RemoteRef("old", "sha"),))
+    value = phase(step("atm-bh-1.old", "atm-bh-1", branch="old"), step("atm-bh-1.new", "atm-bh-1", branch="new"))
+    supplied = inputs(value, now=t1, remotes=Ok((RemoteRef("old", "sha"), RemoteRef("new", "sha"))),
+                      prs=Ok(()), gh=GhStatus("graphql", True, None, t0, False))
+    snapshot, _, _ = tick(supplied, prior, t1, render)
+    assert [problem.key for problem in snapshot.problems] == ["missing_pr:old"]
 
 
 def test_failed_roster_read_builds_no_action_and_failed_task_read_shows_nobody_idle() -> None:

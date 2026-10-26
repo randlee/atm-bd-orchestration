@@ -73,3 +73,7 @@ class QaState(StrEnum):
     RUNNING = "running"
     PASS = "pass"
     FAIL = "fail"
+
+
+# The bead keys a dispatch-hold notice tells the lead to set (named here, not in the pure model).
+BRANCH_KEYS = "metadata.branch / metadata.worktree"

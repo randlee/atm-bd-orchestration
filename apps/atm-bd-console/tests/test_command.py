@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import os
+import subprocess
 from pathlib import Path
 
 from atm_bd_console import command
@@ -37,6 +38,16 @@ def test_ok_codes_accept_a_nonzero_exit(fake_bin) -> None:
 def test_timeout_is_typed_with_the_callers_seconds(fake_bin) -> None:
     fake_bin.make("tool", "exec sleep 3600\n")
     assert command.run(("tool",), "fix it", timeout_s=1) == Err(Timeout("timeout", ("tool",), 1, "fix it"))
+
+
+def test_a_signal_kill_says_interrupted_by_the_signal_not_the_callers_fix(monkeypatch) -> None:
+    done = subprocess.CompletedProcess(("tool",), -2, stdout="", stderr="")
+    monkeypatch.setattr(command.subprocess, "run", lambda *_args, **_kwargs: done)
+    result = command.run(("tool",), "check GitHub connectivity and retry")
+    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
+    assert result.error.code == -2
+    assert "interrupted by signal SIGINT" in result.error.fix
+    assert "connectivity" not in result.error.fix
 
 
 def test_missing_program_is_command_failed_127(fake_bin) -> None:

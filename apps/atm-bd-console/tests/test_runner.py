@@ -1052,7 +1052,7 @@ def test_lead_problem_uses_tool_sender_and_assignment_stays_with_lead(github_run
 
     snapshot, _ = runner.step(config, INITIAL_STATE, False, store)
 
-    assert any(problem.to == "fenix" and "missing branch configuration; set the branch" in problem.text for problem in snapshot.problems)
+    assert any(problem.to == "fenix" and "missing branch configuration; set metadata.branch / metadata.worktree" in problem.text for problem in snapshot.problems)
     calls = fake_bin.argv()
     sends = [argv for argv in calls if argv[1] == "send"]
     assert sends == [("atm", "send", "fenix@atm-dev", "--as", sender, "--team", sender_team, "--stdin")]
