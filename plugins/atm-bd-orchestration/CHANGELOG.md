@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.5] - 2026-10-26
+
 ### Fixed
 - `sanity-stack-link` no longer fails on layer 0 alone. A rerun for a recorded, unlinked layer 0 called `gh stack link --base <trunk> <pr>` with one PR, which gh refuses (`requires at least 2 arg(s)`), and returned `stack_failed`. Layer 0 now stays unlinked (`stacked`, `stack_number` null) until layer 1 links with it, as the skill says.
 
