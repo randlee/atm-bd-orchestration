@@ -465,6 +465,8 @@ def external_evidence(ref, worktree):
         value = json.loads(proc.stdout) if proc.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired, ValueError):
         value = None
+    if isinstance(value, dict) and "body" in value and value["body"] is None:
+        value = {**value, "body": ""}  # GitHub returns `"body": null` for an empty description
     if not isinstance(value, dict) or not isinstance(value.get("body"), str):
         raise JevError("VALIDATION.INPUT", f"External evidence unreadable: {kind} {label}")
     text = value["body"]
