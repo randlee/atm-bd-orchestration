@@ -1,3 +1,3 @@
 """Shared contract for the ATM bead dashboard."""
 
-__version__ = "0.19.3"
+__version__ = "0.19.4"
