@@ -58,7 +58,7 @@ def bead_render(formula: str, tmp_path: Path, planted: str = "", extra: dict | N
     source = (PKG / formula).read_text()
     front = yaml.safe_load(source.split("---\n", 2)[1])
     (tmp_path / "f.toml.j2").write_text(source + planted)
-    variables = {name: ["x"] if name in ("requirements", "adrs") else "x" for name in front["required_variables"]}
+    variables = {name: ["x"] if name in ("requirements", "adrs", "reviewers_round1") else "x" for name in front["required_variables"]}
     request = {"schema": "sc-compose/beads/v1", "operation": "render", "working_directory": str(tmp_path),
                "template": "f.toml.j2", "rendered_formula": "f.formula.toml", "bead_variables": {},
                "compose_variables": {**variables, **(extra or {})}}

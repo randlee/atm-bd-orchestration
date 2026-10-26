@@ -122,6 +122,13 @@ def split_ids(values: list[str]) -> list[str]:
     return [v for value in values for v in value.split(",") if v]
 
 
+def schema_issues(bead_schema, phase: str, prospective: list[dict]) -> list[str]:
+    """Schema problems of the phase's live beads plus the prospective pour. Closed beads are history:
+    validate-plan skips them too, so a phase whose closed beads predate the models still pours (#578)."""
+    current = [bead for bead in bead_schema.load_phase(phase) if bead.get("status") != "closed"]
+    return bead_schema.validate_phase([*current, *prospective])
+
+
 class Run:
     def __init__(self, repo: Path, option: str | None):
         self.repo, self.option = repo, option
@@ -196,7 +203,8 @@ class Run:
         compose = {"parent": bead, "phase": meta["phase"], "sprint": meta["sprint"], "stack": meta["stack"],
                    "layer": meta["layer"], "difficulty": meta["difficulty"], "priority": container.get("priority", 2),
                    "branch": meta["branch"], "worktree": meta["worktree"], "pr_target": meta["pr_target"],
-                   "edge_option": option, **self.close_compose(str(meta["phase"]), container.get("title") or "")}
+                   "edge_option": option, "reviewers_round1": list(self.config["reviewers_round1"]),
+                   **self.close_compose(str(meta["phase"]), container.get("title") or "")}
         compose["ref"] = fmt(sidecar["ref"], {"vars": compose})
         relate_vars = {**sidecar.get("defaults", {}), "predecessor_sanity": [plan[d][1] for d in deps],
                        "predecessors": [plan[d][0] for d in deps],
@@ -450,10 +458,9 @@ def main(argv: list[str]) -> int:
         try:
             import bead_schema
             for phase in sorted({target["compose"]["phase"] for _, target, _ in previews}):
-                current = bead_schema.load_phase(phase)
                 prospective = [node for _, target, attachment in previews if target["compose"]["phase"] == phase
                                for node in run.prospective(attachment)]
-                issues = bead_schema.validate_phase([*current, *prospective])
+                issues = schema_issues(bead_schema, phase, prospective)
                 if issues:
                     next(entry for entry, target, _ in previews if target["compose"]["phase"] == phase)["problems"] += issues
                     result["schema_problems"] = True
