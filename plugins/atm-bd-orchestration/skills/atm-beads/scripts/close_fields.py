@@ -13,7 +13,8 @@ from pathlib import Path
 import yaml
 
 CONTRACT = Path(__file__).resolve().parents[2] / "atm-bd-orchestration" / "templates" / "task-close-vars.j2"
-ROLE_BY_STAGE = {"stage:dev": "dev", "stage:fix": "fix", "stage:dev-sanity": "sanity", "stage:qa": "qa"}
+# An important or minor finding is fixed under the fix template; the lead stamps its close fields at dispatch.
+ROLE_BY_STAGE = {"stage:dev": "dev", "stage:fix": "fix", "stage:finding": "fix", "stage:dev-sanity": "sanity", "stage:qa": "qa"}
 # Stamped at pour on every open stage bead; bead_schema.CloseMetadata enforces them.
 POURED = ("role", "phase", "sprint", "sprint_bead", "stack", "stack_bead", "branch", "worktree", "pr_target", "base",
           "checked_bead", "checked_title", "sanity_bead", "qa_bead", "phase_feature", "lint_command", "policy_path",
@@ -51,7 +52,8 @@ def role_of(row: dict) -> str:
     stages = [label for label in row.get("labels") or [] if label in ROLE_BY_STAGE]
     if len(stages) != 1:
         raise CloseFieldsError("CLOSE_VARS.NOT_A_TASK_BEAD", f"{row.get('id')}: labels {row.get('labels')} name no single "
-                               "stage:dev, stage:fix, stage:dev-sanity or stage:qa", "Pass the id of a poured dev, fix, sanity or QA bead.")
+                               "stage:dev, stage:fix, stage:finding, stage:dev-sanity or stage:qa",
+                               "Pass the id of a poured dev, fix, finding, sanity or QA bead.")
     return ROLE_BY_STAGE[stages[0]]
 
 
