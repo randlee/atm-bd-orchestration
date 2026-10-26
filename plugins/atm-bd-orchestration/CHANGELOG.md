@@ -2,8 +2,19 @@
 
 ## [Unreleased]
 
+## [0.19.8] - 2026-10-26
+
 ### Changed
 - The planner commits the phase DAG (`<plans_dir>/phase-<x>/phase-<x>-dag.html`) with the plan file and the phase file as part of planning, and re-commits it when the plan changes. Planning runs `sprint-review` before that commit. The script still never commits or pushes. The skills and requirements said the DAG was never committed (#130).
+- The workflow diagrams show every sanity-stack-link result: the README flowchart draws `stacked`, `rebase_required`, `lock_timeout` and `stack_failed` as separate edges, and the lifecycle diagram has an alt branch per result. A sanity task stays closed when its layer is not stacked, and a not-fixed QA round pours round n+1 with nothing reopened. `tests/test_docs_diagrams.py` checks both diagrams and parses them with mmdflux when it is on PATH (#482, #480).
+- `gate_timeout_s` in the repository configuration (default 180) bounds every command `assignment-gates.py` and `atm-task-close.py` run; `ATM_BD_GATE_TIMEOUT_S` still wins, and validate-plan keeps its 300 s floor. Each script's `main()` resolves it per run, so a configuration change applies without a reload (#502).
+- Upstream-owned installed `.claude/` skill, agent and template content is out of QA reviewer scope; the lead accepts it by diff review and the package's template tests (`roles/quality-mgr.md`, requirement 44) (#5).
+- An oversized Jev request is never a reason to run an LLM or haiku check in the Jev slot. dev-sanity announces `SANITY.JEV_REQUEST_TOO_LARGE` once per run through `jev_client.py --announce --error`, whose text says no LLM or haiku check replaces Jev, and the oversize message now names the request size and the 96000-byte limit (#365).
+- The QA template names only the `sc-gh-stack-view` skill; the `gh-stack-view` fallback is gone (#357).
+
+### Fixed
+- `assignment-gates.py` finds a merged lower-bound branch through the closed-PR REST endpoint (`merged_at`, `merge_commit_sha`) instead of `gh pr list`; a closed, unmerged PR is ignored (#213).
+- Console: the dispatch-hold notice names the bead keys to set, `metadata.branch / metadata.worktree` (#372). Agent rows no longer show a doubled `<sprint>: ` title prefix, and a command killed by a signal reports `interrupted by signal SIGINT (2); rerun the command` (#350). `missing_pr` no longer flags a branch pushed after the PR list was read (#557). A tick-level test guards against a duplicate QA assignment (#491).
 
 ## [0.19.7] - 2026-10-26
 
