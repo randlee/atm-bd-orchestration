@@ -177,6 +177,8 @@ class World:
         elif argv[:2] == ["atm", "send"] or argv[:3] == ["atm", "task", "assign"]:
             write = True
             recipient = argv[3] if argv[1] == "task" else argv[2]
+            if argv[1] == "send" and recipient == kwargs["env"]["ATM_IDENTITY"]:
+                return subprocess.CompletedProcess(argv, 1, "", f"self-addressed messages are invalid ATM input: '{recipient}' may not send to itself")
             values, template_type = {}, None
             if "--template" in argv:
                 template = Path(argv[argv.index("--template") + 1])

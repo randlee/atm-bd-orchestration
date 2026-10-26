@@ -1445,3 +1445,22 @@ def test_sanity_dispatch_refuses_before_closing_when_hook_list_fails(world):
     assert "atm hook list" in output["err"]["fix"]
     assert world.beads[world.values["checked_bead"]]["status"] == "in_progress"
     assert not [argv for argv, _identity in world.writes if argv[0] == "atm"]
+
+
+def test_lead_closing_its_own_dev_task_skips_only_the_self_addressed_dev_complete(world, monkeypatch):
+    # The lead took the dev task over: ATM refuses a send to itself, which used to strand the close after the bead closed.
+    monkeypatch.setenv("ATM_IDENTITY", "phase-lead")
+    assert "ok" in world.run()
+    assert world.beads[world.values["checked_bead"]]["status"] == "closed"
+    assert [item["type"] for item in world.messages] == ["dev-sanity-task"]
+    assert world.messages[0]["recipient"] == "sanity" and world.messages[0]["sender"] == "phase-lead"
+    assert world.tasks[world.values["sanity_task_id"]][-1]["to_state"] == "assigned"
+    dev_task = world.tasks[world.values["dev_task_id"]]
+    assert dev_task[-1]["to_state"] == "complete" and dev_task[-1]["close_outcome"] == "completed"
+
+
+def test_lead_closing_its_own_qa_task_skips_the_self_addressed_status(world, monkeypatch):
+    monkeypatch.setenv("ATM_IDENTITY", "phase-lead")
+    assert "ok" in world.run("qa", verdict="PASS")
+    assert [argv[:2] for argv, _sender in world.writes] == [["bd", "close"], ["atm", "task"]]
+    assert world.messages == []
