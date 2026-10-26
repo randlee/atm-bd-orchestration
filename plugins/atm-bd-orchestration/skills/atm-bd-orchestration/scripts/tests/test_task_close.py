@@ -254,6 +254,22 @@ def test_deadline_injection_convention_matches_assignment_gates(world, monkeypat
         assert [kwargs["timeout"] for _, kwargs in world.calls] == [deadline, deadline]
 
 
+def test_hook_commands_run_under_the_yaml_gate_timeout(world, monkeypatch, tmp_path):
+    import command_timeout
+    config = tmp_path / "yaml-root/.claude/project/atm-bd-orchestration.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("gate_timeout_s: 41\n")
+    monkeypatch.setattr(command_timeout, "REPO_ROOT", tmp_path / "yaml-root")
+    monkeypatch.delenv("ATM_BD_GATE_TIMEOUT_S", raising=False)
+    spec = importlib.util.spec_from_file_location("task_close_yaml_timeout", SCRIPTS / "atm-task-close.py")
+    assert spec is not None and spec.loader is not None
+    fresh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fresh)
+    world.calls.clear()
+    fresh.Hook("dev", world.values, world.path, world, lambda: 42).run(["bd", "show", world.values["checked_bead"], "--json"])
+    assert [kwargs["timeout"] for _, kwargs in world.calls] == [41]
+
+
 def test_local_timeout_is_typed_and_names_command_and_deadline(world, monkeypatch):
     monkeypatch.setattr(hook, "COMMAND_TIMEOUT", 7)
     world.timeout_command = ["git", "rev-parse"]

@@ -376,6 +376,31 @@ class AssignmentGateTests(unittest.TestCase):
             self.assertIn(str(config), str(caught.exception))
             self.assertEqual(gates.repo_timeout({"ATM_BD_GATE_TIMEOUT_S": "45"}, root), 45)
 
+    def test_every_gate_command_runs_under_the_yaml_timeout(self):
+        import tempfile
+        import command_timeout
+        for configured, validate in ((777, 777), (200, 300)):
+            with self.subTest(gate_timeout_s=configured), tempfile.TemporaryDirectory() as tmp:
+                config = Path(tmp) / ".claude/project/atm-bd-orchestration.yaml"
+                config.parent.mkdir(parents=True)
+                config.write_text(f"gate_timeout_s: {configured}\n")
+                timeouts = []
+
+                def runner(argv, **kwargs):
+                    timeouts.append((argv[0], kwargs["timeout"]))
+                    return subprocess.CompletedProcess(argv, 0, dumped([{"id": "stack"}]), "")
+
+                env = {k: v for k, v in os.environ.items() if k != "ATM_BD_GATE_TIMEOUT_S"}
+                with patch.object(command_timeout, "REPO_ROOT", Path(tmp)), patch.dict(os.environ, env, clear=True), \
+                        redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    fresh = importlib.util.module_from_spec(SPEC)
+                    SPEC.loader.exec_module(fresh)
+                    fresh.main(["dev", "--root", "r", "--bead", "b", "--pr-target", "t"], runner)
+                self.assertIn((fresh.VALIDATE_PLAN, validate), timeouts)
+                others = [limit for name, limit in timeouts if name != fresh.VALIDATE_PLAN]
+                self.assertTrue(others)
+                self.assertEqual(set(others), {configured})
+
     def stack_top(self, responses, target="integrate"):
         output = io.StringIO()
         with redirect_stdout(output):
