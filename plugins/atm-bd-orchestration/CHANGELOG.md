@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- `bead-groups` schema-checks only the phase's open beads plus the prospective pour, as `validate-plan` does, so closed history beads that predate the current bead models no longer refuse every pour (#578).
+- `sprint-group` formula 4.3.0 stamps `reviewers_round1` on the sprint QA step from the repository configuration, so a fresh sprint pour no longer fails `QaMetadata` (#573, #578).
+
 ## [0.19.2] - 2026-10-24
 
 ### Fixed
