@@ -4,6 +4,11 @@
 
 ### Fixed
 - Console CI alerts judge only the latest run per check name (#375). A cancelled run that a newer run of the same check superseded (a base retarget cancels the first CI run) no longer alerts as a CI failure. `CANCELLED` is no longer a failure conclusion: the issue's expectation is "treat cancelled as not-failed", and a real failure is `FAILURE`, `ERROR` or `TIMED_OUT`. The GraphQL CI state comes from the latest contexts, not the rollup `state`, which also counts superseded runs. The same query now reads `databaseId`/`startedAt`/`checkSuite` (check runs) and `createdAt` (commit statuses); still one call per poll. Same-named jobs in different workflows (GraphQL) or apps (REST) are separate checks, so one's success never hides the other's failure.
+### Added
+- `sanity-split --external-evidence <json-or-file>` (repeatable) adds an evidence reference, such as a `pr_comment`, to every assignment's `external_evidence` after the generated entries. A malformed entry exits 1 naming it. The dev-sanity template step b names the flag. (#164)
+- A PR with an empty description no longer fails sanity external evidence (#379). GitHub returns `"body": null` for it, which raised `External evidence unreadable`; `external_evidence` now reads a null PR body as empty text. A failed command, a response that is not an object a missing body and any other non-string body still raise.
+- `bead-groups` schema-checks only the phase's open beads plus the prospective pour, as `validate-plan` does, so closed history beads that predate the current bead models no longer refuse every pour (#578).
+- `sprint-group` formula 4.3.0 stamps `reviewers_round1` on the sprint QA step from the repository configuration, so a fresh sprint pour no longer fails `QaMetadata` (#573, #578).
 
 ## [0.19.2] - 2026-10-24
 
