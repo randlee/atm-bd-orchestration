@@ -260,6 +260,8 @@ class Linker:
             if new not in pending and not new['linked']:
                 pending.append(new)
             stack_number = metadata.get('stack_number')
+        # Layer 0 alone cannot form a stack (gh stack link needs two PRs): it waits unlinked until layer 1 links with it.
+        if not lean and layers and (stack_number is not None or len(pending) > 1):
             if stack_number is None:
                 self.command(['gh', 'stack', 'link', '--base', metadata['trunk']] + [str(entry['pr']) for entry in pending])
             else:
