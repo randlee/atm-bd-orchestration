@@ -912,8 +912,9 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
     output: dict[str, object]
     try:
         args = parser.parse_args(argv)
+        global COMMAND_TIMEOUT
         try:
-            repo_timeout()
+            COMMAND_TIMEOUT = repo_timeout()  # resolved per run, so a configuration change applies without a reload
         except ValueError as error:
             raise CloseError("CONFIG.INVALID", str(error), f"Unset {TIMEOUT_ENV} or set it to a positive integer number of seconds, e.g. {TIMEOUT_ENV}=180.") from error
         values = read_vars(args.vars)

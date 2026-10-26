@@ -103,14 +103,18 @@ class AssignmentGateTests(unittest.TestCase):
                     return delegate(argv, **kwargs)
 
                 stderr, stdout = io.StringIO(), io.StringIO()
-                with patch.object(gates, "COMMAND_TIMEOUT", 7), patch.object(gates, "VALIDATE_PLAN_TIMEOUT", 7), redirect_stderr(stderr), redirect_stdout(stdout):
+                # main() resolves the deadline per run from ATM_BD_GATE_TIMEOUT_S; validate-plan keeps its 300 s floor.
+                with patch.dict(os.environ, {"ATM_BD_GATE_TIMEOUT_S": "7"}), patch.object(gates, "COMMAND_TIMEOUT", gates.COMMAND_TIMEOUT), \
+                        patch.object(gates, "VALIDATE_PLAN_TIMEOUT", gates.VALIDATE_PLAN_TIMEOUT), redirect_stderr(stderr), redirect_stdout(stdout):
                     exit_code = gates.main(["dev", "--root", "{{ bead_prefix }}-phase-d", "--bead", "bead",
                                             "--pr-target", "target", "--identity", "terra"], runner)
+                limit = gates.MIN_VALIDATE_PLAN_TIMEOUT if timed_out[0] == gates.VALIDATE_PLAN else 7
                 self.assertEqual((exit_code, stdout.getvalue().strip()), (2, "GATE_CANNOT_RUN"))
                 self.assertIn(timed_out[0], stderr.getvalue())
-                self.assertIn("7s", stderr.getvalue())
+                self.assertIn(f"timed out after {limit}s", stderr.getvalue())
                 self.assertIn("retry once, or raise ATM_BD_GATE_TIMEOUT_S", stderr.getvalue())
-                self.assertTrue(seen and all(timeout == 7 for timeout in seen))
+                self.assertTrue(seen and set(seen) <= {7, gates.MIN_VALIDATE_PLAN_TIMEOUT})
+                self.assertIn(7 if timed_out[0] != gates.VALIDATE_PLAN else gates.MIN_VALIDATE_PLAN_TIMEOUT, seen)
 
     def test_invalid_timeout_env_is_gate_cannot_run_not_a_traceback(self):
         for bad in ("abc", "0", "-3"):
@@ -376,30 +380,30 @@ class AssignmentGateTests(unittest.TestCase):
             self.assertIn(str(config), str(caught.exception))
             self.assertEqual(gates.repo_timeout({"ATM_BD_GATE_TIMEOUT_S": "45"}, root), 45)
 
-    def test_every_gate_command_runs_under_the_yaml_timeout(self):
+    def test_main_applies_a_yaml_timeout_written_after_import(self):
         import tempfile
         import command_timeout
-        for configured, validate in ((777, 777), (200, 300)):
-            with self.subTest(gate_timeout_s=configured), tempfile.TemporaryDirectory() as tmp:
-                config = Path(tmp) / ".claude/project/atm-bd-orchestration.yaml"
-                config.parent.mkdir(parents=True)
-                config.write_text(f"gate_timeout_s: {configured}\n")
-                timeouts = []
+        env = {k: v for k, v in os.environ.items() if k != "ATM_BD_GATE_TIMEOUT_S"}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(command_timeout, "REPO_ROOT", Path(tmp)), \
+                patch.dict(os.environ, env, clear=True), patch.object(gates, "COMMAND_TIMEOUT", gates.COMMAND_TIMEOUT), \
+                patch.object(gates, "VALIDATE_PLAN_TIMEOUT", gates.VALIDATE_PLAN_TIMEOUT):
+            config = Path(tmp) / ".claude/project/atm-bd-orchestration.yaml"
+            config.parent.mkdir(parents=True)
+            for configured, validate in ((777, 777), (200, 300)):
+                with self.subTest(gate_timeout_s=configured):
+                    config.write_text(f"gate_timeout_s: {configured}\n")
+                    timeouts = []
 
-                def runner(argv, **kwargs):
-                    timeouts.append((argv[0], kwargs["timeout"]))
-                    return subprocess.CompletedProcess(argv, 0, dumped([{"id": "stack"}]), "")
+                    def runner(argv, **kwargs):
+                        timeouts.append((argv[0], kwargs["timeout"]))
+                        return subprocess.CompletedProcess(argv, 0, dumped([{"id": "stack"}]), "")
 
-                env = {k: v for k, v in os.environ.items() if k != "ATM_BD_GATE_TIMEOUT_S"}
-                with patch.object(command_timeout, "REPO_ROOT", Path(tmp)), patch.dict(os.environ, env, clear=True), \
-                        redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    fresh = importlib.util.module_from_spec(SPEC)
-                    SPEC.loader.exec_module(fresh)
-                    fresh.main(["dev", "--root", "r", "--bead", "b", "--pr-target", "t"], runner)
-                self.assertIn((fresh.VALIDATE_PLAN, validate), timeouts)
-                others = [limit for name, limit in timeouts if name != fresh.VALIDATE_PLAN]
-                self.assertTrue(others)
-                self.assertEqual(set(others), {configured})
+                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        gates.main(["dev", "--root", "r", "--bead", "b", "--pr-target", "t"], runner)
+                    self.assertIn((gates.VALIDATE_PLAN, validate), timeouts)
+                    others = [limit for name, limit in timeouts if name != gates.VALIDATE_PLAN]
+                    self.assertTrue(others)
+                    self.assertEqual(set(others), {configured})
 
     def stack_top(self, responses, target="integrate"):
         output = io.StringIO()

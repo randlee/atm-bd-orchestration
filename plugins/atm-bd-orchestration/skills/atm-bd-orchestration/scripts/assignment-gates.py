@@ -233,8 +233,10 @@ def main(argv: list[str] | None = None, runner: Runner = subprocess.run) -> int:
     parser.add_argument("--worktree", default="")
     parser.add_argument("--base", default="", help="accepted for compatibility; sanity does not check PR bases")
     args = parser.parse_args(argv)
+    global COMMAND_TIMEOUT, VALIDATE_PLAN_TIMEOUT
     try:
-        repo_timeout()
+        COMMAND_TIMEOUT = repo_timeout()  # resolved per run, so a configuration change applies without a reload
+        VALIDATE_PLAN_TIMEOUT = max(MIN_VALIDATE_PLAN_TIMEOUT, COMMAND_TIMEOUT)
     except ValueError as exc:
         print(f"assignment-gates: {exc}", file=sys.stderr)
         print("GATE_CANNOT_RUN")
