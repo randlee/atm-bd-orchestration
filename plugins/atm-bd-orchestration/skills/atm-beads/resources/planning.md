@@ -59,7 +59,7 @@ rather than reaching an agent:
    writes `<plans_dir>/phase-<x>/phase-<x>-dag.html` from the plan file in the
    working tree; the script never commits or pushes. Commit the plan file, the
    phase file and the DAG together and push them to the root bead's
-   `integration_branch`. No viewer opens without `--view`. Then run `validate-plan --phase <x>`
+   `integration_branch`, then open a PR from the `integration_branch` to the repository trunk the phase lands on, carrying the plan file, the phase file and the DAG, before plan review. No viewer opens without `--view`. Then run `validate-plan --phase <x>`
    on the imported beads; without `--index` it reads the plan file from
    that integration branch.
 
@@ -131,7 +131,7 @@ Hierarchy:
 
 `phase-<x>-dag.html` is committed with the plan file and the phase file; when
 the plan changes, re-run `sprint-review` and commit the DAG with the plan file
-change. The script itself never commits or pushes.
+change, which updates the plan PR. The script itself never commits or pushes.
 `--view` only controls optional background viewing in Wyvern.
 
 ## Phase Root

@@ -40,7 +40,7 @@ Sources: `plugins/atm-bd-orchestration/skills/`: `atm-beads/` (SKILL.md, resourc
 29. `bd import --dry-run`, then `bd import`, then `bead-groups --phase <x>`.
 30. At once create `<root>-plan-qa` (no assignee, parent root); every sprint container blocks on it.
 31. Run `sprint-review --root <root>`: it writes the phase DAG HTML `<plans_dir>/phase-<x>/phase-<x>-dag.html` from the plan file in the working tree (the script never commits or pushes); no `--view` unless asked.
-32. Commit the plan file, the phase file and the DAG together with the plan and push them to the `integration_branch`; on a plan change, re-run `sprint-review` and commit the DAG with it.
+32. Commit the plan file, the phase file and the DAG together with the plan and push them to the `integration_branch`, then open a PR from it to the repository trunk before plan review; on a plan change, re-run `sprint-review` and commit the DAG with it, updating that PR.
 33. `validate-plan --phase <x>`; exit 0 or stop and report.
 34. Hand to plan review; nothing is dispatched until it passes.
 

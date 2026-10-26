@@ -15,6 +15,10 @@ class ImportingDocsTests(unittest.TestCase):
         self.assertIn('in the same commit as the plan', procedure)
         self.assertIn('scripts/validate-plan --phase <x>', procedure)
         self.assertNotIn('never commits or pushes) without', skill)
+        planning = (skill_dir / 'resources/planning.md').read_text()
+        for doc in (' '.join(procedure.split()), ' '.join(planning.split())):
+            self.assertIn('open a PR from the `integration_branch` to the repository trunk the phase lands on, carrying the plan file, the phase file and the DAG, before plan review', doc)
+            self.assertIn('re-run `sprint-review` and commit the DAG with the plan file change, which updates the plan PR', doc)
         self.assertNotIn('After importing a phase plan, export the sprint index', skill)
 
     def test_planning_forbids_hand_written_stack_beads(self):
