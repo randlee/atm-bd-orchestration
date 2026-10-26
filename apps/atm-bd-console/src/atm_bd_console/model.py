@@ -8,7 +8,7 @@ from rich.cells import cell_len
 
 from .agent_roles import agent_group
 from .dispatch import candidates, dispatch, sprint_of, verification_reason
-from .enums import FAILING_CI, CiState, MergeState, PrState, QaState, SprintState
+from .enums import BRANCH_KEYS, FAILING_CI, CiState, MergeState, PrState, QaState, SprintState
 from .icons import SPRINT_ICONS
 from .ids import short_id
 from .prs import active_pr
@@ -234,6 +234,12 @@ def _row_prefix(step: Step, bead_prefix: str) -> str:
     return short_id(step.sprint or step.sprint_bead or "", bead_prefix)
 
 
+def _strip_tag(title: str, tag: str) -> str:
+    """The title without a leading "<tag>: " that the row prefix already shows (poured titles read "{sprint}: dev")."""
+    lead = f"{tag}: "
+    return title[len(lead):] if tag and title.startswith(lead) else title
+
+
 def _agent_views(
     members, tasks: tuple[Task, ...], phase: Phase | None,
     task_beads: Result[tuple[Bead, ...]], now: datetime, bead_prefix: str, *, tasks_known: bool = True,
@@ -279,7 +285,7 @@ def _agent_views(
                 tag=_row_prefix(step, bead_prefix) if step else "",
                 marker=marker,
                 age_s=max(0, int((now - task.state_since).total_seconds())),
-                description=step.title if step else _task_summary(task.description),
+                description=_strip_tag(step.title, _row_prefix(step, bead_prefix)) if step else _task_summary(task.description),
             ))
         active = next((task for task in mine if task.state == "active"), None)
         qa_state = None
@@ -548,7 +554,7 @@ def _problems(
                 problems.append(Problem(
                     f"hold:{step.bead_id}", step.bead_id, step.assignee or inputs.lead,
                     f"{step.bead_id} ({step.kind}) cannot be dispatched: missing branch configuration; "
-                    f"set the branch (and worktree) of bead {step.bead_id}", now,
+                    f"set {BRANCH_KEYS} of bead {step.bead_id}", now,
                 ))
             continue
         if f"conflict:{step.branch}" in conflicts and row.reason.startswith("merge conflict with"):
@@ -565,6 +571,10 @@ def _problems(
         heads = {pr.head for pr in prs if active_pr(pr)}
         remotes = inputs.remotes.value if isinstance(inputs.remotes, Ok) else state.remotes
         pushed = {remote.branch for remote in remotes}
+        if inputs.gh.at is not None and inputs.gh.at < now:
+            # The PR list was read before this cycle, so refs read now may include a branch pushed after it and
+            # not yet in that list; only a branch the previous cycle already saw pushed can be missing its PR.
+            pushed &= {remote.branch for remote in state.remotes}
         closed_sprints = {sprint.id for sprint in phase.sprints if sprint.closed}
         blocked_sprints = {
             sprint.id for sprint in phase.sprints

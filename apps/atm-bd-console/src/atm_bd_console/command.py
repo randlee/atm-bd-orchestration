@@ -1,6 +1,7 @@
 """The one subprocess runner for the source modules: a timeout on every call and one failure shape."""
 from __future__ import annotations
 
+import signal
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -38,6 +39,14 @@ def run(argv: Sequence[str], fix: str, *, cwd: str | Path | None = None, timeout
         return Err(CommandFailed("command_failed", command, MISSING_PROGRAM_CODE, str(error), fix))
     except UnicodeDecodeError as error:
         return Err(CommandFailed("command_failed", command, NO_EXIT_CODE, str(error), fix))
+    if done.returncode < 0:
+        number = -done.returncode
+        try:
+            name = f"{signal.Signals(number).name} ({number})"
+        except ValueError:
+            name = str(number)
+        return Err(CommandFailed("command_failed", command, done.returncode, (done.stderr or done.stdout).strip(),
+                                 f"interrupted by signal {name}; rerun the command"))
     if done.returncode not in ok_codes:
         return Err(CommandFailed("command_failed", command, done.returncode, (done.stderr or done.stdout).strip(), fix))
     return Ok(Output(done.returncode, done.stdout))

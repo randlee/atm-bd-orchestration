@@ -462,6 +462,16 @@ def test_agent_row_that_fits_is_unchanged_by_pane_width() -> None:
     assert narrow.endswith("bi-6: Fix the row prefix")
 
 
+def test_agent_row_does_not_double_the_sprint_prefix_of_a_poured_title() -> None:
+    # The formula pours "{{sprint}}: dev"; the row already prefixes the sprint tag.
+    step = replace(STEP, bead_id="atm-bj-2.group-dev", kind="dev", sprint="bj-2", title="bj-2: dev", tag="phase-bj",
+                   top_epic="atm-phase-bj", carry_forward=None)
+    row = next(line for line in _single_row_dashboard(step, 160) if "bj-2.group-dev" in line)
+
+    assert row.endswith("bj-2: dev")
+    assert "bj-2: bj-2:" not in row
+
+
 def test_agent_row_prefix_for_a_fix_step_is_its_bead_short_id_not_the_phase_tag() -> None:
     fix = replace(STEP, bead_id="atm-phase-bi.10", kind="fix", sprint=None, sprint_bead=None, carry_forward=None,
                   title="Fix the row prefix", tag="phase-bi", top_epic="atm-phase-bi")
