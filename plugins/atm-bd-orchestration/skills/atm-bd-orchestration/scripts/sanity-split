@@ -16,7 +16,8 @@ numbered list under `## Deliverables` (a poured bead without one, or without
 changed since the base (with `--layer-pr`, the union of those PRs' own ranges,
 one `gh api repos/{owner}/{repo}/pulls --paginate` listing joined locally, the checked PR last), renders `dev-sanity-assignment.json.j2` once per
 deliverable with the sc-compose wheel (`external_evidence`: the checked bead's notes when it has any,
-and the checked PR's body with `--layer-pr`), starts the lint command detached in the
+and the checked PR's body with `--layer-pr`, then each `--external-evidence <json-or-file>`, repeatable: one
+well-formed reference such as a `pr_comment`), starts the lint command detached in the
 worktree, and prints one JSON manifest to stdout:
 
   {run_id, reviewers, operational_reviewer, sha, base_sha, sanity_bead, dev_bead, branch, worktree_path,
@@ -69,7 +70,9 @@ IGNORED_STATUS_PATHS = (".beads.gate.lock", ".sc-compose/")
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / "atm-beads" / "scripts"))
+sys.path.insert(0, str(HERE))
 import sc_render  # noqa: E402
+from jev_client import evidence_ref  # noqa: E402
 
 TEMPLATE = HERE.parent / "templates" / "dev-sanity-assignment.json.j2"
 CODES = {2: "SANITY.PLAN_INVALID", 3: "SANITY.TARGET_UNREADABLE", 4: "SANITY.COMMIT_MISMATCH", 5: "RENDER_FAILED"}
@@ -84,6 +87,26 @@ class Fail(Exception):
 def die(code, message):
     print(f"{CODES.get(code, 'USAGE')}: {message}", file=sys.stderr)
     return code
+
+
+def extra_evidence(values):
+    """The `--external-evidence` entries: each value is one JSON evidence reference, or a path to a file holding one."""
+    entries = []
+    for value in values:
+        text = value
+        if not value.lstrip().startswith("{"):
+            try:
+                text = Path(value).read_text()
+            except OSError as error:
+                raise Fail(1, f"--external-evidence {value!r} is not JSON and cannot be read as a file: {error}") from error
+        try:
+            entry = json.loads(text)
+        except ValueError as error:
+            raise Fail(1, f"--external-evidence {value!r} is not valid JSON: {error}") from error
+        if not evidence_ref(entry):
+            raise Fail(1, f"--external-evidence {value!r} is not a bead_notes, pr_body or pr_comment reference")
+        entries.append(entry)
+    return entries
 
 
 def load_bead(args, bead_id=None):
@@ -397,6 +420,7 @@ def main():
     parser.add_argument("--bead-json")
     parser.add_argument("--close-context", type=Path)
     parser.add_argument("--layer-pr", action="append", default=[])
+    parser.add_argument("--external-evidence", action="append", default=[])
     parser.add_argument("--split-only", action="store_true")
     parser.add_argument("--template", type=Path, default=TEMPLATE)
     parser.add_argument("--lint-timeout-seconds", type=int, default=1800)
@@ -425,6 +449,7 @@ def main():
             raise Fail(1, "close context must be a JSON object")
         external = ([{"kind": "bead_notes", "bead": bead["id"], "text": bead["notes"]}] if bead.get("notes") else []) + (
             [{"kind": "pr_body", "repo": "{owner}/{repo}", "pr": int(args.layer_pr[-1])}] if args.layer_pr and args.layer_pr[-1].isdigit() else [])
+        external += extra_evidence(args.external_evidence)
         assignments = []
         for item in deliverables:
             assignments.append({"number": item["number"], "assignment": render(args.template, {

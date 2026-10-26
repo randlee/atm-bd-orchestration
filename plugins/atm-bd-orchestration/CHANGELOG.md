@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- `sanity-split --external-evidence <json-or-file>` (repeatable) adds an evidence reference, such as a `pr_comment`, to every assignment's `external_evidence` after the generated entries. A malformed entry exits 1 naming it. The dev-sanity template step b names the flag. (#164)
+
 ## [0.19.2] - 2026-10-24
 
 ### Fixed
