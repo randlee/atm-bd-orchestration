@@ -31,7 +31,16 @@ sequenceDiagram
   alt PASS
     H->>B: journal: close sanity "PASS at sha"
     H->>A: close the dev task if still open, then the sanity task
-    Note over S: fixed PASS: stack input to sanity-stack, which links the layer
+    Note over S: after close, sanity-stack-link runs under the stack lock
+    alt stacked
+      S->>B: layer recorded
+    else rebase_required
+      S->>L: notify the lead, sanity stays closed
+    else lock_timeout
+      S->>L: notify the lead, sanity stays closed
+    else stack_failed
+      S->>L: notify the lead, sanity stays closed
+    end
   else FAIL
     H->>B: journal: reopen dev, set sanity open and unassigned (still blocked by dev)
     H->>D: sanity-failed: numbered missing items
