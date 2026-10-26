@@ -274,9 +274,10 @@ No dev bead is dispatched until the plan passes review.
 
 2. Generate the initial phase diagram before review:
    `.claude/skills/sprint-review/scripts/sprint-review --root <root>`
-   writes the HTML locally; it never commits or pushes.
-   The phase integration branch must contain the committed/pushed plan file
-   `<plans_dir>/phase-<x>.jsonl` and phase file `.atm-bd/phase-<x>.toml`. Do not open the
+   writes `<plans_dir>/phase-<x>/phase-<x>-dag.html`; the script never commits
+   or pushes. The phase integration branch must contain the plan file
+   `<plans_dir>/phase-<x>.jsonl`, the phase file `.atm-bd/phase-<x>.toml` and
+   that DAG, committed together and pushed by the planner. Do not open the
    diagram unless `--view` was requested and Wyvern is available.
    Then run `.claude/skills/atm-beads/scripts/validate-plan --phase <x>`
    from the repository root; its header lists what it checks. Exit 0 or stop.

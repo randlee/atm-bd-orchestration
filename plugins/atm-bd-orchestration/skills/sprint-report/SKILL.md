@@ -37,7 +37,8 @@ a log, so the agent remains available. Missing or failing Wyvern does not
 prevent writing the HTML; no alternative viewer is launched automatically.
 
 By default, DAG generation writes `<plans_dir>/phase-<p>/phase-<p>-dag.html`
-locally; it never commits or pushes. It reads the committed plan file and
+locally; the script never commits or pushes. The planner commits it with the
+plan file and the phase file (`atm-beads` "planning"). It reads the committed plan file and
 never rewrites it from Beads state. The HTML embeds the SVG directly, including
 state tooltips and zoom controls, without external dependencies.
 

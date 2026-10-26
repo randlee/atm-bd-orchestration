@@ -400,7 +400,7 @@ def generate(repo, index, counts, phase, output=None, open_image=False, open_vie
     for suffix in ('.svg', '.html', '.png', '-state.json'):
         print(path(suffix))
     if plan_html is not None:
-        # Written next to the plan; never committed or pushed.
+        # Written next to the plan; the planner commits it with the plan, never this script.
         plan_html.parent.mkdir(parents=True, exist_ok=True)
         plan_html.write_text(path('.html').read_text())
         print(plan_html)

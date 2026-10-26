@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- The planner commits the phase DAG (`<plans_dir>/phase-<x>/phase-<x>-dag.html`) with the plan file and the phase file as part of planning, and re-commits it when the plan changes. Planning runs `sprint-review` before that commit. The script still never commits or pushes. The skills and requirements said the DAG was never committed (#130).
+
 ## [0.19.7] - 2026-10-26
 
 ### Fixed
