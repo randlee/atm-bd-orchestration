@@ -40,7 +40,11 @@ flowchart TD
     SC -->|"JSON verdicts"| S
     S -->|"hook FAIL: reopen dev bead,<br/>sanity-fail to the dev (configured cap)"| D
     S -->|"PASS: close hook closes sanity bead,<br/>assigns QA as the lead"| Q["quality-mgr: QA round 1"]
-    S -->|"after close: sanity-stack links under the stack lock;<br/>lost the top: rebase-required"| D
+    S -->|"after close"| SL["sanity-stack-link<br/>under the stack lock"]
+    SL -->|"stacked"| SB["stack bead: layer recorded"]
+    SL -->|"rebase_required: notify the lead"| L2["team-lead: re-link or rebase<br/>(the sanity task stays closed)"]
+    SL -->|"lock_timeout: notify the lead"| L2
+    SL -->|"stack_failed: notify the lead"| L2
     Q -->|"fan-out, background"| R["reviewers_round1<br/>req-qa, arch-qa, rust-qa-agent, ..."]
     R -->|"findings with evidence"| CS["ceremony-finding-screen"]
     CS --> Q
@@ -49,7 +53,7 @@ flowchart TD
     F -->|"hook assigns sanity"| S2["dev-sanity on the fix"]
     S2 -->|"hook FAIL: reopen fix bead,<br/>sanity-fail"| F
     S2 -->|"PASS"| Q2["quality-mgr fix round:<br/>filing reviewer only"]
-    Q2 -->|"not fixed"| F
+    Q2 -->|"not fixed: pour round n+1, nothing reopened"| F
     Q2 -->|"fixed"| Done
 ```
 
