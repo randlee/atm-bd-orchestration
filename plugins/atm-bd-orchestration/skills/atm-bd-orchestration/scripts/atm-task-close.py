@@ -675,7 +675,13 @@ class Hook:
             raise CloseError("VARS.INVALID", str(error), f"Supply vars compatible with {template}.") from error
 
     def send(self, recipient, template):
-        self.run(["atm", "send", recipient, "--template", str(TEMPLATES / template), "--vars", str(self.path)])
+        self.notify(recipient, "--template", str(TEMPLATES / template), "--vars", str(self.path))
+
+    def notify(self, recipient, *args):
+        """`atm send` to recipient. ATM refuses a self-addressed send, so a closer who is the recipient (a lead closing a task it took over) is not sent its own close."""
+        if recipient == self.identity:
+            return
+        self.run(["atm", "send", recipient, *args])
 
     def sanity_dispatch(self, context):
         """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
@@ -869,7 +875,7 @@ class Hook:
             events = self.task_history[bead]
             if not is_terminal(events):
                 message = f"SANITY.ROUND_CAP {bead} {values['commit']} assignment={self.assignment_id} undone=" + ",".join(str(item["number"]) for item in values["undone"])
-                self.run(["atm", "send", self.config["team_lead_member"], message])
+                self.notify(self.config["team_lead_member"], message)
             self.close_task(bead, "dev-sanity-complete.md.j2")
             return "SANITY.ROUND_CAP"
         checked = self.bead(values["checked_bead"])
@@ -891,7 +897,7 @@ class Hook:
         events = self.task_history[values["qa_bead"]]
         if not is_terminal(events):
             message = f"QA {values['verdict']} {values['qa_bead']} commit={values['commit']} round={values['round']}"
-            self.run(["atm", "send", self.lead, message])
+            self.notify(self.lead, message)
         self.close_task(values["qa_bead"], "qa-complete.md.j2")
 
 

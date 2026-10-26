@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- `atm-task-close.py` no longer fails when the closer is the message's recipient. When a phase lead closes a dev task it took over, the dev-complete send went to the lead itself, ATM refused it (`self-addressed messages are invalid ATM input`), and the close stopped after closing the bead, before the sanity assignment and the task close. Every close-script send (dev or fix complete, sanity fail, round cap, QA status) now skips a recipient equal to `ATM_IDENTITY`.
+
 ## [0.19.3] - 2026-10-25
 
 ### Added
