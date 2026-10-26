@@ -340,7 +340,7 @@ def _coerce_set_value(name: str, raw: Any) -> Any:
 def resolve_config(repo_root: Path, overrides: Dict[str, Any], pkg_dir: Path = PKG_DIR) -> Dict[str, Any]:
     """Read the declared variables from registry.yaml and --set. Missing ones are left
     out (the strict render names them); unknown --set keys and wrong types are errors."""
-    names = [*config_variables(pkg_dir), "max_sanity_rounds"]
+    names = [*config_variables(pkg_dir), "max_sanity_rounds", "gate_timeout_s"]
     unknown = sorted(k for k in overrides if k not in names)
     if unknown:
         raise InstallError(
@@ -362,8 +362,14 @@ def resolve_config(repo_root: Path, overrides: Dict[str, Any], pkg_dir: Path = P
     if isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1:
         raise InstallError("max_sanity_rounds must be a positive integer")
     values["max_sanity_rounds"] = rounds
+    timeout = overrides.get("gate_timeout_s", reg.get("gate_timeout_s", 180))
+    if isinstance(timeout, str) and timeout.isdecimal():
+        timeout = int(timeout)
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 1:
+        raise InstallError("gate_timeout_s must be a positive integer number of seconds")
+    values["gate_timeout_s"] = timeout
     for name in names:
-        if name == "max_sanity_rounds":
+        if name in ("max_sanity_rounds", "gate_timeout_s"):
             continue
         if name in overrides:
             value = _coerce_set_value(name, overrides[name])

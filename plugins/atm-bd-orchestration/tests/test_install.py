@@ -414,7 +414,7 @@ def test_workflow_issue_bead_declares_parent():
 def test_config_template_declares_exactly_the_spec_variables_and_sanity_default():
     assert install.config_variables(PKG) == SPEC_VARIABLES
     front = yaml.safe_load((PKG / install.CONFIG_TEMPLATE).read_text().split("---\n")[1])
-    assert front["defaults"] == {"max_sanity_rounds": 5}
+    assert front["defaults"] == {"max_sanity_rounds": 5, "gate_timeout_s": 180}
     assert set(install.ROLE_KEYS) | install.LIST_VARIABLES <= set(SPEC_VARIABLES)
 
 
@@ -772,6 +772,24 @@ def test_max_sanity_rounds_runtime_rejects_invalid_values(tmp_path, runtime_repo
     assert str(path) in str(caught.value)
 
 
+def test_gate_timeout_s_installer_default_registry_override_and_validation(tmp_path):
+    repo = make_repo(tmp_path)
+    assert install.resolve_config(repo, {})["gate_timeout_s"] == 180
+    assert install.resolve_config(repo, {"gate_timeout_s": "600"})["gate_timeout_s"] == 600
+    for bad in (0, -1, True, "x", 1.5):
+        with pytest.raises(install.InstallError, match="gate_timeout_s must be a positive integer"):
+            install.resolve_config(repo, {"gate_timeout_s": bad})
+
+
+@pytest.mark.parametrize("value", [0, -1, True, None, 1.5, "2", []])
+def test_gate_timeout_s_runtime_rejects_invalid_values(tmp_path, runtime_repo_config, value):
+    path = tmp_path / runtime_repo_config.RELATIVE_PATH
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump({"gate_timeout_s": value}))
+    with pytest.raises(runtime_repo_config.ConfigError, match="gate_timeout_s must be a positive integer"):
+        runtime_repo_config.load(tmp_path)
+
+
 @pytest.mark.parametrize("removed", ["reviewers_fix_round", "reviewers_scope_locked"])
 def test_removed_reviewer_lists_are_ignored_in_registry_and_rejected_by_set(tmp_path, removed):
     """0.5.0 dropped reviewers_fix_round and reviewers_scope_locked: a leftover registry key is not read; --set names it unknown."""
@@ -837,7 +855,8 @@ def test_fresh_install(tmp_path, capsys):
         assert not install.PLACEHOLDER_RE.search((dest / rel).read_text(errors="ignore")), rel
     # the config file: every declared variable, from registry.yaml and --set
     config = yaml.safe_load((repo / install.CONFIG_OUT).read_text())
-    assert list(config) == [*SPEC_VARIABLES, "max_sanity_rounds"]
+    assert list(config) == [*SPEC_VARIABLES, "max_sanity_rounds", "gate_timeout_s"]
+    assert config["gate_timeout_s"] == 180
     assert config["max_sanity_rounds"] == 5
     assert config["qa_member"] == "quality-mgr" and config["team_lead_member"] == "my-lead" and "lead" not in config
     assert config["integration_branch_pattern"] == "integrate/phase-{phase}"

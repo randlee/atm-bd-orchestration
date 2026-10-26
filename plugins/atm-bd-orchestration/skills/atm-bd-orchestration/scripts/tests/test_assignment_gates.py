@@ -324,15 +324,57 @@ class AssignmentGateTests(unittest.TestCase):
     def test_a_lower_bound_whose_branch_is_gone_holds_only_when_its_pr_merged(self):
         gone = {("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (128, ""),
                 ("git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/planned"): (1, "")}
-        merged = ("gh", "pr", "list", "--head", "planned", "--state", "merged", "--json", "mergeCommit")
+        merged = ("gh", "api", "repos/{owner}/{repo}/pulls?state=closed&head={owner}:planned&per_page=100")
         in_base = ("git", "merge-base", "--is-ancestor", "m1", "origin/target")
-        listed = {**gone, merged: (0, dumped([{"mergeCommit": {"oid": "old"}}, {"mergeCommit": {"oid": "m1"}}])),
+        listed = {**gone, merged: (0, dumped([{"merged_at": "2026-01-01T00:00:00Z", "merge_commit_sha": "old"},
+                                              {"merged_at": "2026-01-02T00:00:00Z", "merge_commit_sha": "m1"}])),
                   ("git", "merge-base", "--is-ancestor", "old", "origin/target"): (1, "")}
-        self.assertTrue(gates.descends(FakeRunner({**listed, in_base: (0, "")}), "planned", "target"))
+        runner = FakeRunner({**listed, in_base: (0, "")})
+        self.assertTrue(gates.descends(runner, "planned", "target"))
+        self.assertFalse([argv for _, argv in runner.calls if argv[:3] == ("gh", "pr", "list")])
         for responses in ({**listed, in_base: (1, "")}, {**gone, merged: (0, "[]")}):
             with self.subTest(responses=responses):
                 with self.assertRaises(RuntimeError):
                     gates.descends(FakeRunner(responses), "planned", "target")
+
+    def test_a_closed_unmerged_pr_of_a_gone_lower_bound_is_ignored(self):
+        merged = ("gh", "api", "repos/{owner}/{repo}/pulls?state=closed&head={owner}:planned&per_page=100")
+        runner = FakeRunner({
+            ("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (128, ""),
+            ("git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/planned"): (1, ""),
+            merged: (0, dumped([{"merged_at": None, "merge_commit_sha": "closed-unmerged"}])),
+            ("git", "merge-base", "--is-ancestor", "closed-unmerged", "origin/target"): (0, ""),
+        })
+        with self.assertRaises(RuntimeError):
+            gates.descends(runner, "planned", "target")
+        self.assertNotIn(("git", "merge-base", "--is-ancestor", "closed-unmerged", "origin/target"),
+                         [argv for _, argv in runner.calls])
+
+    def test_gate_timeout_comes_from_yaml_and_the_env_overrides_it(self):
+        self.assertEqual(gates.command_timeout({}, 600), 600)
+        self.assertEqual(gates.command_timeout({}, None), 180)
+        self.assertEqual(gates.command_timeout({"ATM_BD_GATE_TIMEOUT_S": "45"}, 600), 45)
+        for bad in (0, -5, True, "ninety", 1.5):
+            with self.subTest(value=bad), self.assertRaises(ValueError) as caught:
+                gates.command_timeout({}, bad)
+            self.assertIn("gate_timeout_s=", str(caught.exception))
+
+    def test_repo_timeout_reads_the_repository_yaml_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(gates.repo_timeout({}, root), 180)  # no configuration file
+            config = root / ".claude/project/atm-bd-orchestration.yaml"
+            config.parent.mkdir(parents=True)
+            config.write_text("gate_timeout_s: 777\n")
+            self.assertEqual(gates.repo_timeout({}, root), 777)
+            self.assertEqual(gates.repo_timeout({"ATM_BD_GATE_TIMEOUT_S": "45"}, root), 45)
+            config.write_text("gate_timeout_s: soon\n")
+            with self.assertRaises(ValueError) as caught:
+                gates.repo_timeout({}, root)
+            self.assertIn("gate_timeout_s must be a positive integer", str(caught.exception))
+            self.assertIn(str(config), str(caught.exception))
+            self.assertEqual(gates.repo_timeout({"ATM_BD_GATE_TIMEOUT_S": "45"}, root), 45)
 
     def stack_top(self, responses, target="integrate"):
         output = io.StringIO()
