@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- A PR with an empty description no longer fails sanity external evidence (#379). GitHub returns `"body": null` for it, which raised `External evidence unreadable`; `external_evidence` now reads a null PR body as empty text. A failed command, a response that is not an object a missing body and any other non-string body still raise.
+
 ## [0.19.2] - 2026-10-24
 
 ### Fixed
