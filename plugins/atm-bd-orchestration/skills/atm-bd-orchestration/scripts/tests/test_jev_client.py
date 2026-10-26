@@ -417,6 +417,7 @@ class JevClientTests(unittest.TestCase):
         self.assertEqual(result["elapsed_s"], 0.0)
         self.assertEqual(result["error"]["code"], "SANITY.JEV_REQUEST_TOO_LARGE")
         self.assertIn("oversized", result["error"]["message"])
+        self.assertRegex(result["error"]["message"], rf"\b\d+ bytes > {client.MAX_REQUEST_BYTES}\b")
 
     def test_non_text_oversize_state_is_terminal_without_network(self):
         for state in ("x" * client.MAX_REQUEST_BYTES,
@@ -817,7 +818,8 @@ class JevClientTests(unittest.TestCase):
         self.assertGreaterEqual(len(literals), 15)
         for literal in literals:
             with self.subTest(message=literal):
-                self.assertTrue(client.is_client_message(literal.replace("{status}", "503")))
+                self.assertTrue(client.is_client_message(literal.replace("{status}", "503").replace(
+                    "{request_size}", "123456").replace("{MAX_REQUEST_BYTES}", str(client.MAX_REQUEST_BYTES))))
         self.assertFalse(client.is_client_message("Selected model is at capacity"))
 
 

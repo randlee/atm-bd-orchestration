@@ -110,6 +110,8 @@ An unfinished check returns `success: false`, `data: null`, and
 `SANITY.JEV_RESPONSE_INVALID`, `SANITY.JEV_REQUEST_TOO_LARGE` or
 `VALIDATION.INPUT`) verbatim, `message` included, and adds `deliverable` =
 `deliverable.number`. A message the client did not write fails the merge.
+`SANITY.JEV_REQUEST_TOO_LARGE` is returned only after the client has already
+split losslessly; it is never a reason to run an LLM or haiku check in the Jev slot.
 
 ## Constraints
 

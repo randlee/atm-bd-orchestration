@@ -64,6 +64,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 41. `fix-round-scope owned|check|filter`: filing-reviewer map; check exit 5 `FIX_ROUND_DISPATCH_MISMATCH`; filter keeps only dispositions on own ids, unreported = `open`.
 42. `check-review-completion.py`: verdict PASS/FAIL agrees with `integration_review`; PASS needs zero blocking, important, unresolved; `integration_commit` = `commit`; post-mortem counts sum to total; `post_mortem_jev.status` is `completed` or `not_applicable`; `post_mortem_md` non-empty.
 43. `assignment-gates.py qa`: `READY`, `PR_REQUIRED`, `PR_TARGET_MISMATCH`, `SANITY_STALE`, `QA_HEAD_MISMATCH`, `GATE_CANNOT_RUN`; exit 0/5/2.
+44. Upstream-owned installed `.claude/` skill, agent and template content is out of QA reviewer scope; the lead accepts such changes by diff review and the package's template tests.
 
 ## Unresolved
 
