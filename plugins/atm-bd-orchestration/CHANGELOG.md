@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Console CI alerts judge only the latest run per check name (#375). A cancelled run that a newer run of the same check superseded (a base retarget cancels the first CI run) no longer alerts as a CI failure. `CANCELLED` is no longer a failure conclusion: the issue's expectation is "treat cancelled as not-failed", and a real failure is `FAILURE`, `ERROR` or `TIMED_OUT`. The GraphQL CI state comes from the latest contexts, not the rollup `state`, which also counts superseded runs. The same query now reads `databaseId`/`startedAt`/`checkSuite` (check runs) and `createdAt` (commit statuses); still one call per poll. Same-named jobs in different workflows (GraphQL) or apps (REST) are separate checks, so one's success never hides the other's failure.
+
 ## [0.19.2] - 2026-10-24
 
 ### Fixed

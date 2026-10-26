@@ -23,6 +23,8 @@ def fake_gh(fake_bin, monkeypatch: pytest.MonkeyPatch, body: object, *, exit_cod
 
 @pytest.mark.parametrize(("conclusion", "status", "checks", "expected"), [
     ("FAILURE", "COMPLETED", ("macos-14",), CiState.FAIL_MACOS),
+    # #375: CANCELLED is no longer in FAILURES, so this case still fails only because a failed check is named;
+    # the assertion is unchanged. A cancelled run alone, with no failed check named, is the tests below.
     ("CANCELLED", "COMPLETED", ("darwin",), CiState.FAIL_MACOS),
     ("FAILURE", "COMPLETED", ("windows",), CiState.FAIL_WINDOWS),
     ("FAILURE", "COMPLETED", ("win-x64",), CiState.FAIL_WINDOWS),
@@ -208,7 +210,7 @@ def test_failed_check_runs_and_commit_statuses_are_both_named(fake_bin, monkeypa
     fake_gh(fake_bin, monkeypatch, body)
     result, _ = open_prs("graphql")
     assert result.value[0].failed_checks == ("pytest", "slow", "ci/jenkins", "legacy")
-    assert "... on StatusContext { context state }" in github_source.GRAPHQL
+    assert "... on StatusContext { context state createdAt }" in github_source.GRAPHQL
     assert "status }" not in github_source.GRAPHQL
 
 @pytest.mark.parametrize(("total", "truncated"), [(101, True), (100, False)])
@@ -331,3 +333,118 @@ def test_rest_and_check_runs_use_code_checkout_and_explicit_repo(monkeypatch, tm
     assert calls[1][0][-1] == f"repos/{TEST_REPO}/commits/{selected[0]['head']['sha']}/check-runs?per_page=100"
     api_argvs = [GRAPHQL_ARGV, REST_ARGV, github_source.quota_argv(TEST_REPO), *(argv for argv, _ in calls)]
     assert all(flag not in argv for argv in api_argvs for flag in ("-R", "--repo"))
+
+
+def _graphql_with_contexts(rollup_state: str, contexts: list[dict]) -> dict:
+    body = graphql(rollup_state)
+    node = body["data"]["repository"]["pullRequests"]["nodes"][0]
+    node["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"] = contexts
+    return body
+
+
+def _rest_with_runs(monkeypatch, runs: list[dict]):
+    pull_rows = copy.deepcopy(RECORDED_REST[:1])
+
+    def run(argv, *_args, **_kwargs):
+        if argv == REST_ARGV:
+            return Ok(Output(0, json.dumps(pull_rows)))
+        return Ok(Output(0, json.dumps({"total_count": len(runs), "check_runs": runs})))
+
+    monkeypatch.setattr(github_source.command, "run", run)
+    result, status = open_prs("rest", "/repo", ((pull_rows[0]["head"]["ref"],),))
+    assert isinstance(result, Ok) and status.ok
+    return result.value[0]
+
+
+OLD_CANCELLED = {"name": "Format check", "conclusion": "CANCELLED", "databaseId": 1, "startedAt": "2026-10-19T10:00:00Z"}
+NEW_SUCCESS = {"name": "Format check", "conclusion": "SUCCESS", "databaseId": 2, "startedAt": "2026-10-19T10:05:00Z"}
+REST_OLD_CANCELLED = {"name": "Format check", "conclusion": "cancelled", "status": "completed", "id": 1,
+                      "started_at": "2026-10-19T10:00:00Z"}
+REST_NEW_SUCCESS = {"name": "Format check", "conclusion": "success", "status": "completed", "id": 2,
+                    "started_at": "2026-10-19T10:05:00Z"}
+
+
+@pytest.mark.parametrize("contexts", ([OLD_CANCELLED, NEW_SUCCESS], [NEW_SUCCESS, OLD_CANCELLED]))
+def test_graphql_superseded_cancelled_run_is_not_a_failure(fake_bin, monkeypatch, contexts) -> None:
+    # The rollup FAILURE is the superseded cancelled run; the latest run of the name passed.
+    fake_gh(fake_bin, monkeypatch, _graphql_with_contexts("FAILURE", contexts))
+    pr = open_prs("graphql")[0].value[0]
+    assert pr.ci is CiState.PASS and pr.failed_checks == ()
+
+
+def test_graphql_lone_cancelled_run_is_not_a_failure(fake_bin, monkeypatch) -> None:
+    fake_gh(fake_bin, monkeypatch, _graphql_with_contexts("FAILURE", [OLD_CANCELLED]))
+    pr = open_prs("graphql")[0].value[0]
+    assert pr.ci is not CiState.FAIL_BUG and pr.failed_checks == ()
+
+
+def test_graphql_latest_failure_still_fails(fake_bin, monkeypatch) -> None:
+    newer_failure = {**NEW_SUCCESS, "conclusion": "FAILURE"}
+    fake_gh(fake_bin, monkeypatch, _graphql_with_contexts("FAILURE", [OLD_CANCELLED, newer_failure]))
+    pr = open_prs("graphql")[0].value[0]
+    assert pr.ci is CiState.FAIL_BUG and pr.failed_checks == ("Format check",)
+
+
+def test_graphql_older_failure_superseded_by_success_passes(fake_bin, monkeypatch) -> None:
+    older_failure = {**OLD_CANCELLED, "conclusion": "FAILURE"}
+    fake_gh(fake_bin, monkeypatch, _graphql_with_contexts("FAILURE", [older_failure, NEW_SUCCESS]))
+    pr = open_prs("graphql")[0].value[0]
+    assert pr.ci is CiState.PASS and pr.failed_checks == ()
+
+
+def test_graphql_newer_running_run_supersedes_cancelled(fake_bin, monkeypatch) -> None:
+    running = {"name": "Format check", "conclusion": None, "databaseId": 3, "startedAt": "2026-10-19T10:06:00Z"}
+    fake_gh(fake_bin, monkeypatch, _graphql_with_contexts("FAILURE", [OLD_CANCELLED, NEW_SUCCESS, running]))
+    pr = open_prs("graphql")[0].value[0]
+    assert pr.ci is CiState.RUNNING and pr.failed_checks == ()
+
+
+def test_graphql_commit_status_supersession_uses_created_at(fake_bin, monkeypatch) -> None:
+    contexts = [{"context": "ci/jenkins", "state": "SUCCESS", "createdAt": "2026-10-19T10:05:00Z"},
+                {"context": "ci/jenkins", "state": "ERROR", "createdAt": "2026-10-19T10:00:00Z"}]
+    fake_gh(fake_bin, monkeypatch, _graphql_with_contexts("FAILURE", contexts))
+    pr = open_prs("graphql")[0].value[0]
+    assert pr.ci is CiState.PASS and pr.failed_checks == ()
+
+
+def test_graphql_query_reads_the_ordering_fields_in_one_call() -> None:
+    assert ("... on CheckRun { name conclusion databaseId startedAt "
+            "checkSuite { workflowRun { workflow { name } } app { slug } } }") in github_source.GRAPHQL
+    assert "... on StatusContext { context state createdAt }" in github_source.GRAPHQL
+
+
+@pytest.mark.parametrize("runs", ([REST_OLD_CANCELLED, REST_NEW_SUCCESS], [REST_NEW_SUCCESS, REST_OLD_CANCELLED]))
+def test_rest_superseded_cancelled_run_is_not_a_failure(monkeypatch, runs) -> None:
+    pr = _rest_with_runs(monkeypatch, runs)
+    assert pr.ci is CiState.PASS and pr.failed_checks == ()
+
+
+def test_rest_lone_cancelled_run_is_not_a_failure(monkeypatch) -> None:
+    pr = _rest_with_runs(monkeypatch, [REST_OLD_CANCELLED])
+    assert pr.ci is CiState.NONE and pr.failed_checks == ()
+
+
+def test_rest_latest_failure_still_fails(monkeypatch) -> None:
+    newer_failure = {**REST_NEW_SUCCESS, "conclusion": "failure"}
+    pr = _rest_with_runs(monkeypatch, [REST_OLD_CANCELLED, newer_failure])
+    assert pr.ci is CiState.FAIL_BUG and pr.failed_checks == ("Format check",)
+
+
+def test_graphql_same_named_jobs_in_different_workflows_do_not_hide_a_failure(fake_bin, monkeypatch) -> None:
+    def suite(workflow: str) -> dict:
+        return {"workflowRun": {"workflow": {"name": workflow}}, "app": {"slug": "github-actions"}}
+
+    older_failure = {"name": "test", "conclusion": "FAILURE", "databaseId": 1, "startedAt": "2026-10-19T10:00:00Z",
+                     "checkSuite": suite("ci.yml")}
+    newer_success = {"name": "test", "conclusion": "SUCCESS", "databaseId": 2, "startedAt": "2026-10-19T10:05:00Z",
+                     "checkSuite": suite("release.yml")}
+    fake_gh(fake_bin, monkeypatch, _graphql_with_contexts("FAILURE", [older_failure, newer_success]))
+    pr = open_prs("graphql")[0].value[0]
+    assert pr.ci is CiState.FAIL_BUG and pr.failed_checks == ("test",)
+
+
+def test_rest_same_named_jobs_from_different_apps_do_not_hide_a_failure(monkeypatch) -> None:
+    failure = {"name": "test", "conclusion": "failure", "status": "completed", "id": 1, "app": {"slug": "app-a"}}
+    success = {"name": "test", "conclusion": "success", "status": "completed", "id": 2, "app": {"slug": "app-b"}}
+    pr = _rest_with_runs(monkeypatch, [failure, success])
+    assert pr.ci is CiState.FAIL_BUG and pr.failed_checks == ("test",)
