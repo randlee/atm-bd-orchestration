@@ -173,3 +173,18 @@ def test_a_bd_failure_that_is_not_not_found_is_still_an_error(fake_bin, beads: P
     failed = beads_source.show_tasks(("atm-bh-6",))
     assert isinstance(failed, Err) and isinstance(failed.error, CommandFailed)
     assert "connection refused" in failed.error.stderr
+
+
+def test_where_is_beads_dir_else_the_absolute_bd_where_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    from atm_bd_console.command import Output
+    calls: list[tuple] = []
+    answers = iter(['{"path": "/repo/.beads"}', '{"path": ".beads"}', "not json"])
+    monkeypatch.setattr(beads_source.command, "run", lambda argv, _fix, **kwargs: calls.append((argv, kwargs)) or Ok(Output(0, next(answers))))
+    monkeypatch.setenv("BEADS_DIR", "/configured/.beads")
+    assert beads_source.where(cwd="/repo") == Ok("/configured/.beads") and calls == []
+    monkeypatch.delenv("BEADS_DIR")
+    assert beads_source.where(cwd="/repo") == Ok("/repo/.beads")
+    assert calls == [(["bd", "where", "--json"], {"cwd": "/repo"})]
+    for _ in range(2):
+        result = beads_source.where(cwd="/repo")
+        assert isinstance(result, Err) and isinstance(result.error, ParseFailed) and "BEADS_DIR" in result.error.fix

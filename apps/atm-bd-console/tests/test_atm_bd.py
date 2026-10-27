@@ -628,6 +628,17 @@ FIX = bead("atm-bh-5.qa1-f1-r1-fix", "fix", "atm-bh-5", round=1, sprint_bead="at
 FIX_QA = bead("atm-bh-5.qa1-f1-r1-qa", "qa", "atm-bh-5", **poured_qa(
     "atm-bh-5.qa1-f1-r1-qa", FIX.id, "fix/bh-5-qa-r1", "/worktrees/fix/bh-5-qa-r1", round=2))
 PARENTS = {item.id: item for item in (ROOT, CONTAINER, DEV, SANITY, SPRINT_QA, FIX, FIX_QA)}
+# A sanity check re-dispatched after its dev closed (lint-l-2, 2026-10-27): the poured dev bead closed with its
+# recorded PR and PR base, its poured sanity bead, and the sprint QA bead that plans layer 7 and the reviewers.
+POURED_DEV = replace(DEV, status=SprintState.CLOSED, raw_status="closed", close_reason=f"dev complete at {COMMIT}",
+                     metadata={**{k: v for k, v in poured_qa(SPRINT_QA.id, DEV.id, SPRINT.branch,
+                                                             "/worktrees/sprint/bh-5-git-github-source").items()
+                                  if k not in ("layer", "round", "reviewers_round1")},
+                               "role": "dev", "commit": COMMIT, "pr_number": 148, "pr_url": PR_URL,
+                               "sanity_bead": SANITY.id, "pr_base": "sprint/bh-1-contract"})
+POURED_SANITY = replace(SANITY, metadata={**POURED_DEV.metadata, "role": "sanity", "dev_bead": DEV.id})
+SANITY_HOST = Ok(atm_bd_module.SanityHost("/beads", {"bh": [{"phase": "bh", "hook": "task.close", "active": True,
+                 "module_path": "/hooks/sanity_task_close_hook.py", "custom": {"sanity_agents": ["dev-sanity"]}}]}))
 
 
 def mapped(value: Bead) -> Step:
@@ -686,8 +697,8 @@ def test_dispatch_spec_vars_are_exact_and_render_strict(kind: str, pr: PullReque
     # no-pr is #2214: the PR read had not caught up with a just-opened PR; the checked bead's recorded PR is used.
     spec = dispatch_spec(context(mapped(STEPS[kind]), pr), PHASE_TEMPLATES)
     if kind == "sanity":
-        assert isinstance(spec, Err), spec
-        assert "beads_dir, phase_lead, and close_context" in spec.error.fix
+        # Unpoured (no QA bead named) and open: a re-dispatch is refused, never sent with guessed close vars.
+        assert isinstance(spec, Err) and isinstance(spec.error, NotFound) and "the QA bead" in spec.error.what, spec
         return
     assert isinstance(spec, Ok), spec
     template, values = expected(kind, pr)
@@ -698,6 +709,47 @@ def test_dispatch_spec_vars_are_exact_and_render_strict(kind: str, pr: PullReque
     assert "<pr-number><![CDATA[148]]></pr-number>" in rendered.stdout
     verification = f"This is fix verification of fix bead `{FIX.id}`"
     assert (verification in rendered.stdout) is (kind == "fix_qa")
+
+
+def _sanity_spec(pr: PullRequest | None = PR, host: Result[atm_bd_module.SanityHost] | None = SANITY_HOST,
+                 dev: Bead = POURED_DEV) -> Result[DispatchSpec]:
+    parents = {**PARENTS, dev.id: dev, POURED_SANITY.id: POURED_SANITY}
+    return dispatch_spec(context(_ok(step(POURED_SANITY, parents)), pr), PHASE_TEMPLATES, host)
+
+
+@pytest.mark.parametrize("pr", [PR, None], ids=["with-pr", "no-pr"])
+def test_a_ready_sanity_is_re_dispatched_with_the_dev_closes_assignment_and_renders_strict(pr, tmp_path: Path) -> None:
+    # The console once refused every dev-sanity-template dispatch ("supply beads_dir, phase_lead, and close_context
+    # from the dev close handoff"), so a sanity task the dev close assigned and the member refused sat ready for good.
+    spec = _sanity_spec(pr)
+    assert isinstance(spec, Ok), spec
+    values = dict(spec.value.vars)
+    assert spec.value.template.endswith("/dev-sanity-template.xml.j2")
+    assert (values["task_id"], values["sanity_task_id"], values["checked_bead"]) == (DEV.id, SANITY.id, DEV.id)
+    assert (values["commit"], values["pr_number"], values["pr_url"]) == (COMMIT, "148", PR_URL)
+    assert (values["base"], values["beads_dir"], values["sanity_close_mode"]) == ("sprint/bh-1-contract", "/beads", "daemon")
+    assert values["layer_prs"] == [140]
+    close_context = values["close_context"]
+    assert (close_context["phase_lead"], close_context["layer"], close_context["reviewers_round1"]) == (
+        "fenix", 7, ["req-qa", "arch-qa"])
+    rendered = render("dev-sanity-template.xml.j2", values, tmp_path)
+    assert rendered.returncode == 0, rendered.stderr
+    assert '<pr number="148">' in rendered.stdout
+
+
+def test_a_sanity_re_dispatch_without_its_host_reads_is_refused_naming_them() -> None:
+    missing = _sanity_spec(host=None)
+    assert isinstance(missing, Err) and isinstance(missing.error, NotFound), missing
+    assert "atm hook list" in missing.error.what
+    failed = _sanity_spec(host=Err(NotFound("not_found", "bd where", "set BEADS_DIR")))
+    assert isinstance(failed, Err) and failed.error == NotFound("not_found", "bd where", "set BEADS_DIR")
+
+
+def test_a_sanity_re_dispatch_of_an_open_dev_or_another_pr_is_refused() -> None:
+    assert _code(_sanity_spec(dev=replace(POURED_DEV, status=SprintState.OPEN, raw_status="open"))) == (
+        f"{SANITY.id}: ASSIGN_VARS.NOT_CLOSED")
+    other = replace(POURED_DEV, metadata={**POURED_DEV.metadata, "pr_number": 1})
+    assert _code(_sanity_spec(dev=other)) == f"{DEV.id}.metadata.pr_number"
 
 
 def _qa_spec(qa: Bead, checked: Bead, pr: PullRequest | None = None) -> Result[DispatchSpec]:

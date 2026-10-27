@@ -1525,3 +1525,33 @@ def test_a_failed_merge_check_is_one_errors_row_and_one_error_merge_row(github_r
     assert snapshot.errors.count(COMMAND_FAILED) == 1
     merges = [result.value for result in inputs[0].merges if isinstance(result, Ok)]
     assert [merge.state for merge in merges] == [MergeState.ERROR, MergeState.ERROR]
+
+
+class _Reads:
+    """A TickLog stand-in that passes each read through, recording its source."""
+
+    def __init__(self) -> None:
+        self.sources: list[str] = []
+
+    def result(self, source, result, **_fields):
+        self.sources.append(source)
+        return result
+
+
+def test_sanity_host_reads_happen_only_for_a_ready_sanity_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A ready sanity bead is re-dispatched with the dev close's beads directory and close mode (atm_bd.sanity_assignment).
+    calls: list[tuple] = []
+    monkeypatch.setattr(runner.beads_source, "where", lambda **kwargs: calls.append(("where", kwargs)) or Ok("/beads"))
+    monkeypatch.setattr(runner.atm_source, "hooks", lambda phase, as_, team: calls.append(("hooks", phase, as_, team)) or Ok(("row",)))
+    sanity = replace(PHASE.steps[0], kind="sanity", ready=True, sanity_row={"metadata": {"phase": "bh"}})
+    reads = _Reads()
+    logger = cast(TickLog, reads)
+    assert runner._sanity_host(CONFIG, Ok(replace(PHASE, steps=(replace(sanity, ready=False),))), logger) is None
+    assert calls == [] and reads.sources == []
+    host = runner._sanity_host(CONFIG, Ok(replace(PHASE, steps=(sanity,))), logger)
+    assert host == Ok(atm_bd.SanityHost("/beads", {"bh": ("row",)}))
+    assert calls == [("where", {"cwd": CONFIG.repo_root}), ("hooks", "bh", CONFIG.lead, CONFIG.team)]
+    assert reads.sources == ["beads.where", "atm.hooks"]
+    failed = Err(NotFound("not_found", "bd where", "set BEADS_DIR"))
+    monkeypatch.setattr(runner.beads_source, "where", lambda **kwargs: failed)
+    assert runner._sanity_host(CONFIG, Ok(replace(PHASE, steps=(sanity,))), logger) == failed

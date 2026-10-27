@@ -294,3 +294,14 @@ def test_command_failed_fix_names_the_identity_the_console_ran_as(fake_bin) -> N
     assert result.error.fix == (
         "rerun `atm members --team atm-dev --json` as ATM_IDENTITY=trinity and read its stderr, or pass a larger timeout"
     )
+
+
+def test_hooks_are_the_phase_hook_list_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    answers = iter(['[{"hook": "task.close"}]', "{}", "garbage"])
+    monkeypatch.setattr(atm_source, "_run", lambda argv, as_, **_kwargs: calls.append(argv) or Ok(next(answers)))
+    assert atm_source.hooks("bh", "fenix", "atm-dev") == Ok(({"hook": "task.close"},))
+    assert calls == [["atm", "hook", "list", "--phase", "bh", "--json"]]
+    assert atm_source.hooks("bh", "fenix", "atm-dev") == Ok(())
+    garbage = atm_source.hooks("bh", "fenix", "atm-dev")
+    assert isinstance(garbage, Err) and isinstance(garbage.error, ParseFailed)

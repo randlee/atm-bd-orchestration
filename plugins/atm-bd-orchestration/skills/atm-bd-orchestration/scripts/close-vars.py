@@ -3,6 +3,7 @@
 
     close-vars.py <bead-id> --out <vars.json> [--repo <beads repository root>]
     close-vars.py <qa-bead-id> --qa-assignment --out <vars.json> [--repo <beads repository root>]
+    close-vars.py <sanity-bead-id> --sanity-assignment --out <vars.json> [--repo <beads repository root>]
 
 Every validated open task bead carries its close fields (close_fields.POURED), so the vars come from that one
 bead: the poured fields, the task ids (equal to the bead ids) and the host paths. A sanity close adds its round
@@ -18,12 +19,18 @@ other beads.
 `--qa-assignment` instead writes the `templates.qa` vars of a QA bead: its poured fields plus the commit,
 branch and PR its checked bead recorded at close (close_fields.qa_assignment_vars), and prints the
 `atm task assign` command. A checked bead with no recorded PR is refused, never sent with an empty PR.
+
+`--sanity-assignment` writes the `templates.sanity` vars of a sanity bead whose dev or fix bead has closed, as that
+close would have dispatched them (close_fields.sanity_assignment_vars, which also reads the checked bead's QA bead
+for its layer and reviewers): for a sanity task re-issued after a refusal or a lost assignment. The phase lead comes from `.atm-bd/phase-<x>.toml`, the beads directory from BEADS_DIR or
+`bd where --json`, and the close mode from `atm hook list --phase <x> --json`.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -144,6 +151,67 @@ def _build_qa_assignment(repo, bead, fresh, fallback):
     return {"bead": bead, "role": "qa-assignment", "vars": values, "remaining": [], "read_fallback": fallback}
 
 
+def build_sanity_assignment(repo: Path, bead: str, *, host=None) -> dict:
+    return cached_then_fresh(lambda fresh, fallback: _build_sanity_assignment(repo, bead, host or sanity_host, fresh, fallback))
+
+
+def _build_sanity_assignment(repo, bead, host, fresh, fallback):
+    row = read(repo, bead, fallback, fresh=fresh)
+    metadata = row.get("metadata") or {}
+    checked = metadata.get("dev_bead") or metadata.get("checked_bead")
+    if not checked:
+        raise close_fields.CloseFieldsError("CLOSE_VARS.NOT_POURED", f"{bead}: metadata lacks dev_bead",
+                                            "Ask the phase lead to run close_fields_backfill.py for its phase.")
+    phase = str(metadata.get("phase") or "")
+    lead, member, beads_dir, rows = host(repo, phase)
+    checked_row = read(repo, checked, fallback, fresh=fresh)
+    qa = (checked_row.get("metadata") or {}).get("qa_bead") or metadata.get("qa_bead")
+    if not qa:
+        raise close_fields.CloseFieldsError("CLOSE_VARS.NOT_POURED", f"{checked}: metadata lacks qa_bead",
+                                            "Ask the phase lead to run close_fields_backfill.py for its phase.")
+    values = close_fields.sanity_assignment_vars(row, checked_row, read(repo, qa, fallback, fresh=fresh), repo, lead=lead,
+                                                 beads_dir=beads_dir,
+                                                 close_mode=close_fields.sanity_close_mode(rows, phase, member))
+    return {"bead": bead, "role": "sanity-assignment", "vars": values, "remaining": [], "read_fallback": fallback}
+
+
+def _json_command(argv: list[str], repo: Path, fix: str):
+    try:
+        done = subprocess.run(argv, cwd=repo, capture_output=True, text=True, timeout=BD_SHOW_TIMEOUT_S, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise close_fields.CloseFieldsError("CLOSE_VARS.HOST_FAILED", f"{' '.join(argv)} failed: {error}", fix) from error
+    if done.returncode != 0:
+        raise close_fields.CloseFieldsError("CLOSE_VARS.HOST_FAILED", f"{' '.join(argv)} exited {done.returncode}: "
+                                            f"{(done.stderr or done.stdout).strip()[-300:]}", fix)
+    try:
+        return json.loads(done.stdout)
+    except ValueError as error:
+        raise close_fields.CloseFieldsError("CLOSE_VARS.HOST_FAILED", f"{' '.join(argv)} printed no JSON: {error}", fix) from error
+
+
+def sanity_host(repo: Path, phase: str) -> tuple[str, str, str, list]:
+    """(phase lead, dev-sanity member, beads directory, `atm hook list` rows): what the dev close hook reads."""
+    import repo_config  # noqa: E402
+    import sprint_index_common  # noqa: E402
+    try:
+        lead = sprint_index_common.load_phase_config(repo, phase)["lead"]
+        member = repo_config.load(repo)["dev_sanity_member"]
+    except (RuntimeError, repo_config.ConfigError, KeyError) as error:
+        raise close_fields.CloseFieldsError("CLOSE_VARS.CONFIG", f"cannot name the phase lead or sanity member: {error}",
+                                            f"Fix lead in .atm-bd/phase-{phase}.toml or dev_sanity_member in "
+                                            ".claude/project/atm-bd-orchestration.yaml.") from error
+    beads_dir = os.environ.get("BEADS_DIR") or ""
+    if not beads_dir:
+        location = _json_command(["bd", "where", "--json"], repo, "Set BEADS_DIR or repair `bd where --json`.")
+        beads_dir = location.get("path") if isinstance(location, dict) else None
+        if not isinstance(beads_dir, str) or not Path(beads_dir).is_absolute():
+            raise close_fields.CloseFieldsError("CLOSE_VARS.HOST_FAILED", f"bd where --json path {beads_dir!r}",
+                                                "Set BEADS_DIR or repair `bd where --json` to return an absolute beads path.")
+    rows = _json_command(["atm", "hook", "list", "--phase", phase, "--json"], repo,
+                         "Check that the ATM daemon answers (`atm hook list`), then rerun.") if phase else []
+    return lead, member, beads_dir, rows
+
+
 def cached_then_fresh(attempt) -> dict:
     """Build from cached rows; a refusal for a missing field is retried once on rows read fresh from bd."""
     fallback: list[str] = []
@@ -156,17 +224,19 @@ def cached_then_fresh(attempt) -> dict:
         return attempt(True, fallback)
 
 
-def assign_command(repo: Path, values: dict, out: str) -> list[str]:
+def assign_command(repo: Path, values: dict, out: str, purpose: str = "qa") -> list[str]:
     import repo_config  # noqa: E402
     import sprint_index_common  # noqa: E402
+    member_key = "dev_sanity_member" if purpose == "sanity" else "qa_member"
+    task = values["sanity_task_id"] if purpose == "sanity" else values["task_id"]
     try:
-        template = sprint_index_common.load_phase_config(repo, values["phase"])["templates"]["qa"]
-        member = repo_config.load(repo)["qa_member"]
+        template = sprint_index_common.load_phase_config(repo, values["phase"])["templates"][purpose]
+        member = repo_config.load(repo)[member_key]
     except (RuntimeError, repo_config.ConfigError, KeyError) as error:
-        raise close_fields.CloseFieldsError("CLOSE_VARS.CONFIG", f"cannot name the QA template or member: {error}",
-                                            f"Fix .atm-bd/phase-{values['phase']}.toml templates.qa or qa_member in "
+        raise close_fields.CloseFieldsError("CLOSE_VARS.CONFIG", f"cannot name the {purpose} template or member: {error}",
+                                            f"Fix .atm-bd/phase-{values['phase']}.toml templates.{purpose} or {member_key} in "
                                             ".claude/project/atm-bd-orchestration.yaml.") from error
-    return [f"atm task assign {member} --task-id {values['task_id']} --template {template} --vars {out}"]
+    return [f"atm task assign {member} --task-id {task} --template {template} --vars {out}"]
 
 
 def commands(role: str, bead: str, out: str) -> list[str]:
@@ -182,13 +252,22 @@ def main(argv: list[str]) -> int:
     parser.add_argument("bead")
     parser.add_argument("--out", required=True)
     parser.add_argument("--repo", default=".")
-    parser.add_argument("--qa-assignment", action="store_true", help="write the templates.qa vars of a QA bead")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--qa-assignment", action="store_true", help="write the templates.qa vars of a QA bead")
+    mode.add_argument("--sanity-assignment", action="store_true",
+                      help="write the templates.sanity vars of a sanity bead whose checked bead has closed")
     args = parser.parse_args(argv)
     repo = Path(args.repo).resolve()
     try:
-        result = build_qa_assignment(repo, args.bead) if args.qa_assignment else build(repo, args.bead)
-        steps = (assign_command(repo, result["vars"], args.out) if args.qa_assignment
-                 else commands(result["role"], args.bead, args.out))
+        if args.qa_assignment:
+            result = build_qa_assignment(repo, args.bead)
+            steps = assign_command(repo, result["vars"], args.out)
+        elif args.sanity_assignment:
+            result = build_sanity_assignment(repo, args.bead)
+            steps = assign_command(repo, result["vars"], args.out, "sanity")
+        else:
+            result = build(repo, args.bead)
+            steps = commands(result["role"], args.bead, args.out)
     except close_fields.CloseFieldsError as error:
         print(json.dumps({"ok": False, "error": error.as_json()}, indent=2))
         return 2

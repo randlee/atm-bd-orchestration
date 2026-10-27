@@ -21,6 +21,8 @@ from unittest.mock import patch
 
 from task_close_world import DERIVED, EXAMPLES, SCRIPTS, World, cache_call, example_values, hook
 
+close_fields = hook.close_fields
+
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     return World(tmp_path, monkeypatch)
@@ -1492,3 +1494,43 @@ def test_lead_closing_its_own_qa_task_skips_the_self_addressed_status(world, mon
     assert "ok" in world.run("qa", verdict="PASS")
     assert [argv[:2] for argv, _sender in world.writes] == [["bd", "close"], ["atm", "task"]]
     assert world.messages == []
+
+
+def poured_rows(world, role):
+    """The sanity, checked and QA beads as a pour stamps them (close_fields.POURED), plus what the close recorded and
+    the layer and reviewers the QA bead plans."""
+    poured = {name: world.values[name] for name in close_fields.POURED if name in world.values}
+    poured.update(role=role, worktree=world.values["worktree_path"])
+    # The example vars carry the fields the close reads; a pour stamps the rest, which it never reads.
+    poured.update({name: f"poured-{name}" for name in close_fields.POURED if name not in poured})
+
+    def row(bead, stage, **metadata):
+        return {**world.beads[bead], "labels": [stage], "metadata": {**poured, **world.beads[bead]["metadata"], **metadata}}
+    return (row(world.values["sanity_bead"], "stage:dev-sanity", role="sanity"),
+            row(world.values["checked_bead"], f"stage:{role}"),
+            row(world.values["qa_bead"], "stage:qa", role="qa", layer=world.values["layer"],
+                reviewers_round1=world.values["reviewers_round1"]))
+
+
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_a_re_dispatch_rebuilds_the_sanity_assignment_the_dev_close_sent(world, role):
+    # A sanity task the dev close assigned and the sanity member refused, or that was lost, is re-issued from the
+    # closed beads (close-vars.py --sanity-assignment, the console) by the producer the dev close uses.
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = role
+    assert "ok" in world.run(role)
+    sent = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    sanity_row, checked_row, qa_row = poured_rows(world, role)
+    rebuilt = close_fields.sanity_assignment_vars(sanity_row, checked_row, qa_row, world.root, lead="phase-lead",
+                                                  beads_dir=sent["beads_dir"], close_mode=sent["sanity_close_mode"])
+    # Differences, each deliberate: the base is the PR base the close recorded (the poured base is pr_target), as QA
+    # takes it; a fixed close's evidence is a result the bead does not record; round and carry_forward are not on a
+    # dev bead, and the sanity close defaults the round to 1 and derives a fix's carry_forward (sanity-close-vars).
+    assert rebuilt["close_context"]["base"] == checked_row["metadata"]["pr_base"] != sent["close_context"]["base"]
+    differ = {"base", "evidence", "round", "carry_forward"}
+    assert sent["close_context"]["round"] == 1 and not sent["close_context"]["carry_forward"]
+    assert ({k: v for k, v in rebuilt["close_context"].items() if k not in differ}
+            == {k: v for k, v in sent["close_context"].items() if k not in differ})
+    template = hook.header(hook.TEMPLATES / "dev-sanity-template.xml.j2")
+    declared = set(template["required_variables"]) | set(template["defaults"])
+    assert ({name: rebuilt.get(name) for name in declared - {"base", "close_context"}}
+            == {name: sent.get(name) for name in declared - {"base", "close_context"}})
