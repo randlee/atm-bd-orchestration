@@ -155,6 +155,25 @@ class BackfillTests(unittest.TestCase):
                          ("t-d-1.group-sanity", "t-d-1.group-qa", "d-1: the work"))
         self.assertEqual(by_bead["t-d-1.group-sanity"]["checked_bead"], "t-d-1.group-dev")
 
+    def test_a_dispatched_finding_takes_its_layer_from_its_imported_sanity_and_qa_beads(self):
+        layer = {"branch": "fix/d-1-qa1-f1", "worktree": "wt/fix/d-1-qa1-f1", "pr_target": "sprint/d-1-work"}
+        finding = {"id": "t-d-1.qa1-f1", "status": "in_progress", "labels": ["phase-d", "stage:finding"], "title": "f1",
+                   "metadata": {"phase": "d", "sprint": "d-1", "sprint_bead": "t-d-1", "stack": "phase-d", "severity": "important",
+                                "reviewer": "req-qa", "found_at_commit": "abc123"}}
+        sanity = {"id": "t-d-1.qa1-f1-sanity", "status": "open", "labels": ["phase-d", "stage:dev-sanity"], "title": "s",
+                  "metadata": {"dev_bead": finding["id"], "phase": "d", "sprint": "d-1", "sprint_bead": "t-d-1",
+                               "stack": "phase-d", "difficulty": "fast", **layer},
+                  "dependencies": [{"issue_id": "t-d-1.qa1-f1-sanity", "depends_on_id": finding["id"], "type": "blocks"}]}
+        qa = {"id": "t-d-1.qa1-f1-qa", "status": "open", "labels": ["phase-d", "stage:qa"], "title": "q",
+              "metadata": {"role": "qa", "checked_bead": finding["id"], "round": 1, "reviewers_round1": ["req-qa"],
+                           "phase": "d", "sprint": "d-1", "sprint_bead": "t-d-1", "stack": "phase-d", "difficulty": "fast", **layer}}
+        fills, problems = self.plan([*self.group()[:4], finding, sanity, qa])
+        self.assertEqual(problems, [])
+        stamped = {fill["bead"]: fill["set_metadata"] for fill in fills}[finding["id"]]
+        self.assertEqual({k: stamped[k] for k in layer}, layer)
+        self.assertEqual((stamped["role"], stamped["base"], stamped["sanity_bead"], stamped["qa_bead"]),
+                         ("fix", "sprint/d-1-work", sanity["id"], qa["id"]))
+
     def test_a_conflicting_set_field_is_reported_and_nothing_is_overwritten(self):
         fills, problems = self.plan(self.group(base="sprint/elsewhere"))
         self.assertTrue(any("metadata.base" in problem and "left unchanged" in problem for problem in problems), problems)
