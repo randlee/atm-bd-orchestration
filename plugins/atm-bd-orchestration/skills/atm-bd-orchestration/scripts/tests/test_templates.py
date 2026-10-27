@@ -894,16 +894,6 @@ def test_hook_escalation_template_tracks_recovery_and_preserves_error_state():
     assert "only after recovery is verified" in workflow.text
 
 
-def test_hook_repair_template_uses_installed_runner_path():
-    values = _example("sanity-bead-repair-vars.json")
-    result = _render("sanity-bead-repair.xml.j2", values)
-    assert result.returncode == 0, result.stderr
-    assert "python3 " + values["repair_script"] in result.stdout
-    for flag, field in (("--phase", "phase"), ("--team", "team"), ("--original-task", "original_task"), ("--lead", "phase_lead")):
-        assert f"{flag} {values[field]}" in result.stdout
-    assert "/.claude/skills/atm-bd-orchestration/scripts/" not in result.stdout
-
-
 def test_shipped_dev_and_fix_assignments_carry_no_host_build_policy():
     # Repository build policy (cargo parallelism, host sharing) belongs in the consumer's policy_path, not in the
     # templates every installing repository receives.

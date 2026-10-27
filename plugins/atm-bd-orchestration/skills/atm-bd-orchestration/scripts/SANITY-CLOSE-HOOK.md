@@ -113,14 +113,6 @@ that `bd` refuses (exit 13), that names an absent bead, or that fails five
 times. The lead sets the bead by hand and runs `bd_cache.py resolve <seq>`.
 The daemon hook has no retry/sleep loop; its 2.5-second limit is unchanged.
 
-Repair tasks assigned before the bd-cache cutover (`<sanity-id>.bd-repair-<key>`)
-finish as before: the assignee runs `sanity-close-repair.py --journal <path> --key
-<key>`, which uses the frozen pre-cutover hook `sanity_close_legacy.py`, and the
-hook lets the repair task close only once its journal record says `repaired`;
-`atm doctor` shows each unfinished one as `SANITY_CLOSE.REPAIR_PENDING`. No new
-repair task is created. Delete the runner, `sanity_close_legacy.py`, the
-`sanity-bead-repair.xml.j2` template and their tests once none remains open.
-
 External ATM actions are sequential and are not a transaction. A notification
 may repeat if delivery succeeded but acknowledgement was lost; never claim
 exactly-once delivery. Undelivered error escalations appear in `atm doctor`;

@@ -402,18 +402,6 @@ def hook(envelope, runner=subprocess.run, clock=time.monotonic, spawn: Callable[
         return {"result": "not-applicable"}
     if ".close-error-" in runtime.task:
         return {"result": "pass-through"}
-    if ".bd-repair-" in runtime.task:
-        # Repair tasks assigned before the bd-cache cutover finish with sanity-close-repair.py;
-        # delete this branch, the runner and its template once none remains open.
-        try:
-            rows = runtime.state().db.execute("SELECT value FROM records").fetchall()
-            matches = [p for p in map(lambda row: json.loads(row[0]), rows) if p.get("repair_task") == runtime.task]
-            require(len(matches) == 1, "repair record", "expected one durable obligation", "phase-lead")
-            runtime.plan = matches[0]
-            require(runtime.plan.get("repaired"), "repair", "bead repair is unfinished; run the assigned repair command", "phase-lead")
-            return {"result": "pass-through"}
-        except Failure as error:
-            return runtime.validation_error(error)
     # Explicit rollout routing keeps unrelated agents off bd entirely under load.
     members = runtime.custom.get("sanity_agents")
     if isinstance(members, list) and runtime.identity not in members:
@@ -445,9 +433,6 @@ def doctor(envelope):
                     findings.append({"severity": "warning", "code": "SANITY_CLOSE.ESCALATION_PENDING",
                                      "message": f"{row['task_id']}: {row['detail']}; owner={row['owner']}",
                                      "remediation": "Lead: inspect the journal and deliver the pending escalation."})
-                elif row.get("repair_task") and not row.get("repaired"):
-                    findings.append({"severity": "warning", "code": "SANITY_CLOSE.REPAIR_PENDING",
-                                     "message": row["repair_task"], "remediation": "Run the assigned bead repair task."})
         except (sqlite3.Error, ValueError) as error:
             findings.append({"severity": "warning", "code": "SANITY_CLOSE.JOURNAL_UNREADABLE",
                              "message": f"{path}: {error}",
