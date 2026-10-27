@@ -5,7 +5,7 @@ import os
 import re
 import tomllib
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,15 @@ from .ids import short_id
 from .result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result
 from .skill_loader import load_skill
 from .types import Bead, DispatchContext, DispatchSpec, Phase, PhaseFile, RepoConfig, Sprint, Step, StepKind
+
+
+@dataclass(frozen=True)
+class SanityHost:
+    """What a sanity assignment reads from the host, as the dev close hook does: the beads directory (BEADS_DIR or
+    `bd where --json`) and, per phase, the `atm hook list --phase <x> --json` rows that select the close mode."""
+    beads_dir: str
+    hooks: Mapping[str, Any]
+
 
 # atm-bd conventions (atm-beads sprint_index_common.py): the only place they are named.
 PHASE_DIR = ".atm-bd"
@@ -48,6 +57,7 @@ SPRINT_KEY = "sprint"
 SPRINT_BEAD_KEY = "sprint_bead"
 SEVERITY_KEY = "severity"
 QUICK_FIX_KEY = "quick_fix"
+QA_BEAD_KEY = "qa_bead"
 BRANCH_KEY, PR_TARGET_KEY, WORKTREE_KEY, LAYER_KEY, DIFFICULTY_KEY = "branch", "pr_target", "worktree", "layer", "difficulty"
 PR_NUMBER_KEY, PR_URL_KEY = "pr_number", "pr_url"  # recorded on a dev or fix bead by its close
 # Semantic source name -> production template variable. Dispatch code uses these names
@@ -332,7 +342,12 @@ def step(bead: Bead, parents: Mapping[str, Bead]) -> Result[Step]:
         if checked_bead.metadata.get(ROUND_KEY) is None:
             return _missing(f"{checked_bead.id}.metadata.{ROUND_KEY}")
         qa_round = checked_bead.metadata[ROUND_KEY] + 1
-    rows = (_row(bead), _row(checked_bead)) if kind == QA_KIND and checked_bead is not None else (None, None)
+    # A sanity step's QA bead plans the layer and reviewers its close hands to QA; the pour stamps it on both beads.
+    sanity_qa = parents.get(str(metadata.get(QA_BEAD_KEY) or (checked_bead.metadata.get(QA_BEAD_KEY) if checked_bead else "")
+                                or "")) if kind == SANITY_KIND else None
+    rows = ((_row(bead), _row(checked_bead), None) if kind == QA_KIND and checked_bead is not None
+            else (_row(sanity_qa), _row(checked_bead), _row(bead)) if kind == SANITY_KIND and checked_bead is not None
+            and sanity_qa is not None else (None, None, None))
     top = _top_epic(bead, parents)
     prefix = (top or bead.id).split("-", 1)[0]
     return Ok(Step(
@@ -348,7 +363,7 @@ def step(bead: Bead, parents: Mapping[str, Bead]) -> Result[Step]:
 def _row(bead: Bead) -> dict[str, Any]:
     """A bead in the `bd list --json` shape close_fields reads."""
     return {"id": bead.id, "title": bead.title, "status": bead.raw_status or str(bead.status), "labels": list(bead.labels),
-            "metadata": dict(bead.metadata)}
+            "metadata": dict(bead.metadata), "close_reason": bead.close_reason}
 
 
 def closed_show_ids(file: PhaseFile, known: tuple[Bead, ...]) -> tuple[str, ...]:
@@ -421,7 +436,8 @@ def phase(
     return Ok(Phase(root.id, file.label, root.title, closed, tuple(sprints), tuple(steps), tuple(errors)))
 
 
-def dispatch_spec(ctx: DispatchContext, templates: Mapping[str, str]) -> Result[DispatchSpec]:
+def dispatch_spec(ctx: DispatchContext, templates: Mapping[str, str],
+                  sanity: Result[SanityHost] | None = None) -> Result[DispatchSpec]:
     current, pr = ctx.step, ctx.pr
     if current.kind not in (SANITY_KIND, QA_KIND):
         return Err(ConfigInvalid("config_invalid", f"{current.bead_id}.kind", current.kind,
@@ -441,10 +457,21 @@ def dispatch_spec(ctx: DispatchContext, templates: Mapping[str, str]) -> Result[
         keys["layer_prs"]: layer_prs,
     }
     if current.kind == SANITY_KIND and template.rsplit("/", 1)[-1] == "dev-sanity-template.xml.j2":
-        return Err(ConfigInvalid(
-            "config_invalid", f"{current.bead_id}.sanity_assignment", "close vars unavailable",
-            "supply beads_dir, phase_lead, and close_context from the dev close handoff before dispatching sanity",
-        ))
+        # A ready sanity bead the dev close did not assign (refused, lost) is re-dispatched exactly as that close
+        # would have: close_fields.sanity_assignment_vars, the producer the dev close hook uses (#557).
+        resolved = sanity_assignment(current, ctx.repo, ctx.lead, sanity)
+        if isinstance(resolved, Err):
+            return resolved
+        sanity_vars = dict(resolved.value)
+        recorded = sanity_vars[keys["pr_number"]]
+        if pr is not None and recorded and str(pr.number) != recorded:
+            return Err(ConfigInvalid(
+                "config_invalid", f"{current.checked_bead}.metadata.{PR_NUMBER_KEY}", recorded,
+                f"the PR read shows #{pr.number} open for {current.branch} but {current.checked_bead} recorded #{recorded}: "
+                f"correct {current.checked_bead}.metadata.pr_number to the PR under review, then dispatch again",
+            ))
+        sanity_vars[keys["layer_prs"]] = layer_prs
+        return Ok(DispatchSpec(template, sanity_vars))
     if current.kind == SANITY_KIND:
         values |= {
             keys["primary_checkout"]: ctx.repo.primary_checkout,
@@ -473,6 +500,36 @@ def dispatch_spec(ctx: DispatchContext, templates: Mapping[str, str]) -> Result[
 
 CLOSE_FIELDS_SCRIPT = "atm-beads/scripts/close_fields.py"
 CLOSE_VARS_CONTRACT = "atm-bd-orchestration/templates/task-close-vars.j2"
+
+
+def sanity_assignment(current: Step, repo: RepoConfig, lead: str,
+                      host: Result[SanityHost] | None) -> Result[Mapping[str, Any]]:
+    """The dev close's sanity assignment of one sanity step (close_fields.sanity_assignment_vars), each refusal as a
+    typed error."""
+    if current.sanity_row is None or current.checked_row is None or current.qa_row is None:
+        return _missing(f"{current.checked_bead} and the QA bead (of {current.bead_id}) in the bead read")
+    if host is None:
+        return _missing(f"{current.bead_id}: the beads directory and `atm hook list` rows in this tick's reads")
+    if isinstance(host, Err):
+        return host
+    try:
+        module, _ = load_skill(repo.primary_checkout, CLOSE_FIELDS_SCRIPT, CLOSE_VARS_CONTRACT)
+    except RuntimeError as error:
+        return Err(ConfigInvalid("config_invalid", CLOSE_FIELDS_SCRIPT, str(error),
+                                 "install atm-bd-orchestration with close_fields.sanity_assignment_vars into the "
+                                 "repository's .claude/skills; sanity is not re-dispatched without it"))
+    if not hasattr(module, "sanity_assignment_vars"):
+        return Err(ConfigInvalid("config_invalid", f"{CLOSE_FIELDS_SCRIPT}.sanity_assignment_vars", "not installed",
+                                 "install an atm-bd-orchestration release with close_fields.sanity_assignment_vars, "
+                                 "or re-issue the sanity task with close-vars.py --sanity-assignment"))
+    phase = str((current.sanity_row.get("metadata") or {}).get("phase") or "")
+    try:
+        mode = module.sanity_close_mode(list(host.value.hooks.get(phase) or ()), phase, repo.sanity_member)
+        return Ok(module.sanity_assignment_vars(dict(current.sanity_row), dict(current.checked_row), dict(current.qa_row),
+                                                Path(repo.primary_checkout),
+                                                lead=lead, beads_dir=host.value.beads_dir, close_mode=mode))
+    except module.CloseFieldsError as error:
+        return Err(ConfigInvalid("config_invalid", f"{current.bead_id}: {error.code}", str(error), error.fix))
 
 
 def qa_assignment(current: Step, repo_root: str) -> Result[Mapping[str, Any]]:

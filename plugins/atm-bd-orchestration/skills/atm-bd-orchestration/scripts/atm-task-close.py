@@ -25,6 +25,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bd_cache
+import close_fields
 import repo_config
 import sc_render
 from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
@@ -53,33 +54,6 @@ DRAIN_BUSY_SLEEP_S = 2
 # ATM's HTTP request body limit: the ATM daemon's DEFAULT_MAX_MESSAGE_BYTES (1,048,576) plus
 # CANONICAL_WRITE_ENVELOPE_OVERHEAD_BYTES (65,536), crates/atm-daemon-bootstrap/src/lib.rs.
 ATM_MAX_REQUEST_BYTES = 1_114_112
-# The dev/fix fields the sanity close reads back from close_context: sanity-close-vars build() and
-# write_stack_input(), then atm-task-close.py --role sanity and the templates it renders and sends
-# (dev-sanity-complete, sanity-fail, qa-template). Every other field is overwritten there or never read.
-SANITY_CLOSE_CONTEXT = frozenset((
-    "base", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
-    "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
-    "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"))
-
-
-SANITY_CLOSE_HOOK_MODULE = "sanity_task_close_hook.py"
-
-
-def sanity_close_mode(rows, phase, member):
-    """`daemon` when `atm hook list --phase <phase> --json` shows an active task.close registration of the sanity
-    close hook that enables `member` (SANITY-CLOSE-HOOK.md); otherwise `legacy`."""
-    for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict):
-            continue
-        custom = row.get("custom")
-        agents = custom.get("sanity_agents") if isinstance(custom, dict) else None
-        if (row.get("phase") == phase and row.get("hook") == "task.close" and row.get("active") is True
-                and Path(str(row.get("module_path") or "")).name == SANITY_CLOSE_HOOK_MODULE
-                and isinstance(agents, list) and member in agents):
-            return "daemon"
-    return "legacy"
-
-
 def is_terminal(events):
     return bool(events) and events[-1].get("to_state") in TERMINAL_STATES
 
@@ -686,12 +660,12 @@ class Hook:
     def sanity_dispatch(self, context):
         """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
         template = "dev-sanity-template.xml.j2"
-        close_context = {name: context[name] for name in SANITY_CLOSE_CONTEXT if name in context}
-        close_context.update(phase_lead=self.lead, budget=context.get("budget", "full"))
-        dispatch = {**context, "close_context": close_context, "beads_dir": self.beads_directory()}
+        beads_dir = self.beads_directory()
         phase = str(context.get("phase") or "")
         rows = self.json(["atm", "hook", "list", "--phase", phase, "--json"], lead=True) if phase else []
-        dispatch["sanity_close_mode"] = sanity_close_mode(rows, phase, self.config["dev_sanity_member"])
+        dispatch = close_fields.sanity_dispatch_vars(
+            context, lead=self.lead, beads_dir=beads_dir,
+            close_mode=close_fields.sanity_close_mode(rows, phase, self.config["dev_sanity_member"]))
         self.render(template, dispatch)
         size = len(json.dumps(dispatch).encode()) + len((TEMPLATES / template).read_bytes())
         if size > ATM_MAX_REQUEST_BYTES:

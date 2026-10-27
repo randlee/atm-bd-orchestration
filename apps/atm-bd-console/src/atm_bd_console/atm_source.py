@@ -5,6 +5,7 @@ import os
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from . import command
 from .enums import SprintState
@@ -130,6 +131,19 @@ def task_closed(task_id: str, team: str, as_: str, *, timeout_s: int | None = No
         return Ok(bool(states) and states[-1] == CLOSED_TASK_STATE)
     except json.JSONDecodeError as error:
         return Err(ParseFailed("parse_failed", "atm task events", str(error), fix))
+
+
+def hooks(phase: str, as_: str, team: str, *, timeout_s: int | None = None) -> Result[tuple[Any, ...]]:
+    """`atm hook list --phase <phase> --json` rows: the dev close hook selects the sanity close mode from them."""
+    argv = ["atm", "hook", "list", "--phase", phase, "--json"]
+    result = _run(argv, as_, timeout_s=timeout_s, team=team)
+    if isinstance(result, Err):
+        return result
+    try:
+        rows = json.loads(result.value)
+    except json.JSONDecodeError as error:
+        return Err(ParseFailed("parse_failed", "atm hook list", str(error), f"rerun `{' '.join(argv)}` and check it prints JSON"))
+    return Ok(tuple(rows) if isinstance(rows, list) else ())
 
 
 def send(to: str, text: str, as_: str, team: str, *, timeout_s: int | None = None) -> Result[None]:

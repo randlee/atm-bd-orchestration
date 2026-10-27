@@ -85,6 +85,9 @@ class Step:
     # QA vars from them with the canonical resolver, close_fields.qa_assignment_vars, the one producer of QA vars (#557).
     qa_row: Mapping[str, Any] | None = None
     checked_row: Mapping[str, Any] | None = None
+    # Sanity steps: the sanity bead, with qa_row its QA bead and checked_row its dev or fix bead. Dispatch rebuilds the
+    # dev close's sanity assignment from them with close_fields.sanity_assignment_vars, the dev close hook's producer.
+    sanity_row: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)

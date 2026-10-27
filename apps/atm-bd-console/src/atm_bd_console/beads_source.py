@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -63,6 +64,24 @@ def _run(argv: list[str], *, cwd: str | None = None) -> Result[tuple[Bead, ...]]
         return Ok(tuple(_bead(item) for item in raw.value))
     except (KeyError, TypeError, ValueError) as error:
         return Err(ParseFailed("parse_failed", "bd", str(error), "repair bd JSON"))
+
+
+def where(*, cwd: str | None = None) -> Result[str]:
+    """The absolute beads directory, as the dev close hook reads it: BEADS_DIR, else `bd where --json` .path."""
+    configured = os.environ.get("BEADS_DIR")
+    if configured:
+        return Ok(configured)
+    fix = "set BEADS_DIR or repair `bd where --json` to print an absolute beads path"
+    completed = command.run(["bd", "where", "--json"], fix, cwd=cwd)
+    if isinstance(completed, Err):
+        return completed
+    try:
+        path = json.loads(completed.value.stdout).get("path")
+    except (AttributeError, json.JSONDecodeError) as error:
+        return Err(ParseFailed("parse_failed", "bd where", str(error), fix))
+    if not isinstance(path, str) or not os.path.isabs(path):
+        return Err(ParseFailed("parse_failed", "bd where", f"path {path!r} is not absolute", fix))
+    return Ok(path)
 
 
 def show(ids: tuple[str, ...]) -> Result[tuple[Bead, ...]]:

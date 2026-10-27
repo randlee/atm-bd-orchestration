@@ -127,6 +127,95 @@ class QaAssignmentTests(unittest.TestCase):
         self.assertEqual(close_fields.qa_assignment_vars(QA, FIX, REPO)["base"], "sprint/d-1")
 
 
+SANITY = row("t-d-1.f1-sanity", "stage:dev-sanity", "sanity", dev_bead="t-d-1.f1-fix")
+CLOSED_FIX = {**FIX, "close_reason": "fixed at abc123",
+              "metadata": {**FIX["metadata"], "branch": "fix/d-1-f1", "pr_base": "fix/d-1-f0"}}
+HOST = {"lead": "phase-lead", "beads_dir": "/beads", "close_mode": "legacy"}
+
+
+class SanityAssignmentTests(unittest.TestCase):
+    """The sanity assignment rebuilt from a closed checked bead, for a re-issued sanity task (lint-l-2, 2026-10-27)."""
+
+    def build(self, checked=CLOSED_FIX, qa=QA, sanity=SANITY):
+        return close_fields.sanity_assignment_vars(sanity, checked, qa, REPO, **HOST)
+
+    def refused(self, **rows) -> close_fields.CloseFieldsError:
+        with self.assertRaises(close_fields.CloseFieldsError) as caught:
+            self.build(**rows)
+        return caught.exception
+
+    def test_the_recorded_close_and_the_qa_plan_fill_the_assignment_and_render_it(self):
+        values = self.build()
+        self.assertEqual((values["commit"], values["branch"], values["pr_number"], values["base"]),
+                         ("abc123", "fix/d-1-f1", "2214", "fix/d-1-f0"))
+        self.assertEqual((values["beads_dir"], values["sanity_close_mode"]), ("/beads", "legacy"))
+        context = values["close_context"]
+        self.assertEqual((context["layer"], context["reviewers_round1"], context["phase_lead"], context["budget"]),
+                         (34, ["req-qa"], "phase-lead", "full"))
+        self.assertEqual((context["outcome"], context["evidence"], context["stack_bead"]), ("fixed", "", "t-phase-d.stack"))
+        result = render(SCRIPTS.parent / "templates/dev-sanity-template.xml.j2", values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("<checked-bead><![CDATA[t-d-1.f1-fix]]></checked-bead>", result.stdout)
+        self.assertIn('<pr number="2214">', result.stdout)
+
+    def test_the_built_close_context_is_what_the_sanity_close_requires(self):
+        # sanity-close-vars refuses a close_context lacking any sanity close field (layer, phase_feature, ...).
+        required = set(close_fields.contract()["required_variables_by_role"]["sanity"]) & close_fields.SANITY_CLOSE_CONTEXT
+        self.assertEqual(required - {"round", "evidence", "outcome"} - set(self.build()["close_context"]), set())
+
+    def test_a_not_reproducible_close_carries_its_evidence_and_needs_no_pr(self):
+        closed = {**CLOSED_FIX, "close_reason": "not reproducible: src/a.py:12",
+                  "metadata": {k: v for k, v in CLOSED_FIX["metadata"].items() if k not in ("pr_number", "pr_url")}}
+        context = self.build(checked=closed)["close_context"]
+        self.assertEqual((context["outcome"], context["evidence"], context["pr_number"]), ("not_reproducible", "src/a.py:12", ""))
+
+    def test_an_open_or_unrecorded_checked_bead_is_refused(self):
+        self.assertEqual(self.refused(checked={**CLOSED_FIX, "status": "in_progress"}).code, "ASSIGN_VARS.NOT_CLOSED")
+        unrecorded = {**CLOSED_FIX, "metadata": {k: v for k, v in CLOSED_FIX["metadata"].items() if k != "pr_url"}}
+        error = self.refused(checked=unrecorded)
+        self.assertEqual(error.code, "ASSIGN_VARS.NOT_RECORDED")
+        self.assertIn("pr_url", str(error))
+
+    def test_a_qa_bead_without_a_layer_or_reviewers_is_refused(self):
+        for name in ("layer", "reviewers_round1"):
+            unplanned = {**QA, "metadata": {k: v for k, v in QA["metadata"].items() if k != name}}
+            self.assertEqual(self.refused(qa=unplanned).code, "ASSIGN_VARS.NOT_PLANNED", name)
+
+    def test_the_layer_falls_back_to_the_one_the_checked_bead_holds(self):
+        unlinked = {**QA, "metadata": {k: v for k, v in QA["metadata"].items() if k != "layer"}}
+        layered = {**CLOSED_FIX, "metadata": {**CLOSED_FIX["metadata"], "layer": 12}}
+        self.assertEqual(self.build(checked=layered, qa=unlinked)["close_context"]["layer"], 12)
+
+    def test_mismatched_beads_are_refused(self):
+        self.assertEqual(self.refused(sanity={**SANITY, "metadata": {**SANITY["metadata"], "dev_bead": "t-other"}}).code,
+                         "ASSIGN_VARS.CONFLICT")
+        self.assertEqual(self.refused(qa={**QA, "id": "t-other-qa"}).code, "ASSIGN_VARS.CONFLICT")
+        renamed = {**CLOSED_FIX, "metadata": {**CLOSED_FIX["metadata"], "sanity_bead": "t-other-sanity"}}
+        self.assertEqual(self.refused(checked=renamed).code, "ASSIGN_VARS.CONFLICT")
+        self.assertEqual(self.refused(sanity=QA).code, "ASSIGN_VARS.NOT_SANITY")
+        self.assertEqual(self.refused(sanity={**SANITY, "metadata": {**SANITY["metadata"], "dev_bead": QA["id"]}},
+                                      checked=QA).code, "ASSIGN_VARS.NOT_CHECKED")
+
+    def test_the_cli_reads_the_three_beads_and_the_host_and_names_the_sanity_assign_command(self):
+        from unittest import mock
+        rows = {r["id"]: r for r in (SANITY, CLOSED_FIX, QA)}
+        hooks = [{"phase": "d", "hook": "task.close", "active": True, "module_path": "/x/sanity_task_close_hook.py",
+                  "custom": {"sanity_agents": ["sanity"]}}]
+        with mock.patch.object(close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
+            result = close_vars_cli.build_sanity_assignment(REPO, SANITY["id"],
+                                                            host=lambda repo, phase: ("phase-lead", "sanity", "/beads", hooks))
+        self.assertEqual(result["role"], "sanity-assignment")
+        self.assertEqual(result["vars"]["sanity_close_mode"], "daemon")
+        self.assertEqual(result["vars"]["sanity_task_id"], SANITY["id"])
+        import types
+        phases = types.SimpleNamespace(load_phase_config=lambda repo, phase: {"templates": {"sanity": "t/sanity.j2", "qa": "t/qa.j2"}})
+        config = types.SimpleNamespace(load=lambda repo: {"dev_sanity_member": "sanity", "qa_member": "quality"},
+                                       ConfigError=ValueError)
+        with mock.patch.dict(sys.modules, {"sprint_index_common": phases, "repo_config": config}):
+            command = close_vars_cli.assign_command(REPO, result["vars"], "out.json", "sanity")
+        self.assertEqual(command, [f"atm task assign sanity --task-id {SANITY['id']} --template t/sanity.j2 --vars out.json"])
+
+
 class BackfillTests(unittest.TestCase):
     def group(self, **dev_meta):
         container = {"id": "t-d-1", "status": "open", "labels": ["phase-d"], "title": "d-1: the work", "metadata": {}}

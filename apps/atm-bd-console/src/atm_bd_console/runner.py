@@ -164,6 +164,27 @@ def _refresh_github(config: Config, now: datetime, gh: GhStatus, groups=(), head
     return result, status, stack
 
 
+def _sanity_host(config: Config, phase, logger: TickLog) -> Result[atm_bd.SanityHost] | None:
+    """The host reads a sanity re-dispatch needs, made only when a sanity step is ready: the beads directory and each
+    of those steps' phases' `atm hook list` rows (close_fields.sanity_assignment_vars)."""
+    if not isinstance(phase, Ok):
+        return None
+    phases = sorted({str((step.sanity_row or {}).get("metadata", {}).get("phase") or "")
+                     for step in phase.value.steps if step.kind == atm_bd.SANITY_KIND and step.ready} - {""})
+    if not phases:
+        return None
+    beads_dir = logger.result("beads.where", beads_source.where(cwd=config.repo_root))
+    if isinstance(beads_dir, Err):
+        return beads_dir
+    hooks = {}
+    for name in phases:
+        rows = logger.result("atm.hooks", atm_source.hooks(name, config.lead, config.team), phase=name)
+        if isinstance(rows, Err):
+            return rows
+        hooks[name] = rows.value
+    return Ok(atm_bd.SanityHost(beads_dir.value, hooks))
+
+
 def _cached_stack(config: Config, cached: PrsFile | None) -> tuple[int, ...] | None:
     """The cached membership, only when it was read for the stack configured now."""
     if cached is None or config.stack_number is None or cached.stack_number != config.stack_number:
@@ -460,7 +481,9 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
                 merge_results.append(Ok(unavailable))
     stack_prs = _stack_input(config, cached_stack, stack_read)
     inputs = Inputs(now, config.lead, repo.value, config.interval_s, phase, members, tasks, worktrees, remotes, tuple(merge_results) if due else tuple(Ok(item) for item in merges.values()), prs_input, gh, task_beads, closed_tasks, stack_prs=stack_prs)
-    snapshot, actions, next_state = model.tick(inputs, state, now, partial(atm_bd.dispatch_spec, templates=file.value.templates))
+    sanity_host = _sanity_host(config, phase, logger)
+    snapshot, actions, next_state = model.tick(inputs, state, now, partial(atm_bd.dispatch_spec, templates=file.value.templates,
+                                                                          sanity=sanity_host))
     if not snapshot.phase:
         snapshot = replace(snapshot, phase=config.phase)  # the header keeps the configured id when the phase read failed
     steps = {item.bead_id: item for item in phase.value.steps} if isinstance(phase, Ok) else {}

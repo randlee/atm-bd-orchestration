@@ -37,7 +37,7 @@ def runtime(repo, tmp_path, monkeypatch):
     monkeypatch.setattr(runner.atm_bd, "phase_file", lambda *_: Ok(PHASE_FILE))
     monkeypatch.setattr(runner.atm_bd, "repo_config", lambda *_: Ok(REPO_CONFIG))
     monkeypatch.setattr(runner.atm_bd, "phase", lambda *_: Ok(phase))
-    monkeypatch.setattr(runner.atm_bd, "dispatch_spec", lambda context, templates: Ok(DispatchSpec(templates["qa"], {"commit": context.commit})))
+    monkeypatch.setattr(runner.atm_bd, "dispatch_spec", lambda context, templates, sanity=None: Ok(DispatchSpec(templates["qa"], {"commit": context.commit})))
     monkeypatch.setattr(runner.beads_source, "show", lambda *_: Ok((replace(BEAD, status=SprintState.OPEN),)))
     monkeypatch.setattr(runner.beads_source, "open_rows", lambda *_: Ok(runner.beads_source.BeadRows((), ())))
     monkeypatch.setattr(runner.beads_source, "ready", lambda *_: Ok(()))

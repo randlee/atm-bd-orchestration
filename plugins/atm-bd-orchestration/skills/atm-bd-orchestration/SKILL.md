@@ -342,7 +342,7 @@ this skill; use the configured path when the phase overrides a default.
 | --- | --- | --- |
 | plan review (`stage:plan-review`) | `templates.plan_review` | quality-mgr |
 | dev (`stage:dev`) | `templates.dev` | the member the lead picks for its `difficulty` |
-| sanity check (`stage:dev-sanity`) | `templates.sanity` | `.claude/skills/atm-beads/scripts/resolve-role dev-sanity` |
+| sanity check (`stage:dev-sanity`) | `templates.sanity`; the dev close assigns it. One ready but not assigned (refused, lost) is re-issued with vars from `scripts/close-vars.py <sanity bead> --sanity-assignment --out <vars>` (what the dev close sent, rebuilt from the closed checked bead and its QA bead); run the `next` command it prints | `.claude/skills/atm-beads/scripts/resolve-role dev-sanity` |
 | QA (`stage:qa`) | `templates.qa`, vars from `scripts/close-vars.py <qa bead> --qa-assignment --out <vars>` (its PR, commit and branch are the checked bead's recorded close); run the `next` command it prints | quality-mgr |
 | fix (`stage:fix`) | `templates.fix` | the member the lead picks for its `difficulty` |
 | finding from a quick-fix QA (its `discovered-from` QA bead has `metadata.quick_fix` true) | `templates.fix`, no sanity bead; once every finding from that failed QA has closed, one more quick-fix QA bead (Parallel Quick Fix step 4) | an idle dev picked for its `difficulty`, by priority |
