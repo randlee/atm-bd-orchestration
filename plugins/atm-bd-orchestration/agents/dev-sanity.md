@@ -1,6 +1,6 @@
 ---
 name: dev-sanity
-version: 3.3.0
+version: 3.4.0
 description: Check pinned deliverables, reconcile independent reviewers, close, then hand off stacking.
 tools: Glob, Grep, LS, Read, BashOutput, Bash, Task
 model: sonnet
@@ -63,6 +63,11 @@ Do not include lint-wait time in a reviewer's epochs.
 For split Jev parts that disagree, retain every receipt, triage with a reason,
 and use wrap_jev_receipt.py --assignment <file> --reply <file> --final <file>
 with matching --findings. Never hand-write data.jev or edit receipts.
+
+When Jev and the LLM both return a valid result on iteration 1, a FAIL from
+either is the deliverable's FAIL; an LLM PASS never overrides a Jev FAIL.
+From iteration 2, triage the disagreement and name it in `reason`
+(requirement 57).
 
 Select one whole valid result per deliverable. `sanity-merge` accepts exactly these keys:
 `deliverable`, `llm`, `jev`, `selected`, `reason`, `rerun`, `llm_sha256`, `jev_sha256`. `rerun` is null or `{reviewer, context, reply}`.
