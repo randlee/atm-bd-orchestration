@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.9] - 2026-10-26
+
 ### Changed
 - A layer rebased after its sanity PASS (`rebase_required`, or a QA `SANITY_STALE` after the rebase) gets a re-check sanity bead: the lead pours `<sanity bead>-r<N>` from `dev-sanity-bead.json.j2` at the new head, closes the old sanity bead as superseded, moves the QA blocker to it and dispatches sanity, before any new dev dispatch; it never reopens a sanity or dev bead, edits bead metadata or hand-makes a bead. quality-mgr's `SANITY_STALE` refusal points to it. On iteration 1 a FAIL from either valid Jev or LLM result is the deliverable's FAIL, as requirement 57 rules; from iteration 2 the disagreement is triaged with a reason. `sanity-stack-link`'s `rebase_required` result and lead notice carry `next_steps`: `relink_in_git_order` when the layer is already in the top's history (the top was linked first), else `rebase` (clean) or `dev_rebase` (conflicts), each with its commands (`dev-sanity` 3.4.0, `SKILL.md`, `roles/quality-mgr.md`).
 
