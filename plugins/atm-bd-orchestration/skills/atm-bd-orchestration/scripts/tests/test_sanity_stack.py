@@ -326,6 +326,30 @@ def test_divergence_never_links_or_writes(world):
     assert not any(call[:3] == ["gh", "stack", "link"] or "--metadata" in call for call in world.calls)
 
 
+def test_rebase_required_names_rebase_options(world):
+    first = world.branch("first", "trunk", 1)
+    rival = world.branch("rival", "trunk", 2)
+    assert world.link(first)["result"] == "stacked"
+    result = world.link(rival)
+    assert result["result"] == "rebase_required"
+    assert [step["option"] for step in result["next_steps"]] == ["rebase", "dev_rebase"]
+    assert "git rebase origin/first" in result["next_steps"][0]["steps"][0]
+    assert "dev-sanity-bead.json.j2" in result["next_steps"][0]["steps"][1]
+
+
+def test_rebase_required_inside_top_history_names_relink(world):
+    first = world.branch("first", "trunk", 1)
+    lower = world.branch("lower", "first", 2)
+    upper = world.branch("upper", "lower", 3)
+    world.pulls[2].update(base="first")
+    assert world.link(first)["result"] == "stacked"
+    assert world.link(upper)["result"] == "stacked"
+    result = world.link(lower)
+    assert result["result"] == "rebase_required"
+    assert [step["option"] for step in result["next_steps"]] == ["relink_in_git_order"]
+    assert result["next_steps"][0]["steps"][0] == "do not rebase lower"
+
+
 def test_moved_ledger_top_fails_closed(world):
     first = world.branch("first", "trunk", 1)
     second = world.branch("second", "first", 2)
