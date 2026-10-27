@@ -70,12 +70,15 @@ def plan(rows: list[dict], *, phase_feature: str, stack_bead: str, config: dict)
             problems.append(f"{row['id']}: its checked bead {checked!r} is not in phase {meta.get('phase')!r}")
             continue
         wmeta = work.get("metadata") or {}
+        # A finding gets its cut layer's branch, worktree and pr_target on the sanity and QA beads imported at dispatch.
+        group = [(by_id.get(member(rows, label, key, checked) or "") or {}).get("metadata") or {}
+                 for label, key in (("stage:dev-sanity", "dev_bead"), ("stage:qa", "checked_bead"))]
         sprint_bead = meta.get("sprint_bead") or wmeta.get("sprint_bead")
         container = by_id.get(sprint_bead or "")
         is_sprint_dev = "stage:dev" in (work.get("labels") or [])
         derived = {
             "role": role,
-            **{k: meta.get(k) or wmeta.get(k) for k in CARRIED},
+            **{k: meta.get(k) or wmeta.get(k) or next((g[k] for g in group if g.get(k)), None) for k in CARRIED},
             "sprint_bead": sprint_bead,
             "stack_bead": stack_bead,
             "checked_bead": checked,

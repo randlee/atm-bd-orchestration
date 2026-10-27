@@ -851,14 +851,18 @@ class Hook:
         if verdict == "PASS":
             checked = self.bead(values["checked_bead"])
             is_fix = (checked.get("metadata") or {}).get("role") == "fix" or "stage:fix" in checked.get("labels", [])
+            # A fix's QA re-checks the fix bead itself; no pour or close var stamps it, so it is derived here.
+            if is_fix and not values.get("carry_forward"):
+                values["carry_forward"] = values["checked_bead"]
             self.render("qa-template.xml.j2")
-            if is_fix and values.get("carry_forward", "") != values["checked_bead"]:
-                raise CloseError("VARS.INVALID", "fix QA requires carry_forward", "Supply the checked fix bead as carry_forward.")
             if values.get("carry_forward") and values["carry_forward"] != values["checked_bead"]:
                 raise CloseError("VARS.INVALID", "carry_forward differs from fix bead", "Supply the checked fix bead as carry_forward.")
             self.close_bead(bead, f"PASS at {values['commit']}")
             self.close_task(bead, "dev-sanity-complete.md.j2")
-            self.assign(self.config["qa_member"], values["qa_bead"], "qa-template.xml.j2")
+            with tempfile.TemporaryDirectory(prefix="atm-task-close-") as directory:
+                qa_vars = Path(directory) / "qa-vars.json"
+                qa_vars.write_text(json.dumps(values))
+                self.assign(self.config["qa_member"], values["qa_bead"], "qa-template.xml.j2", path=qa_vars)
             return
         self.render("sanity-fail.xml.j2")
         record = self.bead(bead)
