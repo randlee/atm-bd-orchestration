@@ -7,6 +7,7 @@
 
 ### Fixed
 - `close_fields_backfill.py` now stamps a dispatched important or minor finding. The fix bead carries no branch, worktree or pr_target of its own; they live on the sanity bead (`dev_bead`) and QA bead (`checked_bead`) the lead imported for it at dispatch. Before, the backfill refused it with "cannot derive branch, worktree, pr_target, base from its group", and `close-vars.py` could not build the fix close.
+- A fix or finding sanity PASS no longer fails with `VARS.INVALID` "fix QA requires carry_forward". Nothing stamps `carry_forward` on a sanity close, so `atm-task-close.py` now sets it to the checked fix bead itself, and the QA assignment receives it. A `carry_forward` naming a different bead is still refused.
 
 ## [0.19.8] - 2026-10-26
 

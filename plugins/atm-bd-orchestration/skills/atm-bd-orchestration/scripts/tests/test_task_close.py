@@ -695,11 +695,20 @@ def test_replay_with_changed_verdict_or_head_is_conflict(world):
     assert world.run("sanity", verdict="PASS", commit="c" * 40)["err"]["code"] == "REPLAY.CONFLICT"
 
 
-def test_fix_pass_requires_its_own_carry_forward(world):
+def test_fix_pass_carries_its_own_fix_bead_and_refuses_another(world):
     world.beads[world.values["checked_bead"]]["labels"] = ["stage:fix"]
-    assert world.run("sanity")["err"]["code"] == "VARS.INVALID"
+    assert world.run("sanity", carry_forward="other-bead")["err"]["code"] == "VARS.INVALID"
     assert world.writes == []
-    assert "ok" in world.run("sanity", carry_forward=world.values["checked_bead"])
+    assert "ok" in world.run("sanity", carry_forward="")
+    assert world.messages[-1]["values"]["carry_forward"] == world.values["checked_bead"]
+
+
+def test_finding_pass_stamped_role_fix_carries_the_finding(world):
+    # A dispatched finding is stamped role fix and keeps its stage:finding label.
+    checked = world.beads[world.values["checked_bead"]]
+    checked["labels"] = ["stage:finding"]
+    checked.setdefault("metadata", {})["role"] = "fix"
+    assert "ok" in world.run("sanity")
     assert world.messages[-1]["values"]["carry_forward"] == world.values["checked_bead"]
 
 
