@@ -240,6 +240,39 @@ class WrapArguments(argparse.Namespace):
     for_triage: bool
 
 
+class WrappedReply(TypedDict):
+    jev: JsonValue
+    findings: JsonValue
+    elapsed: JsonObject
+
+
+class ClientOutput(TypedDict):
+    success: bool
+    data: JsonValue
+    error: JsonValue
+    elapsed: JsonObject
+
+
+def parse_client_output(output: JsonValue) -> ClientOutput:
+    if not isinstance(output, dict) or set(output) - {"elapsed_s"} != {"success", "data", "error"} \
+            or not isinstance(output["success"], bool):
+        raise Refused("client_envelope", "--client-output is not a jev_client.py envelope", RERUN)
+    success = output["success"]
+    assert isinstance(success, bool)
+    return {"success": success, "data": output["data"], "error": output["error"],
+            "elapsed": outer_elapsed(output, "client", RERUN)}
+
+
+def parse_wrapped_reply(reply: JsonValue) -> WrappedReply:
+    data = reply.get("data") if isinstance(reply, dict) and reply.get("success") is True else None
+    if not isinstance(data, dict) or "jev" not in data:
+        raise Refused("reply_shape", "--reply is not a success reply holding data.jev",
+                      "Pass the reply this script printed, unchanged, as --reply.")
+    assert isinstance(reply, dict)
+    return {"jev": data["jev"], "findings": data.get("findings"),
+            "elapsed": outer_elapsed(reply, "reply", "Pass the reply this script printed, unchanged, as --reply.")}
+
+
 def wrap(args: WrapArguments, client: JevClient) -> JsonObject:
     fields, total = assignment_fields(read_json(args.assignment, "assignment",
                                                 "Pass the assignment you received, unchanged, as --assignment."))
@@ -247,23 +280,14 @@ def wrap(args: WrapArguments, client: JevClient) -> JsonObject:
     final = read_json(args.final, "final", "Write --final as a JSON object {choice, reason, parts}.") \
         if args.final else None
     if args.reply:
-        reply = read_json(args.reply, "reply", "Pass the reply this script printed, unchanged, as --reply.")
-        data = reply.get("data") if isinstance(reply, dict) and reply.get("success") is True else None
-        if not isinstance(data, dict) or "jev" not in data:
-            raise Refused("reply_shape", "--reply is not a success reply holding data.jev",
-                          "Pass the reply this script printed, unchanged, as --reply.")
-        jev = data["jev"]
-        assert isinstance(reply, dict)
-        elapsed = outer_elapsed(reply, "reply", "Pass the reply this script printed, unchanged, as --reply.")
+        reply = parse_wrapped_reply(read_json(args.reply, "reply", "Pass the reply this script printed, unchanged, as --reply."))
+        jev, elapsed = reply["jev"], reply["elapsed"]
         if findings is None:
-            findings = data.get("findings")
+            findings = reply["findings"]
     else:
         assert args.client_output is not None
-        output = read_json(args.client_output, "client_output", RERUN)
-        if not isinstance(output, dict) or set(output) - {"elapsed_s"} != {"success", "data", "error"} \
-                or not isinstance(output["success"], bool):
-            raise Refused("client_envelope", "--client-output is not a jev_client.py envelope", RERUN)
-        elapsed = outer_elapsed(output, "client", RERUN)
+        output = parse_client_output(read_json(args.client_output, "client_output", RERUN))
+        elapsed = output["elapsed"]
         if output["success"] is False:
             error = output["error"]
             if not isinstance(error, dict) or not client.is_client_message(error.get("message")):
