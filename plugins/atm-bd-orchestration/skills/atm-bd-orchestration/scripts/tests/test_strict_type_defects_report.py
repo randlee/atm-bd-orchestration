@@ -72,9 +72,10 @@ class MissingLimitationsTests(unittest.TestCase):
         self.assertEqual(jev.route(FakeClient.evaluate({}), missing_limitations["coverage"]), "evaluation_error")
 
         packet = jev.prepare(self.manifest, self.repo, FakeClient)
-        del packet["state"]["coverage"]["limitations"]
+        packet_json = json.loads(json.dumps(packet))
+        del packet_json["state"]["coverage"]["limitations"]
         packet_path = self.root / "missing-limitations.json"
-        packet_path.write_text(json.dumps(packet))
+        packet_path.write_text(json.dumps(packet_json))
         row = jev.run([packet_path], FakeClient, self.root / "logs", "phase-d")[0]
         self.assertEqual(row["screening_disposition"], "evaluation_error")
         self.assertIsNotNone(row["error"])
