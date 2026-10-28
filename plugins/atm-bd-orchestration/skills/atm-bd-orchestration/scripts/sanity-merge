@@ -99,12 +99,25 @@ class MergeArguments(argparse.Namespace):
     parsed_selection: list[JsonValue]
 
 
+class AssignmentText(TypedDict):
+    number: int | float | None
+    text: str | None
+
+
 class Manifest(TypedDict):
     sha: str
     branch: str
     deliverables_total: int
     lint: JsonObject
-    raw: JsonObject
+    worktree: str | None
+    invalid_worktree: JsonValue
+    run_id: JsonValue
+    has_run_id: bool
+    operational_reviewer: JsonValue
+    has_operational_reviewer: bool
+    reviewers: list[str] | None
+    assignments: list[AssignmentText]
+    checked_bead_data: JsonValue
 
 
 def load_manifest(path: str | Path) -> Manifest:
@@ -125,7 +138,23 @@ def load_manifest(path: str | Path) -> Manifest:
     if not isinstance(total, int) or isinstance(total, bool):
         raise Reject("manifest deliverables_total must be an integer")
     assert isinstance(lint, dict)
-    return {"sha": sha, "branch": branch, "deliverables_total": total, "lint": lint, "raw": manifest}
+    worktree = manifest.get("worktree_path")
+    reviewers = manifest.get("reviewers", [])
+    assignments = manifest.get("assignments", [])
+    parsed_assignments: list[AssignmentText] = []
+    if isinstance(assignments, list):
+        for assignment in assignments:
+            parsed = parse_assignment_text(assignment)
+            if parsed is not None:
+                parsed_assignments.append(parsed)
+    return {"sha": sha, "branch": branch, "deliverables_total": total, "lint": lint,
+            "worktree": worktree if isinstance(worktree, str) else None,
+            "invalid_worktree": None if isinstance(worktree, str) else worktree,
+            "run_id": manifest.get("run_id"), "has_run_id": "run_id" in manifest,
+            "operational_reviewer": manifest.get("operational_reviewer"),
+            "has_operational_reviewer": "operational_reviewer" in manifest,
+            "reviewers": [reviewer for reviewer in reviewers if isinstance(reviewer, str)] if isinstance(reviewers, list) else None,
+            "assignments": parsed_assignments, "checked_bead_data": manifest.get("checked_bead_data")}
 
 
 def read_results() -> list[JsonValue]:
@@ -292,7 +321,7 @@ def load_reviewer_vars(path: str, reviewer: str, manifest: Manifest) -> Reviewer
         raise Reject(f"cannot read reviewer vars {path}: {exc}")
     if not is_json_object(value):
         raise Reject(f"reviewer vars {path} must be a JSON object")
-    if value.get("run_id") != manifest["raw"].get("run_id"):
+    if value.get("run_id") != manifest["run_id"]:
         raise Reject(f"reviewer vars {path} run_id does not match manifest")
     if value.get("reviewer") != reviewer:
         raise Reject(f"reviewer vars {path} reviewer is not {reviewer}")
@@ -434,7 +463,7 @@ def screen_jev_results(results: list[JsonValue], client: tuple[JevClient | None,
 
 def context_path_exists(manifest: Manifest, path: str) -> bool:
     """Require re-run context to be a file in the pinned manifest tree; a `path:start-end` entry's lines must lie in it."""
-    worktree = manifest["raw"].get("worktree_path")
+    worktree = manifest["worktree"]
     if not isinstance(worktree, str) or not worktree:
         return False
     lines = re.fullmatch(r"(?P<path>.+):(?P<start>[0-9]+)-(?P<end>[0-9]+)", path)
@@ -578,7 +607,7 @@ class TaskFailure(Exception):
 
 
 def verify_worktree(manifest: Manifest) -> None:
-    worktree = manifest["raw"].get("worktree_path") or ""
+    worktree = manifest["worktree"] if manifest["worktree"] is not None else manifest["invalid_worktree"] or ""
     if not isinstance(worktree, str) or not Path(worktree).is_dir():
         raise TaskFailure("SANITY.TARGET_UNREADABLE fatal 0", f"worktree {worktree!r} is not a directory")
     def git(*argv: str) -> str:
@@ -629,7 +658,7 @@ def lint_result(manifest: Manifest) -> tuple[int, list[JsonObject], str]:
         log = ""
     findings: list[JsonObject] = []
     if exit_code != 0:
-        raw_worktree = manifest["raw"].get("worktree_path") or ""
+        raw_worktree = manifest["worktree"] if manifest["worktree"] is not None else manifest["invalid_worktree"] or ""
         if not isinstance(raw_worktree, str):
             raise Reject("manifest worktree_path must be a string")
         worktree = raw_worktree.rstrip("/") + "/"
@@ -653,28 +682,29 @@ def fmt(finding: JsonObject) -> str:
     return f"- `{finding['file']}:{finding['line']}` {finding['kind']}: {finding['issue']}"
 
 
-class AssignmentText(TypedDict):
-    number: JsonValue
-    text: str | None
-
-
 def parse_assignment_text(value: JsonValue) -> AssignmentText | None:
     if not isinstance(value, dict):
         return None
     body = value.get("assignment")
     deliverable = body.get("deliverable") if isinstance(body, dict) else None
     text = deliverable.get("text") if isinstance(deliverable, dict) else None
-    return {"number": value.get("number"), "text": text if isinstance(text, str) and text else None}
+    number = value.get("number")
+    return {"number": number if isinstance(number, (int, float)) else None,
+            "text": text if isinstance(text, str) and text else None}
 
 
 def deliverable_text(manifest: JsonObject, number: int) -> str:
     assignments = manifest.get("assignments", [])
     if not isinstance(assignments, list):
         return f"Deliverable {number}"
+    parsed = [entry for value in assignments if (entry := parse_assignment_text(value)) is not None]
+    return assignment_text(parsed, number)
+
+
+def assignment_text(assignments: list[AssignmentText], number: int) -> str:
     for assignment in assignments:
-        parsed = parse_assignment_text(assignment)
-        if parsed is not None and parsed["number"] == number and parsed["text"]:
-            return parsed["text"]
+        if assignment["number"] == number and assignment["text"]:
+            return assignment["text"]
     return f"Deliverable {number}"
 
 
@@ -703,9 +733,13 @@ def main(argv: list[str]) -> int:
     def metadata() -> JsonObject:
         if not args.reviewer or manifest is None or args.started_at is None or args.completed_at is None:
             return {}
+        if not manifest["has_run_id"]:
+            raise KeyError("run_id")
+        if not manifest["has_operational_reviewer"]:
+            raise KeyError("operational_reviewer")
         completed = datetime.fromtimestamp(args.completed_at, timezone.utc)
-        return {"run_id": manifest["raw"]["run_id"], "reviewer": args.reviewer,
-                "operational_reviewer": manifest["raw"]["operational_reviewer"],
+        return {"run_id": manifest["run_id"], "reviewer": args.reviewer,
+                "operational_reviewer": manifest["operational_reviewer"],
                 "started_at": datetime.fromtimestamp(args.started_at, timezone.utc).isoformat().replace("+00:00", "Z"),
                 "completed_at": completed.isoformat().replace("+00:00", "Z"),
                 "duration_seconds": round(args.completed_at - args.started_at),
@@ -713,14 +747,14 @@ def main(argv: list[str]) -> int:
                 "fallbacks": unique_errors([result["error"] for result in results
                               if isinstance(result, dict) and result.get("success") is False and isinstance(result.get("error"), dict)]
                 + getattr(args, "fallback_errors", [])),
-                "checked_bead_data": manifest["raw"].get("checked_bead_data"),
+                "checked_bead_data": manifest["checked_bead_data"],
                 "reviewer_results": results,
                 "reviewer_results_sha256": canonical_sha256(results),
                 "rejected_results": [*rejected],
                 "selection": selection}
 
     def unavailable(code: str, message: str, legacy_status: str | None = None) -> None:
-        if args.reviewer and manifest and manifest["raw"].get("run_id") and args.started_at is not None and args.completed_at is not None:
+        if args.reviewer and manifest and manifest["run_id"] and args.started_at is not None and args.completed_at is not None:
             cannot_run_selection = selection
             if args.reviewer == "sanity-selected" and cannot_run_selection is None:
                 cannot_run_selection = getattr(args, "parsed_selection", [])
@@ -737,10 +771,10 @@ def main(argv: list[str]) -> int:
 
     try:
         manifest = load_manifest(manifest_path)
-        if manifest["raw"].get("run_id") and not args.reviewer:
+        if manifest["run_id"] and not args.reviewer:
             raise Reject("a run manifest requires --reviewer, --started-at, and --completed-at")
-        reviewers = manifest["raw"].get("reviewers", [])
-        if args.reviewer and (not isinstance(reviewers, list) or args.reviewer not in reviewers or args.started_at is None or args.completed_at is None):
+        reviewers = manifest["reviewers"]
+        if args.reviewer and (reviewers is None or args.reviewer not in reviewers or args.started_at is None or args.completed_at is None):
             print("reviewer must be selected in manifest and --started-at/--completed-at are required", file=sys.stderr)
             return 1
         if args.reviewer:
@@ -815,7 +849,7 @@ def main(argv: list[str]) -> int:
                 "kind": finding["kind"], "file": finding["file"],
                 "line": finding["line"], "issue": finding["issue"],
                 "depends_on": [dependency["raw"] for dependency in finding["depends_on"]],
-                "deliverable_text": deliverable_text(manifest["raw"], number),
+                "deliverable_text": assignment_text(manifest["assignments"], number),
             })
             if selection is not None:
                 finding_records[-1]["reviewer"] = "sc-" + selection_sources[number]
