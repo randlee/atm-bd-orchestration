@@ -130,7 +130,7 @@ class Manifest(TypedDict):
     branch: str
     deliverables_total: int
     lint: LintDescriptor
-    worktree: str | None
+    worktree_path: str | None
     invalid_worktree: JsonValue
     run_id: str | None
     has_run_id: bool
@@ -172,7 +172,7 @@ def load_manifest(path: str | Path) -> Manifest:
             if parsed is not None:
                 parsed_assignments.append(parsed)
     return {"sha": sha, "branch": branch, "deliverables_total": total, "lint": parse_lint_descriptor(lint),
-            "worktree": worktree if isinstance(worktree, str) else None,
+            "worktree_path": worktree if isinstance(worktree, str) else None,
             "invalid_worktree": None if isinstance(worktree, str) else worktree,
             "run_id": run_id, "has_run_id": "run_id" in manifest,
             "operational_reviewer": manifest.get("operational_reviewer"),
@@ -516,7 +516,7 @@ def screen_jev_results(results: list[JsonValue], client: tuple[JevClient | None,
 
 def context_path_exists(manifest: Manifest, path: str) -> bool:
     """Require re-run context to be a file in the pinned manifest tree; a `path:start-end` entry's lines must lie in it."""
-    worktree = manifest["worktree"]
+    worktree = manifest["worktree_path"]
     if not isinstance(worktree, str) or not worktree:
         return False
     lines = re.fullmatch(r"(?P<path>.+):(?P<start>[0-9]+)-(?P<end>[0-9]+)", path)
@@ -659,7 +659,7 @@ class TaskFailure(Exception):
 
 
 def verify_worktree(manifest: Manifest) -> None:
-    worktree = manifest["worktree"] if manifest["worktree"] is not None else manifest["invalid_worktree"] or ""
+    worktree = manifest["worktree_path"] if manifest["worktree_path"] is not None else manifest["invalid_worktree"] or ""
     if not isinstance(worktree, str) or not Path(worktree).is_dir():
         raise TaskFailure("SANITY.TARGET_UNREADABLE fatal 0", f"worktree {worktree!r} is not a directory")
     def git(*argv: str) -> str:
@@ -868,7 +868,7 @@ def main(argv: list[str]) -> int:
         if missing:
             raise Reject(f"deliverable {missing[0]}: no result" + (f" (also {missing[1:]})" if missing[1:] else ""))
         lint_exit, lint_findings, _ = lint_result_from_descriptor(
-            manifest["lint"], manifest["worktree"] if manifest["worktree"] is not None else manifest["invalid_worktree"])
+            manifest["lint"], manifest["worktree_path"] if manifest["worktree_path"] is not None else manifest["invalid_worktree"])
         verify_worktree(manifest)
     except Reject as exc:
         print(str(exc), file=sys.stderr)
