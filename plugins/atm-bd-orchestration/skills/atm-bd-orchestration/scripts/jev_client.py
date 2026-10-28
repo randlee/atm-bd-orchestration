@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 import repo_config
-from sprint_index_common import JsonValue, load_phase_config
+from sprint_index_common import JsonObject, JsonValue, load_phase_config
 
 MODEL = "jev-1.13.0"
 HOST = "api.typesafe.ai"
@@ -78,7 +78,7 @@ def suggested_action(exc: JevError) -> str:
     return next((fix for prefix, fix in FIXES if exc.message.startswith(prefix)), REPORT)
 
 
-def failure(exc):
+def failure(exc: JevError) -> JsonObject:
     return {"success": False, "data": None, "error": {
         "code": exc.code, "message": exc.message, "recoverable": exc.recoverable,
         "suggested_action": suggested_action(exc),
@@ -94,8 +94,9 @@ def api_key() -> str:
     return key
 
 
-def probability(value):
-    return type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 1
+def probability(value: JsonValue) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and 0 <= value <= 1)
 
 
 def validate_response(value, request):
@@ -141,7 +142,7 @@ def validate_request(request):
     return body
 
 
-def retry_delay(retry_after):
+def retry_delay(retry_after: str | None) -> float:
     if retry_after is None:
         return 1.0
     try:
@@ -221,11 +222,11 @@ def is_client_message(message: JsonValue) -> bool:
     return isinstance(message, str) and CLIENT_MESSAGES.fullmatch(message) is not None
 
 
-def canonical(value):
+def canonical(value: JsonValue) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
-def receipt_mac(body, key):
+def receipt_mac(body: JsonObject, key: str) -> str:
     return hmac.new(key.encode("utf-8"), canonical({k: body[k] for k in RECEIPT_KEYS if k != "mac"}), hashlib.sha256).hexdigest()
 
 
@@ -241,9 +242,11 @@ def receipt(request, response, key):
     return {**body, "mac": receipt_mac({**body, "mac": None}, key)}
 
 
-def verify_receipt(value, key):
-    return (isinstance(value, dict) and set(value) == set(RECEIPT_KEYS) and isinstance(value["mac"], str) and bool(key)
-            and hmac.compare_digest(value["mac"], receipt_mac(value, key)))
+def verify_receipt(value: JsonValue, key: str) -> bool:
+    if not isinstance(value, dict) or set(value) != set(RECEIPT_KEYS) or not key:
+        return False
+    mac = value["mac"]
+    return isinstance(mac, str) and hmac.compare_digest(mac, receipt_mac(value, key))
 
 
 def startup_request():
@@ -269,11 +272,11 @@ def written_request(text, evidence, context=None, part=None, external=None):
         "type": "choice", "instructions": instructions, "criteria": {"yes": "delivered", "no": "not delivered"}}}}
 
 
-def size(request):
+def size(request: JsonValue) -> int:
     return len(json.dumps(request, allow_nan=False).encode("utf-8"))
 
 
-def oversize(request, fix=None):
+def oversize(request: JsonValue, fix: str | None = None) -> JevError:
     request_size = size(request)
     exc = JevError("SANITY.JEV_REQUEST_TOO_LARGE", f"Jev request oversized ({request_size} bytes > {MAX_REQUEST_BYTES}); no further split fits the remaining attempt budget", True)
     exc.size = request_size
@@ -557,7 +560,7 @@ def parts(requests, responses, key):
         for request, response in zip(requests, responses)]}
 
 
-def escalation_recipients():
+def escalation_recipients() -> list[str]:
     """ATM's escalation recipients: the team's (`ATM_TEAM`), else the daemon default; [] when neither is set or readable."""
     team = os.environ.get("ATM_TEAM", "")
     for argv in ([["atm", "escalation", "list", "--team", team, "--json"]] if team else []) + [["atm", "escalation", "list", "--json"]]:
@@ -572,7 +575,7 @@ def escalation_recipients():
     return []
 
 
-def announce(message, lead):
+def announce(message: str, lead: str) -> None:
     """Send `message` to ATM's escalation recipients, else to `lead` saying none is set."""
     recipients = escalation_recipients()
     if not recipients:
@@ -628,7 +631,7 @@ def evaluation_result(args, *, clock=time.monotonic, sleep=None):
     return result
 
 
-def main(argv=None, *, clock=time.monotonic, sleep=None):
+def main(argv: list[str] | None = None, *, clock=time.monotonic, sleep=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--startup", action="store_true")
@@ -650,6 +653,7 @@ def main(argv=None, *, clock=time.monotonic, sleep=None):
         except (repo_config.ConfigError, RuntimeError, OSError, ValueError) as exc:
             parser.error(str(exc))
     if args.error is not None:
+        assert phase_lead is not None
         if args.error.startswith("SANITY.JEV_REQUEST_TOO_LARGE"):
             # An oversized request is the caller's to rebuild; it never hands the slot to an LLM or haiku check (#365).
             announce(f"dev-sanity Jev request oversized after the lossless split: {args.error}. The deliverable's Jev slot "
@@ -660,6 +664,7 @@ def main(argv=None, *, clock=time.monotonic, sleep=None):
         return 0
     result = evaluation_result(args, clock=clock, sleep=sleep)
     if args.announce and not result["success"]:
+        assert phase_lead is not None
         error = result["error"]
         announce(f"dev-sanity Jev startup failed: {error['code']}: {error['message']}. No sc-sanity-jev checks run; dev-sanity records every JEV slot as unavailable until a startup probe passes.", phase_lead)
     print(json.dumps(result, allow_nan=False))
