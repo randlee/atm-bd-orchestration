@@ -12,7 +12,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
@@ -24,12 +24,29 @@ from sprint_qa import metadata, choose_round, qa_verdict, qa_icon, findings_summ
 from phase_beads import phase_beads
 from operation_models import (
     AtmMember, AtmTask, AtmTaskEvent, BeadRecord, PullRequest,
+    PullRequestCheck,
     is_atm_members, is_atm_tasks, is_atm_task_events, is_bead_records,
-    is_pull_request, is_pull_request_pages,
+    is_pull_request, is_pull_request_pages, matches_typeddict,
 )
 from plan_contract import DIFFICULTY_MODELS, difficulty_tiers, model_matches
 import repo_config
 import sc_render
+
+
+class SanityHistoryRecord(TypedDict, total=False):
+    phase: str
+    sprint: str
+    verdict: str
+    completed_at: str
+    task: str
+    iteration: int
+
+
+class SprintRow(TypedDict):
+    id: str
+    sprint: str
+    title: str
+    layer: str | int | float | bool | None
 
 
 def run_json(repo: Path, *args: str) -> JsonValue:
@@ -123,13 +140,13 @@ def sanity_iterations(log_path: Path, phase: str | None = None) -> dict[str, int
         if not line.strip():
             continue
         try:
-            run = json.loads(line)
+            run: object = json.loads(line)
         except json.JSONDecodeError as exc:
             if line_number == len(lines):
                 print(f"sprint-report: skipping truncated final line in {log_path}", file=sys.stderr)
                 continue
             raise RuntimeError(f"invalid sanity history {log_path}:{line_number}: {exc}") from exc
-        if not isinstance(run, dict):
+        if not matches_typeddict(run, SanityHistoryRecord):
             raise RuntimeError(f"invalid sanity history record {log_path}:{line_number}")
         if phase is not None:
             record_phase = str(run.get("phase") or "").removeprefix("phase-")
@@ -238,7 +255,7 @@ def check_icon(pr: PullRequest | None, merge_ready: bool = False) -> str:
         return "—"
     if pr.get("mergedAt") or str(pr.get("state", "")).upper() == "MERGED":
         return "🏁"
-    checks = pr.get("statusCheckRollup") or []
+    checks: list[PullRequestCheck] = pr.get("statusCheckRollup") or []
     conclusions = {
         str(check.get("conclusion") or check.get("state") or check.get("status") or "PENDING").upper()
         for check in checks
@@ -300,20 +317,25 @@ def load_index(repo: Path, explicit: Path | None, root: str | None) -> tuple[Pat
         raise RuntimeError(f"invalid canonical phase plan {path}: {exc}") from exc
 
 
-def live_sprint_rows(index: NormalizedIndex, beads: dict[str, BeadRecord]) -> list[dict[str, Any]]:
+def live_sprint_rows(index: NormalizedIndex, beads: dict[str, BeadRecord]) -> list[SprintRow]:
     """The plan supplies membership; labels and ordering come from live beads (the sprint container when
     it is live, else the dev bead)."""
-    rows = []
+    rows: list[SprintRow] = []
     for dev_id, container_id in sprint_beads(index).items():
         if dev_id not in beads:
             raise RuntimeError(f"planned dev bead not found: {dev_id}")
         bead = beads.get(container_id) or beads[dev_id]
         meta = {**metadata(beads[dev_id]), **metadata(bead)}
-        rows.append({"id": dev_id, "sprint": meta.get("sprint") or dev_id,
-                     "title": bead.get("title", ""), "layer": meta.get("layer")})
-    def order(row):
+        sprint = meta.get("sprint")
+        rows.append({
+            "id": dev_id,
+            "sprint": sprint if isinstance(sprint, str) else dev_id,
+            "title": bead.get("title") or "",
+            "layer": meta.get("layer"),
+        })
+    def order(row: SprintRow) -> tuple[int, int, str]:
         raw_layer = row["layer"]
-        layer = layer_number(raw_layer if raw_layer is None or isinstance(raw_layer, (str, int, float, bool)) else None)
+        layer = layer_number(raw_layer)
         number = re.search(r"(\d+)$", row["id"])
         return layer, int(number.group(1)) if number else 2**31 - 1, row["id"]
     return sorted(rows, key=order)
