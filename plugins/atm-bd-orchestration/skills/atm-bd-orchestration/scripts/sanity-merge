@@ -607,7 +607,7 @@ def selected_results(args: MergeArguments, manifest: Manifest, sanity_bead: str,
         if (parsed_entry["selected"] == "rerun") != (rerun is not None):
             raise Reject(f"deliverable {number}: rerun must match selected")
         if rerun is not None:
-            if not isinstance(rerun, dict) or set(rerun) != {"reviewer", "context", "reply"}:
+            if not isinstance(rerun, dict) or set(rerun) != set(RerunSelection.__required_keys__):
                 raise Reject(f"deliverable {number}: invalid rerun")
             if rerun["reviewer"] not in {"sanity-llm", "sanity-jev"} or not isinstance(rerun["context"], list) or not rerun["context"] or not all(isinstance(path, str) and path and not Path(path).is_absolute() for path in rerun["context"]):
                 raise Reject(f"deliverable {number}: rerun requires reviewer and nonempty repo-relative context")
