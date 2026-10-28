@@ -873,6 +873,16 @@ class JevArguments(argparse.Namespace):
     phase: str | None
 
 
+class StartupProbe(TypedDict):
+    ready: bool
+
+
+def parse_startup_probe(value: JsonObject) -> StartupProbe:
+    answers = value.get("answers")
+    startup = answers.get("startup") if isinstance(answers, dict) else None
+    return {"ready": isinstance(startup, dict) and startup.get("choice") == "ready"}
+
+
 def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.monotonic,
                       sleep: Callable[[float], None] | None = None) -> JsonObject:
     elapsed_s: float | None = None
@@ -913,9 +923,8 @@ def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.m
         if not args.startup and len(questions) == 1 and "parts" not in data and "receipt" not in data:
             data = {**data, "receipt": receipt(request, data, api_key())}
         if args.startup:
-            answers = data.get("answers")
-            startup = answers.get("startup") if isinstance(answers, dict) else None
-            if not isinstance(startup, dict) or startup.get("choice") != "ready":
+            probe = parse_startup_probe(data)
+            if not probe["ready"]:
                 raise JevError("SANITY.JEV_RESPONSE_INVALID", "Startup probe returned the wrong literal choice")
             data = {"model": MODEL, "status": "ready", "scope": "authenticated synthetic probe only; sanity accuracy unverified"}
         result: JsonObject = {"success": True, "data": data, "error": None}
