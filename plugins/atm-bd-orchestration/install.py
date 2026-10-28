@@ -69,10 +69,15 @@ import tempfile
 import tomllib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from importlib import import_module
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Literal, Mapping, NotRequired, Optional, Tuple, TYPE_CHECKING, TypeAlias, TypedDict
-from importlib import import_module
+from typing import Callable, Dict, Iterable, List, Literal, Mapping, NotRequired, Optional, Tuple, TYPE_CHECKING, TypeAlias
+
+try:
+    from typing_extensions import TypedDict
+except ImportError:
+    from typing import TypedDict
 
 if TYPE_CHECKING:
     from pydantic import JsonValue, TypeAdapter, ValidationError
