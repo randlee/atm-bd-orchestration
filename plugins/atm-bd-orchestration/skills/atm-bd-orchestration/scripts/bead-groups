@@ -75,6 +75,7 @@ import bead_formulas  # noqa: E402
 import repo_config  # noqa: E402
 import sprint_index_common  # noqa: E402
 from bead_formulas import Bd, BdError, JsonObject, JsonValue, attach_id  # noqa: E402
+from operation_models import matches_typeddict  # noqa: E402
 from stack_top import stack_bead_id  # noqa: E402
 
 SCHEMA = "atm-bd-orchestration/bead-groups/v1"
@@ -352,9 +353,12 @@ def schema_issues(bead_schema: Schema, phase: str, prospective: list[JsonObject]
     validate-plan skips them too, so a phase whose closed beads predate the models still pours (#578)."""
     current: list[JsonObject] = []
     for raw_bead in bead_schema.load_phase(phase):
-        bead = TypeAdapter(BeadRow).validate_python(raw_bead, strict=True)
+        payload = raw_bead
+        if not matches_typeddict(raw_bead, BeadRow):
+            raise ValueError("phase beads contain a malformed bead record")
+        bead = raw_bead
         if bead.get("status") != "closed":
-            current.append(raw_bead)
+            current.append(payload)
     return bead_schema.validate_phase([*current, *prospective])
 
 
@@ -370,7 +374,10 @@ class Run:
     def sidecar(self, formula: str) -> Sidecar:
         if formula not in self.sidecars:
             path = bead_formulas.relations(formula, self.repo)
-            parsed = TypeAdapter(Sidecar).validate_python(json.loads(path.read_text()), strict=True)
+            decoded = json.loads(path.read_text())
+            if not matches_typeddict(decoded, Sidecar):
+                raise ValueError(f"{path}: malformed sidecar")
+            parsed = decoded
             self.sidecars[formula] = parsed
         return self.sidecars[formula]
 
@@ -403,7 +410,10 @@ class Run:
 
     def show_typed(self, bead: str) -> tuple[JsonObject, BeadRow]:
         row = self.show(bead)
-        return row, TypeAdapter(BeadRow).validate_python(row, strict=True)
+        payload = row
+        if not matches_typeddict(row, BeadRow):
+            raise ValueError(f"{bead}: malformed bead record")
+        return payload, row
 
     def close_compose(self, phase: str, checked_title: str, stack_bead: str | None = None) -> Compose:
         """The close-field compose variables (close_fields.POURED) every poured step carries."""
@@ -419,11 +429,11 @@ class Run:
             features[phase] = {"stack_bead": stack_bead or stack_bead_id(root), "phase_feature": title}
         if not checked_title:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", "the checked work has no title for checked_title")
-        return TypeAdapter(Compose).validate_python(
-            {**features[phase], "checked_title": checked_title, "lint_command": self.config["lint_command"],
-             "policy_path": self.config["policy_path"], "max_sanity_rounds": self.config["max_sanity_rounds"]},
-            strict=True,
-        )
+        compose: object = {**features[phase], "checked_title": checked_title, "lint_command": self.config["lint_command"],
+                           "policy_path": self.config["policy_path"], "max_sanity_rounds": self.config["max_sanity_rounds"]}
+        if not matches_typeddict(compose, Compose):
+            raise ValueError("invalid close compose values")
+        return compose
 
     def option_for(self, sidecar: Sidecar) -> str:
         option = self.option or sidecar["default_option"]
@@ -469,7 +479,9 @@ class Run:
         """One target per finding in a findings file; a finding that cannot be poured is a TargetError in its place."""
         try:
             decoded: object = json.loads(Path(path).read_text())
-            doc = TypeAdapter(FindingsDocument).validate_python(decoded, strict=True)
+            if not matches_typeddict(decoded, FindingsDocument):
+                raise ValueError("invalid findings document")
+            doc = decoded
             sprint, round_, filed_by, findings = doc["sprint"], doc["round"], doc["filed_by"], doc["findings"]
             found_at = doc["found_at_commit"]
         except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -597,7 +609,9 @@ class Run:
         (out / f"{stem}.{subcommand}.receipt.json").write_text(proc.stdout)
         try:
             decoded: object = json.loads(proc.stdout)
-            receipt = TypeAdapter(Receipt).validate_python(decoded, strict=True)
+            if not matches_typeddict(decoded, Receipt):
+                raise ValueError("invalid sc-compose receipt")
+            receipt = decoded
             payload = receipt["payload"]
         except (ValueError, KeyError, TypeError) as exc:
             raise TargetError("BEAD_GROUPS_POUR_FAILED", f"attach gave no receipt (exit {proc.returncode}): {proc.stderr.strip()}") from exc
@@ -668,17 +682,28 @@ class Run:
         if not path.is_absolute():
             path = self.repo / path
         raw_plan: object = json.loads(path.read_text())
-        plan = TypeAdapter(PlanDocument).validate_python(raw_plan, strict=True)
-        nodes = {TypeAdapter(PlanNode).validate_python(node, strict=True)["id"]: node for node in plan["nodes"]}
+        if not matches_typeddict(raw_plan, PlanDocument):
+            raise ValueError("sc-compose rendered plan is malformed")
+        plan = raw_plan
+        nodes: dict[str, JsonObject] = {}
+        for payload in plan["nodes"]:
+            raw_payload: JsonObject = payload
+            if not matches_typeddict(payload, PlanNode):
+                raise ValueError("sc-compose plan contains a malformed node")
+            typed_node: PlanNode = payload
+            nodes[typed_node["id"]] = raw_payload
         for edge in graph["edges"]:
             source = self.endpoint(graph, edge["from"])
             target = self.endpoint(graph, edge["to"])
             if source in nodes:
-                node = TypeAdapter(PlanNode).validate_python(nodes[source], strict=True)
+                raw_payload = nodes[source]
+                if not matches_typeddict(raw_payload, PlanNode):
+                    raise ValueError("sc-compose plan contains a malformed node")
+                node: PlanNode = raw_payload
                 dependencies = node.get("dependencies", [])
                 dependency: dict[str, JsonValue] = {"type": edge["type"], "depends_on_id": target}
                 dependencies.append(dependency)
-                nodes[source]["dependencies"] = dependencies
+                raw_payload["dependencies"] = dependencies
         return list(nodes.values())
 
 

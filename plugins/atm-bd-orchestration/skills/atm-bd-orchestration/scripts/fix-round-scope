@@ -24,9 +24,11 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 from typing import TypedDict
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 
-from pydantic import TypeAdapter, ValidationError
+from operation_models import matches_typeddict
 
 PLAN_LINE = re.compile(r"^\s*(?:[-*]\s+)?(?P<bead>\S+)\s+(?P<severity>blocking|important|minor)\s+"
                        r"(?P<reviewer>\S+)\s+(?P<field>[^:\s][^:]*):")
@@ -46,6 +48,10 @@ class FindingMetadata(TypedDict, total=False):
 class CarriedFinding(TypedDict, total=False):
     id: str
     metadata: FindingMetadata
+
+
+class CarriedFindings(TypedDict):
+    findings: list[CarriedFinding]
 
 
 class ReviewFinding(TypedDict, total=False):
@@ -78,10 +84,10 @@ class FilteredResult(TypedDict):
 
 
 def carried_findings(value: object) -> list[CarriedFinding]:
-    try:
-        return TypeAdapter(list[CarriedFinding]).validate_python(value, strict=True)
-    except ValidationError as error:
-        raise ScopeError("carried findings must be an array of bead records with string id and metadata fields") from error
+    document = {"findings": value}
+    if not matches_typeddict(document, CarriedFindings):
+        raise ScopeError("carried findings must be an array of bead records with string id and metadata fields")
+    return document["findings"]
 
 
 def owned(carried: list[CarriedFinding]) -> dict[str, list[str]]:
@@ -90,7 +96,7 @@ def owned(carried: list[CarriedFinding]) -> dict[str, list[str]]:
     for bead in carried:
         meta = bead.get("metadata") or {}
         reviewer, ref = meta.get("reviewer"), meta.get("finding_ref")
-        if not (isinstance(reviewer, str) and reviewer and isinstance(ref, str) and ref):
+        if not (reviewer and ref):
             raise ScopeError(f"{bead.get('id', '?')}: carried finding has no metadata.reviewer/finding_ref to lock to")
         out.setdefault(reviewer, []).append(ref)
     return out
@@ -124,7 +130,7 @@ def filter_result(reviewer: str, carried: list[CarriedFinding], result: ReviewRe
         metadata = bead.get("metadata", {})
         if metadata.get("reviewer") == reviewer:
             finding_ref, bead_id = metadata.get("finding_ref"), bead.get("id")
-            if not isinstance(finding_ref, str) or not isinstance(bead_id, str):
+            if not finding_ref or not bead_id:
                 raise ScopeError("carried finding has no string id/finding_ref")
             scope[finding_ref] = bead_id
     data = result.get("data")
@@ -133,7 +139,7 @@ def filter_result(reviewer: str, carried: list[CarriedFinding], result: ReviewRe
     dropped: list[ReviewFinding] = []
     for finding in findings or []:
         ref = finding.get("id")
-        if isinstance(ref, str) and ref in scope and ref not in reported:
+        if ref in scope and ref not in reported:
             reported[ref] = finding
         else:
             dropped.append(finding)
@@ -185,10 +191,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     fenced = FENCED.fullmatch(text)
     try:
-        parsed_result = TypeAdapter(ReviewResult).validate_python(
-            json.loads(fenced.group(1) if fenced else text), strict=True)
+        parsed_result = json.loads(fenced.group(1) if fenced else text)
+        if not matches_typeddict(parsed_result, ReviewResult):
+            raise ValueError("expected a review result object with typed fields")
         result: ReviewResult = parsed_result
-    except (ValueError, ValidationError) as exc:
+    except ValueError as exc:
         print(f"fix-round-scope: --result is not the reviewer's fenced or raw JSON result: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(filter_result(args.reviewer, carried, result)))

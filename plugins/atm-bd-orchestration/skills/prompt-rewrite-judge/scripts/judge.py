@@ -15,7 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 from typing import Literal, Mapping, NotRequired, TypedDict
-from pydantic import TypeAdapter, ValidationError
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
+from operation_models import matches_typeddict
 
 MODEL = "jev-1.13.0"
 MAX_REQUEST_BYTES = 96000  # jev_client.py refuses larger requests
@@ -75,6 +76,15 @@ class JevResponse(TypedDict):
     model: NotRequired[str]
 
 
+class JevKey(TypedDict):
+    requirements: list[str]
+
+
+class JevAnswers(TypedDict):
+    answers: dict[str, JevAnswer]
+
+
+
 class ErrorRecord(TypedDict):
     exit: int
     error: object
@@ -90,7 +100,7 @@ class Verdict(TypedDict):
     clearer_than_original: tuple[str, float]
 
 
-Answers = Mapping[str, Mapping[str, object]]
+Answers = Mapping[str, JevAnswer]
 
 
 _typed_dict_module = sys.modules.get(__name__)
@@ -103,11 +113,9 @@ _typed_dict_module.__dict__.update(globals())
 def parse_answers(value: JevResponseData) -> Answers | None:
     if "answers" not in value:
         return None
-    answers: dict[str, Answer] = {}
+    answers: dict[str, JevAnswer] = {}
     for name, raw_answer in value["answers"].items():
-        probabilities: dict[str, float] = {}
-        for option, probability in raw_answer["probabilities"].items():
-            probabilities[option] = float(probability)
+        probabilities = {option: float(probability) for option, probability in raw_answer["probabilities"].items()}
         if raw_answer["choice"] not in probabilities:
             return None
         answers[name] = {"choice": raw_answer["choice"], "probabilities": probabilities}
@@ -122,20 +130,17 @@ def request(key: list[str], original: str, cand: str) -> JevRequest:
     return {"model": MODEL, "state": {"requirements": key, "original": original, "candidate": cand}, "questions": q}
 
 
-def reduce(answers: Answers) -> Verdict:
+def reduce(answer_data: object) -> Verdict:
     """Jev answers -> {'dropped': [(n, p_no)], question: (choice, p_choice)}."""
+    document = {"answers": answer_data}
+    if not matches_typeddict(document, JevAnswers):
+        raise ValueError("invalid Jev answers")
+    answers = document["answers"]
+
     def parsed_answer(name: str) -> Answer:
         answer = answers[name]
-        choice = answer.get("choice")
-        raw_probabilities = answer.get("probabilities")
-        if not isinstance(choice, str) or not isinstance(raw_probabilities, dict):
-            raise ValueError(f"invalid Jev answer for {name}")
-        probabilities: dict[str, float] = {}
-        probability_items = TypeAdapter(dict[object, object]).validate_python(raw_probabilities, strict=True)
-        for option, probability in probability_items.items():
-            if not isinstance(option, str) or not isinstance(probability, (int, float)) or isinstance(probability, bool):
-                raise ValueError(f"invalid Jev probability for {name}/{option}")
-            probabilities[option] = float(probability)
+        choice = answer["choice"]
+        probabilities = {option: float(probability) for option, probability in answer["probabilities"].items()}
         if choice not in probabilities:
             raise ValueError(f"missing Jev probability for selected choice {name}/{choice}")
         return {"choice": choice, "probabilities": probabilities}
@@ -172,9 +177,11 @@ def run(client: Path, path: Path) -> tuple[Answers | None, ErrorRecord | None]:
     for _ in range(2):  # one rerun on failure; never answer for Jev
         p = subprocess.run([sys.executable, str(client), "--request", str(path)], capture_output=True, text=True)
         try:
-            response = TypeAdapter(JevResponse).validate_python(json.loads(p.stdout), strict=True)
-        except (json.JSONDecodeError, ValidationError):
+            decoded: object = json.loads(p.stdout)
+        except json.JSONDecodeError:
             response = None
+        else:
+            response = decoded if matches_typeddict(decoded, JevResponse) else None
         if response is not None:
             data = response.get("data")
             if response["success"] and data is not None:
@@ -210,10 +217,10 @@ def main(argv: list[str] | None = None) -> int:
     o = a.parse_args(argv, namespace=Arguments())
     raw_key: object = json.loads(o.key.read_text())
     orig = o.original.read_text()
-    try:
-        key = TypeAdapter(list[str]).validate_python(raw_key, strict=True)
-    except ValidationError:
+    key_document = {"requirements": raw_key}
+    if not matches_typeddict(key_document, JevKey):
         sys.exit("key.json must be a nonempty JSON list of requirement strings")
+    key = key_document["requirements"]
     if not key or any(not requirement for requirement in key):
         sys.exit("key.json must be a nonempty JSON list of requirement strings")
     o.out.mkdir(parents=True, exist_ok=True)

@@ -6,8 +6,9 @@ from pathlib import Path
 import re
 import sys
 from typing import NotRequired, TypedDict
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 
-from pydantic import TypeAdapter, ValidationError
+from operation_models import matches_typeddict
 
 
 class PostMortemCounts(TypedDict, total=False):
@@ -42,10 +43,9 @@ def nonnegative_count(value: int | None, field: str, context: str) -> int:
 
 
 def validate(value: object) -> None:
-    try:
-        values = TypeAdapter(CompletionVariables).validate_python(value, strict=True)
-    except ValidationError as error:
-        raise ValueError("completion variables must be an object with correctly typed fields") from error
+    if not matches_typeddict(value, CompletionVariables):
+        raise ValueError("completion variables must be an object with correctly typed fields")
+    values = value
     verdict = values.get("verdict")
     outcome = values.get("integration_review")
     if verdict not in ("PASS", "FAIL"):

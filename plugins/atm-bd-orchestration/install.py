@@ -138,7 +138,7 @@ JsonValue = TypeAliasType("JsonValue", None | bool | int | float | str | list["J
 JsonObject: TypeAlias = dict[str, JsonValue]
 ConfigValue: TypeAlias = str | int | bool | list[str]
 Config: TypeAlias = dict[str, ConfigValue]
-ConfigInputValue: TypeAlias = JsonValue | list[str]
+ConfigInputValue: TypeAlias = str | int | float | bool | None | list[str]
 
 
 def json_object(value: object, context: str) -> JsonObject:
@@ -162,7 +162,16 @@ class InstallOptions(TypedDict):
     force: NotRequired[bool]
     overwrite: NotRequired[bool]
     expand: NotRequired[bool]
-    args: NotRequired[JsonObject]
+    args: NotRequired[Config]
+
+
+InstallerHookOptions = TypedDict(
+    "InstallerHookOptions",
+    {"global": bool, "local": bool, "user": bool, "project": bool, "codex": bool,
+     "force": bool, "overwrite": bool, "expand": bool, "args": Config},
+    total=False,
+)
+InstallerHookInput: TypeAlias = Mapping[str, ConfigValue | Config]
 
 
 class Registry(TypedDict):
@@ -181,22 +190,22 @@ class ConfigTemplate(TypedDict, total=False):
 
 
 class ConsumerRegistry(TypedDict, total=False):
-    bead_prefix: JsonValue
-    dev_sanity_member: JsonValue
-    qa_member: JsonValue
-    team_lead_member: JsonValue
-    worktree_base: JsonValue
-    test_command: JsonValue
-    lint_command: JsonValue
-    integration_branch_pattern: JsonValue
-    plans_dir: JsonValue
-    requirements_globs: JsonValue
-    adr_globs: JsonValue
-    policy_path: JsonValue
-    reviewers_round1: JsonValue
-    max_sanity_rounds: JsonValue
-    gate_timeout_s: JsonValue
-    roles: dict[str, JsonValue]
+    bead_prefix: str | None
+    dev_sanity_member: str | None
+    qa_member: str | None
+    team_lead_member: str | None
+    worktree_base: str | None
+    test_command: str | None
+    lint_command: str | None
+    integration_branch_pattern: str | None
+    plans_dir: str | None
+    requirements_globs: str | list[str] | None
+    adr_globs: str | list[str] | None
+    policy_path: str | None
+    reviewers_round1: str | list[str] | None
+    max_sanity_rounds: int | str | None
+    gate_timeout_s: int | str | None
+    roles: dict[str, str | None]
 
 
 class LegacyOwnership(TypedDict):
@@ -516,6 +525,22 @@ def resolve_config(repo_root: Path, overrides: Mapping[str, ConfigInputValue], p
     try:
         reg = TypeAdapter(ConsumerRegistry).validate_python(_load_yaml(registry), strict=True) if registry.is_file() else ConsumerRegistry()
     except ValidationError as error:
+        for item in error.errors():
+            location = item.get("loc", ())
+            if not location:
+                continue
+            field = str(location[0])
+            if field == "max_sanity_rounds":
+                raise InstallError("max_sanity_rounds must be a positive integer") from error
+            if field == "gate_timeout_s":
+                raise InstallError("gate_timeout_s must be a positive integer number of seconds") from error
+            if field in LIST_VARIABLES:
+                raise InstallError(f"{field} must be a list of non-empty strings ({_registry_location(field)})") from error
+            if field == "roles" and len(location) > 1:
+                role = str(location[1])
+                raise InstallError(f"roles.{role} must be a non-empty string ({CONSUMER_REGISTRY} roles.{role})") from error
+            if field in names:
+                raise InstallError(f"{field} must be a non-empty string ({_registry_location(field)})") from error
         raise InstallError(f"{registry}: invalid registry configuration: {error}") from error
     misplaced = sorted(n for n in ROLE_KEYS if n in reg)
     if misplaced:
@@ -1165,7 +1190,7 @@ def recommended_startup_block(repo_root: Path, member: str, lead: Optional[str])
     return f"[startup.{_toml_key(member)}]\nall = [{body} ]\n"
 
 
-def change_report(plan: Plan, config: Mapping[str, JsonValue]) -> List[str]:
+def change_report(plan: Plan, config: Mapping[str, ConfigValue]) -> List[str]:
     """The itemized list of what the install changed, plus the .atm.toml recommendation."""
     out = ["Changes:"]
     out += [f"  written: {key}" for key in plan.written]
@@ -1193,7 +1218,7 @@ def change_report(plan: Plan, config: Mapping[str, JsonValue]) -> List[str]:
     return out
 
 
-def completion_report(plan: Plan, config: Mapping[str, JsonValue]) -> List[str]:
+def completion_report(plan: Plan, config: Mapping[str, ConfigValue]) -> List[str]:
     """What every install front end prints after apply_plan: the change list, then one NOT DONE line per notice."""
     return [*change_report(plan, config), *(f"{PACKAGE}: NOT DONE: {notice}" for notice in plan.notices)]
 
@@ -1259,38 +1284,38 @@ def _fail(message: str) -> dict[str, str]:
     return {"result": "fail", "message": message}
 
 
-def _codex(destination_path: str, options: Mapping[str, JsonValue]) -> bool:
+def _codex(destination_path: str, options: InstallerHookOptions) -> bool:
     return bool(options.get("codex")) or Path(destination_path).name == ".codex"
 
 
-def _plan_or_fail(source_path: str, destination_path: str, options: Mapping[str, JsonValue]) -> Tuple[Optional[Plan], Dict[str, JsonValue], Optional[dict[str, str]]]:
+def _plan_or_fail(source_path: str, destination_path: str, options: InstallerHookInput) -> Tuple[Optional[Plan], Config, Optional[dict[str, str]]]:
     try:
         check_tools()
-        args_value = options.get("args", {})
-        if not isinstance(args_value, dict):
-            raise InstallError("hook args must be a mapping")
         try:
-            args = TypeAdapter(Config).validate_python(args_value, strict=True)
+            parsed_options = TypeAdapter(InstallerHookOptions).validate_python(options, strict=True)
         except ValidationError as error:
-            raise InstallError("hook args must map variables to strings, positive integers, booleans or string lists") from error
+            if any(item.get("loc", (None,))[0] == "args" for item in error.errors()):
+                raise InstallError("hook args must map variables to strings, positive integers, booleans or string lists") from error
+            raise InstallError(f"invalid installer hook options: {error}") from error
+        args = parsed_options.get("args", {})
         plan, config = plan_install(Path(source_path), Path(destination_path), args,
-                                    codex=_codex(destination_path, options),
-                                    overwrite=bool(options.get("overwrite") or options.get("force")))
+                                    codex=_codex(destination_path, parsed_options),
+                                    overwrite=parsed_options.get("overwrite", False) or parsed_options.get("force", False))
     except InstallError as exc:
         return None, {}, _fail(str(exc))
     if plan.problems:
         return None, {}, _fail("; ".join(plan.problems))
-    return plan, json_object(config, "resolved install configuration"), None
+    return plan, config, None
 
 
-def prepare(source_path: str, destination_path: str, options: Mapping[str, JsonValue]) -> dict[str, str]:
+def prepare(source_path: str, destination_path: str, options: InstallerHookInput) -> dict[str, str]:
     """Check the tools, the repository values, the beads mode, the agents and file
     ownership before anything is copied. Writes nothing."""
     _, _, failure = _plan_or_fail(source_path, destination_path, options)
     return failure or _ok()
 
 
-def complete(source_path: str, destination_path: str, options: Mapping[str, JsonValue]) -> dict[str, str]:
+def complete(source_path: str, destination_path: str, options: InstallerHookInput) -> dict[str, str]:
     """Place every file (rendered where listed), remove unchanged files no longer
     shipped, write the config, the install record and the roles."""
     plan, config, failure = _plan_or_fail(source_path, destination_path, options)
@@ -1310,7 +1335,7 @@ def complete(source_path: str, destination_path: str, options: Mapping[str, Json
     return _ok()
 
 
-def cleanup(source_path: str, destination_path: str, options: Mapping[str, JsonValue]) -> dict[str, str]:
+def cleanup(source_path: str, destination_path: str, options: InstallerHookInput) -> dict[str, str]:
     """Nothing to clean: prepare() writes nothing and complete() writes only recorded files."""
     return _ok()
 
@@ -1335,9 +1360,9 @@ def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
         print(f"install.py: {exc}", file=sys.stderr)
         return 1
     dest = Path(args.dest).expanduser().resolve()
-    options: dict[str, JsonValue] = {"global": False, "local": True, "user": False, "project": False,
+    options: InstallerHookInput = {"global": False, "local": True, "user": False, "project": False,
                "codex": args.codex or dest.name == ".codex", "force": False, "overwrite": args.overwrite, "expand": True,
-               "args": json_object(overrides, "installer arguments")}
+               "args": overrides}
     for step in (prepare, complete):
         result = step(str(pkg_dir), str(dest), options)
         if result["result"] != "success":

@@ -13,11 +13,12 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeGuard, TypedDict
+from typing import TypeAlias, TypedDict
 
 RECORD_NAME = "atm-bd-install.json"
 SC_SHA_FIX = "uv pip install 'sc-sha>=1.7.0,<2'"
 CODES = {"modified": "skill_file_modified", "missing": "skill_file_missing", "extra": "skill_file_extra"}
+JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 
 
 class RecordError(ValueError):
@@ -54,24 +55,15 @@ class DoctorReply(TypedDict):
     findings: list[Finding]
 
 
-def json_mapping(value: object) -> TypeGuard[dict[str, object]]:
-    # This guard is used only on values decoded by json.loads, whose object keys are strings.
-    return isinstance(value, dict)
-
-
-def json_array(value: object) -> TypeGuard[list[object]]:
-    return isinstance(value, list)
-
-
-def parse_record(value: object, record_path: Path) -> InstallRecord:
-    if not json_mapping(value):
+def parse_record(value: JsonValue, record_path: Path) -> InstallRecord:
+    if not isinstance(value, dict):
         raise RecordError(f"{record_path} is not an atm-bd install record: expected an object")
     raw_files = value.get("files")
-    if not json_array(raw_files):
+    if not isinstance(raw_files, list):
         raise RecordError(f"{record_path} is not an atm-bd install record: files must be an array")
     files: list[InstallFile] = []
     for entry in raw_files:
-        if not json_mapping(entry):
+        if not isinstance(entry, dict):
             raise RecordError(f"{record_path} is not an atm-bd install record: each file must be an object")
         path, digest = entry.get("path"), entry.get("sc_sha")
         if not isinstance(path, str) or not isinstance(digest, str):
@@ -83,9 +75,9 @@ def parse_record(value: object, record_path: Path) -> InstallRecord:
     return InstallRecord(tuple(files), version)
 
 
-def parse_doctor_request(value: object) -> DoctorRequest | None:
+def parse_doctor_request(value: JsonValue) -> DoctorRequest | None:
     """Parse the only supported hook request shape before using its operation."""
-    if not json_mapping(value):
+    if not isinstance(value, dict):
         return None
     hook = value.get("hook")
     if not isinstance(hook, str) or hook != "doctor":
@@ -121,7 +113,7 @@ def check(dest: Path) -> tuple[list[tuple[str, str]], InstallRecord | None]:
     if not record_path.is_file():
         return [("missing", RECORD_NAME)], None
     try:
-        raw_record: object = json.loads(record_path.read_text(encoding="utf-8"))
+        raw_record: JsonValue = json.loads(record_path.read_text(encoding="utf-8"))
         record = parse_record(raw_record, record_path)
         recorded = {entry.path: entry.sc_sha for entry in record.files}
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as error:
@@ -177,7 +169,7 @@ def doctor() -> DoctorReply:
 
 def _doctor_mode() -> int:
     try:
-        request: object = json.loads(sys.stdin.read())
+        request: JsonValue = json.loads(sys.stdin.read())
     except json.JSONDecodeError:
         print(json.dumps({
             "success": False,

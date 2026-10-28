@@ -42,7 +42,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import NotRequired, TypedDict
-from pydantic import TypeAdapter, ValidationError
+from operation_models import matches_typeddict
 from typing_extensions import TypeAliasType
 
 HERE = Path(__file__).resolve().parent
@@ -81,6 +81,10 @@ class Bead(TypedDict):
     assignee: NotRequired[str]
 
 
+class BeadRows(TypedDict):
+    beads: list[Bead]
+
+
 class DoctorCheck(TypedDict, total=False):
     status: str
     name: str
@@ -91,15 +95,19 @@ class DoctorReport(TypedDict):
     checks: list[DoctorCheck]
 
 
+class AgentDefinition(TypedDict, total=False):
+    path: str
+
+
 class AgentRegistry(TypedDict):
-    agents: dict[str, plan_io.JsonValue]
+    agents: dict[str, AgentDefinition]
 
 
 def bead_rows(value: object) -> list[Bead]:
-    try:
-        return TypeAdapter(list[Bead]).validate_python(value, strict=True)
-    except ValidationError as error:
-        raise CannotRun(f"bd returned malformed bead JSON: {error}") from error
+    document = {"beads": value}
+    if not matches_typeddict(document, BeadRows):
+        raise CannotRun("bd returned malformed bead JSON")
+    return document["beads"]
 
 
 class CannotRun(Exception):
@@ -216,7 +224,9 @@ def check_qa_reviewers(beads: list[Bead], repo: Path, problems: list[str]) -> No
     registry = repo / ".claude/agents/registry.yaml"
     try:
         document: object = yaml.safe_load(registry.read_text())
-        registry_data = TypeAdapter(AgentRegistry).validate_python(document, strict=True)
+        if not matches_typeddict(document, AgentRegistry):
+            raise ValueError("agent registry does not match its schema")
+        registry_data = document
         agents = registry_data["agents"]
         if not agents:
             raise ValueError("expected a non-empty agents mapping")
@@ -299,8 +309,11 @@ def warnings(beads: Beads, root_id: str, file_beads: list[Bead] | None) -> None:
 def doctor() -> None:
     proc = subprocess.run(["bd", "doctor", "--json"], capture_output=True, text=True)
     try:
-        report = TypeAdapter(DoctorReport).validate_python(json.loads(proc.stdout), strict=True)
-    except (ValueError, KeyError, TypeError, ValidationError):
+        doctor_report: object = json.loads(proc.stdout)
+        if not matches_typeddict(doctor_report, DoctorReport):
+            raise CannotRun("bd doctor returned malformed JSON")
+        report = doctor_report
+    except (ValueError, KeyError, TypeError):
         warn("bd doctor produced no JSON; its stderr follows")
         sys.stderr.write(proc.stderr)
         return
