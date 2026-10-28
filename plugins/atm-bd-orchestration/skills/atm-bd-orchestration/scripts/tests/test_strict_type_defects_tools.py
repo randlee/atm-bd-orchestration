@@ -1,13 +1,17 @@
 """Regressions for runtime defects exposed while making the tools strict."""
 
 import importlib.util
+import os
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
 JUDGE_PATH = Path(__file__).parents[3] / "prompt-rewrite-judge/scripts/judge.py"
 BEAD_GROUPS_PATH = Path(__file__).parents[1] / "bead-groups"
+INSTALLER_PATH = Path(__file__).parents[4] / "install.py"
 SPEC = importlib.util.spec_from_file_location("prompt_rewrite_judge", JUDGE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 judge = importlib.util.module_from_spec(SPEC)
@@ -21,6 +25,34 @@ BEAD_GROUPS_SPEC.loader.exec_module(bead_groups)
 
 
 class StrictTypeDefectTests(unittest.TestCase):
+    @unittest.skipUnless(INSTALLER_PATH.is_file(), "install.py is not shipped inside the installed skill tree")
+    def test_installer_help_and_dependency_preflight_without_site_packages(self):
+        environment = os.environ.copy()
+        environment.pop("PYTHONPATH", None)
+        help_result = subprocess.run(
+            [sys.executable, "-S", str(INSTALLER_PATH), "--help"],
+            capture_output=True,
+            text=True,
+            env=environment,
+            check=False,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("usage:", help_result.stdout)
+        self.assertNotIn("Traceback", help_result.stderr)
+
+        with tempfile.TemporaryDirectory() as directory:
+            preflight = subprocess.run(
+                [sys.executable, "-S", str(INSTALLER_PATH), "--dest", str(Path(directory) / ".claude")],
+                capture_output=True,
+                text=True,
+                env=environment,
+                check=False,
+            )
+        self.assertEqual(preflight.returncode, 1)
+        self.assertIn("Pydantic v2", preflight.stderr)
+        self.assertIn("python3 -m pip install", preflight.stderr)
+        self.assertNotIn("Traceback", preflight.stderr)
+
     def run_client(self, output: str) -> tuple[object, object]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

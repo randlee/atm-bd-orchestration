@@ -71,10 +71,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Literal, Mapping, NotRequired, Optional, Tuple, TypeAlias, TypedDict
+from typing import Callable, Dict, Iterable, List, Literal, Mapping, NotRequired, Optional, Tuple, TYPE_CHECKING, TypeAlias, TypedDict
 from importlib import import_module
-from pydantic import TypeAdapter, ValidationError
-from typing_extensions import TypeAliasType
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue, TypeAdapter, ValidationError
+    from typing_extensions import TypeForm
+
+    JsonObject: TypeAlias = dict[str, JsonValue]
+    _json_object_schema_type: TypeForm[JsonObject]
 
 PKG_DIR = Path(__file__).resolve().parent
 PACKAGE = "atm-bd-orchestration"
@@ -134,8 +139,6 @@ TOOL_INSTALLS = {
 }
 HANDLED_ELSEWHERE_REQUIREMENTS = frozenset({"python3", "pyyaml", "pydantic", "sc-compose"})
 
-JsonValue = TypeAliasType("JsonValue", None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"])
-JsonObject: TypeAlias = dict[str, JsonValue]
 ConfigValue: TypeAlias = str | int | bool | list[str]
 Config: TypeAlias = dict[str, ConfigValue]
 ConfigInputValue: TypeAlias = str | int | float | bool | None | list[str]
@@ -143,7 +146,8 @@ ConfigInputValue: TypeAlias = str | int | float | bool | None | list[str]
 
 def json_object(value: object, context: str) -> JsonObject:
     try:
-        return TypeAdapter(JsonObject).validate_python(value, strict=True)
+        adapter: TypeAdapter[JsonObject] = TypeAdapter(_json_object_schema_type)
+        return adapter.validate_python(value, strict=True)
     except ValidationError as error:
         raise InstallError(f"{context}: expected a JSON-compatible string-keyed object: {error}") from error
 
@@ -269,6 +273,20 @@ PYTHON_INSTALL = "install Python 3.11 or newer with your system package manager"
 
 class InstallError(RuntimeError):
     """An install refusal; the message names what to fix."""
+
+
+def _load_validation_dependencies() -> None:
+    """Load optional validation libraries after CLI help and before validation."""
+    global TypeAdapter, ValidationError, _json_object_schema_type
+    try:
+        from pydantic import JsonValue, TypeAdapter, ValidationError
+    except (ImportError, AttributeError) as error:
+        raise InstallError(
+            "installer validation dependency is missing or incompatible; install a compatible "
+            "Pydantic v2 with `python3 -m pip install 'pydantic>=2'` "
+            "and rerun"
+        ) from error
+    _json_object_schema_type = dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
@@ -685,12 +703,13 @@ def check_tools() -> None:
                            f"install {sc_compose_upgrade()} and rerun")
     # validate-plan runs scripts/bead_schema.py (pydantic) and the scripts render with the
     # sc-compose wheel, all with the python3 on PATH.
-    probe = subprocess.run(["python3", "-c", "import pydantic, yaml, sc_compose, importlib.metadata as m; "
-                            "print(m.version('sc-compose'))"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    probe = subprocess.run(["python3", "-c", "from pydantic import JsonValue, TypeAdapter; "
+                            "import yaml, sc_compose, importlib.metadata as m; print(m.version('sc-compose'))"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if probe.returncode != 0:
-        raise InstallError("python3 on PATH cannot import pydantic, PyYAML and the sc-compose wheel, which the "
-                           f"scripts need; install them (python3 -m pip install pydantic pyyaml 'sc-compose=={cli_version}') "
-                           "and rerun")
+        raise InstallError("python3 on PATH cannot import Pydantic v2 JsonValue/TypeAdapter, PyYAML and the sc-compose wheel, "
+                           "which the scripts need; install them (python3 -m pip "
+                           f"install 'pydantic>=2' pyyaml 'sc-compose=={cli_version}') and rerun")
     wheel_version = probe.stdout.strip()
     if not sc_compose_supported(wheel_version):
         raise InstallError(f"python3 on PATH has the sc-compose wheel {wheel_version}, {needs}; "
@@ -1290,6 +1309,7 @@ def _codex(destination_path: str, options: InstallerHookOptions) -> bool:
 
 def _plan_or_fail(source_path: str, destination_path: str, options: InstallerHookInput) -> Tuple[Optional[Plan], Config, Optional[dict[str, str]]]:
     try:
+        _load_validation_dependencies()
         check_tools()
         try:
             parsed_options = TypeAdapter(InstallerHookOptions).validate_python(options, strict=True)
@@ -1355,6 +1375,7 @@ def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
                         help=f"move modified or foreign files in the way to {BACKUP_DIR}/<time>/ and install over them")
     args = parser.parse_args(argv)
     try:
+        _load_validation_dependencies()
         overrides = parse_set(args.set)
     except InstallError as exc:
         print(f"install.py: {exc}", file=sys.stderr)
@@ -1373,3 +1394,9 @@ def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+else:
+    try:
+        _load_validation_dependencies()
+    except InstallError:
+        # The install hook reports the missing dependency from prepare()/complete().
+        pass
