@@ -561,6 +561,18 @@ def split_request(request: JsonObject, target: int, changed_files: list[str]) ->
     return pieces
 
 
+class SplitFiles(TypedDict):
+    files: list[str]
+
+
+def parse_split_files(request: JsonObject, fallback: list[str] | None) -> SplitFiles:
+    state = request.get("state")
+    files = state.get("changed_files", fallback or []) if isinstance(state, dict) else fallback or []
+    if not string_list(files):
+        raise oversize(request)
+    return {"files": files}
+
+
 def evaluate_parts(requests: list[JsonObject], key: str, changed_files: list[str] | None = None,
                    *, sleep: Callable[[float], None] | None = None) -> JsonObject:
     """Initial parts have independent budgets; a 413's smaller children share their parent's remainder."""
@@ -572,11 +584,8 @@ def evaluate_parts(requests: list[JsonObject], key: str, changed_files: list[str
         except JevError as exc:
             if exc.code != "SANITY.JEV_REQUEST_TOO_LARGE":
                 raise
-            state = request["state"]
-            files = state.get("changed_files", changed_files or []) if isinstance(state, dict) else changed_files or []
-            if not string_list(files):
-                raise oversize(request)
-            initial = split_request(request, MAX_REQUEST_BYTES, files)
+            files = parse_split_files(request, changed_files)
+            initial = split_request(request, MAX_REQUEST_BYTES, files["files"])
         queue.extend((part, AttemptBudget(MAX_JEV_ATTEMPTS)) for part in initial)
     done: list[tuple[JsonObject, JsonObject]] = []
     while queue:
@@ -586,11 +595,8 @@ def evaluate_parts(requests: list[JsonObject], key: str, changed_files: list[str
         except JevError as exc:
             if exc.code != "SANITY.JEV_REQUEST_TOO_LARGE" or budget.remaining <= 0:
                 raise
-            state = request.get("state")
-            files = state.get("changed_files", changed_files or []) if isinstance(state, dict) else changed_files or []
-            if not string_list(files):
-                raise oversize(request)
-            smaller = split_request(request, size(request) // 2, files)
+            files = parse_split_files(request, changed_files)
+            smaller = split_request(request, size(request) // 2, files["files"])
             if len(smaller) < 2:
                 raise exc
             queue[0:0] = [(part, budget) for part in smaller]
@@ -812,15 +818,25 @@ def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
     return [written_request(text, part, part=(f"{i} of {len(groups)}", changed)) for i, part in enumerate(groups, 1)]
 
 
+class PartMetadata(TypedDict):
+    label: JsonValue
+    changed_files: JsonValue
+
+
+def part_metadata(request: JsonObject) -> PartMetadata:
+    state = request.get("state")
+    if not isinstance(state, dict) or "part" not in state or "changed_files" not in state:
+        raise JevError("VALIDATION.INPUT", "Expected pinned model, state and nonempty questions")
+    return {"label": state["part"], "changed_files": state["changed_files"]}
+
+
 def parts(requests: list[JsonObject], responses: list[JsonObject], key: str) -> JsonObject:
     """Every part's full result, in order, with its own receipt: no part is reduced into another. Reconciling parts
     that disagree is the sanity teammate's triage, never this client's."""
     values: list[JsonValue] = []
     for request, response in zip(requests, responses):
-        state = request.get("state")
-        if not isinstance(state, dict) or "part" not in state or "changed_files" not in state:
-            raise JevError("VALIDATION.INPUT", "Expected pinned model, state and nonempty questions")
-        values.append({"part": state["part"], "changed_files": state["changed_files"],
+        metadata = part_metadata(request)
+        values.append({"part": metadata["label"], "changed_files": metadata["changed_files"],
                        "response": response, "receipt": receipt(request, response, key)})
     return {"model": MODEL, "parts": values}
 

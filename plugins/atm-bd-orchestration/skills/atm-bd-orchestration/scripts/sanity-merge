@@ -500,7 +500,8 @@ def screen_jev_results(results: list[JsonValue], client: tuple[JevClient | None,
     rejected: list[JsonObject] = []
     for result in results:
         reason = jev_reply_problem(result, client, seen)
-        source = (result.get("data") if result.get("success") else result.get("error")) if reason and isinstance(result, dict) else None
+        envelope = inspect_review_envelope(result) if reason else None
+        source = (envelope["data"] if envelope["success"] else envelope["error"]) if envelope else None
         number = source.get("deliverable") if isinstance(source, dict) else None
         if reason is None or not isinstance(number, int) or isinstance(number, bool):
             screened.append(result)
