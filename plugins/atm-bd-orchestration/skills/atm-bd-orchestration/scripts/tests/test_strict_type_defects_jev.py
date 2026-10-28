@@ -136,11 +136,15 @@ class MalformedBeadTests(unittest.TestCase):
             module.lint_result({"lint": {"exit_file": [], "log": "log"}})
         self.assertIn("exit_file and log must be strings", str(refusal.exception))
 
-    def test_merge_refuses_boolean_deliverable_total(self):
+    def test_manifest_refuses_boolean_deliverable_total(self):
         module = self.merge_module()
-        with self.assertRaises(module.Reject) as refusal:
-            module.validate({}, 0, {"deliverables_total": True}, "s", "d")
-        self.assertIn("deliverables_total must be an integer", str(refusal.exception))
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "manifest.json"
+            manifest.write_text(json.dumps({"sha": "sha", "branch": "branch", "deliverables_total": True,
+                                            "lint": {}}))
+            with self.assertRaises(module.Reject) as refusal:
+                module.load_manifest(manifest)
+            self.assertIn("deliverables_total must be an integer", str(refusal.exception))
 
     def test_merge_refuses_unhashable_selection(self):
         module = self.merge_module()

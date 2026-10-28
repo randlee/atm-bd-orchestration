@@ -250,15 +250,9 @@ class MergeFinding(FindingFields):
     depends_on: list[MergeDependency]
 
 
-def checked_total(value: JsonValue) -> int:
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise Reject("manifest deliverables_total must be an integer")
-    return value
-
-
 def validate(result: JsonObject, index: int, manifest: Manifest, sanity_bead: str,
              dev_bead: str) -> tuple[int, list[MergeFinding]]:
-    total = checked_total(manifest["deliverables_total"])
+    total = manifest["deliverables_total"]
     where = f"result {index}"
     data = result.get("data")
     if not isinstance(data, dict):
@@ -609,12 +603,12 @@ def selected_results(args: MergeArguments, manifest: Manifest, sanity_bead: str,
         if rerun is not None:
             if not isinstance(rerun, dict) or set(rerun) != set(RerunSelection.__required_keys__):
                 raise Reject(f"deliverable {number}: invalid rerun")
-            if rerun["reviewer"] not in {"sanity-llm", "sanity-jev"} or not isinstance(rerun["context"], list) or not rerun["context"] or not all(isinstance(path, str) and path and not Path(path).is_absolute() for path in rerun["context"]):
+            if not matches_typeddict(rerun, RerunSelection):
                 raise Reject(f"deliverable {number}: rerun requires reviewer and nonempty repo-relative context")
-            reviewer = rerun["reviewer"]
-            assert isinstance(reviewer, str)
-            rerun_context = [path for path in rerun["context"] if isinstance(path, str)]
-            parsed_rerun: RerunSelection = {"reviewer": reviewer, "context": rerun_context, "reply": rerun["reply"]}
+            parsed_rerun: RerunSelection = rerun
+            if (parsed_rerun["reviewer"] not in {"sanity-llm", "sanity-jev"} or not parsed_rerun["context"]
+                    or any(not path or Path(path).is_absolute() for path in parsed_rerun["context"])):
+                raise Reject(f"deliverable {number}: rerun requires reviewer and nonempty repo-relative context")
             for path in parsed_rerun["context"]:
                 if not context_path_exists(manifest, path):
                     raise Reject(f"deliverable {number}: rerun context path is not a file at manifest sha: {path}")
