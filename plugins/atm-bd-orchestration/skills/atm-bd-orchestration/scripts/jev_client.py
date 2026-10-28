@@ -113,6 +113,26 @@ class ValidatedResponse(TypedDict):
     raw: JsonObject
 
 
+def parse_choice_answer(answer: JsonValue, options: set[str]) -> ChoiceAnswer:
+    if not isinstance(answer, dict):
+        raise JevError("SANITY.JEV_RESPONSE_INVALID", "Answer must be an object")
+    probs = answer.get("probabilities")
+    if (answer.get("type") != "choice" or not isinstance(answer.get("choice"), str)
+            or answer.get("choice") not in options
+            or not probability(answer.get("confidence"))
+            or not isinstance(probs, dict) or set(probs) != options
+            or not all(probability(p) for p in probs.values())
+            or abs(sum(p for p in probs.values() if isinstance(p, (int, float))) - 1) > 0.001):
+        raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
+    choice, confidence = answer["choice"], answer["confidence"]
+    assert isinstance(choice, str) and isinstance(confidence, (int, float))
+    parsed_probabilities: dict[str, int | float] = {}
+    for option, prob in probs.items():
+        assert isinstance(prob, (int, float))
+        parsed_probabilities[option] = prob
+    return {"choice": choice, "confidence": confidence, "probabilities": parsed_probabilities}
+
+
 def parse_response(value: JsonValue, request: JsonObject) -> ValidatedResponse:
     if not isinstance(value, dict) or value.get("model") != MODEL:
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Unexpected Jev response model or shape")
@@ -122,29 +142,11 @@ def parse_response(value: JsonValue, request: JsonObject) -> ValidatedResponse:
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Missing or unexpected answer IDs")
     parsed_answers: dict[str, ChoiceAnswer] = {}
     for name, question in questions.items():
-        answer = answers[name]
         if not isinstance(question, dict) or not isinstance(question.get("criteria"), dict):
             raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
         criteria = question["criteria"]
         assert isinstance(criteria, dict)
-        options = set(criteria)
-        if not isinstance(answer, dict):
-            raise JevError("SANITY.JEV_RESPONSE_INVALID", "Answer must be an object")
-        probs = answer.get("probabilities")
-        if (answer.get("type") != "choice" or not isinstance(answer.get("choice"), str)
-                or answer.get("choice") not in options
-                or not probability(answer.get("confidence"))
-                or not isinstance(probs, dict) or set(probs) != options
-                or not all(probability(p) for p in probs.values())
-                or abs(sum(p for p in probs.values() if isinstance(p, (int, float))) - 1) > 0.001):
-            raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
-        choice, confidence = answer["choice"], answer["confidence"]
-        assert isinstance(choice, str) and isinstance(confidence, (int, float))
-        parsed_probabilities: dict[str, int | float] = {}
-        for option, prob in probs.items():
-            assert isinstance(prob, (int, float))
-            parsed_probabilities[option] = prob
-        parsed_answers[name] = {"choice": choice, "confidence": confidence, "probabilities": parsed_probabilities}
+        parsed_answers[name] = parse_choice_answer(answers[name], set(criteria))
     return {"answers": parsed_answers, "raw": value}
 
 
@@ -196,6 +198,18 @@ def validate_request(request: JsonValue) -> bytes:
     return body
 
 
+def parse_response_for_request(value: JsonValue, request: ValidatedRequest) -> ValidatedResponse:
+    if not isinstance(value, dict) or value.get("model") != MODEL:
+        raise JevError("SANITY.JEV_RESPONSE_INVALID", "Unexpected Jev response model or shape")
+    answers = value.get("answers")
+    questions = request["questions"]
+    if not isinstance(answers, dict) or set(answers) != set(questions):
+        raise JevError("SANITY.JEV_RESPONSE_INVALID", "Missing or unexpected answer IDs")
+    parsed = {name: parse_choice_answer(answers[name], set(question["criteria"]))
+              for name, question in questions.items()}
+    return {"answers": parsed, "raw": value}
+
+
 def retry_delay(retry_after: str | None) -> float:
     if retry_after is None:
         return 1.0
@@ -213,6 +227,7 @@ def evaluate(request: JsonObject, *, sleep: Callable[[float], None] | None = Non
              max_attempts: int = MAX_JEV_ATTEMPTS, _budget: AttemptBudget | None = None) -> JsonObject:
     key = api_key()
     body = validate_request(request)
+    parsed_request = parse_request(request)
     sleeper = sleep or time.sleep
     budget = _budget if _budget is not None else AttemptBudget(max_attempts)
     while budget.remaining > 0:
@@ -251,7 +266,7 @@ def evaluate(request: JsonObject, *, sleep: Callable[[float], None] | None = Non
             raise JevError("SANITY.JEV_RESPONSE_INVALID", "Jev response was not JSON") from None
         if not is_json_value(value):
             raise JevError("SANITY.JEV_RESPONSE_INVALID", "Unexpected Jev response model or shape")
-        return validate_response(value, request)
+        return parse_response_for_request(value, parsed_request)["raw"]
     raise JevError("SANITY.JEV_UNAVAILABLE", "Jev retry budget exhausted", True)
 
 
