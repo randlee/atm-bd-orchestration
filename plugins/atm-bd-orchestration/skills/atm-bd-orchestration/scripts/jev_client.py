@@ -91,7 +91,7 @@ def failure(exc: JevError) -> JsonObject:
 
 def api_key() -> str:
     key = os.environ.get("TYPESAFE_API_KEY", "").strip()
-    if not key:
+    if not isinstance(value, dict) or not key:
         raise JevError("SANITY.JEV_UNAVAILABLE", "TYPESAFE_API_KEY is missing; no Jev evaluation ran", True)
     if not key.isascii() or any(ord(c) <= 32 or ord(c) == 127 for c in key):
         raise JevError("SANITY.JEV_UNAVAILABLE", "TYPESAFE_API_KEY has invalid formatting")
@@ -361,15 +361,12 @@ def parse_receipt(value: JsonValue) -> ReceiptToVerify | None:
 
 
 def verify_receipt(value: JsonValue, key: str) -> bool:
-    if not isinstance(value, dict) or set(value) != set(RECEIPT_KEYS) or not key:
+    if not key:
         return False
     parsed = parse_receipt(value)
     if parsed is None:
         return False
-    payload: JsonObject = {"model": parsed["model"], "question": parsed["question"], "choice": parsed["choice"],
-                           "probabilities": parsed["probabilities"], "response_id": parsed["response_id"],
-                           "request_sha256": parsed["request_sha256"], "mac": parsed["mac"]}
-    return hmac.compare_digest(parsed["mac"], receipt_mac(payload, key))
+    return hmac.compare_digest(parsed["mac"], receipt_mac(value, key))
 
 
 def startup_request() -> JsonObject:
