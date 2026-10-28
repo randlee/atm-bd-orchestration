@@ -433,12 +433,15 @@ def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, st
         return "TYPESAFE_API_KEY is not set, so the Jev receipt cannot be verified"
     payload = inspect_jev_payload(data)
     jev, final = payload["jev"], payload["final"]
+    labels: list[str] = []
+    split = isinstance(jev, list)
     if isinstance(jev, list):  # a split request: every part's result, in order, each with its own receipt
         receipts: list[JsonObject] = []
         for i, part in enumerate(jev, 1):
             label = f"{i} of {len(jev)}"
             if not isinstance(part, dict) or part.get("part") != label:
                 return f"Jev part {label} is missing or mislabelled: a split reply returns every part in order"
+            labels.append(label)
             receipt = part.get("receipt")
             if not isinstance(receipt, dict) or not client.verify_receipt(receipt, key):
                 return f"no valid Jev receipt on part {label}: the reply was not written from a jev_client.py call"
@@ -471,8 +474,8 @@ def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, st
         reason = final.get("reason") if isinstance(final, dict) else None
         if not (isinstance(final, dict) and final.get("choice") in ("yes", "no")
                 and isinstance(reason, str) and reason.strip()
-                and isinstance(jev, list)
-                and final.get("parts") == [part["part"] for part in jev if isinstance(part, dict)]):
+                and split
+                and final.get("parts") == labels):
             return ("Jev parts disagree and data.jev_final does not record dev-sanity's triaged result "
                     "({choice, reason, parts} citing every part)")
         choice = final["choice"]
