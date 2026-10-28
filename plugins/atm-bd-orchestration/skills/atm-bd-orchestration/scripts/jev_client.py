@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 import repo_config
-from sprint_index_common import load_phase_config
+from sprint_index_common import JsonValue, load_phase_config
 
 MODEL = "jev-1.13.0"
 HOST = "api.typesafe.ai"
@@ -217,7 +217,7 @@ CLIENT_MESSAGES = re.compile("|".join([
 RECEIPT_KEYS = ("model", "question", "choice", "probabilities", "response_id", "request_sha256", "mac")
 
 
-def is_client_message(message: str | None) -> bool:
+def is_client_message(message: JsonValue) -> bool:
     return isinstance(message, str) and CLIENT_MESSAGES.fullmatch(message) is not None
 
 

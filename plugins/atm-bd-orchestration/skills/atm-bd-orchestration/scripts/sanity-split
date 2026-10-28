@@ -350,9 +350,9 @@ class Cancelled(Exception):
     pass
 
 
-def stop_group(pgid, child):
+def stop_group(pgid: int, child: subprocess.Popen[bytes]) -> bool:
     """TERM the lint process group, wait the grace period, KILL the survivors; True once the group is empty."""
-    def empty():
+    def empty() -> bool:
         child.poll()                                # reap the direct child so it does not linger as a zombie
         try:
             os.killpg(pgid, 0)
@@ -362,13 +362,13 @@ def stop_group(pgid, child):
             pass
         return False
 
-    def signal_group(sig):
+    def signal_group(sig: signal.Signals) -> None:
         try:
             os.killpg(pgid, sig)
         except ProcessLookupError:
             pass
 
-    def wait_empty(seconds):
+    def wait_empty(seconds: float) -> bool:
         deadline = time.monotonic() + seconds
         while not empty():
             if time.monotonic() > deadline:
@@ -383,7 +383,7 @@ def stop_group(pgid, child):
     return wait_empty(KILL_WAIT_SECONDS)
 
 
-def supervise(argv):
+def supervise(argv: list[str]) -> int:
     """Run the lint command in its own process group; always write the exit file."""
     parser = argparse.ArgumentParser(prog="sanity-split lint-supervisor")
     for flag in ("--worktree", "--command", "--log", "--exit-file"):
@@ -421,7 +421,7 @@ def supervise(argv):
     return 0 if outcome not in ("cancelled", "error") else 1
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(add_help=True)
     for flag in ("--task", "--bead", "--worktree", "--branch", "--commit", "--base", "--lint-command", "--scratch"):
         parser.add_argument(flag, required=True)
