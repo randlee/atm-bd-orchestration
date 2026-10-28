@@ -437,7 +437,7 @@ def evaluate_parts(requests, key, changed_files=None, *, sleep=None):
 EVIDENCE_REFS = {"pr_body": ("repo", "pr"), "pr_comment": ("repo", "comment_id")}
 
 
-def evidence_ref(ref):
+def evidence_ref(ref: JsonValue) -> bool:
     """True for one well-formed `external_evidence` reference."""
     if isinstance(ref, dict) and ref.get("kind") == "bead_notes" and set(ref) == {"kind", "bead", "text"}:
         return isinstance(ref["bead"], str) and bool(ref["bead"]) and not ref["bead"].startswith("-") and isinstance(ref["text"], str)
