@@ -283,7 +283,8 @@ class Run:
                            "edge_option": option, **self.close_compose(str(meta["phase"]), f"{meta['sprint']}: fix {ref}: {finding['title']}", stack_id)}
                 compose["ref"] = fmt(sidecar["ref"], {"vars": {**compose, "finding_ref": slug}})
                 existing = self.bd.show(attach_id(sprint, compose["ref"], "fix"))
-                existing_cut = (existing or {}).get("metadata") or {}
+                raw_existing_cut = (existing or {}).get("metadata")
+                existing_cut = raw_existing_cut if isinstance(raw_existing_cut, dict) else {}
                 if all(existing_cut.get(key) for key in cut):
                     compose.update({key: existing_cut[key] for key in cut})
                 out.append({"kind": "finding", "id": f"{sprint}.{compose['ref']}", "formula": "finding-group", "option": option,

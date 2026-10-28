@@ -1,14 +1,43 @@
+# pyright: strict
 """QA state and finding counts shared by table and DAG reports."""
 
 import sys
-from typing import Any
+from typing import TypeAlias, TypeGuard
+
+JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+JsonObject: TypeAlias = dict[str, JsonValue]
 
 
-def metadata(bead: dict[str, Any]) -> dict[str, Any]:
+def is_object_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
+
+
+def is_object_mapping(value: object) -> TypeGuard[dict[object, object]]:
+    return isinstance(value, dict)
+
+
+def is_json_object(value: object) -> TypeGuard[JsonObject]:
+    if not is_object_mapping(value):
+        return False
+    for key, item in value.items():
+        if not isinstance(key, str) or not is_json_value(item):
+            return False
+    return True
+
+
+def is_json_value(value: object) -> TypeGuard[JsonValue]:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return True
+    if is_object_list(value):
+        return all(is_json_value(item) for item in value)
+    return is_json_object(value)
+
+
+def metadata(bead: JsonObject) -> JsonObject:
     value = bead.get("metadata")
-    return value if isinstance(value, dict) else {}
+    return value if is_json_object(value) else {}
 
-def choose_round(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+def choose_round(candidates: list[JsonObject]) -> JsonObject | None:
     if not candidates:
         return None
     return max(
@@ -20,7 +49,7 @@ def choose_round(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
         ),
     )
 
-def qa_verdict(qa: dict[str, Any]) -> str:
+def qa_verdict(qa: JsonObject) -> str:
     qa_meta = metadata(qa)
     verdict = str(qa_meta.get("verdict") or "").upper()
     if not verdict:
@@ -30,7 +59,7 @@ def qa_verdict(qa: dict[str, Any]) -> str:
         verdict = "IN PROGRESS" if qa.get("status") != "closed" else "UNKNOWN"
     return verdict
 
-def qa_icon(qa: dict[str, Any] | None, findings: list[dict[str, Any]]) -> str:
+def qa_icon(qa: JsonObject | None, findings: list[JsonObject]) -> str:
     if not qa:
         return ""
     verdict = qa_verdict(qa)
@@ -44,14 +73,16 @@ def qa_icon(qa: dict[str, Any] | None, findings: list[dict[str, Any]]) -> str:
         return "📥"
     return ""
 
-def findings_summary(findings: list[dict[str, Any]]) -> str:
+def findings_summary(findings: list[JsonObject]) -> str:
     counts = dict.fromkeys(("blocking", "important", "minor"), 0)
     for finding in findings:
         if finding.get("status") == "closed":
             continue
+        raw_labels = finding.get("labels")
+        labels = raw_labels if is_object_list(raw_labels) else []
         severity = str(metadata(finding).get("severity") or next(
-            (label.removeprefix("severity:") for label in finding.get("labels") or []
-             if label.startswith("severity:")), ""
+            (label.removeprefix("severity:") for label in labels
+             if isinstance(label, str) and label.startswith("severity:")), ""
         )).lower()
         severity = {"critical": "blocking", "low": "minor"}.get(severity, severity)
         if severity not in counts:

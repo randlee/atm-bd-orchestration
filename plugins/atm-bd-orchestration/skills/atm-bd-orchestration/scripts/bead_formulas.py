@@ -1,3 +1,4 @@
+# pyright: strict
 """Formula lookup and the small `bd` wrapper `bead-groups` uses.
 
 A formula is two files: `<name>.formula.toml.j2` (the sc-compose source) and
@@ -13,11 +14,48 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from subprocess import CompletedProcess
+from typing import TypeAlias, TypeGuard
 
 PACKAGE_FORMULAS = Path(__file__).resolve().parents[1] / "formulas"
 OVERRIDE_DIR = Path(".atm-bd") / "formula"
 TEMPLATE_SUFFIX = ".formula.toml.j2"
 RELATIONS_SUFFIX = ".relations.json"
+JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+JsonObject: TypeAlias = dict[str, JsonValue]
+
+
+def is_object_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
+
+
+def is_object_mapping(value: object) -> TypeGuard[dict[object, object]]:
+    return isinstance(value, dict)
+
+
+def is_json_value(value: object) -> TypeGuard[JsonValue]:
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return True
+    if is_object_list(value):
+        for item in value:
+            if not is_json_value(item):
+                return False
+        return True
+    if is_object_mapping(value):
+        for key, item in value.items():
+            if not isinstance(key, str) or not is_json_value(item):
+                return False
+        return True
+    return False
+
+
+def is_json_object(value: object) -> TypeGuard[JsonObject]:
+    if not is_object_mapping(value):
+        return False
+    for key, item in value.items():
+        if not isinstance(key, str) or not is_json_value(item):
+            return False
+    return True
 
 
 def search_path(repo: Path | None) -> list[Path]:
@@ -67,7 +105,7 @@ class Bd:
         self.executable = executable
         self.log: list[tuple[list[str], int]] = []
 
-    def run(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    def run(self, *args: str, check: bool = True) -> CompletedProcess[str]:
         argv = [self.executable, *args]
         proc = subprocess.run(argv, text=True, capture_output=True)
         self.log.append((argv, proc.returncode))
@@ -75,7 +113,7 @@ class Bd:
             raise BdError(argv, proc.returncode, proc.stdout, proc.stderr)
         return proc
 
-    def show(self, bead: str) -> dict | None:
+    def show(self, bead: str) -> JsonObject | None:
         """The bead as `bd show --json` reports it, or None when it does not exist."""
         proc = self.run("show", bead, "--json", check=False)
         if proc.returncode:
@@ -83,6 +121,13 @@ class Bd:
             if "not found" in text or "no issue" in text:
                 return None
             raise BdError([self.executable, "show", bead], proc.returncode, proc.stdout, proc.stderr)
-        rows = json.loads(proc.stdout)
-        return rows[0] if rows else None
+        rows: object = json.loads(proc.stdout)
+        if not is_object_list(rows):
+            raise ValueError("bd show returned invalid JSON rows")
+        parsed_rows: list[JsonObject] = []
+        for row in rows:
+            if not is_json_object(row):
+                raise ValueError("bd show returned invalid JSON rows")
+            parsed_rows.append(row)
+        return parsed_rows[0] if parsed_rows else None
 

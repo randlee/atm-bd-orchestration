@@ -12,13 +12,26 @@ from string import Template
 import sys
 import xml.etree.ElementTree as ET
 
-from sprint_index_common import run_json, index_bead_pairs, validate_index
+from sprint_index_common import JsonObject, JsonValue, is_json_object, run_json as _run_json, index_bead_pairs, validate_index
 from sprint_qa import choose_round, qa_icon, qa_verdict, findings_summary
 from phase_beads import phase_beads
 
 RENDERER = Path(__file__).resolve().parents[1] / 'renderer'
 NS = 'http://www.w3.org/2000/svg'
 ET.register_namespace('', NS)
+
+
+def run_json(repo: Path, *args: str) -> JsonValue:
+    return _run_json(repo, *args)
+
+
+def run_json_records(repo: Path, key: str, *args: str) -> list[JsonObject]:
+    value = run_json(repo, *args)
+    if is_json_object(value):
+        value = value.get(key)
+    if not isinstance(value, list) or any(not is_json_object(row) for row in value):
+        raise RuntimeError(f"{' '.join(args)} did not return JSON object records")
+    return [row for row in value if is_json_object(row)]
 
 
 def tag(name):
@@ -69,23 +82,23 @@ def collect_state(repo, graph, beads, counts, phase):
     errors = {}
     def history(key):
         try:
-            return key, run_json(repo, 'atm', 'task', 'events', key, '--all', '--json')['events']
+            return key, run_json_records(repo, 'events', 'atm', 'task', 'events', key, '--all', '--json')
         except (OSError, RuntimeError, KeyError, subprocess.CalledProcessError) as exc:
             return key, str(exc)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        histories = dict(pool.map(history, graph['nodes']))
+        histories: dict[str, list[JsonObject] | str | None] = dict(pool.map(history, graph['nodes']))
     for key, value in list(histories.items()):
         if not isinstance(value, list):
             errors[key] = value
             histories[key] = None
     try:
-        tasks = {t['task_id']: t for t in run_json(repo, 'atm', 'task', 'list', '--all', '--json')
+        tasks = {t['task_id']: t for t in run_json_records(repo, 'tasks', 'atm', 'task', 'list', '--all', '--json')
                  if t['task_id'] in graph['nodes']}
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         tasks = {}
         errors['task_list'] = str(exc)
     blocked = {b['id']: b.get('blocked_by', [])
-               for b in run_json(repo, 'bd', 'blocked', '-l', f'phase-{phase}',
+               for b in run_json_records(repo, 'beads', 'bd', 'blocked', '-l', f'phase-{phase}',
                                  '--label-any', 'stage:dev,stage:dev-sanity', '--json')}
     return {'beads': beads, 'tasks': tasks, 'blocked': blocked, 'events': histories,
             'iterations': counts, 'errors': errors,

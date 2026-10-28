@@ -124,7 +124,7 @@ def git(*args: str) -> str:
     return proc.stdout
 
 
-def plan_text(repo: Path, config: dict, index: Path | None) -> tuple[str, str]:
+def plan_text(repo: Path, config: plan_io.PhaseConfig, index: Path | None) -> tuple[str, str]:
     if index is not None:
         try:
             return index.read_text(encoding="utf-8"), str(index)
@@ -165,7 +165,7 @@ def check_qa_reviewers(beads: list[dict], repo: Path, problems: list[str]) -> No
             problems.append(f"{bead['id']}: reviewers_round1: unregistered reviewer(s): {', '.join(unknown)}")
 
 
-def check(beads: Beads, config: dict, rows: list[dict], problems: list[str], before_import: bool, repo: Path) -> None:
+def check(beads: Beads, config: plan_io.PhaseConfig, rows: list[plan_io.PlanRow], problems: list[str], before_import: bool, repo: Path) -> None:
     import bead_schema  # pydantic; --ci never loads it
     root_id = config["root"]
     prefix = plan_io.bead_prefix(root_id, Path("."))
