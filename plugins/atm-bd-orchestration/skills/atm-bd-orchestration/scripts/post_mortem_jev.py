@@ -177,7 +177,7 @@ class JevRequest(TypedDict):
 
 class Answer(TypedDict):
  choice: str
- probabilities: dict[str, float]
+ probabilities: dict[str, int | float]
 
 
 class JevResponse(TypedDict):

@@ -153,6 +153,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_stack.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_task_close_hook.py
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_jev.py
+    - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_report.py
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_tools.py
     - skills/atm-bd-orchestration/scripts/tests/test_task_close.py
     - skills/atm-bd-orchestration/scripts/tests/test_templates.py
