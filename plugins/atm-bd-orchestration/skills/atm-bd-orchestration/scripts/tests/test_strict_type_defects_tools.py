@@ -1,15 +1,23 @@
 """Regressions for runtime defects exposed while making the tools strict."""
 
 import importlib.util
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 import tempfile
 import unittest
 
 JUDGE_PATH = Path(__file__).parents[3] / "prompt-rewrite-judge/scripts/judge.py"
+BEAD_GROUPS_PATH = Path(__file__).parents[1] / "bead-groups"
 SPEC = importlib.util.spec_from_file_location("prompt_rewrite_judge", JUDGE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 judge = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(judge)
+BEAD_GROUPS_SPEC = importlib.util.spec_from_loader(
+    "bead_groups_type_defects", SourceFileLoader("bead_groups_type_defects", str(BEAD_GROUPS_PATH))
+)
+assert BEAD_GROUPS_SPEC is not None and BEAD_GROUPS_SPEC.loader is not None
+bead_groups = importlib.util.module_from_spec(BEAD_GROUPS_SPEC)
+BEAD_GROUPS_SPEC.loader.exec_module(bead_groups)
 
 
 class StrictTypeDefectTests(unittest.TestCase):
@@ -40,6 +48,29 @@ class StrictTypeDefectTests(unittest.TestCase):
         self.assertIsNone(answers)
         self.assertIsNotNone(error)
         self.assertIn("success response has invalid answers", str(error))
+
+    def test_failed_compose_receipt_does_not_require_a_graph(self):
+        receipt = {
+            "payload": {
+                "outcome": "failed",
+                "error": {"code": "BEADS_RENDER_FAILED", "message": "undefined variable: extra"},
+            }
+        }
+
+        self.assertTrue(bead_groups.matches_typeddict(receipt, bead_groups.Receipt))
+
+    def test_missing_finding_remedy_reaches_domain_validation(self):
+        document = {
+            "sprint": "atm-bn-4",
+            "round": 1,
+            "filed_by": "atm-bn-4.group-qa",
+            "found_at_commit": "e25d5087",
+            "findings": [
+                {"ref": "qa1-f1", "severity": "blocking", "reviewer": "qa", "title": "finding"}
+            ],
+        }
+
+        self.assertTrue(bead_groups.matches_typeddict(document, bead_groups.FindingsDocument))
 
 
 if __name__ == "__main__":

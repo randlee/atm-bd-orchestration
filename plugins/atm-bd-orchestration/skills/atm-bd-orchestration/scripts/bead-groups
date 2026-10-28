@@ -74,8 +74,8 @@ sys.path.insert(0, str(SCRIPTS.parents[1] / "atm-beads" / "scripts"))
 import bead_formulas  # noqa: E402
 import repo_config  # noqa: E402
 import sprint_index_common  # noqa: E402
-from bead_formulas import Bd, BdError, JsonObject, JsonValue, attach_id  # noqa: E402
-from operation_models import matches_typeddict  # noqa: E402
+from bead_formulas import Bd, BdError, attach_id  # noqa: E402
+from operation_models import JsonObject, JsonValue, matches_typeddict  # noqa: E402
 from stack_top import stack_bead_id  # noqa: E402
 
 SCHEMA = "atm-bd-orchestration/bead-groups/v1"
@@ -156,7 +156,7 @@ class Finding(TypedDict):
     severity: str
     reviewer: str
     title: str
-    remedy: str
+    remedy: NotRequired[str | None]
     requirements: NotRequired[list[str]]
     adrs: NotRequired[list[str]]
     found_on_layer: NotRequired[int | str | bool | None]
@@ -201,7 +201,40 @@ def bead_metadata(bead: BeadRow) -> Metadata:
 
 
 ComposeValue = str | int | bool | list[str]
-Compose = dict[str, ComposeValue]
+
+
+class Compose(TypedDict, total=False):
+    parent: str
+    phase: str
+    sprint: str
+    stack: str
+    layer: ComposeValue
+    difficulty: str
+    priority: int
+    branch: str
+    worktree: str
+    pr_target: str
+    edge_option: str
+    reviewers_round1: list[str]
+    stack_bead: str
+    phase_feature: str
+    checked_title: str
+    lint_command: str
+    policy_path: str
+    max_sanity_rounds: int
+    ref: str
+    finding_ref: str
+    round: int
+    severity: str
+    reviewer: str
+    finding_title: str
+    remedy: str
+    filed_by: str
+    found_at_commit: str
+    requirements: list[str]
+    adrs: list[str]
+    found_on_layer: int | str
+    has_found_on_layer: bool
 
 
 PlanEntry = tuple[str, str, list[str]]
@@ -218,6 +251,21 @@ class Target(TypedDict):
 
 
 Relation = TypedDict("Relation", {"from": str, "to": str, "type": str})
+
+
+class AttachRequest(TypedDict):
+    schema: str
+    operation: str
+    working_directory: str
+    template: str
+    rendered_formula: str
+    compose_variables: Compose
+    formula_name: str
+    bead_variables: dict[str, JsonValue]
+    parent: str
+    ref: str
+    relations: list[Relation]
+    pour_authorization: NotRequired[str]
 
 
 class GraphNode(TypedDict):
@@ -252,7 +300,7 @@ class Diagnostic(TypedDict):
 
 class ReceiptPayload(TypedDict):
     outcome: str | dict[str, JsonObject] | None
-    graph: Graph
+    graph: NotRequired[Graph]
     error: NotRequired[ReceiptError]
     stages: NotRequired[list[ReceiptStage]]
 
@@ -410,7 +458,7 @@ class Run:
 
     def show_typed(self, bead: str) -> tuple[JsonObject, BeadRow]:
         row = self.show(bead)
-        payload = row
+        payload = bead_formulas.bead_record_to_json(row)
         if not matches_typeddict(row, BeadRow):
             raise ValueError(f"{bead}: malformed bead record")
         return payload, row
@@ -519,12 +567,16 @@ class Run:
                 slug = re.sub(r"[^a-z0-9-]", "-", ref.lower())
                 if not REF.fullmatch(slug):
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding ref {ref!r} must normalize to letters, digits and single hyphens")
-                lacking = [k for k in FINDING_FIELDS if not finding[k]]
+                lacking = [k for k in FINDING_FIELDS
+                           if not isinstance(finding.get(k), str) or not finding.get(k)]
                 finding_difficulty = finding.get("difficulty") or difficulty_value
                 if phase_end and not finding.get("difficulty"):
                     lacking.append("difficulty (a phase-end finding has no sprint to take it from)")
                 if lacking:
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} lacks {', '.join(lacking)}")
+                remedy = finding.get("remedy")
+                if not isinstance(remedy, str):
+                    raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} lacks remedy")
                 # Deleted when a released sc-compose pours a string layer (preview-attach passes).
                 layer = finding.get("found_on_layer")
                 if layer not in (None, "") and (not isinstance(layer, int) or isinstance(layer, bool)):
@@ -549,12 +601,14 @@ class Run:
                         ids[key] = value
                 if bad:
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref}: {', '.join(bad)} must be a nonempty list of ids (from the finding or {sprint}'s metadata)")
+                found_on_layer_value: int | str = layer if isinstance(layer, int) and not isinstance(layer, bool) else ""
                 compose: Compose = {"parent": sprint, "finding_ref": ref, "round": round_, "severity": finding["severity"],
-                           "reviewer": finding["reviewer"], "finding_title": finding["title"], "remedy": finding["remedy"],
-                           "filed_by": filed_by, "found_at_commit": found_at, **ids,
+                           "reviewer": finding["reviewer"], "finding_title": finding["title"], "remedy": remedy,
+                           "filed_by": filed_by, "found_at_commit": found_at,
+                           "requirements": ids["requirements"], "adrs": ids["adrs"],
                            "phase": phase, "sprint": sprint_name, "stack": stack_name,
                            **cut,
-                           "found_on_layer": finding.get("found_on_layer") or "",
+                           "found_on_layer": found_on_layer_value,
                            "has_found_on_layer": finding.get("found_on_layer") not in (None, ""),
                            "priority": finding.get("priority", 1),
                            "edge_option": option, **self.close_compose(phase, f"{sprint_name}: fix {ref}: {finding['title']}", stack_id)}
@@ -562,10 +616,11 @@ class Run:
                 existing_row = self.bd.show(attach_id(sprint, compose["ref"], "fix"))
                 existing = TypeAdapter(BeadRow).validate_python(existing_row, strict=True) if existing_row is not None else None
                 existing_metadata: Metadata = bead_metadata(existing) if existing is not None else {}
-                existing_cut = {key: value for key in cut
-                                if isinstance((value := existing_metadata.get(key)), str)}
+                existing_cut: dict[str, str] = {key: value for key in cut
+                                                if isinstance((value := existing_metadata.get(key)), str)}
                 if all(existing_cut.get(key) for key in cut):
-                    compose.update(existing_cut)
+                    compose.update(branch=existing_cut["branch"], worktree=existing_cut["worktree"],
+                                   pr_target=existing_cut["pr_target"])
                 ref_value = compose_string(compose, "ref")
                 target_vars = {key: value for key, value in sidecar.get("defaults", {}).items()}
                 out.append({"kind": "finding", "id": f"{sprint}.{ref_value}", "formula": "finding-group", "option": option,
@@ -591,17 +646,19 @@ class Run:
         ignore = out / ".gitignore"  # requests, receipts and rendered formulas are run records; only .atm-bd/formula/ is tracked
         if not ignore.exists():
             ignore.write_text("*\n")
-        stem = f"{target['id']}.{target['compose']['ref']}.{formula}"
+        stem = f"{target['id']}.{compose_string(target['compose'], 'ref')}.{formula}"
         relations, missing = self.relations(target, preview=preview)
         # The attach reads the rendered formula by path, so it stays beside its request; nothing goes in bd's registry.
         operation = "preview_attach" if preview else "attach"
-        request = {
+        request: AttachRequest = {
             "schema": "sc-compose/beads/v1", "operation": operation, "working_directory": str(self.repo),
             "template": str(template), "rendered_formula": str(out / f"{stem}.formula.toml"),
             "compose_variables": target["compose"], "formula_name": formula, "bead_variables": {},
-            "parent": target["compose"]["parent"], "ref": target["compose"]["ref"], "relations": relations,
-            **({} if preview else {"pour_authorization": "CreatePersistentBeads"}),
+            "parent": compose_string(target["compose"], "parent"),
+            "ref": compose_string(target["compose"], "ref"), "relations": relations,
         }
+        if not preview:
+            request["pour_authorization"] = "CreatePersistentBeads"
         path = out / f"{stem}.request.json"
         path.write_text(json.dumps(request, indent=2) + "\n")
         subcommand = operation.replace("_", "-")
@@ -630,6 +687,8 @@ class Run:
             detail = error_detail or failed_detail or diagnostic_message
             code = code_value if isinstance(code_value, str) else "BEAD_GROUPS_POUR_FAILED"
             raise TargetError(code, f"attach of {target['id']} (sc-compose exit {proc.returncode}): {detail}")
+        if "graph" not in payload:
+            raise TargetError("BEAD_GROUPS_POUR_FAILED", f"attach of {target['id']}: successful receipt has no graph")
         graph = payload["graph"]
         wanted = {(self.endpoint(graph, r["from"]), self.endpoint(graph, r["to"]), r["type"]) for r in relations}
         return {"ids": graph["ids"], "nodes": graph["nodes"], "missing": missing, "graph": graph,
@@ -763,7 +822,7 @@ def main(argv: list[str]) -> int:
                 parent = compose_string(target["compose"], "parent")
                 ref = compose_string(target["compose"], "ref")
                 if any(run.bd.show(attach_id(parent, ref, step)) is None for step in run.steps(target)):
-                    raise TargetError("BEAD_GROUPS_QA_CLOSED", f"{target['compose']['filed_by']} is closed; pour before closing QA")
+                    raise TargetError("BEAD_GROUPS_QA_CLOSED", f"{compose_string(target['compose'], 'filed_by')} is closed; pour before closing QA")
             attachment = run.pour(target, preview=True)
             previews.append((entry, target, attachment))
             entry.update({"ids": attachment["ids"], "nodes": attachment["nodes"], "edges": attachment["edges"]})

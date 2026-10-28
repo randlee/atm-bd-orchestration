@@ -42,15 +42,12 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import NotRequired, TypedDict
-from operation_models import matches_typeddict
-from typing_extensions import TypeAliasType
+from operation_models import JsonValue, matches_typeddict
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import sprint_index_common as plan_io  # noqa: E402
 from plan_contract import SPRINT_LABEL  # noqa: E402
-
-JsonValue = TypeAliasType("JsonValue", None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"])
 
 VALID, CANNOT_RUN, PROBLEMS = 0, 2, 5
 
