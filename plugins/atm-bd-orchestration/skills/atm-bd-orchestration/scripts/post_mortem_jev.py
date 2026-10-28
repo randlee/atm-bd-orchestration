@@ -19,6 +19,8 @@ import subprocess
 import time
 import tempfile
 import uuid
+from collections.abc import Sequence
+from typing import TypedDict
 
 SCHEMA_VERSION=1
 PROMPT_VERSION='post-mortem-jev-v1'
@@ -49,17 +51,23 @@ QUESTIONS={
   'insufficient_evidence':'Insufficient current implementation or relevant coverage to rank quality.'}}
 }
 
-def digest(value:bytes)->str:return hashlib.sha256(value).hexdigest()
-def encoded(value)->bytes:return json.dumps(value,ensure_ascii=False,sort_keys=True,allow_nan=False).encode()
-def utc_now():return datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')
-def git(repo:Path,*args,allow_no_matches=False):
+class GitResult(TypedDict):
+ stdout: str
+ stderr: str
+ returncode: int
+
+
+def digest(value: bytes) -> str:return hashlib.sha256(value).hexdigest()
+def encoded(value: object) -> bytes:return json.dumps(value,ensure_ascii=False,sort_keys=True,allow_nan=False).encode()
+def utc_now() -> str:return datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')
+def git(repo: Path, *args: str, allow_no_matches: bool = False) -> subprocess.CompletedProcess[str]:
  p=subprocess.run(['git','-C',str(repo),*args],capture_output=True,text=True)
  if p.returncode and not (allow_no_matches and p.returncode==1):
   raise ValueError(f'git operation failed ({p.returncode}): {p.stderr.strip()}')
  return p
 
-def resolve_sha(repo,ref):return git(repo,'rev-parse','--verify',f'{ref}^{{commit}}').stdout.strip()
-def safe_path(path):
+def resolve_sha(repo: Path, ref: str) -> str:return git(repo,'rev-parse','--verify',f'{ref}^{{commit}}').stdout.strip()
+def safe_path(path: object) -> str:
  if not isinstance(path,str) or not path or Path(path).is_absolute() or '..' in Path(path).parts or '\x00' in path:
   raise ValueError(f'expected exact repository-relative path: {path!r}')
  return path
