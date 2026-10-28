@@ -263,11 +263,38 @@ def receipt(request: JsonObject, response: JsonObject, key: str) -> JsonObject:
     return {**body, "mac": receipt_mac({**body, "mac": None}, key)}
 
 
+class ReceiptToVerify(TypedDict):
+    mac: str
+    model: JsonValue
+    question: JsonValue
+    choice: JsonValue
+    probabilities: JsonValue
+    response_id: JsonValue
+    request_sha256: JsonValue
+
+
+def parse_receipt(value: JsonValue) -> ReceiptToVerify | None:
+    """Extract the MAC; retain signed fields exactly as received for verification."""
+    if not isinstance(value, dict) or set(value) != set(RECEIPT_KEYS):
+        return None
+    mac = value["mac"]
+    if not isinstance(mac, str):
+        return None
+    return {"mac": mac, "model": value["model"], "question": value["question"],
+            "choice": value["choice"], "probabilities": value["probabilities"],
+            "response_id": value["response_id"], "request_sha256": value["request_sha256"]}
+
+
 def verify_receipt(value: JsonValue, key: str) -> bool:
     if not isinstance(value, dict) or set(value) != set(RECEIPT_KEYS) or not key:
         return False
-    mac = value["mac"]
-    return isinstance(mac, str) and hmac.compare_digest(mac, receipt_mac(value, key))
+    parsed = parse_receipt(value)
+    if parsed is None:
+        return False
+    payload: JsonObject = {"model": parsed["model"], "question": parsed["question"], "choice": parsed["choice"],
+                           "probabilities": parsed["probabilities"], "response_id": parsed["response_id"],
+                           "request_sha256": parsed["request_sha256"], "mac": parsed["mac"]}
+    return hmac.compare_digest(parsed["mac"], receipt_mac(payload, key))
 
 
 def startup_request() -> JsonObject:
