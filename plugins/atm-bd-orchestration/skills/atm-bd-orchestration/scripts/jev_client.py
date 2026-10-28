@@ -17,6 +17,7 @@ import socket
 import subprocess
 import sys
 import time
+from typing import TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 import repo_config
@@ -540,13 +541,17 @@ def external_evidence(ref: JsonObject, worktree: str) -> JsonObject:
             "author": author, "text": text}
 
 
-def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
-    """The sanity requests, built from the assignment so no agent writes them: the deliverable text verbatim, the
-    committed diff of the changed files and the context entries at the pinned commit (a `path:start-end` entry only
-    those lines, labelled with the entry). One request when it fits under
-    MAX_REQUEST_BYTES; each `external_evidence` reference (bead notes, PR body, PR comment) fetched with its source.
-    With `context` and `external_evidence` empty and the diff over the cap, `changed_files` split into groups (a file whose
-    diff alone is over the cap split by hunks) whose requests each fit, one Jev call per part."""
+class EvidenceAssignment(TypedDict):
+    text: str
+    worktree: str
+    commit: str
+    base: str
+    changed: list[str]
+    context: list[str]
+    refs: list[JsonObject]
+
+
+def parse_evidence_assignment(assignment: JsonValue) -> EvidenceAssignment:
     if not isinstance(assignment, dict):
         raise JevError("VALIDATION.INPUT", "Assignment lacks deliverable text, worktree, commits or file lists") from None
     deliverable = assignment.get("deliverable")
@@ -560,6 +565,20 @@ def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
     refs = assignment.get("external_evidence", [])
     if not isinstance(refs, list) or not all(evidence_ref(ref) for ref in refs):
         raise JevError("VALIDATION.INPUT", "Assignment external_evidence entry is not a bead_notes, pr_body or pr_comment reference")
+    return {"text": text, "worktree": worktree, "commit": commit, "base": base,
+            "changed": changed, "context": context, "refs": [ref for ref in refs if isinstance(ref, dict)]}
+
+
+def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
+    """The sanity requests, built from the assignment so no agent writes them: the deliverable text verbatim, the
+    committed diff of the changed files and the context entries at the pinned commit (a `path:start-end` entry only
+    those lines, labelled with the entry). One request when it fits under
+    MAX_REQUEST_BYTES; each `external_evidence` reference (bead notes, PR body, PR comment) fetched with its source.
+    With `context` and `external_evidence` empty and the diff over the cap, `changed_files` split into groups (a file whose
+    diff alone is over the cap split by hunks) whose requests each fit, one Jev call per part."""
+    parsed = parse_evidence_assignment(assignment)
+    text, worktree, commit, base = parsed["text"], parsed["worktree"], parsed["commit"], parsed["base"]
+    changed, context, refs = parsed["changed"], parsed["context"], parsed["refs"]
 
     def git(*args: str) -> str:
         proc = subprocess.run(["git", "-C", worktree, *args], capture_output=True, text=True)
@@ -581,7 +600,7 @@ def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
             raise JevError("VALIDATION.INPUT", f"Context entry {entry} names lines outside its file at the pinned commit")
         return "".join(kept[start - 1:end])
 
-    external = [external_evidence(ref, worktree) for ref in refs if isinstance(ref, dict)]
+    external = [external_evidence(ref, worktree) for ref in refs]
     request = written_request(text, diff(*changed), {entry: excerpt(entry) for entry in context}, external=external)
     if size(request) <= MAX_REQUEST_BYTES:
         return [request]
