@@ -355,7 +355,7 @@ RECEIPT_KEYS = tuple(ReceiptToVerify.__annotations__)
 
 def parse_receipt(value: JsonValue) -> ReceiptToVerify | None:
     """Extract the MAC; retain signed fields exactly as received for verification."""
-    if not matches_typeddict(value, ReceiptToVerify) or set(value) != ReceiptToVerify.__required_keys__:
+    if not matches_typeddict(value, ReceiptToVerify) or set(value) != set(ReceiptToVerify.__required_keys__):
         return None
     return value
 
@@ -666,13 +666,13 @@ def evidence_ref(ref: JsonValue) -> bool:
 
 
 def parse_evidence_ref(ref: JsonValue) -> EvidenceReference | None:
-    if (matches_typeddict(ref, BeadNotesReference) and set(ref) == BeadNotesReference.__required_keys__
+    if (matches_typeddict(ref, BeadNotesReference) and set(ref) == set(BeadNotesReference.__required_keys__)
             and ref["bead"] and not ref["bead"].startswith("-")):
         return ref
-    if (matches_typeddict(ref, PullRequestReference) and set(ref) == PullRequestReference.__required_keys__
+    if (matches_typeddict(ref, PullRequestReference) and set(ref) == set(PullRequestReference.__required_keys__)
             and ref["repo"] and not ref["repo"].startswith("-") and ref["pr"] > 0):
         return ref
-    if (matches_typeddict(ref, CommentReference) and set(ref) == CommentReference.__required_keys__
+    if (matches_typeddict(ref, CommentReference) and set(ref) == set(CommentReference.__required_keys__)
             and ref["repo"] and not ref["repo"].startswith("-") and ref["comment_id"] > 0):
         return ref
     return None

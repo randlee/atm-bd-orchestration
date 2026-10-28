@@ -290,7 +290,7 @@ class ClientEnvelope(TypedDict):
 def parse_client_output(output: JsonValue) -> ClientOutput:
     raw = output
     if not isinstance(raw, dict) or not matches_typeddict(output, ClientEnvelope) \
-            or set(raw) - {"elapsed_s"} != ClientEnvelope.__required_keys__:
+            or set(raw) - {"elapsed_s"} != set(ClientEnvelope.__required_keys__):
         raise Refused("client_envelope", "--client-output is not a jev_client.py envelope", RERUN)
     return {"success": output["success"], "data": output["data"], "error": output["error"],
             "elapsed": outer_elapsed(raw, "client", RERUN)}

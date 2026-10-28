@@ -585,7 +585,7 @@ def selected_results(args: MergeArguments, manifest: Manifest, sanity_bead: str,
     selected: list[JsonValue] = []
     seen: set[int] = set()
     sources: dict[int, str] = {}
-    required = SelectionEntry.__required_keys__
+    required = set(SelectionEntry.__required_keys__)
     for entry in selection:
         if not isinstance(entry, dict) or set(entry) != required:
             raise Reject("selection entry has incorrect fields")
