@@ -21,7 +21,7 @@ import tempfile
 import uuid
 import sys
 from collections.abc import Mapping, Sequence
-from typing import NotRequired, Protocol, TypedDict, runtime_checkable
+from typing import NotRequired, Protocol, TypeGuard, TypedDict, runtime_checkable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'atm-beads' / 'scripts'))
 from operation_models import is_object, is_object_list, matches_typeddict
@@ -166,7 +166,7 @@ class JevState(TypedDict):
  historical_diffs: list[DiffEvidence]
  evaluation_kind: str
  context_revision: int
- question_specs: NotRequired[dict[str, QuestionSpec]]
+ question_specs: dict[str, QuestionSpec]
 
 
 class JevRequest(TypedDict):
@@ -182,6 +182,18 @@ class Answer(TypedDict):
 
 class JevResponse(TypedDict):
  answers: dict[str, Answer]
+
+
+class EvaluationRecord(TypedDict):
+ schema_version: int
+ packet_path: str
+ packet_sha256: str
+ screening_disposition: str
+ timestamp_utc: str
+ error: object | None
+ response: object | None
+ presence_disposition: str
+ routing_minimum_probability: float
 
 
 class AtomicAnswer(TypedDict):
@@ -202,9 +214,15 @@ class SummaryRow(TypedDict):
 @runtime_checkable
 class JevClient(Protocol):
  MODEL: str
+ MAX_REQUEST_BYTES: int
+ JevError: type[Exception]
 
  def validate_request(self, request: JevRequest) -> bytes: ...
  def evaluate(self, request: JevRequest) -> JevResponse: ...
+
+
+def is_jev_client(value: object) -> TypeGuard[JevClient]:
+ return all(hasattr(value, field) for field in ('MODEL', 'validate_request', 'evaluate'))
 
 
 def digest(value: bytes) -> str:return hashlib.sha256(value).hexdigest()
@@ -282,7 +300,7 @@ def validate_question_specs(questions: object, specs: object,
 def prepare(manifest: object, repo: Path, client: object) -> JevRequest:
  """Materialize reviewer-selected exact evidence. No fuzzy lookup or truncation."""
  if not matches_typeddict(manifest,Manifest):raise ValueError('manifest does not match the JEV manifest schema')
- if not isinstance(client,JevClient):raise TypeError('JEV client does not implement the client contract')
+ if not is_jev_client(client):raise TypeError('JEV client does not implement the client contract')
  for name in ['finding_id','phase','integration_sha','finding_text','acceptance_predicates','coverage','source_selections']:
   if name not in manifest:raise ValueError(f'missing {name}')
  if not PHASE_RE.fullmatch(manifest['phase']):raise ValueError('invalid phase')
@@ -319,12 +337,12 @@ def prepare(manifest: object, repo: Path, client: object) -> JevRequest:
   diffs.append({'commit':commit,'paths':paths,'text':git(repo,'show','--format=fuller',commit,'--',*paths).stdout})
  questions: dict[str, Question]=manifest.get('questions',QUESTIONS)
  specs=manifest.get('question_specs')
- if specs is None:
+ if not specs:
   if set(questions)!=set(QUESTIONS):raise ValueError('v1 requires exactly three question IDs')
  else:validate_question_specs(questions,specs,coverage,predicates)
  # Overrides are factual, symmetric questions authored from finding predicates; no model verdict is accepted as source evidence.
- state: JevState={'schema_version':SCHEMA_VERSION,'prompt_version':manifest.get('prompt_version',PROMPT_VERSION),'phase':manifest['phase'],'finding_id':manifest['finding_id'],'current_head':head,'repository':manifest.get('repository'),'pr_url':manifest.get('pr_url'),'claimed_fix_sha':fix,'finding':manifest['finding_text'],'acceptance_predicates':predicates,'coverage':coverage,'current_evidence':evidence,'searches':searches,'historical_diffs':diffs,'evaluation_kind':'finding','context_revision':manifest.get('context_revision',1)}
- if specs is not None:
+ state: JevState={'schema_version':SCHEMA_VERSION,'prompt_version':manifest.get('prompt_version',PROMPT_VERSION),'phase':manifest['phase'],'finding_id':manifest['finding_id'],'current_head':head,'repository':manifest.get('repository'),'pr_url':manifest.get('pr_url'),'claimed_fix_sha':fix,'finding':manifest['finding_text'],'acceptance_predicates':predicates,'coverage':coverage,'current_evidence':evidence,'searches':searches,'historical_diffs':diffs,'evaluation_kind':'finding','context_revision':manifest.get('context_revision',1),'question_specs':specs or {}}
+ if specs:
   state['schema_version']=2;state['prompt_version']=manifest.get('prompt_version','post-mortem-jev-v2');state['question_specs']=specs
  request: JevRequest={'model':client.MODEL,'state':state,'questions':questions}
  client.validate_request(request) # Oversized evidence is an explicit failure, NEVER truncate.
@@ -373,7 +391,7 @@ def aggregate_atomic(response: object,coverage: object,specs: object,predicates:
  return {'investigation_required':bool(disposition!='screened_present' or low), 'quality_disposition':('not_evaluated' if not quality else 'flagged' if quality_flags else 'needs_context' if any(x['question_id'] in low for x in quality) else 'advisory_recorded'), 'screening_disposition':disposition,'presence_disposition':presence_result,'issue_disposition':issue_result,'quality_answers':quality,'advisory_question_ids':issue_flags+quality_flags,'uncertain_question_ids':low,'covered_obligation_ids':sorted(covered),'uncovered_obligation_ids':sorted(all_ids-covered)}
 
 
-def append_record(path: Path,row: dict[str, object]) -> None:
+def append_record(path: Path,row: Mapping[str, object]) -> None:
  # One os.write on an O_APPEND descriptor: concurrent rows never interleave, so no lock.
  path.parent.mkdir(parents=True,exist_ok=True)
  line=encoded(row)+b'\n'
@@ -395,11 +413,11 @@ def immutable_write(path: Path,data: bytes) -> None:
    if path.read_bytes()!=data:raise ValueError('immutable artifact hash collision/content mismatch')
  finally:temporary.unlink(missing_ok=True)
 
-def evaluate_one(path: Path,client: object,output_dir: Path,phase: str,run_id: str,attempt_role: str,minimum_probability: float) -> dict[str, object]:
+def evaluate_one(path: Path,client: object,output_dir: Path,phase: str,run_id: str,attempt_role: str,minimum_probability: float) -> EvaluationRecord:
  t=time.monotonic()
- row: dict[str, object]={'schema_version':SCHEMA_VERSION,'evaluation_id':str(uuid.uuid4()),'run_id':run_id,'timestamp_utc':utc_now(),'phase':phase,'attempt_role':attempt_role,'input_packet_path':str(path),'packet_path':None,'packet_sha256':None,'finding_id':None,'evaluation_kind':'unknown','response':None,'error':None}
+ row: dict[str, object]={'schema_version':SCHEMA_VERSION,'evaluation_id':str(uuid.uuid4()),'run_id':run_id,'timestamp_utc':utc_now(),'phase':phase,'attempt_role':attempt_role,'input_packet_path':str(path),'packet_path':'','packet_sha256':'','finding_id':None,'evaluation_kind':'unknown','response':None,'error':None,'presence_disposition':'','screening_disposition':'evaluation_error','routing_minimum_probability':minimum_probability}
  try:
-  if not isinstance(client,JevClient):raise TypeError('JEV client does not implement the client contract')
+  if not is_jev_client(client):raise TypeError('JEV client does not implement the client contract')
   raw=Path(path).read_bytes();h=digest(raw);retained=output_dir/'post-mortem-jev-evidence'/phase/h[:2]/f'{h}.json'
   immutable_write(retained,raw);row.update(packet_path=str(retained),packet_sha256=h)
   parsed: object=json.loads(raw)
@@ -413,7 +431,7 @@ def evaluate_one(path: Path,client: object,output_dir: Path,phase: str,run_id: s
   coverage=s['coverage']
   if coverage.get('scope') not in ['whole_finding','subcheck']:raise ValueError('explicit source coverage required')
   specs=s.get('question_specs')
-  if specs is None:
+  if not specs:
    if set(request['questions'])!=set(QUESTIONS):raise ValueError('v1 requires exactly three question IDs')
   else:validate_question_specs(request['questions'],specs,coverage,s['acceptance_predicates'])
   row.update(finding_id=s['finding_id'],evaluation_kind='finding',repository=s.get('repository'),pr_url=s.get('pr_url'),integration_sha=s['current_head'],fix_sha=s.get('claimed_fix_sha'),model=request['model'],prompt_version=s['prompt_version'],context_revision=s.get('context_revision',1),coverage=coverage,prompt_sha256=digest(encoded(request['questions'])),evidence_sha256=digest(encoded(s['current_evidence'])),request_bytes=len(client.validate_request(request)))
@@ -423,7 +441,7 @@ def evaluate_one(path: Path,client: object,output_dir: Path,phase: str,run_id: s
   row['wire_request_sha256']=digest(encoded(wire_request))
   row['wire_request_bytes']=len(client.validate_request(wire_request))
   row['response']=client.evaluate(wire_request)
-  if specs is None:row['screening_disposition']=route(row['response'],coverage,minimum_probability)
+  if not specs:row['screening_disposition']=route(row['response'],coverage,minimum_probability)
   else:
    row['schema_version']=2;row['question_specs']=specs
    row.update(aggregate_atomic(row['response'],coverage,specs,s['acceptance_predicates'],minimum_probability))
@@ -431,14 +449,15 @@ def evaluate_one(path: Path,client: object,output_dir: Path,phase: str,run_id: s
   row['error']={'type':type(ex).__name__,'code':getattr(ex,'code',None),'message':str(ex)}
   row['screening_disposition']='evaluation_error'
  row['duration_ms']=round((time.monotonic()-t)*1000)
+ if not matches_typeddict(row,EvaluationRecord):raise ValueError('evaluation result does not match the record schema')
  return row
 
-def run(paths: Sequence[Path],client: object,output_dir: Path,phase: str,run_id: str | None=None,concurrency: int=2,attempt_role: str='initial',minimum_probability: float=0.8) -> list[dict[str, object]]:
+def run(paths: Sequence[Path],client: object,output_dir: Path,phase: str,run_id: str | None=None,concurrency: int=2,attempt_role: str='initial',minimum_probability: float=0.8) -> list[EvaluationRecord]:
  if not PHASE_RE.fullmatch(phase):raise ValueError('invalid phase')
  if not 1<=concurrency<=4:raise ValueError('concurrency must be 1..4')
  if attempt_role not in ['initial','context_repair']:raise ValueError('invalid attempt role')
  if not 0<=minimum_probability<=1:raise ValueError('invalid routing probability')
- run_id=run_id or str(uuid.uuid4());log=output_dir/f'post-mortem-jev-{phase}.jsonl';rows: list[dict[str, object]]=[]
+ run_id=run_id or str(uuid.uuid4());log=output_dir/f'post-mortem-jev-{phase}.jsonl';rows: list[EvaluationRecord]=[]
  with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
   fs=[pool.submit(evaluate_one,p,client,output_dir,phase,run_id,attempt_role,minimum_probability) for p in paths]
   for f in concurrent.futures.as_completed(fs):
@@ -459,7 +478,7 @@ def load_client(path: Path) -> JevClient:
  if spec is None or spec.loader is None:
   raise ImportError(f'cannot load Jev client {path}')
  m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
- if not isinstance(m,JevClient):
+ if not is_jev_client(m):
   raise TypeError(f'JEV client {path} does not implement the client contract')
  return m
 

@@ -519,9 +519,10 @@ def open_wyvern(artifact: Path) -> bool:
     return True
 
 
-def generate(repo: Path, index: NormalizedIndex, counts: dict[str, int | None], phase: str,
+def generate(repo: Path, index: object, counts: dict[str, int | None], phase: str,
              output: Path | None = None, open_image: bool = False, open_view: bool = False,
              plan_html: Path | None = None, beads: Sequence[BeadRecord] | None = None) -> int:
+    index = normalized_index(index)
     if not (RENDERER / 'node_modules/@viz-js/viz').exists():
         raise RuntimeError(f'DAG renderer dependencies missing; run npm ci --prefix {RENDERER}')
     phase = str(phase).removeprefix('phase-')
