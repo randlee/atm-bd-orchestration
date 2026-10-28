@@ -69,6 +69,12 @@ class Predicate(TypedDict):
 class Coverage(TypedDict):
  scope: str
  obligation_ids: list[str]
+ limitations: list[str]
+
+
+class QuestionCoverage(TypedDict):
+ scope: str
+ obligation_ids: list[str]
  limitations: NotRequired[list[str]]
 
 
@@ -272,7 +278,7 @@ def validate_question_specs(questions: object, specs: object,
                             coverage: object, predicates: object) -> set[str]:
  """Validate explicit v2 mapping; polarity is author-declared, never inferred."""
  questions=questions_map(questions);specs=question_specs_map(specs)
- if not matches_typeddict(coverage,Coverage):raise ValueError('coverage does not match the JEV schema')
+ if not matches_typeddict(coverage,QuestionCoverage):raise ValueError('coverage does not match the JEV schema')
  predicates=predicates_list(predicates)
  if not specs or set(specs)!=set(questions):
   raise ValueError('question_specs must map every question ID exactly once')
