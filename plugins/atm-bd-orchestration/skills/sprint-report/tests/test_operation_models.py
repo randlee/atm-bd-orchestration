@@ -6,7 +6,7 @@ import sys
 from types import ModuleType
 import unittest
 from collections.abc import Mapping
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 from unittest import mock
 
 SKILLS = Path(__file__).resolve().parents[2]
@@ -30,6 +30,10 @@ class OperationModelTests(unittest.TestCase):
         class Nested(TypedDict):
             count: int
 
+        class Probe(TypedDict):
+            value: object
+
+        annotations = cast(dict[str, object], Probe.__annotations__)
         cases = [
             ('str', str, 'text', 3),
             ('int excludes bool', int, 3, True),
@@ -45,9 +49,9 @@ class OperationModelTests(unittest.TestCase):
         ]
         for label, annotation, valid, invalid in cases:
             with self.subTest(annotation=label):
-                schema = TypedDict('Probe', {'value': annotation})
-                self.assertTrue(models.matches_typeddict({'value': valid}, schema))
-                self.assertFalse(models.matches_typeddict({'value': invalid}, schema))
+                annotations['value'] = annotation
+                self.assertTrue(models.matches_typeddict({'value': valid}, Probe))
+                self.assertFalse(models.matches_typeddict({'value': invalid}, Probe))
 
     def test_existing_typed_dict_models_accept_valid_fixtures(self):
         cases = [

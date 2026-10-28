@@ -7,10 +7,11 @@ they invoked before passing them to report and graph logic.
 from __future__ import annotations
 
 import json
+import inspect
 import sys
 from collections.abc import Mapping
 from types import UnionType
-from typing import Any, ForwardRef, Literal, NotRequired, Required, TypeAlias, TypeGuard, TypedDict, TypeVar, Union, get_args, get_origin, get_type_hints, is_typeddict
+from typing import Any, ForwardRef, Literal, NotRequired, Required, TypeAlias, TypeGuard, TypedDict, TypeVar, Union, cast, get_args, get_origin, get_type_hints, is_typeddict
 
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 JsonObject: TypeAlias = dict[str, JsonValue]
@@ -147,35 +148,42 @@ def _matches_annotation(value: object, annotation: object) -> bool:
         return value is None
 
     origin = get_origin(annotation)
-    args = get_args(annotation)
+    args = cast(tuple[object, ...], get_args(annotation))
     if origin is Literal:
         return any(type(value) is type(item) and value == item for item in args)
     if origin in (Union, UnionType):
         return any(_matches_annotation(value, item) for item in args)
     if origin is list:
-        return isinstance(value, list) and all(_matches_annotation(item, args[0]) for item in value)
+        return isinstance(value, list) and all(
+            _matches_annotation(item, args[0]) for item in cast(list[object], value)
+        )
     if origin in (dict, Mapping):
         return isinstance(value, Mapping) and all(
-            _matches_annotation(key, args[0]) and _matches_annotation(item, args[1]) for key, item in value.items()
+            _matches_annotation(key, args[0]) and _matches_annotation(item, args[1])
+            for key, item in cast(Mapping[object, object], value).items()
         )
-    if is_typeddict(annotation):
-        return _matches_typeddict(value, annotation)
-    return type(value) is annotation if annotation in (int, bool, float) else (
+    if isinstance(annotation, type) and is_typeddict(annotation):
+        return _matches_typeddict(value, cast(type[Any], annotation))
+    return type(value) is annotation if annotation is int or annotation is bool or annotation is float else (
         isinstance(value, annotation) if isinstance(annotation, type) else False
     )
 
 
 def _matches_typeddict(value: object, schema: type[Any]) -> bool:
-    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+    if not isinstance(value, dict):
+        return False
+    mapping = cast(dict[object, object], value)
+    if not all(isinstance(key, str) for key in mapping):
         return False
 
     module = sys.modules.get(schema.__module__)
     namespace = vars(module) if module is not None else None
-    frame = sys._getframe()
+    frame = inspect.currentframe()
     while namespace is None and frame is not None:
         if frame.f_globals.get("__name__") == schema.__module__:
             namespace = frame.f_globals
         frame = frame.f_back
+    del frame
     hints = get_type_hints(schema, globalns=namespace or globals(), include_extras=True)
     required_keys = set(schema.__required_keys__)
     optional_keys = set(schema.__optional_keys__)
@@ -191,8 +199,9 @@ def _matches_typeddict(value: object, schema: type[Any]) -> bool:
             continue
         if key in required_keys and key not in value:
             return False
-        if key in value and not _matches_annotation(
-            value[key], get_args(annotation)[0] if origin in (Required, NotRequired) else annotation
+        if key in mapping and not _matches_annotation(
+            mapping[key],
+            cast(tuple[object, ...], get_args(annotation))[0] if origin in (Required, NotRequired) else annotation,
         ):
             return False
 
