@@ -408,8 +408,19 @@ def diff_pieces(diff: str, budget: int) -> list[str]:
     return pieces
 
 
-def split_request(request: JsonObject, target: int, changed_files: list[str]) -> list[JsonObject]:
-    """Split evidence, context and external text into labelled requests without dropping content."""
+class SplitEvidence(TypedDict):
+    text: str
+    raw: JsonObject
+
+
+class SplitState(TypedDict):
+    evidence: str
+    context: dict[str, str]
+    external: list[SplitEvidence]
+    raw: JsonObject
+
+
+def parse_split_state(request: JsonObject) -> SplitState:
     state = request.get("state")
     if not isinstance(state, dict) or not isinstance(state.get("deliverable"), str):
         raise oversize(request)
@@ -421,6 +432,23 @@ def split_request(request: JsonObject, target: int, changed_files: list[str]) ->
             or not isinstance(external, list)
             or not all(isinstance(entry, dict) and isinstance(entry.get("text", ""), str) for entry in external)):
         raise oversize(request)
+    parsed_context: dict[str, str] = {}
+    for name, value in context.items():
+        assert isinstance(value, str)
+        parsed_context[name] = value
+    parsed_external: list[SplitEvidence] = []
+    for entry in external:
+        assert isinstance(entry, dict)
+        text = entry.get("text", "")
+        assert isinstance(text, str)
+        parsed_external.append({"text": text, "raw": entry})
+    return {"evidence": evidence, "context": parsed_context, "external": parsed_external, "raw": state}
+
+
+def split_request(request: JsonObject, target: int, changed_files: list[str]) -> list[JsonObject]:
+    """Split evidence, context and external text into labelled requests without dropping content."""
+    parsed = parse_split_state(request)
+    state, evidence, context, external = parsed["raw"], parsed["evidence"], parsed["context"], parsed["external"]
     base = copy.deepcopy(request)
     base["state"] = {k: v for k, v in state.items() if k not in ("evidence", "context", "external_evidence", "part", "changed_files")}
     base_state = base["state"]
@@ -488,13 +516,9 @@ def split_request(request: JsonObject, target: int, changed_files: list[str]) ->
     if evidence:
         add_text("evidence", evidence)
     for key, value in context.items():
-        assert isinstance(value, str)
         add_text("context", value, key=key)
     for entry in external:
-        assert isinstance(entry, dict)
-        entry_text = entry.get("text", "")
-        assert isinstance(entry_text, str)
-        add_text("external_evidence", entry_text, entry=entry)
+        add_text("external_evidence", entry["text"], entry=entry["raw"])
     if not pieces:
         raise oversize(request)
     for index, part in enumerate(pieces, 1):
