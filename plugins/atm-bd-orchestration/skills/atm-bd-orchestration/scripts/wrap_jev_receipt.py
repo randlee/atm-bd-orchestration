@@ -40,7 +40,7 @@ RERUN = ("Rerun `python3 .claude/skills/atm-bd-orchestration/scripts/jev_client.
 
 
 class Refused(Exception):
-    def __init__(self, check, message, fix):
+    def __init__(self, check: str, message: str, fix: str) -> None:
         super().__init__(f"{check}: {message}. Fix: {fix}")
 
 
@@ -215,7 +215,7 @@ def wrap(args, client):
     return {"success": True, "data": out, "error": None, **elapsed}
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--assignment", required=True)
     source = parser.add_mutually_exclusive_group(required=True)

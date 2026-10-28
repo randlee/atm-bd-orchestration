@@ -29,12 +29,12 @@ MAX_JEV_ATTEMPTS = 4
 
 
 class AttemptBudget:
-    def __init__(self, remaining=MAX_JEV_ATTEMPTS):
+    def __init__(self, remaining: int = MAX_JEV_ATTEMPTS) -> None:
         self.remaining = min(remaining, MAX_JEV_ATTEMPTS)
 
 
 class JevError(Exception):
-    def __init__(self, code, message, recoverable=False):
+    def __init__(self, code: str, message: str, recoverable: bool = False) -> None:
         super().__init__(message)
         self.code, self.message, self.recoverable = code, message, recoverable
         self.size: int | None = None
@@ -70,7 +70,7 @@ FIXES = (  # message prefix -> what the calling agent does next
 )
 
 
-def suggested_action(exc):
+def suggested_action(exc: JevError) -> str:
     if exc.message.startswith("Jev request oversized"):
         return getattr(exc, "fix", None) or REPORT
     if exc.message.startswith("Jev HTTP"):
@@ -85,7 +85,7 @@ def failure(exc):
     }}
 
 
-def api_key():
+def api_key() -> str:
     key = os.environ.get("TYPESAFE_API_KEY", "").strip()
     if not key:
         raise JevError("SANITY.JEV_UNAVAILABLE", "TYPESAFE_API_KEY is missing; no Jev evaluation ran", True)
