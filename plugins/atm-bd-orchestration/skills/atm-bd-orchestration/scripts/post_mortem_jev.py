@@ -301,8 +301,6 @@ def prepare(manifest: object, repo: Path, client: object) -> JevRequest:
  """Materialize reviewer-selected exact evidence. No fuzzy lookup or truncation."""
  if not matches_typeddict(manifest,Manifest):raise ValueError('manifest does not match the JEV manifest schema')
  if not is_jev_client(client):raise TypeError('JEV client does not implement the client contract')
- for name in ['finding_id','phase','integration_sha','finding_text','acceptance_predicates','coverage','source_selections']:
-  if name not in manifest:raise ValueError(f'missing {name}')
  if not PHASE_RE.fullmatch(manifest['phase']):raise ValueError('invalid phase')
  if not manifest['finding_text'].strip():raise ValueError('empty original finding')
  head=resolve_sha(repo,manifest['integration_sha'])
