@@ -17,23 +17,37 @@ SCRIPT = Path(__file__).resolve().parents[1] / "sanity-split"
 WRAPPER = SCRIPT.parent / "wrap_jev_receipt.py"
 
 
+def load_module(path):
+    loader = importlib.machinery.SourceFileLoader("test_" + path.stem.replace("-", "_"), str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+class ValidMacClient:
+    def verify_receipt(self, value, key):
+        return True
+
+
 class MalformedBeadTests(unittest.TestCase):
     def jev_module(self):
-        path = SCRIPT.parent / "jev_client.py"
-        spec = importlib.util.spec_from_file_location("test_jev_client", path)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+        return load_module(SCRIPT.parent / "jev_client.py")
 
     def merge_module(self):
-        path = SCRIPT.parent / "sanity-merge"
-        loader = importlib.machinery.SourceFileLoader("test_sanity_merge", str(path))
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        assert spec is not None
-        module = importlib.util.module_from_spec(spec)
-        loader.exec_module(module)
-        return module
+        return load_module(SCRIPT.parent / "sanity-merge")
+
+    def split_bead(self, directory, fields):
+        bead = Path(directory) / "bead.json"
+        bead.write_text(json.dumps({"id": "x-1", "description": "## Deliverables\n1. Example", **fields}))
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "--task", "x-1-sanity", "--bead", "x-1",
+             "--worktree", directory, "--branch", "fixture", "--commit", "abc",
+             "--base", "base", "--lint-command", "true", "--scratch", directory,
+             "--bead-json", str(bead), "--split-only"],
+            capture_output=True, text=True, check=False,
+        )
 
     def test_manifest_rejects_incorrect_field_types_at_input(self):
         module = self.merge_module()
@@ -48,15 +62,7 @@ class MalformedBeadTests(unittest.TestCase):
 
     def test_non_object_metadata_is_reported_without_traceback(self):
         with tempfile.TemporaryDirectory() as directory:
-            bead = Path(directory) / "bead.json"
-            bead.write_text(json.dumps({"id": "x-1", "metadata": ["invalid"]}))
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--task", "x-1-sanity", "--bead", "x-1",
-                 "--worktree", directory, "--branch", "fixture", "--commit", "abc",
-                 "--base", "base", "--lint-command", "true", "--scratch", directory,
-                 "--bead-json", str(bead), "--split-only"],
-                capture_output=True, text=True, check=False,
-            )
+            result = self.split_bead(directory, {"metadata": ["invalid"]})
         self.assertEqual(result.returncode, 3)
         self.assertIn("metadata must be an object", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
@@ -70,17 +76,9 @@ class MalformedBeadTests(unittest.TestCase):
             ({"metadata": {"owned_paths": [7]}}, "metadata.owned_paths must be a list of strings"),
         )
         with tempfile.TemporaryDirectory() as directory:
-            bead = Path(directory) / "bead.json"
             for fields, message in invalid:
                 with self.subTest(fields=fields):
-                    bead.write_text(json.dumps({"id": "x-1", "description": "## Deliverables\n1. Example", **fields}))
-                    result = subprocess.run(
-                        [sys.executable, str(SCRIPT), "--task", "x-1-sanity", "--bead", "x-1",
-                         "--worktree", directory, "--branch", "fixture", "--commit", "abc",
-                         "--base", "base", "--lint-command", "true", "--scratch", directory,
-                         "--bead-json", str(bead), "--split-only"],
-                        capture_output=True, text=True, check=False,
-                    )
+                    result = self.split_bead(directory, fields)
                     self.assertEqual(result.returncode, 3)
                     self.assertIn(message, result.stderr)
                     self.assertNotIn("Traceback", result.stderr)
@@ -105,14 +103,7 @@ class MalformedBeadTests(unittest.TestCase):
         self.assertIn("commit must be strings", result.stderr)
 
     def test_receipt_part_with_non_object_answers_is_refused(self):
-        spec = importlib.util.spec_from_file_location("test_wrap_jev", WRAPPER)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        class ValidMacClient:
-            def verify_receipt(self, value, key):
-                return True
+        module = load_module(WRAPPER)
 
         parts = [{"part": "1 of 1", "receipt": {"choice": "yes", "probabilities": {}},
                   "response": {"answers": []}}]
@@ -123,10 +114,6 @@ class MalformedBeadTests(unittest.TestCase):
     def test_merge_refuses_non_object_answers_without_traceback(self):
         module = self.merge_module()
 
-        class ValidMacClient:
-            def verify_receipt(self, value, key):
-                return True
-
         reply = {"success": True, "data": {"jev": [{"part": "1 of 1",
                  "receipt": {"choice": "yes", "probabilities": {}},
                  "response": {"answers": []}}]}}
@@ -136,10 +123,6 @@ class MalformedBeadTests(unittest.TestCase):
 
     def test_merge_refuses_non_string_request_hash(self):
         module = self.merge_module()
-
-        class ValidMacClient:
-            def verify_receipt(self, value, key):
-                return True
 
         reply = {"success": True, "data": {"jev": {"question": "written", "choice": "yes",
                  "request_sha256": []}, "findings": []}}
@@ -249,19 +232,13 @@ class MalformedBeadTests(unittest.TestCase):
         self.assertEqual(failure.exception.code, "VALIDATION.INPUT")
 
     def test_wrapper_rejects_boolean_deliverable_total(self):
-        spec = importlib.util.spec_from_file_location("test_wrap_jev_bool", WRAPPER)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module(WRAPPER)
         with self.assertRaises(module.Refused):
             module.assignment_fields({"sanity_bead": "s", "dev_bead": {"id": "d"},
                                       "deliverable": {"number": 1}, "deliverables_total": True, "commit": "abc"})
 
     def test_wrapper_rejects_client_without_receipt_operations(self):
-        spec = importlib.util.spec_from_file_location("test_wrap_jev_missing", WRAPPER)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module(WRAPPER)
         with tempfile.TemporaryDirectory() as directory:
             client = Path(directory) / "client.py"
             client.write_text("value = 1\n")
