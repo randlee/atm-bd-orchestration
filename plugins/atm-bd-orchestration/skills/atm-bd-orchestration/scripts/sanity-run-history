@@ -225,7 +225,7 @@ def load_log(path: Path) -> list[HistoryRow]:
 def utc_timestamp(value: JsonValue) -> datetime:
     try:
         if not isinstance(value, str):
-            raise ValueError("timestamp must be a string")
+            raise AttributeError(f"'{type(value).__name__}' object has no attribute 'replace'")
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.utcoffset() != timezone.utc.utcoffset(parsed):
             raise ValueError("timestamp must be UTC")

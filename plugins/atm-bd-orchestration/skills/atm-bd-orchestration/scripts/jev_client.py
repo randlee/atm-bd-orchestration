@@ -102,13 +102,25 @@ def probability(value: JsonValue) -> bool:
             and math.isfinite(value) and 0 <= value <= 1)
 
 
-def validate_response(value: JsonValue, request: JsonObject) -> JsonObject:
+class ChoiceAnswer(TypedDict):
+    choice: str
+    confidence: int | float
+    probabilities: dict[str, int | float]
+
+
+class ValidatedResponse(TypedDict):
+    answers: dict[str, ChoiceAnswer]
+    raw: JsonObject
+
+
+def parse_response(value: JsonValue, request: JsonObject) -> ValidatedResponse:
     if not isinstance(value, dict) or value.get("model") != MODEL:
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Unexpected Jev response model or shape")
     answers = value.get("answers")
     questions = request.get("questions")
     if not isinstance(questions, dict) or not isinstance(answers, dict) or set(answers) != set(questions):
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Missing or unexpected answer IDs")
+    parsed_answers: dict[str, ChoiceAnswer] = {}
     for name, question in questions.items():
         answer = answers[name]
         if not isinstance(question, dict) or not isinstance(question.get("criteria"), dict):
@@ -126,7 +138,18 @@ def validate_response(value: JsonValue, request: JsonObject) -> JsonObject:
                 or not all(probability(p) for p in probs.values())
                 or abs(sum(p for p in probs.values() if isinstance(p, (int, float))) - 1) > 0.001):
             raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
-    return value
+        choice, confidence = answer["choice"], answer["confidence"]
+        assert isinstance(choice, str) and isinstance(confidence, (int, float))
+        parsed_probabilities: dict[str, int | float] = {}
+        for option, prob in probs.items():
+            assert isinstance(prob, (int, float))
+            parsed_probabilities[option] = prob
+        parsed_answers[name] = {"choice": choice, "confidence": confidence, "probabilities": parsed_probabilities}
+    return {"answers": parsed_answers, "raw": value}
+
+
+def validate_response(value: JsonValue, request: JsonObject) -> JsonObject:
+    return parse_response(value, request)["raw"]
 
 
 def validate_request(request: JsonValue) -> bytes:
@@ -246,9 +269,15 @@ def receipt_mac(body: JsonObject, key: str) -> str:
     return hmac.new(key.encode("utf-8"), canonical({k: body[k] for k in RECEIPT_KEYS if k != "mac"}), hashlib.sha256).hexdigest()
 
 
-def receipt(request: JsonObject, response: JsonObject, key: str) -> JsonObject:
-    """What a caller copies to show this call happened: the one question's answer, bound to the request and keyed with
-    the API key, so it cannot be written without the call."""
+class ReceiptInput(TypedDict):
+    model: JsonValue
+    question: str
+    choice: JsonValue
+    probabilities: JsonValue
+    response_id: str | None
+
+
+def parse_receipt_input(request: JsonObject, response: JsonObject) -> ReceiptInput:
     questions, answers = request.get("questions"), response.get("answers")
     if not isinstance(questions, dict) or len(questions) != 1 or not isinstance(answers, dict):
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Missing or unexpected answer IDs")
@@ -256,9 +285,18 @@ def receipt(request: JsonObject, response: JsonObject, key: str) -> JsonObject:
     answer = answers.get(name)
     if not isinstance(answer, dict) or "choice" not in answer or "probabilities" not in answer or "model" not in response:
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
-    body: JsonObject = {"model": response["model"], "question": name, "choice": answer["choice"],
+    response_id = response.get("id")
+    return {"model": response["model"], "question": name, "choice": answer["choice"],
             "probabilities": answer["probabilities"],
-            "response_id": response.get("id") if isinstance(response.get("id"), str) else None,
+            "response_id": response_id if isinstance(response_id, str) else None}
+
+
+def receipt(request: JsonObject, response: JsonObject, key: str) -> JsonObject:
+    """What a caller copies to show this call happened: the one question's answer, bound to the request and keyed with
+    the API key, so it cannot be written without the call."""
+    parsed = parse_receipt_input(request, response)
+    body: JsonObject = {"model": parsed["model"], "question": parsed["question"], "choice": parsed["choice"],
+            "probabilities": parsed["probabilities"], "response_id": parsed["response_id"],
             "request_sha256": hashlib.sha256(canonical(request)).hexdigest()}
     return {**body, "mac": receipt_mac({**body, "mac": None}, key)}
 
