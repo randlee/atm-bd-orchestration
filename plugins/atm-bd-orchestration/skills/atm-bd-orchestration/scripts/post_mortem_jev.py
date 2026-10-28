@@ -166,7 +166,7 @@ class JevState(TypedDict):
  historical_diffs: list[DiffEvidence]
  evaluation_kind: str
  context_revision: int
- question_specs: dict[str, QuestionSpec]
+ question_specs: NotRequired[dict[str, QuestionSpec]]
 
 
 class JevRequest(TypedDict):

@@ -58,7 +58,13 @@ class Pipeline(unittest.TestCase):
  repo: Path
  root: Path
  setUp = legacy.Tests.setUp
+ packet = legacy.Tests.packet
  save = legacy.Tests.save
+ def test_retained_v1_packet_without_question_specs(self):
+  packet=self.packet();packet['state'].pop('question_specs')
+  path=self.save('retained-v1.json',packet)
+  row=m.run([path],FakeClient,self.root/'logs','phase-d')[0]
+  self.assertIsNone(row['error']);self.assertEqual(row['schema_version'],1);self.assertEqual(row['screening_disposition'],'screened_present')
  def test_v2_roundtrip_and_prebuilt_validation(self):
   self.man['questions']={'behavior':Q}
   self.man['question_specs']={'behavior':{'category':'presence','expected':'no','obligation_ids':['o1']}}
@@ -70,7 +76,7 @@ class Pipeline(unittest.TestCase):
   packet=m.prepare(self.man,self.repo,Client)
   row=m.run([self.save('atomic.json',packet)],Client,self.root/'logs','phase-d')[0]
   self.assertIsNone(row['error']);self.assertEqual(row['schema_version'],2);self.assertEqual(row['presence_disposition'],'supported')
-  packet['state']['question_specs']['behavior']['obligation_ids']=['not-real']
+  packet['state'].get('question_specs',{})['behavior']['obligation_ids']=['not-real']
   row=m.run([self.save('bad-atomic.json',packet)],Client,self.root/'logs','phase-d')[0]
   self.assertIsNotNone(row['error']);self.assertIsNone(row['response'])
 if __name__=='__main__':unittest.main()
