@@ -1,3 +1,4 @@
+# pyright: strict
 """Plan-scoped, live-bead execution DAG for sprint-report --dag."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone

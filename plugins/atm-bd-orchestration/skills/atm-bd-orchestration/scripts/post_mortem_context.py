@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: strict
 """Collect exact finding IDs for reviewer-prepared post-mortem evidence.
 
 Read-only bead/Git access. This does not select findings, discover semantic

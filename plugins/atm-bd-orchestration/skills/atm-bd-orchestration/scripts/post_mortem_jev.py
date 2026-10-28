@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: strict
 """Prepare exact-source JEV packets and append phase-scoped screening records.
 
 This tool does not adjudicate findings, change beads, or prove that a selected

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: strict
 """Export live bead records, then analyze only that snapshot with BV robot commands.
 
 Usage (from the repository root):
