@@ -50,6 +50,10 @@ class ExportRow(TypedDict):
     dependencies: NotRequired[list[DependencyRecord]]
 
 
+class ExportEnvelope(TypedDict, total=False):
+    _type: str
+
+
 class ScopedRow(ExportRow, total=False):
     dependency_count: int
     dependent_count: int
@@ -121,9 +125,11 @@ def export_rows(raw: bytes) -> list[ExportRow]:
         if not line.strip():
             continue
         value: object = json.loads(line)
-        if not matches_typeddict(value, ExportRow):
+        if not matches_typeddict(value, ExportEnvelope):
             raise ValueError("bd export contains a malformed record")
         if value.get("_type", "issue") == "issue":
+            if not matches_typeddict(value, ExportRow):
+                raise ValueError("bd export issue record is missing an id")
             rows.append(value)
     return rows
 
