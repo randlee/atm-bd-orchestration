@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: strict
 """Merge the per-deliverable sanity results and the lint result into a verdict.
 
 Usage:
@@ -52,9 +53,18 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import Protocol, runtime_checkable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 from sanity_shared import valid_elapsed_s  # noqa: E402
+from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value  # noqa: E402
+
+
+@runtime_checkable
+class JevClient(Protocol):
+    def verify_receipt(self, value: JsonValue, key: str) -> bool: ...
+
+    def is_client_message(self, message: JsonValue) -> bool: ...
 
 # Tool lock and log files a clean worktree may hold; the same as `IGNORED_STATUS_PATHS` in assignment-gates.py.
 IGNORED_STATUS_PATHS = (".beads.gate.lock", ".sc-compose/")
@@ -68,16 +78,34 @@ FENCED_REPLY = re.compile(r"\s*```(?:json)?[ \t]*\n(.*?)\n```\s*", re.S)
 
 
 class Reject(Exception):
-    def __init__(self, message, code=1):
+    def __init__(self, message: str, code: int = 1) -> None:
         super().__init__(message)
         self.code = code
 
 
-def load_manifest(path):
+class MergeArguments(argparse.Namespace):
+    manifest_path: str
+    sanity_bead: str
+    dev_bead: str
+    sprint: str
+    reviewer: str | None
+    started_at: float | None
+    completed_at: float | None
+    llm_vars: str | None
+    jev_vars: str | None
+    selection: str | None
+    client: str | None
+    fallback_errors: list[JsonValue]
+    parsed_selection: list[JsonValue]
+
+
+def load_manifest(path: str | Path) -> JsonObject:
     try:
         manifest = json.loads(Path(path).read_text())
     except (OSError, ValueError) as exc:
         raise Reject(f"cannot read manifest: {exc}")
+    if not is_json_object(manifest):
+        raise Reject("manifest must be a JSON object")
     for key in ("sha", "deliverables_total", "branch", "lint"):
         if key not in manifest:
             raise Reject(f"manifest lacks {key}")
@@ -86,28 +114,31 @@ def load_manifest(path):
     return manifest
 
 
-def read_results():
+def read_results() -> list[JsonValue]:
     try:
         results = json.load(sys.stdin)
     except ValueError as exc:
         raise Reject(f"stdin is not JSON: {exc}")
-    if not isinstance(results, list):
+    if not is_json_value(results) or not isinstance(results, list):
         raise Reject("stdin must be a JSON array of results")
     return [parse_reply(result, index) for index, result in enumerate(results)]
 
 
-def parse_reply(reply, index):
+def parse_reply(reply: JsonValue, index: int) -> JsonValue:
     """A fenced JSON reply string becomes its envelope; any other value is kept as is."""
     if not isinstance(reply, str):
         return reply
     match = FENCED_REPLY.fullmatch(reply)
     try:
-        return json.loads(match.group(1) if match else reply)
+        parsed = json.loads(match.group(1) if match else reply)
+        if not is_json_value(parsed):
+            raise ValueError("reply is not a JSON value")
+        return parsed
     except ValueError as exc:
         raise Reject(f"result {index}: reply is not fenced JSON: {exc}")
 
 
-def failure_envelope(result, index, total):
+def failure_envelope(result: JsonObject, index: int, total: int) -> JsonObject:
     """A complete failure envelope, or Reject (exit 1) when `success` is false but the envelope is not."""
     error = result.get("error")
     if result.get("data") is not None or not isinstance(error, dict):
@@ -121,12 +152,15 @@ def failure_envelope(result, index, total):
     return error
 
 
-def validate(result, index, manifest, sanity_bead, dev_bead):
+def validate(result: JsonObject, index: int, manifest: JsonObject, sanity_bead: str,
+             dev_bead: str) -> tuple[int, list[JsonObject]]:
     total = manifest["deliverables_total"]
+    if not isinstance(total, int) or isinstance(total, bool):
+        raise Reject("manifest deliverables_total must be an integer")
     where = f"result {index}"
-    if not isinstance(result.get("data"), dict):
+    data = result.get("data")
+    if not isinstance(data, dict):
         raise Reject(f"{where}: a success envelope needs a data object")
-    data = result["data"]
     number = data.get("deliverable")
     if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= total:
         raise Reject(f"{where}: deliverable must be an integer in 1..{total}, got {number!r}")
@@ -144,28 +178,36 @@ def validate(result, index, manifest, sanity_bead, dev_bead):
         raise Reject(f"{where}: findings must be a list")
     if len(findings) > 1:
         raise Reject(f"{where}: at most one finding is allowed")
+    validated_findings: list[JsonObject] = []
     for finding in findings:
-        if (not isinstance(finding, dict) or finding.get("kind") != CHECKER_KIND
+        if not isinstance(finding, dict):
+            raise Reject(f"{where}: finding must be {{kind: skipped, file, line >= 1, issue}}: {finding!r}")
+        line = finding.get("line")
+        if (finding.get("kind") != CHECKER_KIND
                 or not isinstance(finding.get("file"), str) or not finding["file"]
-                or not isinstance(finding.get("line"), int) or isinstance(finding.get("line"), bool)
-                or finding["line"] < 1 or not isinstance(finding.get("issue"), str) or not finding["issue"]):
+                or not isinstance(line, int) or isinstance(line, bool)
+                or line < 1 or not isinstance(finding.get("issue"), str) or not finding["issue"]):
             raise Reject(f"{where}: finding must be {{kind: skipped, file, line >= 1, issue}}: {finding!r}")
         dependencies = finding.get("depends_on", [])
         if not isinstance(dependencies, list):
             raise Reject(f"{where}: depends_on must be a list")
         for dependency in dependencies:
-            if (not isinstance(dependency, dict)
-                    or not isinstance(dependency.get("deliverable"), int)
-                    or isinstance(dependency["deliverable"], bool)
-                    or not 1 <= dependency["deliverable"] <= total
-                    or not isinstance(dependency.get("file"), str) or not dependency["file"]
-                    or not isinstance(dependency.get("line"), int)
-                    or isinstance(dependency["line"], bool) or dependency["line"] < 1):
+            if not isinstance(dependency, dict):
                 raise Reject(f"{where}: depends_on entries must be {{deliverable: 1..{total}, file, line >= 1}}: {dependency!r}")
-    return number, findings
+            dependency_number, dependency_line = dependency.get("deliverable"), dependency.get("line")
+            if (not isinstance(dependency_number, int)
+                    or isinstance(dependency_number, bool)
+                    or not 1 <= dependency_number <= total
+                    or not isinstance(dependency.get("file"), str) or not dependency["file"]
+                    or not isinstance(dependency_line, int)
+                    or isinstance(dependency_line, bool) or dependency_line < 1):
+                raise Reject(f"{where}: depends_on entries must be {{deliverable: 1..{total}, file, line >= 1}}: {dependency!r}")
+        validated_findings.append(finding)
+    return number, validated_findings
 
 
-def reply_status(result, index, manifest, sanity_bead, dev_bead):
+def reply_status(result: JsonValue, index: int, manifest: JsonObject, sanity_bead: str,
+                 dev_bead: str) -> tuple[int, str]:
     """Validate one unchanged reply and return its deliverable and coarse status."""
     if (not isinstance(result, dict) or set(result) not in ({"success", "data", "error"}, {"success", "data", "error", "elapsed_s"})
             or not isinstance(result.get("success"), bool)):
@@ -173,22 +215,27 @@ def reply_status(result, index, manifest, sanity_bead, dev_bead):
     if "elapsed_s" in result and not valid_elapsed_s(result["elapsed_s"]):
         raise Reject(f"result {index}: elapsed_s must be a finite nonnegative number")
     if result["success"] is False:
-        error = failure_envelope(result, index, manifest["deliverables_total"])
-        return error["deliverable"], "cannot_run"
+        total = manifest["deliverables_total"]
+        if not isinstance(total, int) or isinstance(total, bool):
+            raise Reject("manifest deliverables_total must be an integer")
+        error = failure_envelope(result, index, total)
+        number = error["deliverable"]
+        assert isinstance(number, int) and not isinstance(number, bool)
+        return number, "cannot_run"
     number, findings = validate(result, index, manifest, sanity_bead, dev_bead)
     return number, "undone" if findings else "done"
 
 
-def canonical_sha256(value):
+def canonical_sha256(value: JsonValue) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def load_reviewer_vars(path, reviewer, manifest):
+def load_reviewer_vars(path: str, reviewer: str, manifest: JsonObject) -> tuple[list[JsonValue], str]:
     try:
         value = json.loads(Path(path).read_text())
     except (OSError, ValueError) as exc:
         raise Reject(f"cannot read reviewer vars {path}: {exc}")
-    if not isinstance(value, dict):
+    if not is_json_object(value):
         raise Reject(f"reviewer vars {path} must be a JSON object")
     if value.get("run_id") != manifest.get("run_id"):
         raise Reject(f"reviewer vars {path} run_id does not match manifest")
@@ -203,7 +250,7 @@ def load_reviewer_vars(path, reviewer, manifest):
     return results, digest
 
 
-def load_client(path):
+def load_client(path: Path) -> tuple[JevClient | None, str | None]:
     """The Jev client module, or the reason it cannot be loaded."""
     try:
         spec = importlib.util.spec_from_file_location("jev_client", path)
@@ -211,12 +258,14 @@ def load_client(path):
             raise ImportError(f"no loader for {path}")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        if not isinstance(module, JevClient):
+            raise ImportError("Jev client does not expose its receipt operations")
         return module, None
     except (OSError, ImportError, AttributeError, SyntaxError) as exc:
         return None, f"cannot load the Jev client {path}: {exc}"
 
 
-def jev_reply_problem(result, client, seen):
+def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, str | None], seen: set[str]) -> str | None:
     """Why a sanity-jev reply cannot stand, or None. A success needs the client's receipt in `data.jev` (verified with
     TYPESAFE_API_KEY), or for a split request every part in order with its own verified receipt; findings that agree
     with the result (no: exactly one; yes: none), which is the parts' common choice or, when they disagree, the
@@ -225,7 +274,7 @@ def jev_reply_problem(result, client, seen):
     Anything not an envelope is left to the envelope checks."""
     if not isinstance(result, dict) or not isinstance(result.get("success"), bool):
         return None
-    client, load_error = client
+    client, load_error = client_pair
     if result["success"] is False:
         error = result.get("error")
         if not isinstance(error, dict):
@@ -247,7 +296,7 @@ def jev_reply_problem(result, client, seen):
         return "TYPESAFE_API_KEY is not set, so the Jev receipt cannot be verified"
     jev, final = data.get("jev"), data.get("jev_final")
     if isinstance(jev, list):  # a split request: every part's result, in order, each with its own receipt
-        receipts = []
+        receipts: list[JsonObject] = []
         for i, part in enumerate(jev, 1):
             label = f"{i} of {len(jev)}"
             if not isinstance(part, dict) or part.get("part") != label:
@@ -256,7 +305,8 @@ def jev_reply_problem(result, client, seen):
             if not isinstance(receipt, dict) or not client.verify_receipt(receipt, key):
                 return f"no valid Jev receipt on part {label}: the reply was not written from a jev_client.py call"
             response = part.get("response")
-            answer = response.get("answers", {}).get("written") if isinstance(response, dict) else None
+            answers = response.get("answers") if isinstance(response, dict) else None
+            answer = answers.get("written") if isinstance(answers, dict) else None
             if not isinstance(answer, dict) or (answer.get("choice"), answer.get("probabilities")) != (
                     receipt["choice"], receipt["probabilities"]):
                 return f"Jev part {label}'s response does not match its receipt"
@@ -270,14 +320,15 @@ def jev_reply_problem(result, client, seen):
     for receipt in receipts:
         if receipt["question"] != "written" or receipt["choice"] not in ("yes", "no"):
             return f"Jev receipt answers {receipt['question']!r} with {receipt['choice']!r}, not written: yes or no"
-    choices = {receipt["choice"] for receipt in receipts}
+    choices = {choice for receipt in receipts if isinstance((choice := receipt["choice"]), str)}
     if len(choices) == 1:
         (choice,) = choices
         if final is not None and (not isinstance(final, dict) or final.get("choice") != choice):
             return f"data.jev_final contradicts every Jev part's choice {choice!r}"
     else:
+        reason = final.get("reason") if isinstance(final, dict) else None
         if not (isinstance(final, dict) and final.get("choice") in ("yes", "no")
-                and isinstance(final.get("reason"), str) and final["reason"].strip()
+                and isinstance(reason, str) and reason.strip()
                 and isinstance(jev, list)
                 and final.get("parts") == [part["part"] for part in jev if isinstance(part, dict)]):
             return ("Jev parts disagree and data.jev_final does not record dev-sanity's triaged result "
@@ -286,19 +337,25 @@ def jev_reply_problem(result, client, seen):
     findings = data.get("findings")
     if not isinstance(findings, list) or len(findings) != (1 if choice == "no" else 0):
         return f"Jev choice {choice!r} contradicts the reply's findings"
-    if any(receipt["request_sha256"] in seen for receipt in receipts):
+    request_hashes = [receipt["request_sha256"] for receipt in receipts]
+    if not all(isinstance(value, str) for value in request_hashes):
+        return "Jev receipt request hash is not a string"
+    hashes = [value for value in request_hashes if isinstance(value, str)]
+    if any(value in seen for value in hashes):
         return "Jev receipt reused from another deliverable's request"
-    seen.update(receipt["request_sha256"] for receipt in receipts)
+    seen.update(hashes)
     return None
 
 
-def screen_jev_results(results, client):
+def screen_jev_results(results: list[JsonValue], client: tuple[JevClient | None, str | None]) -> tuple[list[JsonValue], list[JsonObject]]:
     """Replace each sanity-jev reply that cannot stand with a coordinator-origin SANITY.RESULT_INVALID failure for its
     deliverable, so selection takes the LLM reply; the replaced replies are kept, with the reason, in `rejected`."""
-    seen, screened, rejected = set(), [], []
+    seen: set[str] = set()
+    screened: list[JsonValue] = []
+    rejected: list[JsonObject] = []
     for result in results:
         reason = jev_reply_problem(result, client, seen)
-        source = (result.get("data") if result.get("success") else result.get("error")) if reason else None
+        source = (result.get("data") if result.get("success") else result.get("error")) if reason and isinstance(result, dict) else None
         number = source.get("deliverable") if isinstance(source, dict) else None
         if reason is None or not isinstance(number, int) or isinstance(number, bool):
             screened.append(result)
@@ -311,22 +368,24 @@ def screen_jev_results(results, client):
     return screened, rejected
 
 
-def context_path_exists(manifest, path):
+def context_path_exists(manifest: JsonObject, path: str) -> bool:
     """Require re-run context to be a file in the pinned manifest tree; a `path:start-end` entry's lines must lie in it."""
     worktree = manifest.get("worktree_path")
     if not isinstance(worktree, str) or not worktree:
         return False
     lines = re.fullmatch(r"(?P<path>.+):(?P<start>[0-9]+)-(?P<end>[0-9]+)", path)
     target = f"{manifest['sha']}:{lines['path'] if lines else path}"
-    def git(*args):
+    def git(*args: str) -> str:
         return subprocess.run(["git", "-C", worktree, *args], capture_output=True, text=True).stdout
     if git("cat-file", "-t", target).strip() != "blob":
         return False
     return not lines or 1 <= int(lines["start"]) <= int(lines["end"]) <= len(git("show", target).splitlines())
 
 
-def selected_results(args, manifest, sanity_bead, dev_bead):
+def selected_results(args: MergeArguments, manifest: JsonObject, sanity_bead: str,
+                     dev_bead: str) -> tuple[list[JsonValue], list[JsonValue], dict[int, str]]:
     """Choose whole validated replies; selection metadata is never a reply edit."""
+    assert args.llm_vars is not None and args.jev_vars is not None and args.selection is not None
     llm, llm_sha256 = load_reviewer_vars(args.llm_vars, "sanity-llm", manifest)
     jev, jev_sha256 = load_reviewer_vars(args.jev_vars, "sanity-jev", manifest)
     args.fallback_errors = [reply["error"] for reply in (*llm, *jev)
@@ -335,34 +394,41 @@ def selected_results(args, manifest, sanity_bead, dev_bead):
         selection = json.loads(Path(args.selection).read_text())
     except (OSError, ValueError) as exc:
         raise Reject(f"cannot read selection: {exc}")
-    if not isinstance(selection, list):
+    if not is_json_value(selection) or not isinstance(selection, list):
         raise Reject("selection must be a JSON array")
     args.parsed_selection = selection
 
-    def index_replies(rows, name):
-        indexed = {}
+    total = manifest["deliverables_total"]
+    if not isinstance(total, int) or isinstance(total, bool):
+        raise Reject("manifest deliverables_total must be an integer")
+
+    def index_replies(rows: list[JsonValue], name: str) -> dict[int, tuple[JsonValue, str]]:
+        indexed: dict[int, tuple[JsonValue, str]] = {}
         for index, reply in enumerate(rows):
             number, status = reply_status(reply, index, manifest, sanity_bead, dev_bead)
             if number in indexed:
                 raise Reject(f"deliverable {number}: more than one {name} result")
             indexed[number] = (reply, status)
-        for number in range(1, manifest["deliverables_total"] + 1):
+        for number in range(1, total + 1):
             if number not in indexed:
                 raise Reject(f"deliverable {number}: no {name} result")
         return indexed
 
-    client, jev_seen = load_client(getattr(args, "client", None) or CLIENT), set()
+    client = load_client(Path(args.client) if args.client else CLIENT)
+    jev_seen: set[str] = set()
     for row in jev:
         if (reason := jev_reply_problem(row, client, jev_seen)):
             raise Reject(f"sanity-jev reply: {reason}")
     llm_by, jev_by = index_replies(llm, "llm"), index_replies(jev, "jev")
-    selected, seen, sources = [], set(), {}
+    selected: list[JsonValue] = []
+    seen: set[int] = set()
+    sources: dict[int, str] = {}
     required = {"deliverable", "llm", "jev", "selected", "reason", "rerun", "llm_sha256", "jev_sha256"}
     for entry in selection:
         if not isinstance(entry, dict) or set(entry) != required:
             raise Reject("selection entry has incorrect fields")
         number = entry.get("deliverable")
-        if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= manifest["deliverables_total"] or number in seen:
+        if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= total or number in seen:
             raise Reject(f"deliverable {number!r}: selection must appear once")
         seen.add(number)
         if entry["llm_sha256"] != llm_sha256 or entry["jev_sha256"] != jev_sha256:
@@ -382,7 +448,7 @@ def selected_results(args, manifest, sanity_bead, dev_bead):
             if rerun["reviewer"] not in {"sanity-llm", "sanity-jev"} or not isinstance(rerun["context"], list) or not rerun["context"] or not all(isinstance(path, str) and path and not Path(path).is_absolute() for path in rerun["context"]):
                 raise Reject(f"deliverable {number}: rerun requires reviewer and nonempty repo-relative context")
             for path in rerun["context"]:
-                if not context_path_exists(manifest, path):
+                if not isinstance(path, str) or not context_path_exists(manifest, path):
                     raise Reject(f"deliverable {number}: rerun context path is not a file at manifest sha: {path}")
             reply = parse_reply(rerun["reply"], number)
             if rerun["reviewer"] == "sanity-jev" and (reason := jev_reply_problem(reply, client, set(jev_seen))):
@@ -402,16 +468,16 @@ def selected_results(args, manifest, sanity_bead, dev_bead):
             raise Reject(f"deliverable {number}: a failed rerun cannot replace a valid original reply")
         sources[number] = source
         selected.append(reply)
-    missing = [number for number in range(1, manifest["deliverables_total"] + 1) if number not in seen]
+    missing = [number for number in range(1, total + 1) if number not in seen]
     if missing:
         raise Reject(f"deliverable {missing[0]}: missing selection")
     return selected, selection, sources
 
 
-def unique_errors(items):
+def unique_errors(items: list[JsonValue]) -> list[JsonValue]:
     """Keep first-seen error envelopes once when selected and original replies overlap."""
-    seen = set()
-    unique = []
+    seen: set[str] = set()
+    unique: list[JsonValue] = []
     for item in items:
         key = json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         if key not in seen:
@@ -424,11 +490,11 @@ class TaskFailure(Exception):
     """A task-level failure: printed as `<code> fatal 0`, exit 3."""
 
 
-def verify_worktree(manifest):
+def verify_worktree(manifest: JsonObject) -> None:
     worktree = manifest.get("worktree_path") or ""
-    if not Path(worktree).is_dir():
+    if not isinstance(worktree, str) or not Path(worktree).is_dir():
         raise TaskFailure("SANITY.TARGET_UNREADABLE fatal 0", f"worktree {worktree!r} is not a directory")
-    def git(*argv):
+    def git(*argv: str) -> str:
         run = subprocess.run(["git", "-C", worktree, *argv], capture_output=True, text=True)
         if run.returncode != 0:
             raise TaskFailure("SANITY.TARGET_UNREADABLE fatal 0", f"git {' '.join(argv)} failed in {worktree}")
@@ -442,9 +508,14 @@ def verify_worktree(manifest):
         raise TaskFailure("SANITY.COMMIT_MISMATCH fatal 0", "worktree has uncommitted or untracked changes")
 
 
-def lint_result(manifest):
+def lint_result(manifest: JsonObject) -> tuple[int, list[JsonObject], str]:
     lint = manifest["lint"]
-    exit_file = Path(lint["exit_file"])
+    if not isinstance(lint, dict):
+        raise Reject("manifest has no lint entry; sanity-split ran with --split-only")
+    exit_name, log_name = lint.get("exit_file"), lint.get("log")
+    if not isinstance(exit_name, str) or not isinstance(log_name, str):
+        raise Reject("manifest lint exit_file and log must be strings")
+    exit_file = Path(exit_name)
     if not exit_file.exists():
         raise Reject("lint still running", code=4)
     state = exit_file.read_text().strip()
@@ -455,13 +526,16 @@ def lint_result(manifest):
     except ValueError:
         raise Reject(f"lint exit file {exit_file} is not an integer or timeout/cancelled/error")
     try:
-        log = Path(lint["log"]).read_text(errors="replace")
+        log = Path(log_name).read_text(errors="replace")
     except OSError:
         log = ""
-    findings = []
+    findings: list[JsonObject] = []
     if exit_code != 0:
-        worktree = (manifest.get("worktree_path") or "").rstrip("/") + "/"
-        seen = set()
+        raw_worktree = manifest.get("worktree_path") or ""
+        if not isinstance(raw_worktree, str):
+            raise Reject("manifest worktree_path must be a string")
+        worktree = raw_worktree.rstrip("/") + "/"
+        seen: set[tuple[str, int]] = set()
         for match in list(RUSTC.finditer(log)) + list(RUSTFMT.finditer(log)):
             path = match.group("file")
             if worktree != "/" and path.startswith(worktree):
@@ -477,21 +551,25 @@ def lint_result(manifest):
     return exit_code, findings, log
 
 
-def fmt(finding):
+def fmt(finding: JsonObject) -> str:
     return f"- `{finding['file']}:{finding['line']}` {finding['kind']}: {finding['issue']}"
 
 
-def deliverable_text(manifest, number):
-    for assignment in manifest.get("assignments", []):
-        if assignment.get("number") == number:
-            deliverable = assignment.get("assignment", {}).get("deliverable", {})
-            text = deliverable.get("text")
+def deliverable_text(manifest: JsonObject, number: int) -> str:
+    assignments = manifest.get("assignments", [])
+    if not isinstance(assignments, list):
+        return f"Deliverable {number}"
+    for assignment in assignments:
+        if isinstance(assignment, dict) and assignment.get("number") == number:
+            body = assignment.get("assignment")
+            deliverable = body.get("deliverable") if isinstance(body, dict) else None
+            text = deliverable.get("text") if isinstance(deliverable, dict) else None
             if isinstance(text, str) and text:
                 return text
     return f"Deliverable {number}"
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("manifest_path", "sanity_bead", "dev_bead", "sprint"):
         parser.add_argument(name)
@@ -503,15 +581,18 @@ def main(argv):
     parser.add_argument("--selection")
     parser.add_argument("--client", help="the Jev client that verifies sanity-jev receipts (default .claude/skills/atm-bd-orchestration/scripts/jev_client.py)")
     try:
-        args = parser.parse_args(argv[1:])
+        args = parser.parse_args(argv[1:], namespace=MergeArguments())
     except SystemExit:
         return 1
     manifest_path, sanity_bead, dev_bead, sprint = args.manifest_path, args.sanity_bead, args.dev_bead, args.sprint
-    manifest = None
-    results, selection, selection_sources, rejected = [], None, {}, []
+    manifest: JsonObject | None = None
+    results: list[JsonValue] = []
+    selection: list[JsonValue] | None = None
+    selection_sources: dict[int, str] = {}
+    rejected: list[JsonObject] = []
 
-    def metadata():
-        if not args.reviewer or manifest is None:
+    def metadata() -> JsonObject:
+        if not args.reviewer or manifest is None or args.started_at is None or args.completed_at is None:
             return {}
         completed = datetime.fromtimestamp(args.completed_at, timezone.utc)
         return {"run_id": manifest["run_id"], "reviewer": args.reviewer,
@@ -526,10 +607,10 @@ def main(argv):
                 "checked_bead_data": manifest.get("checked_bead_data"),
                 "reviewer_results": results,
                 "reviewer_results_sha256": canonical_sha256(results),
-                "rejected_results": rejected,
+                "rejected_results": [*rejected],
                 "selection": selection}
 
-    def unavailable(code, message, legacy_status=None):
+    def unavailable(code: str, message: str, legacy_status: str | None = None) -> None:
         if args.reviewer and manifest and manifest.get("run_id") and args.started_at is not None and args.completed_at is not None:
             cannot_run_selection = selection
             if args.reviewer == "sanity-selected" and cannot_run_selection is None:
@@ -549,10 +630,12 @@ def main(argv):
         manifest = load_manifest(manifest_path)
         if manifest.get("run_id") and not args.reviewer:
             raise Reject("a run manifest requires --reviewer, --started-at, and --completed-at")
-        if args.reviewer and (args.reviewer not in manifest.get("reviewers", []) or args.started_at is None or args.completed_at is None):
+        reviewers = manifest.get("reviewers", [])
+        if args.reviewer and (not isinstance(reviewers, list) or args.reviewer not in reviewers or args.started_at is None or args.completed_at is None):
             print("reviewer must be selected in manifest and --started-at/--completed-at are required", file=sys.stderr)
             return 1
         if args.reviewer:
+            assert args.started_at is not None and args.completed_at is not None
             if not math.isfinite(args.started_at) or not math.isfinite(args.completed_at):
                 print("--started-at and --completed-at must be finite epoch values", file=sys.stderr)
                 return 1
@@ -572,8 +655,11 @@ def main(argv):
                 raise Reject("selection inputs are only valid for sanity-selected")
             results = read_results()
             if args.reviewer == "sanity-jev":
-                results, rejected = screen_jev_results(results, load_client(args.client or CLIENT))
-        by_number = {}
+                results, rejected = screen_jev_results(results, load_client(Path(args.client) if args.client else CLIENT))
+        by_number: dict[int, list[JsonObject]] = {}
+        total = manifest["deliverables_total"]
+        if not isinstance(total, int) or isinstance(total, bool):
+            raise Reject("manifest deliverables_total must be an integer")
         for index, result in enumerate(results):
             if (not isinstance(result, dict) or not isinstance(result.get("success"), bool)
                     or any(key not in result for key in ("success", "data", "error"))):
@@ -582,8 +668,10 @@ def main(argv):
             if "elapsed_s" in result and not valid_elapsed_s(result["elapsed_s"]):
                 raise Reject(f"result {index}: elapsed_s must be a finite nonnegative number")
             if result["success"] is False:
-                envelope = failure_envelope(result, index, manifest["deliverables_total"])
-                unavailable(envelope["code"], envelope["message"],
+                envelope = failure_envelope(result, index, total)
+                error_code, error_message = envelope["code"], envelope["message"]
+                assert isinstance(error_code, str) and isinstance(error_message, str)
+                unavailable(error_code, error_message,
                             f"{envelope['code']} {'recoverable' if envelope['recoverable'] else 'fatal'} {envelope['deliverable']}")
                 print(f"deliverable {envelope['deliverable']}: {envelope['message']}", file=sys.stderr)
                 return 3
@@ -591,7 +679,7 @@ def main(argv):
             if number in by_number:
                 raise Reject(f"deliverable {number}: more than one result")
             by_number[number] = findings
-        missing = [n for n in range(1, manifest["deliverables_total"] + 1) if n not in by_number]
+        missing = [n for n in range(1, total + 1) if n not in by_number]
         if missing:
             raise Reject(f"deliverable {missing[0]}: no result" + (f" (also {missing[1:]})" if missing[1:] else ""))
         lint_exit, lint_findings, _ = lint_result(manifest)
@@ -607,8 +695,8 @@ def main(argv):
         return 3
 
     report_findings = by_number
-    blocks = []
-    finding_records = []
+    blocks: list[str] = []
+    finding_records: list[JsonObject] = []
     for number in sorted(report_findings):
         findings = report_findings[number]
         blocks.append(
@@ -633,7 +721,9 @@ def main(argv):
             "depends_on": [],
         })
     count = len(finding_records)
-    lint_md = f"`{manifest['lint']['command']}` exit {lint_exit}"
+    lint = manifest["lint"]
+    assert isinstance(lint, dict)
+    lint_md = f"`{lint['command']}` exit {lint_exit}"
     if lint_findings:
         lint_md += "\n" + "\n".join(fmt(f) for f in lint_findings)
     json.dump({

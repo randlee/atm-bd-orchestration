@@ -2,11 +2,14 @@
 
 import json
 import importlib.util
+import importlib.machinery
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "sanity-split"
@@ -14,6 +17,15 @@ WRAPPER = SCRIPT.parent / "wrap_jev_receipt.py"
 
 
 class MalformedBeadTests(unittest.TestCase):
+    def merge_module(self):
+        path = SCRIPT.parent / "sanity-merge"
+        loader = importlib.machinery.SourceFileLoader("test_sanity_merge", str(path))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        assert spec is not None
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        return module
+
     def test_non_object_metadata_is_reported_without_traceback(self):
         with tempfile.TemporaryDirectory() as directory:
             bead = Path(directory) / "bead.json"
@@ -50,8 +62,7 @@ class MalformedBeadTests(unittest.TestCase):
 
     def test_receipt_part_with_non_object_answers_is_refused(self):
         spec = importlib.util.spec_from_file_location("test_wrap_jev", WRAPPER)
-        self.assertIsNotNone(spec)
-        self.assertIsNotNone(spec.loader)
+        assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
@@ -64,3 +75,56 @@ class MalformedBeadTests(unittest.TestCase):
         with self.assertRaises(module.Refused) as refusal:
             module.client_receipts(parts, ValidMacClient(), "test")
         self.assertIn("part_response", str(refusal.exception))
+
+    def test_merge_refuses_non_object_answers_without_traceback(self):
+        module = self.merge_module()
+
+        class ValidMacClient:
+            def verify_receipt(self, value, key):
+                return True
+
+        reply = {"success": True, "data": {"jev": [{"part": "1 of 1",
+                 "receipt": {"choice": "yes", "probabilities": {}},
+                 "response": {"answers": []}}]}}
+        with patch.dict(os.environ, {"TYPESAFE_API_KEY": "test"}):
+            problem = module.jev_reply_problem(reply, (ValidMacClient(), None), set())
+        self.assertIn("response does not match", problem)
+
+    def test_merge_refuses_non_string_request_hash(self):
+        module = self.merge_module()
+
+        class ValidMacClient:
+            def verify_receipt(self, value, key):
+                return True
+
+        reply = {"success": True, "data": {"jev": {"question": "written", "choice": "yes",
+                 "request_sha256": []}, "findings": []}}
+        with patch.dict(os.environ, {"TYPESAFE_API_KEY": "test"}):
+            problem = module.jev_reply_problem(reply, (ValidMacClient(), None), set())
+        self.assertIn("request hash is not a string", problem)
+
+    def test_merge_refuses_non_string_lint_paths(self):
+        module = self.merge_module()
+        with self.assertRaises(module.Reject) as refusal:
+            module.lint_result({"lint": {"exit_file": [], "log": "log"}})
+        self.assertIn("exit_file and log must be strings", str(refusal.exception))
+
+    def test_merge_refuses_boolean_deliverable_total(self):
+        module = self.merge_module()
+        with self.assertRaises(module.Reject) as refusal:
+            module.validate({}, 0, {"deliverables_total": True}, "s", "d")
+        self.assertIn("deliverables_total must be an integer", str(refusal.exception))
+
+    def test_merge_handles_malformed_assignment_metadata(self):
+        module = self.merge_module()
+        self.assertEqual(module.deliverable_text({"assignments": [{"number": 1, "assignment": []}]}, 1),
+                         "Deliverable 1")
+
+    def test_merge_refuses_non_object_manifest(self):
+        module = self.merge_module()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.json"
+            path.write_text(json.dumps("sha deliverables_total branch lint"))
+            with self.assertRaises(module.Reject) as refusal:
+                module.load_manifest(path)
+        self.assertIn("manifest must be a JSON object", str(refusal.exception))
