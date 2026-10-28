@@ -53,10 +53,11 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from typing import Protocol, TypedDict, runtime_checkable
+from typing import Protocol, Required, TypedDict, runtime_checkable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 from sanity_shared import valid_elapsed_s  # noqa: E402
+from operation_models import matches_typeddict  # noqa: E402
 from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value  # noqa: E402
 
 
@@ -204,11 +205,14 @@ def parse_reply(reply: JsonValue, index: int) -> JsonValue:
         raise Reject(f"result {index}: reply is not fenced JSON: {exc}")
 
 
-class FailureEnvelope(TypedDict):
+class FailureFields(TypedDict):
     code: str
     message: str
     recoverable: bool
     suggested_action: str
+
+
+class FailureEnvelope(FailureFields):
     deliverable: int
 
 
@@ -218,14 +222,11 @@ def failure_envelope(result: JsonObject, index: int, total: int) -> FailureEnvel
     if result.get("data") is not None or not isinstance(error, dict):
         raise Reject(f"result {index}: failure envelope must have data null and an error object")
     number = error.get("deliverable")
-    if (not isinstance(error.get("code"), str) or not error["code"] or not isinstance(error.get("message"), str)
-            or not isinstance(error.get("recoverable"), bool) or not isinstance(error.get("suggested_action"), str)):
+    if not matches_typeddict(error, FailureFields) or not error["code"]:
         raise Reject(f"result {index}: failure envelope must have code, message, recoverable, suggested_action")
-    if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= total:
+    if not matches_typeddict(error, FailureEnvelope) or not 1 <= error["deliverable"] <= total:
         raise Reject(f"result {index}: failure envelope must name its deliverable (1..{total}), got {number!r}")
-    code, message, recoverable, action = error["code"], error["message"], error["recoverable"], error["suggested_action"]
-    assert isinstance(code, str) and isinstance(message, str) and isinstance(recoverable, bool) and isinstance(action, str)
-    return {"code": code, "message": message, "recoverable": recoverable, "suggested_action": action, "deliverable": number}
+    return error
 
 
 class MergeDependency(TypedDict):
@@ -383,6 +384,12 @@ class ReviewEnvelope(TypedDict):
     error: JsonValue
 
 
+class ReviewEnvelopeInput(TypedDict, total=False):
+    success: Required[bool]
+    data: JsonValue
+    error: JsonValue
+
+
 class JevPayload(TypedDict):
     jev: JsonValue
     final: JsonValue
@@ -390,11 +397,9 @@ class JevPayload(TypedDict):
 
 
 def inspect_review_envelope(value: JsonValue) -> ReviewEnvelope | None:
-    if not isinstance(value, dict) or not isinstance(value.get("success"), bool):
+    if not matches_typeddict(value, ReviewEnvelopeInput):
         return None
-    success = value["success"]
-    assert isinstance(success, bool)
-    return {"success": success, "data": value.get("data"), "error": value.get("error")}
+    return {"success": value["success"], "data": value.get("data"), "error": value.get("error")}
 
 
 def inspect_jev_payload(value: JsonObject) -> JevPayload:
@@ -535,6 +540,8 @@ class SelectionEntry(TypedDict):
     selected: str
     reason: str
     rerun: JsonValue
+    llm_sha256: str
+    jev_sha256: str
 
 
 class RerunSelection(TypedDict):
@@ -583,7 +590,7 @@ def selected_results(args: MergeArguments, manifest: Manifest, sanity_bead: str,
     selected: list[JsonValue] = []
     seen: set[int] = set()
     sources: dict[int, str] = {}
-    required = {"deliverable", "llm", "jev", "selected", "reason", "rerun", "llm_sha256", "jev_sha256"}
+    required = SelectionEntry.__required_keys__
     for entry in selection:
         if not isinstance(entry, dict) or set(entry) != required:
             raise Reject("selection entry has incorrect fields")
@@ -595,13 +602,10 @@ def selected_results(args: MergeArguments, manifest: Manifest, sanity_bead: str,
             raise Reject(f"deliverable {number}: selection hashes do not match reviewer results")
         if entry["llm"] != llm_by[number][1] or entry["jev"] != jev_by[number][1]:
             raise Reject(f"deliverable {number}: selection status does not match reply")
-        if entry["selected"] not in {"llm", "jev", "rerun"} or not isinstance(entry["reason"], str):
+        if (not matches_typeddict(entry, SelectionEntry)
+                or entry["selected"] not in {"llm", "jev", "rerun"}):
             raise Reject(f"deliverable {number}: invalid selection or reason")
-        llm_status, jev_status, selected_name, selection_reason = entry["llm"], entry["jev"], entry["selected"], entry["reason"]
-        assert isinstance(llm_status, str) and isinstance(jev_status, str)
-        assert isinstance(selected_name, str) and isinstance(selection_reason, str)
-        parsed_entry: SelectionEntry = {"deliverable": number, "llm": llm_status, "jev": jev_status,
-                                        "selected": selected_name, "reason": selection_reason, "rerun": entry["rerun"]}
+        parsed_entry = entry
         if not parsed_entry["reason"] and (parsed_entry["llm"] != parsed_entry["jev"] or parsed_entry["selected"] == "rerun"):
             raise Reject(f"deliverable {number}: reason required for disagreement or rerun")
         rerun = parsed_entry["rerun"]

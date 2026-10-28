@@ -17,10 +17,11 @@ import socket
 import subprocess
 import sys
 import time
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 import repo_config
+from operation_models import matches_typeddict
 from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value, load_phase_config, string_list
 
 MODEL = "jev-1.13.0"
@@ -103,6 +104,7 @@ def probability(value: JsonValue) -> bool:
 
 
 class ChoiceAnswer(TypedDict):
+    type: str
     choice: str
     confidence: int | float
     probabilities: dict[str, int | float]
@@ -116,21 +118,15 @@ class ValidatedResponse(TypedDict):
 def parse_choice_answer(answer: JsonValue, options: set[str]) -> ChoiceAnswer:
     if not isinstance(answer, dict):
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Answer must be an object")
-    probs = answer.get("probabilities")
-    if (answer.get("type") != "choice" or not isinstance(answer.get("choice"), str)
-            or answer.get("choice") not in options
-            or not probability(answer.get("confidence"))
-            or not isinstance(probs, dict) or set(probs) != options
-            or not all(probability(p) for p in probs.values())
-            or abs(sum(p for p in probs.values() if isinstance(p, (int, float))) - 1) > 0.001):
+    if (not matches_typeddict(answer, ChoiceAnswer) or answer["type"] != "choice"
+            or answer["choice"] not in options or not probability(answer["confidence"])):
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
-    choice, confidence = answer["choice"], answer["confidence"]
-    assert isinstance(choice, str) and isinstance(confidence, (int, float))
-    parsed_probabilities: dict[str, int | float] = {}
-    for option, prob in probs.items():
-        assert isinstance(prob, (int, float))
-        parsed_probabilities[option] = prob
-    return {"choice": choice, "confidence": confidence, "probabilities": parsed_probabilities}
+    probs = answer["probabilities"]
+    if (set(probs) != options
+            or not all(probability(p) for p in probs.values())
+            or abs(sum(probs.values()) - 1) > 0.001):
+        raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
+    return answer
 
 
 def parse_response(value: JsonValue, request: JsonObject) -> ValidatedResponse:
@@ -155,7 +151,8 @@ def validate_response(value: JsonValue, request: JsonObject) -> JsonObject:
 
 
 class ChoiceQuestion(TypedDict):
-    instructions: JsonValue
+    type: str
+    instructions: str | dict[str, JsonValue] | list[JsonValue]
     criteria: JsonObject
 
 
@@ -176,19 +173,19 @@ def parse_request(request: JsonValue) -> ValidatedRequest:
         raise JevError("VALIDATION.INPUT", "Pilot supports well-formed Choice questions only")
     parsed_questions: dict[str, ChoiceQuestion] = {}
     for name, q in questions.items():
-        criteria = q.get("criteria") if isinstance(q, dict) else None
-        if (not name or not isinstance(q, dict)
-                or q.get("type") != "choice" or not isinstance(q.get("instructions"), (str, dict, list))
-                or not is_json_object(criteria) or not 2 <= len(criteria) <= 255
-                or not all(k for k in criteria)
-                or not all(v is None or isinstance(v, (str, dict, list)) for v in criteria.values())):
+        if (not name or not matches_typeddict(q, ChoiceQuestion) or q["type"] != "choice"
+                or not 2 <= len(q["criteria"]) <= 255 or not all(q["criteria"])
+                or not all(v is None or isinstance(v, (str, dict, list)) for v in q["criteria"].values())):
             raise JevError("VALIDATION.INPUT", "Pilot supports well-formed Choice questions only")
-        parsed_questions[name] = {"instructions": q["instructions"], "criteria": criteria}
+        parsed_questions[name] = q
     return {"state": request["state"], "questions": parsed_questions, "raw": request}
 
 
 def validate_request(request: JsonValue) -> bytes:
-    parsed = parse_request(request)
+    return encode_request(parse_request(request))
+
+
+def encode_request(parsed: ValidatedRequest) -> bytes:
     try:
         body = json.dumps(parsed["raw"], allow_nan=False).encode("utf-8")
     except (TypeError, ValueError):
@@ -226,8 +223,8 @@ def retry_delay(retry_after: str | None) -> float:
 def evaluate(request: JsonObject, *, sleep: Callable[[float], None] | None = None,
              max_attempts: int = MAX_JEV_ATTEMPTS, _budget: AttemptBudget | None = None) -> JsonObject:
     key = api_key()
-    body = validate_request(request)
     parsed_request = parse_request(request)
+    body = encode_request(parsed_request)
     sleeper = sleep or time.sleep
     budget = _budget if _budget is not None else AttemptBudget(max_attempts)
     while budget.remaining > 0:
@@ -287,7 +284,6 @@ CLIENT_MESSAGES = re.compile("|".join([
     r"External evidence unreadable: \S+ \S+",
     r"Context entry .+ names lines outside its file at the pinned commit",
 ]))
-RECEIPT_KEYS = ("model", "question", "choice", "probabilities", "response_id", "request_sha256", "mac")
 
 
 def is_client_message(message: JsonValue) -> bool:
@@ -310,13 +306,23 @@ class ReceiptInput(TypedDict):
     response_id: str | None
 
 
+class ReceiptAnswer(TypedDict):
+    choice: JsonValue
+    probabilities: JsonValue
+
+
+class ReceiptResponse(TypedDict):
+    model: JsonValue
+    id: NotRequired[JsonValue]
+
+
 def parse_receipt_input(request: JsonObject, response: JsonObject) -> ReceiptInput:
     questions, answers = request.get("questions"), response.get("answers")
     if not isinstance(questions, dict) or len(questions) != 1 or not isinstance(answers, dict):
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Missing or unexpected answer IDs")
     (name,) = questions
     answer = answers.get(name)
-    if not isinstance(answer, dict) or "choice" not in answer or "probabilities" not in answer or "model" not in response:
+    if not matches_typeddict(answer, ReceiptAnswer) or not matches_typeddict(response, ReceiptResponse):
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
     response_id = response.get("id")
     return {"model": response["model"], "question": name, "choice": answer["choice"],
@@ -335,25 +341,23 @@ def receipt(request: JsonObject, response: JsonObject, key: str) -> JsonObject:
 
 
 class ReceiptToVerify(TypedDict):
-    mac: str
     model: JsonValue
     question: JsonValue
     choice: JsonValue
     probabilities: JsonValue
     response_id: JsonValue
     request_sha256: JsonValue
+    mac: str
+
+
+RECEIPT_KEYS = tuple(ReceiptToVerify.__annotations__)
 
 
 def parse_receipt(value: JsonValue) -> ReceiptToVerify | None:
     """Extract the MAC; retain signed fields exactly as received for verification."""
-    if not isinstance(value, dict) or set(value) != set(RECEIPT_KEYS):
+    if not matches_typeddict(value, ReceiptToVerify) or set(value) != ReceiptToVerify.__required_keys__:
         return None
-    mac = value["mac"]
-    if not isinstance(mac, str):
-        return None
-    return {"mac": mac, "model": value["model"], "question": value["question"],
-            "choice": value["choice"], "probabilities": value["probabilities"],
-            "response_id": value["response_id"], "request_sha256": value["request_sha256"]}
+    return value
 
 
 def verify_receipt(value: JsonValue, key: str) -> bool:
@@ -616,9 +620,6 @@ def evaluate_parts(requests: list[JsonObject], key: str, changed_files: list[str
     return {"model": MODEL, "parts": parts}
 
 
-EVIDENCE_REFS = {"pr_body": ("repo", "pr"), "pr_comment": ("repo", "comment_id")}
-
-
 class BeadNotesReference(TypedDict):
     kind: Literal["bead_notes"]
     bead: str
@@ -661,44 +662,20 @@ def parse_github_evidence(value: JsonValue, kind: str, label: str) -> GitHubEvid
 
 def evidence_ref(ref: JsonValue) -> bool:
     """True for one well-formed `external_evidence` reference."""
-    if not isinstance(ref, dict):
-        return False
-    if ref.get("kind") == "bead_notes" and set(ref) == {"kind", "bead", "text"}:
-        bead, text = ref["bead"], ref["text"]
-        return isinstance(bead, str) and bool(bead) and not bead.startswith("-") and isinstance(text, str)
-    if ref.get("kind") == "bead_notes":
-        return False
-    kind = ref.get("kind")
-    keys = EVIDENCE_REFS.get(kind) if isinstance(kind, str) else None
-    if keys is None or set(ref) != {"kind", *keys}:
-        return False
-    for key in keys:
-        value = ref[key]
-        if key in ("pr", "comment_id"):
-            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                return False
-        elif not isinstance(value, str) or not value or value.startswith("-"):
-            return False
-    return True
+    return parse_evidence_ref(ref) is not None
 
 
 def parse_evidence_ref(ref: JsonValue) -> EvidenceReference | None:
-    if not evidence_ref(ref) or not isinstance(ref, dict):
-        return None
-    kind = ref["kind"]
-    if kind == "bead_notes":
-        bead, text = ref["bead"], ref["text"]
-        assert isinstance(bead, str) and isinstance(text, str)
-        return {"kind": "bead_notes", "bead": bead, "text": text}
-    repo = ref["repo"]
-    assert isinstance(repo, str)
-    if kind == "pr_body":
-        number = ref["pr"]
-        assert isinstance(number, int) and not isinstance(number, bool)
-        return {"kind": "pr_body", "repo": repo, "pr": number}
-    number = ref["comment_id"]
-    assert isinstance(number, int) and not isinstance(number, bool)
-    return {"kind": "pr_comment", "repo": repo, "comment_id": number}
+    if (matches_typeddict(ref, BeadNotesReference) and set(ref) == BeadNotesReference.__required_keys__
+            and ref["bead"] and not ref["bead"].startswith("-")):
+        return ref
+    if (matches_typeddict(ref, PullRequestReference) and set(ref) == PullRequestReference.__required_keys__
+            and ref["repo"] and not ref["repo"].startswith("-") and ref["pr"] > 0):
+        return ref
+    if (matches_typeddict(ref, CommentReference) and set(ref) == CommentReference.__required_keys__
+            and ref["repo"] and not ref["repo"].startswith("-") and ref["comment_id"] > 0):
+        return ref
+    return None
 
 
 def external_evidence(ref: JsonObject, worktree: str) -> JsonObject:

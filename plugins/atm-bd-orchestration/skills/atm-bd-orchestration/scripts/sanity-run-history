@@ -15,10 +15,11 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Callable
-from typing import NoReturn, TypedDict
+from typing import NoReturn, TypeGuard, TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 import sc_render  # noqa: E402
+from operation_models import matches_typeddict  # noqa: E402
 from sanity_shared import ledger_path, primary_root, valid_elapsed_s  # noqa: E402
 from sprint_index_common import JsonObject, JsonValue, is_json_object  # noqa: E402
 
@@ -94,7 +95,7 @@ def read_vars(path: Path) -> CompletionVars:
                           kind=result_kind(value), errors=slot_errors(value), jev_receipts=jev_receipts(value))
 
 
-SLOT_ERROR_KEYS = ("code", "message", "recoverable", "deliverable")
+SLOT_ERROR_KEYS = tuple(SlotError.__annotations__)
 LATER_FIELDS = ("errors", "jev_receipts", "dev", "jev_elapsed_s", "llm_elapsed_s", "kind")
 API_FAILURE_MATCHERS: dict[str, tuple[Callable[[str], bool], ...]] = {
     "sanity-llm": (lambda code: code == "SANITY.LLM_API_FAILURE",),
@@ -131,13 +132,11 @@ def result_kind(value: JsonObject) -> str:
     return "API_FAILURE" if isinstance(code, str) and any(matcher(code) for matcher in matchers) else "verdict"
 
 
-def valid_slot_error(error: JsonValue) -> bool:
+def valid_slot_error(error: JsonValue) -> TypeGuard[SlotError]:
     """`code`, `message`, `recoverable` well typed; `deliverable` a number >= 1, or None when the envelope lacks it."""
-    return (is_json_object(error) and set(error) == set(SLOT_ERROR_KEYS)
-            and type(error["code"]) is str and bool(error["code"]) and type(error["message"]) is str
-            and type(error["recoverable"]) is bool
-            and (error["deliverable"] is None or (isinstance(error["deliverable"], int)
-                 and not isinstance(error["deliverable"], bool) and error["deliverable"] >= 1)))
+    return (matches_typeddict(error, SlotError) and set(error) == set(SLOT_ERROR_KEYS)
+            and bool(error["code"]) and (error["deliverable"] is None
+            or (not isinstance(error["deliverable"], bool) and error["deliverable"] >= 1)))
 
 
 def slot_errors(value: JsonObject) -> list[SlotError]:
@@ -157,10 +156,7 @@ def slot_errors(value: JsonObject) -> list[SlotError]:
     parsed: list[SlotError] = []
     for error in errors:
         if valid_slot_error(error):
-            code, message, recoverable, deliverable = error["code"], error["message"], error["recoverable"], error["deliverable"]
-            assert isinstance(code, str) and isinstance(message, str) and isinstance(recoverable, bool)
-            assert deliverable is None or isinstance(deliverable, int)
-            parsed.append({"code": code, "message": message, "recoverable": recoverable, "deliverable": deliverable})
+            parsed.append(error)
     return parsed
 
 

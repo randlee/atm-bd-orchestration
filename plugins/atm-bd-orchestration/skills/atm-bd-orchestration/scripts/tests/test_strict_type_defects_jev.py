@@ -159,6 +159,27 @@ class MalformedBeadTests(unittest.TestCase):
             module.validate({}, 0, {"deliverables_total": True}, "s", "d")
         self.assertIn("deliverables_total must be an integer", str(refusal.exception))
 
+    def test_merge_refuses_unhashable_selection(self):
+        module = self.merge_module()
+
+        class ReviewerVars(dict):
+            def __iter__(self):
+                return iter((self["results"], self["digest"]))
+
+        with tempfile.TemporaryDirectory() as directory:
+            selection = Path(directory) / "selection.json"
+            selection.write_text(json.dumps([{"deliverable": 1, "llm": "done", "jev": "done", "selected": [],
+                                              "reason": "", "rerun": None, "llm_sha256": "d", "jev_sha256": "d"}]))
+            args = argparse.Namespace(llm_vars="llm", jev_vars="jev", selection=str(selection), client=None)
+            vars_ = ReviewerVars(results=[{"success": True}], digest="d")
+            with patch.object(module, "load_reviewer_vars", return_value=vars_), \
+                 patch.object(module, "load_client", return_value=(None, None)), \
+                 patch.object(module, "jev_reply_problem", return_value=None), \
+                 patch.object(module, "reply_status", return_value=(1, "done")):
+                with self.assertRaises(module.Reject) as refusal:
+                    module.selected_results(args, {"deliverables_total": 1}, "s", "d")
+            self.assertIn("invalid selection or reason", str(refusal.exception))
+
     def test_merge_handles_malformed_assignment_metadata(self):
         module = self.merge_module()
         self.assertEqual(module.deliverable_text({"assignments": [{"number": 1, "assignment": []}]}, 1),

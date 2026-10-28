@@ -77,7 +77,8 @@ sys.path.insert(0, str(HERE.parents[1] / "atm-beads" / "scripts"))
 sys.path.insert(0, str(HERE))
 import sc_render  # noqa: E402
 from jev_client import evidence_ref  # noqa: E402
-from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value, string_list  # noqa: E402
+from operation_models import matches_typeddict  # noqa: E402
+from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value  # noqa: E402
 
 TEMPLATE = HERE.parent / "templates" / "dev-sanity-assignment.json.j2"
 CODES = {2: "SANITY.PLAN_INVALID", 3: "SANITY.TARGET_UNREADABLE", 4: "SANITY.COMMIT_MISMATCH", 5: "RENDER_FAILED"}
@@ -159,23 +160,35 @@ class ParsedBead:
     owned_paths: list[str]
 
 
+class BeadText(TypedDict):
+    description: str
+    title: str
+    notes: str
+
+
+class BeadOwnedPaths(TypedDict):
+    owned_paths: list[str]
+
+
+class BeadSprint(TypedDict):
+    sprint_bead: str | None
+
+
 def parse_bead(data: JsonObject, bead_id: str) -> ParsedBead:
     metadata = data.get("metadata") or {}
     if not is_json_object(metadata):
         raise Fail(3, f"bead {bead_id} metadata must be an object")
-    owned = metadata.get("owned_paths") or []
-    if not string_list(owned):
+    owned = {"owned_paths": metadata.get("owned_paths") or []}
+    if not matches_typeddict(owned, BeadOwnedPaths):
         raise Fail(3, f"bead {bead_id} metadata.owned_paths must be a list of strings")
-    sprint = metadata.get("sprint_bead")
-    if sprint is not None and not isinstance(sprint, str):
+    sprint = {"sprint_bead": metadata.get("sprint_bead")}
+    if not matches_typeddict(sprint, BeadSprint):
         raise Fail(3, f"bead {bead_id} metadata.sprint_bead must be a string")
-    description = data.get("description") or ""
-    title = data.get("title") or ""
-    notes = data.get("notes") or ""
-    if not all(isinstance(value, str) for value in (description, title, notes)):
+    fields = {key: data.get(key) or "" for key in BeadText.__required_keys__}
+    if not matches_typeddict(fields, BeadText):
         raise Fail(3, f"bead {bead_id} title, description, and notes must be strings")
-    assert isinstance(description, str) and isinstance(title, str) and isinstance(notes, str)
-    return ParsedBead(data, bead_id, title, description, notes, sprint, owned)
+    return ParsedBead(data, bead_id, fields["title"], fields["description"], fields["notes"],
+                      sprint["sprint_bead"], owned["owned_paths"])
 
 
 def load_bead(args: SplitArguments, bead_id: str | None = None) -> ParsedBead:

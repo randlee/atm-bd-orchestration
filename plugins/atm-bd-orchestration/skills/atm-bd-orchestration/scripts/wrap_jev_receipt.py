@@ -34,6 +34,7 @@ from typing import Protocol, TypedDict, runtime_checkable
 CLIENT = Path(__file__).resolve().parent / "jev_client.py"
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 from sanity_shared import valid_elapsed_s  # noqa: E402
+from operation_models import matches_typeddict  # noqa: E402
 from sprint_index_common import JsonObject, JsonValue, is_json_value  # noqa: E402
 
 FENCED = re.compile(r"\s*```(?:json)?[ \t]*\n(.*?)\n```\s*", re.S)
@@ -77,11 +78,19 @@ def read_json(path: str, what: str, fix: str) -> JsonValue:
         raise Refused(f"{what}_unreadable", f"cannot read {what} {path}: {exc}", fix)
 
 
-class AssignmentFields(TypedDict):
+class AssignmentIdentity(TypedDict):
     sanity_bead: str
     dev_bead: str
-    deliverable: int
     commit_checked: str
+
+
+class AssignmentFields(AssignmentIdentity):
+    deliverable: int
+
+
+class AssignmentCount(TypedDict):
+    number: int
+    total: int
 
 
 class ReceiptFields(TypedDict):
@@ -109,15 +118,15 @@ def assignment_fields(assignment: JsonValue) -> tuple[AssignmentFields, int]:
     deliverable = assignment.get("deliverable")
     if not isinstance(dev, dict) or not isinstance(deliverable, dict):
         raise Refused("assignment_fields", "assignment lacks dev_bead or deliverable", fix)
-    sanity, dev_id, commit = assignment.get("sanity_bead"), dev.get("id"), assignment.get("commit")
     number, total = deliverable.get("number"), assignment.get("deliverables_total")
-    if not all(isinstance(value, str) for value in (sanity, dev_id, commit)):
+    identity = {"sanity_bead": assignment.get("sanity_bead"), "dev_bead": dev.get("id"),
+                "commit_checked": assignment.get("commit")}
+    if not matches_typeddict(identity, AssignmentIdentity):
         raise Refused("assignment_fields", "assignment bead IDs and commit must be strings", fix)
-    assert isinstance(sanity, str) and isinstance(dev_id, str) and isinstance(commit, str)
-    if (not isinstance(number, int) or isinstance(number, bool) or not isinstance(total, int)
-            or isinstance(total, bool) or not 1 <= number <= total):
+    counts = {"number": number, "total": total}
+    if not matches_typeddict(counts, AssignmentCount) or not 1 <= counts["number"] <= counts["total"]:
         raise Refused("assignment_fields", f"deliverable.number {number!r} is not in 1..{total!r}", fix)
-    return {"sanity_bead": sanity, "dev_bead": dev_id, "deliverable": number, "commit_checked": commit}, total
+    return {**identity, "deliverable": counts["number"]}, counts["total"]
 
 
 def client_receipts(jev: JsonValue, client: JevClient, key: str) -> ParsedReceipts:
@@ -276,14 +285,19 @@ class ClientOutput(TypedDict):
     elapsed: JsonObject
 
 
+class ClientEnvelope(TypedDict):
+    success: bool
+    data: JsonValue
+    error: JsonValue
+
+
 def parse_client_output(output: JsonValue) -> ClientOutput:
-    if not isinstance(output, dict) or set(output) - {"elapsed_s"} != {"success", "data", "error"} \
-            or not isinstance(output["success"], bool):
+    raw = output
+    if not isinstance(raw, dict) or not matches_typeddict(output, ClientEnvelope) \
+            or set(raw) - {"elapsed_s"} != ClientEnvelope.__required_keys__:
         raise Refused("client_envelope", "--client-output is not a jev_client.py envelope", RERUN)
-    success = output["success"]
-    assert isinstance(success, bool)
-    return {"success": success, "data": output["data"], "error": output["error"],
-            "elapsed": outer_elapsed(output, "client", RERUN)}
+    return {"success": output["success"], "data": output["data"], "error": output["error"],
+            "elapsed": outer_elapsed(raw, "client", RERUN)}
 
 
 def parse_wrapped_reply(reply: JsonValue) -> WrappedReply:
