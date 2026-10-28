@@ -340,8 +340,9 @@ def prepare(manifest: object, repo: Path, client: object) -> JevRequest:
   if not paths:raise ValueError('diff requires explicit paths')
   diffs.append({'commit':commit,'paths':paths,'text':git(repo,'show','--format=fuller',commit,'--',*paths).stdout})
  questions: dict[str, Question]=manifest.get('questions',QUESTIONS)
+ has_specs='question_specs' in manifest
  specs=manifest.get('question_specs')
- if not specs:
+ if not has_specs:
   if set(questions)!=set(QUESTIONS):raise ValueError('v1 requires exactly three question IDs')
  else:validate_question_specs(questions,specs,coverage,predicates)
  # Overrides are factual, symmetric questions authored from finding predicates; no model verdict is accepted as source evidence.
@@ -435,9 +436,11 @@ def evaluate_one(path: Path,client: object,output_dir: Path,phase: str,run_id: s
   coverage=s['coverage']
   if coverage.get('scope') not in ['whole_finding','subcheck']:raise ValueError('explicit source coverage required')
   specs=s.get('question_specs')
-  if not specs:
+  if s['schema_version']==1:
    if set(request['questions'])!=set(QUESTIONS):raise ValueError('v1 requires exactly three question IDs')
-  else:validate_question_specs(request['questions'],specs,coverage,s['acceptance_predicates'])
+  elif s['schema_version']==2:
+   validate_question_specs(request['questions'],specs,coverage,s['acceptance_predicates'])
+  else:raise ValueError('unsupported JEV schema version')
   row.update(finding_id=s['finding_id'],evaluation_kind='finding',repository=s.get('repository'),pr_url=s.get('pr_url'),integration_sha=s['current_head'],fix_sha=s.get('claimed_fix_sha'),model=request['model'],prompt_version=s['prompt_version'],context_revision=s.get('context_revision',1),coverage=coverage,prompt_sha256=digest(encoded(request['questions'])),evidence_sha256=digest(encoded(s['current_evidence'])),request_bytes=len(client.validate_request(request)))
   # Scoring metadata stays in the retained local packet, never in model evidence.
   wire_state: JevState=s.copy();wire_state.pop('question_specs',None)
@@ -445,7 +448,7 @@ def evaluate_one(path: Path,client: object,output_dir: Path,phase: str,run_id: s
   row['wire_request_sha256']=digest(encoded(wire_request))
   row['wire_request_bytes']=len(client.validate_request(wire_request))
   row['response']=client.evaluate(wire_request)
-  if not specs:row['screening_disposition']=route(row['response'],coverage,minimum_probability)
+  if s['schema_version']==1:row['screening_disposition']=route(row['response'],coverage,minimum_probability)
   else:
    row['schema_version']=2;row['question_specs']=specs
    row.update(aggregate_atomic(row['response'],coverage,specs,s['acceptance_predicates'],minimum_probability))

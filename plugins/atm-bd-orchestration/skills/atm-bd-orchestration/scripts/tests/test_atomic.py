@@ -65,6 +65,13 @@ class Pipeline(unittest.TestCase):
   path=self.save('retained-v1.json',packet)
   row=m.run([path],FakeClient,self.root/'logs','phase-d')[0]
   self.assertIsNone(row['error']);self.assertEqual(row['schema_version'],1);self.assertEqual(row['screening_disposition'],'screened_present')
+ def test_v2_packet_with_empty_question_specs_is_rejected(self):
+  self.man['question_specs']={}
+  with self.assertRaises(ValueError):m.prepare(self.man,self.repo,FakeClient)
+  self.man.pop('question_specs')
+  packet=self.packet();packet['state']['schema_version']=2;packet['state']['question_specs']={}
+  row=m.run([self.save('empty-v2.json',packet)],FakeClient,self.root/'logs','phase-d')[0]
+  self.assertIsNotNone(row['error']);self.assertIsNone(row['response'])
  def test_v2_roundtrip_and_prebuilt_validation(self):
   self.man['questions']={'behavior':Q}
   self.man['question_specs']={'behavior':{'category':'presence','expected':'no','obligation_ids':['o1']}}
