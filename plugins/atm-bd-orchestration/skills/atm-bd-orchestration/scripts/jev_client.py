@@ -152,7 +152,18 @@ def validate_response(value: JsonValue, request: JsonObject) -> JsonObject:
     return parse_response(value, request)["raw"]
 
 
-def validate_request(request: JsonValue) -> bytes:
+class ChoiceQuestion(TypedDict):
+    instructions: JsonValue
+    criteria: JsonObject
+
+
+class ValidatedRequest(TypedDict):
+    state: JsonValue
+    questions: dict[str, ChoiceQuestion]
+    raw: JsonObject
+
+
+def parse_request(request: JsonValue) -> ValidatedRequest:
     if (not isinstance(request, dict) or request.get("model") != MODEL
             or not isinstance(request.get("state"), (str, dict, list))
             or not isinstance(request.get("questions"), dict) or not request["questions"]):
@@ -161,6 +172,7 @@ def validate_request(request: JsonValue) -> bytes:
     assert isinstance(questions, dict)
     if not is_json_object(questions):
         raise JevError("VALIDATION.INPUT", "Pilot supports well-formed Choice questions only")
+    parsed_questions: dict[str, ChoiceQuestion] = {}
     for name, q in questions.items():
         criteria = q.get("criteria") if isinstance(q, dict) else None
         if (not name or not isinstance(q, dict)
@@ -169,12 +181,18 @@ def validate_request(request: JsonValue) -> bytes:
                 or not all(k for k in criteria)
                 or not all(v is None or isinstance(v, (str, dict, list)) for v in criteria.values())):
             raise JevError("VALIDATION.INPUT", "Pilot supports well-formed Choice questions only")
+        parsed_questions[name] = {"instructions": q["instructions"], "criteria": criteria}
+    return {"state": request["state"], "questions": parsed_questions, "raw": request}
+
+
+def validate_request(request: JsonValue) -> bytes:
+    parsed = parse_request(request)
     try:
-        body = json.dumps(request, allow_nan=False).encode("utf-8")
+        body = json.dumps(parsed["raw"], allow_nan=False).encode("utf-8")
     except (TypeError, ValueError):
         raise JevError("VALIDATION.INPUT", "Request must contain finite JSON values") from None
     if len(body) > MAX_REQUEST_BYTES:
-        raise oversize(request)
+        raise oversize(parsed["raw"])
     return body
 
 
@@ -792,6 +810,15 @@ def parts(requests: list[JsonObject], responses: list[JsonObject], key: str) -> 
     return {"model": MODEL, "parts": values}
 
 
+class EscalationList(TypedDict):
+    recipients: list[str]
+
+
+def parse_escalation_list(value: JsonValue) -> EscalationList:
+    recipients = value.get("recipients") if isinstance(value, dict) else None
+    return {"recipients": [r for r in recipients if isinstance(r, str) and r] if isinstance(recipients, list) else []}
+
+
 def escalation_recipients() -> list[str]:
     """ATM's escalation recipients: the team's (`ATM_TEAM`), else the daemon default; [] when neither is set or readable."""
     team = os.environ.get("ATM_TEAM", "")
@@ -801,8 +828,7 @@ def escalation_recipients() -> list[str]:
             value: JsonValue = json.loads(listed.stdout) if listed.returncode == 0 else {}
         except (OSError, subprocess.TimeoutExpired, ValueError):
             value = {}
-        recipients = value.get("recipients") if isinstance(value, dict) else None
-        found = [r for r in recipients if isinstance(r, str) and r] if isinstance(recipients, list) else []
+        found = parse_escalation_list(value)["recipients"]
         if found:
             return found
     return []
