@@ -287,7 +287,7 @@ RECORD_TYPES = {
 }
 
 
-def validate_record(record: JsonValue) -> JsonObject:
+def validate_record(record: JsonValue) -> HistoryRow:
     if not is_json_object(record) or set(record) != set(RECORD_TYPES) | {"findings", "error", "errors", "jev_receipts", "dev", "jev_elapsed_s", "llm_elapsed_s", "kind"}:
         fail("rendered record has incorrect fields")
     if record["dev"] is not None and (not isinstance(record["dev"], str) or not record["dev"]):
@@ -333,7 +333,7 @@ def validate_record(record: JsonValue) -> JsonObject:
             fail("completed verdict requires integer findings and null error")
     else:
         fail("rendered record has invalid verdict")
-    return record
+    return history_row(record)
 
 
 def render_record(variables: JsonObject) -> JsonObject:
@@ -347,7 +347,7 @@ def render_record(variables: JsonObject) -> JsonObject:
         fail(f"record render failed: {sc_render.error_text(exc)}")
     except json.JSONDecodeError as exc:
         fail(f"record render failed: {exc}")
-    return validate_record(record)
+    return validate_record(record)["raw"]
 
 
 def append_record(log_path: Path, record: JsonObject) -> None:
@@ -356,16 +356,16 @@ def append_record(log_path: Path, record: JsonObject) -> None:
     This lock is separate from sc-compose's append lock: taking that lock here
     would deadlock the child. All history writers must use this sidecar lock.
     """
-    validate_record(record)
+    current = validate_record(record)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.with_suffix(log_path.suffix + ".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        _append_locked(log_path, record)
+        _append_locked(log_path, current)
 
 
-def _append_locked(log_path: Path, record: JsonObject) -> None:
+def _append_locked(log_path: Path, current: HistoryRow) -> None:
     records = load_log(log_path)
-    current = history_row(record)
+    record = current["raw"]
     same_run = [r for r in records if r["run_id"] == current["run_id"]]
     if any(r["identity"] != current["identity"] for r in same_run):
         fail("shared run identity disagrees with existing record")
