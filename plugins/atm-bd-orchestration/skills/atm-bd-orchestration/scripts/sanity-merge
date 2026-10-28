@@ -304,6 +304,11 @@ def load_client(path: Path) -> tuple[JevClient | None, str | None]:
         return None, f"cannot load the Jev client {path}: {exc}"
 
 
+class ScreenedReceipt(TypedDict):
+    choice: str
+    raw: JsonObject
+
+
 def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, str | None], seen: set[str]) -> str | None:
     """Why a sanity-jev reply cannot stand, or None. A success needs the client's receipt in `data.jev` (verified with
     TYPESAFE_API_KEY), or for a split request every part in order with its own verified receipt; findings that agree
@@ -356,10 +361,14 @@ def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, st
         if not isinstance(jev, dict) or not client.verify_receipt(jev, key):
             return "no valid Jev receipt in data.jev: the reply was not written from a jev_client.py call"
         receipts = [jev]
+    parsed_receipts: list[ScreenedReceipt] = []
     for receipt in receipts:
         if receipt["question"] != "written" or receipt["choice"] not in ("yes", "no"):
             return f"Jev receipt answers {receipt['question']!r} with {receipt['choice']!r}, not written: yes or no"
-    choices = {choice for receipt in receipts if isinstance((choice := receipt["choice"]), str)}
+        receipt_choice = receipt["choice"]
+        assert isinstance(receipt_choice, str)
+        parsed_receipts.append({"choice": receipt_choice, "raw": receipt})
+    choices = {receipt["choice"] for receipt in parsed_receipts}
     if len(choices) == 1:
         (choice,) = choices
         if final is not None and (not isinstance(final, dict) or final.get("choice") != choice):
@@ -376,7 +385,7 @@ def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, st
     findings = data.get("findings")
     if not isinstance(findings, list) or len(findings) != (1 if choice == "no" else 0):
         return f"Jev choice {choice!r} contradicts the reply's findings"
-    request_hashes = [receipt["request_sha256"] for receipt in receipts]
+    request_hashes = [receipt["raw"]["request_sha256"] for receipt in parsed_receipts]
     if not all(isinstance(value, str) for value in request_hashes):
         return "Jev receipt request hash is not a string"
     hashes = [value for value in request_hashes if isinstance(value, str)]
