@@ -430,6 +430,12 @@ class SelectionEntry(TypedDict):
     rerun: JsonValue
 
 
+class RerunSelection(TypedDict):
+    reviewer: str
+    context: list[str]
+    reply: JsonValue
+
+
 def selected_results(args: MergeArguments, manifest: JsonObject, sanity_bead: str,
                      dev_bead: str) -> tuple[list[JsonValue], list[JsonValue], dict[int, str]]:
     """Choose whole validated replies; selection metadata is never a reply edit."""
@@ -502,16 +508,20 @@ def selected_results(args: MergeArguments, manifest: JsonObject, sanity_bead: st
                 raise Reject(f"deliverable {number}: invalid rerun")
             if rerun["reviewer"] not in {"sanity-llm", "sanity-jev"} or not isinstance(rerun["context"], list) or not rerun["context"] or not all(isinstance(path, str) and path and not Path(path).is_absolute() for path in rerun["context"]):
                 raise Reject(f"deliverable {number}: rerun requires reviewer and nonempty repo-relative context")
-            for path in rerun["context"]:
-                if not isinstance(path, str) or not context_path_exists(manifest, path):
+            reviewer = rerun["reviewer"]
+            assert isinstance(reviewer, str)
+            rerun_context = [path for path in rerun["context"] if isinstance(path, str)]
+            parsed_rerun: RerunSelection = {"reviewer": reviewer, "context": rerun_context, "reply": rerun["reply"]}
+            for path in parsed_rerun["context"]:
+                if not context_path_exists(manifest, path):
                     raise Reject(f"deliverable {number}: rerun context path is not a file at manifest sha: {path}")
-            reply = parse_reply(rerun["reply"], number)
-            if rerun["reviewer"] == "sanity-jev" and (reason := jev_reply_problem(reply, client, set(jev_seen))):
+            reply = parse_reply(parsed_rerun["reply"], number)
+            if parsed_rerun["reviewer"] == "sanity-jev" and (reason := jev_reply_problem(reply, client, set(jev_seen))):
                 raise Reject(f"deliverable {number}: rerun reply: {reason}")
             reply_number, status = reply_status(reply, number, manifest, sanity_bead, dev_bead)
             if reply_number != number:
                 raise Reject(f"deliverable {number}: rerun reply names another deliverable")
-            source = rerun["reviewer"]
+            source = parsed_rerun["reviewer"]
         elif parsed_entry["selected"] == "llm":
             reply, status, source = *llm_by[number], "sanity-llm"
         else:
