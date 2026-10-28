@@ -63,6 +63,7 @@ import signal
 import subprocess
 import sys
 import time
+from typing import TypedDict
 import uuid
 
 # Tool lock and log files a clean worktree may hold; the same as `IGNORED_STATUS_PATHS` in assignment-gates.py.
@@ -150,15 +151,22 @@ HEADING = re.compile(r"^(#{1,6}) ")
 DELIVERABLES = re.compile(r"^## Deliverables[ \t]*$", re.M)
 
 
-def parse_deliverables(description):
+class Deliverable(TypedDict):
+    number: int
+    text: str
+
+
+def parse_deliverables(description: str) -> list[Deliverable]:
     match = DELIVERABLES.search(description or "")
     if not match:
         raise Fail(2, "bead has no `## Deliverables` section")
-    items, fence, prev_blank = [], None, True
+    items: list[Deliverable] = []
+    fence: str | None = None
+    prev_blank = True
     for line in description[match.end():].splitlines():
         stripped = line.strip()
         if fence:                                   # fenced text belongs to the current item
-            items[-1][1] += " " + stripped
+            items[-1]["text"] += " " + stripped
             if re.fullmatch(re.escape(fence[0]) + "{%d,}" % len(fence), stripped):
                 fence = None                        # same character, at least the opening length
             continue
@@ -172,7 +180,7 @@ def parse_deliverables(description):
             continue
         item = ITEM.match(line)
         if item:
-            items.append([int(item.group(1)), item.group(2).strip()])
+            items.append({"number": int(item.group(1)), "text": item.group(2).strip()})
         elif not items:
             raise Fail(2, f"`## Deliverables` has content before the first numbered item: {stripped!r}")
         elif TOP_BULLET.match(line):
@@ -181,9 +189,9 @@ def parse_deliverables(description):
             fence_match = FENCE.match(line)
             assert fence_match is not None
             fence = fence_match.group(1)       # closes on the same character, at least this long
-            items[-1][1] += " " + stripped
+            items[-1]["text"] += " " + stripped
         elif line[0] in " \t" or not prev_blank:    # indented sub-item, or wrapped item text
-            items[-1][1] += " " + stripped
+            items[-1]["text"] += " " + stripped
         else:
             raise Fail(2, f"`## Deliverables` has an unnumbered paragraph: {stripped!r}")
         prev_blank = False
@@ -191,10 +199,10 @@ def parse_deliverables(description):
         raise Fail(2, "`## Deliverables` has an unclosed fenced block")
     if not items:
         raise Fail(2, "`## Deliverables` has no numbered items (`1. ...`)")
-    numbers = [n for n, _ in items]
+    numbers = [item["number"] for item in items]
     if numbers != list(range(1, len(items) + 1)):
         raise Fail(2, f"`## Deliverables` numbering is not 1..{len(items)}: {numbers}")
-    return [{"number": n, "text": t} for n, t in items]
+    return items
 
 
 def git(worktree: str, *argv: str, code: int = 3, what: str | None = None) -> str:
