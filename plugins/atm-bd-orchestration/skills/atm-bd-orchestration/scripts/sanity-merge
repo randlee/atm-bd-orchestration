@@ -162,8 +162,23 @@ def failure_envelope(result: JsonObject, index: int, total: int) -> FailureEnvel
     return {"code": code, "message": message, "recoverable": recoverable, "suggested_action": action, "deliverable": number}
 
 
+class MergeDependency(TypedDict):
+    deliverable: int
+    file: str
+    line: int
+    raw: JsonObject
+
+
+class MergeFinding(TypedDict):
+    kind: str
+    file: str
+    line: int
+    issue: str
+    depends_on: list[MergeDependency]
+
+
 def validate(result: JsonObject, index: int, manifest: JsonObject, sanity_bead: str,
-             dev_bead: str) -> tuple[int, list[JsonObject]]:
+             dev_bead: str) -> tuple[int, list[MergeFinding]]:
     total = manifest["deliverables_total"]
     if not isinstance(total, int) or isinstance(total, bool):
         raise Reject("manifest deliverables_total must be an integer")
@@ -188,7 +203,7 @@ def validate(result: JsonObject, index: int, manifest: JsonObject, sanity_bead: 
         raise Reject(f"{where}: findings must be a list")
     if len(findings) > 1:
         raise Reject(f"{where}: at most one finding is allowed")
-    validated_findings: list[JsonObject] = []
+    validated_findings: list[MergeFinding] = []
     for finding in findings:
         if not isinstance(finding, dict):
             raise Reject(f"{where}: finding must be {{kind: skipped, file, line >= 1, issue}}: {finding!r}")
@@ -201,6 +216,7 @@ def validate(result: JsonObject, index: int, manifest: JsonObject, sanity_bead: 
         dependencies = finding.get("depends_on", [])
         if not isinstance(dependencies, list):
             raise Reject(f"{where}: depends_on must be a list")
+        parsed_dependencies: list[MergeDependency] = []
         for dependency in dependencies:
             if not isinstance(dependency, dict):
                 raise Reject(f"{where}: depends_on entries must be {{deliverable: 1..{total}, file, line >= 1}}: {dependency!r}")
@@ -212,7 +228,14 @@ def validate(result: JsonObject, index: int, manifest: JsonObject, sanity_bead: 
                     or not isinstance(dependency_line, int)
                     or isinstance(dependency_line, bool) or dependency_line < 1):
                 raise Reject(f"{where}: depends_on entries must be {{deliverable: 1..{total}, file, line >= 1}}: {dependency!r}")
-        validated_findings.append(finding)
+            path = dependency["file"]
+            assert isinstance(path, str)
+            parsed_dependencies.append({"deliverable": dependency_number, "file": path,
+                                        "line": dependency_line, "raw": dependency})
+        path, issue = finding["file"], finding["issue"]
+        assert isinstance(path, str) and isinstance(issue, str)
+        validated_findings.append({"kind": CHECKER_KIND, "file": path, "line": line,
+                                   "issue": issue, "depends_on": parsed_dependencies})
     return number, validated_findings
 
 
@@ -710,7 +733,7 @@ def main(argv: list[str]) -> int:
             results = read_results()
             if args.reviewer == "sanity-jev":
                 results, rejected = screen_jev_results(results, load_client(Path(args.client) if args.client else CLIENT))
-        by_number: dict[int, list[JsonObject]] = {}
+        by_number: dict[int, list[MergeFinding]] = {}
         total = manifest["deliverables_total"]
         if not isinstance(total, int) or isinstance(total, bool):
             raise Reject("manifest deliverables_total must be an integer")
@@ -754,14 +777,14 @@ def main(argv: list[str]) -> int:
         findings = report_findings[number]
         blocks.append(
             f"D{number}: done" if not findings
-            else f"D{number}:\n" + "\n".join(fmt(f) for f in findings)
+            else f"D{number}:\n" + "\n".join(fmt({"kind": f["kind"], "file": f["file"], "line": f["line"], "issue": f["issue"]}) for f in findings)
         )
         for index, finding in enumerate(findings, 1):
             finding_records.append({
                 "finding_ref": f"D{number}-F{index}", "deliverable": number,
                 "kind": finding["kind"], "file": finding["file"],
                 "line": finding["line"], "issue": finding["issue"],
-                "depends_on": finding.get("depends_on", []),
+                "depends_on": [dependency["raw"] for dependency in finding["depends_on"]],
                 "deliverable_text": deliverable_text(manifest, number),
             })
             if selection is not None:
