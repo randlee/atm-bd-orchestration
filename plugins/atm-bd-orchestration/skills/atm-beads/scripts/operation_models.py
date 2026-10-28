@@ -149,7 +149,11 @@ def is_dependency_record(value: object) -> TypeGuard[DependencyRecord]:
 def is_bead_metadata(value: object) -> TypeGuard[BeadMetadata]:
     if not is_object(value):
         return False
-    if not has_string_fields(value, ("branch", "checked_bead", "difficulty", "integration_branch", "severity", "sprint", "verdict")):
+    string_fields = (
+        "branch", "checked_bead", "difficulty", "integration_branch", "phase",
+        "severity", "stack", "sprint", "verdict", "worktree", "pr_target",
+    )
+    if not has_string_fields(value, string_fields):
         return False
     for key in ("layer", "round"):
         item = value.get(key)

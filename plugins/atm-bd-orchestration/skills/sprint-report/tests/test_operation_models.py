@@ -22,6 +22,35 @@ loader.exec_module(report)
 
 
 class OperationModelTests(unittest.TestCase):
+    def test_bead_metadata_guard_checks_every_declared_field(self):
+        string_fields = (
+            'branch', 'checked_bead', 'difficulty', 'integration_branch', 'phase',
+            'severity', 'stack', 'sprint', 'verdict', 'worktree', 'pr_target',
+        )
+        metadata: dict[str, str | int] = {field: f'{field}-value' for field in string_fields}
+        metadata.update({'layer': 1, 'round': 2})
+        self.assertTrue(models.is_bead_metadata(metadata))
+        self.assertTrue(models.is_bead_records([{
+            'id': 'atm-x-1', 'status': 'open', 'metadata': metadata,
+        }]))
+
+        for field in string_fields:
+            with self.subTest(field=field):
+                malformed = {**metadata, field: 7}
+                self.assertFalse(models.is_bead_metadata(malformed))
+                self.assertFalse(models.is_bead_records([{
+                    'id': 'atm-x-1', 'status': 'open', 'metadata': malformed,
+                }]))
+
+        for field in ('layer', 'round'):
+            for malformed_value in ([], {}):
+                with self.subTest(field=field, value=malformed_value):
+                    self.assertFalse(models.is_bead_metadata({**metadata, field: malformed_value}))
+        for field in ('layer', 'round'):
+            for valid_value in (None, '2', 2, 2.5, True):
+                with self.subTest(field=field, value=valid_value):
+                    self.assertTrue(models.is_bead_metadata({**metadata, field: valid_value}))
+
     def test_bd_records_validate_operation_fields_and_dependencies(self):
         rows = [{
             'id': 'atm-x-1.group-dev',
