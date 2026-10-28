@@ -24,7 +24,7 @@ from collections.abc import Mapping, Sequence
 from typing import NotRequired, Protocol, TypedDict, runtime_checkable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'atm-beads' / 'scripts'))
-from operation_models import matches_typeddict
+from operation_models import is_object, is_object_list, matches_typeddict
 
 SCHEMA_VERSION=1
 PROMPT_VERSION='post-mortem-jev-v1'
@@ -223,9 +223,39 @@ def safe_path(path: object) -> str:
  return path
 
 
-def validate_question_specs(questions: dict[str, Question], specs: dict[str, QuestionSpec],
-                            coverage: Coverage, predicates: list[Predicate]) -> set[str]:
+def questions_map(value: object) -> dict[str, Question]:
+ if not is_object(value):raise ValueError('questions must be an object')
+ questions: dict[str, Question]={}
+ for key,item in value.items():
+  if not matches_typeddict(item,Question):raise ValueError('question does not match the JEV schema')
+  questions[key]=item
+ return questions
+
+
+def question_specs_map(value: object) -> dict[str, QuestionSpec]:
+ if not is_object(value):raise ValueError('question_specs must be an object')
+ specs: dict[str, QuestionSpec]={}
+ for key,item in value.items():
+  if not matches_typeddict(item,QuestionSpec):raise ValueError('question spec does not match the JEV schema')
+  specs[key]=item
+ return specs
+
+
+def predicates_list(value: object) -> list[Predicate]:
+ if not is_object_list(value):raise ValueError('predicates do not match the JEV schema')
+ predicates: list[Predicate]=[]
+ for item in value:
+  if not matches_typeddict(item,Predicate):raise ValueError('predicates do not match the JEV schema')
+  predicates.append(item)
+ return predicates
+
+
+def validate_question_specs(questions: object, specs: object,
+                            coverage: object, predicates: object) -> set[str]:
  """Validate explicit v2 mapping; polarity is author-declared, never inferred."""
+ questions=questions_map(questions);specs=question_specs_map(specs)
+ if not matches_typeddict(coverage,Coverage):raise ValueError('coverage does not match the JEV schema')
+ predicates=predicates_list(predicates)
  if not specs or set(specs)!=set(questions):
   raise ValueError('question_specs must map every question ID exactly once')
  obligation_ids={p['id'] for p in predicates}
@@ -249,8 +279,10 @@ def validate_question_specs(questions: dict[str, Question], specs: dict[str, Que
  return covered
 
 
-def prepare(manifest: Manifest, repo: Path, client: JevClient) -> JevRequest:
+def prepare(manifest: object, repo: Path, client: object) -> JevRequest:
  """Materialize reviewer-selected exact evidence. No fuzzy lookup or truncation."""
+ if not matches_typeddict(manifest,Manifest):raise ValueError('manifest does not match the JEV manifest schema')
+ if not isinstance(client,JevClient):raise TypeError('JEV client does not implement the client contract')
  for name in ['finding_id','phase','integration_sha','finding_text','acceptance_predicates','coverage','source_selections']:
   if name not in manifest:raise ValueError(f'missing {name}')
  if not PHASE_RE.fullmatch(manifest['phase']):raise ValueError('invalid phase')
@@ -298,9 +330,9 @@ def prepare(manifest: Manifest, repo: Path, client: JevClient) -> JevRequest:
  client.validate_request(request) # Oversized evidence is an explicit failure, NEVER truncate.
  return request
 
-def route(response: JevResponse,coverage: Coverage,minimum_probability: float=0.8) -> str:
+def route(response: object,coverage: object,minimum_probability: float=0.8) -> str:
  """Screening disposition only. Never closes a finding or creates one."""
- if not response:return 'evaluation_error'
+ if not matches_typeddict(response,JevResponse) or not matches_typeddict(coverage,Coverage):return 'evaluation_error'
  a=response['answers'];p=a['fix_presence']['choice'];s=a['serious_fix_issues']['choice'];q=a['fix_quality']['choice']
  if p in ['absent','partially_present'] or s=='serious_issue' or q in ['weak','broken','not_present']:
   return 'inspect_candidate'
@@ -312,8 +344,10 @@ def route(response: JevResponse,coverage: Coverage,minimum_probability: float=0.
  if p=='fully_present' and s=='no_serious_issue_seen' and q in ['strong','adequate']:return 'screened_present'
  return 'needs_context'
 
-def aggregate_atomic(response: JevResponse,coverage: Coverage,specs: dict[str, QuestionSpec],predicates: list[Predicate],minimum_probability: float=0.8) -> dict[str, object]:
+def aggregate_atomic(response: object,coverage: object,specs: object,predicates: object,minimum_probability: float=0.8) -> dict[str, object]:
  """Keep current-fix support separate from issue/quality advice. No closures."""
+ if not matches_typeddict(response,JevResponse) or not matches_typeddict(coverage,Coverage):raise ValueError('atomic evaluation payload does not match the JEV schema')
+ specs=question_specs_map(specs);predicates=predicates_list(predicates)
  answers=response['answers'];all_ids: set[str]={p['id'] for p in predicates};covered: set[str]=set()
  presence: list[AtomicAnswer]=[];issue: list[AtomicAnswer]=[];quality: list[AtomicAnswer]=[];low: list[str]=[]
  for qid,spec in specs.items():
@@ -361,10 +395,11 @@ def immutable_write(path: Path,data: bytes) -> None:
    if path.read_bytes()!=data:raise ValueError('immutable artifact hash collision/content mismatch')
  finally:temporary.unlink(missing_ok=True)
 
-def evaluate_one(path: Path,client: JevClient,output_dir: Path,phase: str,run_id: str,attempt_role: str,minimum_probability: float) -> dict[str, object]:
+def evaluate_one(path: Path,client: object,output_dir: Path,phase: str,run_id: str,attempt_role: str,minimum_probability: float) -> dict[str, object]:
  t=time.monotonic()
  row: dict[str, object]={'schema_version':SCHEMA_VERSION,'evaluation_id':str(uuid.uuid4()),'run_id':run_id,'timestamp_utc':utc_now(),'phase':phase,'attempt_role':attempt_role,'input_packet_path':str(path),'packet_path':None,'packet_sha256':None,'finding_id':None,'evaluation_kind':'unknown','response':None,'error':None}
  try:
+  if not isinstance(client,JevClient):raise TypeError('JEV client does not implement the client contract')
   raw=Path(path).read_bytes();h=digest(raw);retained=output_dir/'post-mortem-jev-evidence'/phase/h[:2]/f'{h}.json'
   immutable_write(retained,raw);row.update(packet_path=str(retained),packet_sha256=h)
   parsed: object=json.loads(raw)
@@ -398,7 +433,7 @@ def evaluate_one(path: Path,client: JevClient,output_dir: Path,phase: str,run_id
  row['duration_ms']=round((time.monotonic()-t)*1000)
  return row
 
-def run(paths: Sequence[Path],client: JevClient,output_dir: Path,phase: str,run_id: str | None=None,concurrency: int=2,attempt_role: str='initial',minimum_probability: float=0.8) -> list[dict[str, object]]:
+def run(paths: Sequence[Path],client: object,output_dir: Path,phase: str,run_id: str | None=None,concurrency: int=2,attempt_role: str='initial',minimum_probability: float=0.8) -> list[dict[str, object]]:
  if not PHASE_RE.fullmatch(phase):raise ValueError('invalid phase')
  if not 1<=concurrency<=4:raise ValueError('concurrency must be 1..4')
  if attempt_role not in ['initial','context_repair']:raise ValueError('invalid attempt role')
