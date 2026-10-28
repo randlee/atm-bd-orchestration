@@ -191,7 +191,21 @@ def result_choice(parsed: ParsedReceipts, final: JsonValue,
     return selection["choice"]
 
 
-def check_findings(findings: JsonValue, choice: str, total: int) -> None:
+class FindingDependency(TypedDict):
+    deliverable: int
+    file: str
+    line: int
+
+
+class Finding(TypedDict):
+    file: str
+    line: int
+    issue: str
+    dependencies: list[FindingDependency]
+    raw: JsonObject
+
+
+def check_findings(findings: JsonValue, choice: str, total: int) -> list[Finding]:
     fix = ("Write --findings as [] when the result is yes, or as exactly one "
            "{\"kind\": \"skipped\", \"file\": <committed path>, \"line\": <n >= 1>, \"issue\": <one sentence>} when no.")
     if not isinstance(findings, list):
@@ -199,6 +213,7 @@ def check_findings(findings: JsonValue, choice: str, total: int) -> None:
     expected = 1 if choice == "no" else 0
     if len(findings) != expected:
         raise Refused("findings_shape", f"result {choice!r} needs {expected} finding(s), got {len(findings)}", fix)
+    parsed_findings: list[Finding] = []
     for finding in findings:
         if not isinstance(finding, dict):
             raise Refused("findings_shape", f"finding must be {{kind: skipped, file, line >= 1, issue}}: {finding!r}", fix)
@@ -209,17 +224,25 @@ def check_findings(findings: JsonValue, choice: str, total: int) -> None:
                 or line < 1 or not isinstance(finding.get("issue"), str) or not finding["issue"]):
             raise Refused("findings_shape", f"finding must be {{kind: skipped, file, line >= 1, issue}}: {finding!r}", fix)
         dependencies = finding.get("depends_on", [])
-        def valid_dependency(d: JsonValue) -> bool:
+        def parse_dependency(d: JsonValue) -> FindingDependency | None:
             if not isinstance(d, dict):
-                return False
+                return None
             number, dependency_line, path = d.get("deliverable"), d.get("line"), d.get("file")
-            return (isinstance(number, int) and not isinstance(number, bool) and 1 <= number <= total
+            if not (isinstance(number, int) and not isinstance(number, bool) and 1 <= number <= total
                     and isinstance(path, str) and bool(path)
-                    and isinstance(dependency_line, int) and not isinstance(dependency_line, bool) and dependency_line >= 1)
+                    and isinstance(dependency_line, int) and not isinstance(dependency_line, bool) and dependency_line >= 1):
+                return None
+            return {"deliverable": number, "file": path, "line": dependency_line}
 
-        if not isinstance(dependencies, list) or not all(valid_dependency(d) for d in dependencies):
+        parsed_dependencies = [parse_dependency(d) for d in dependencies] if isinstance(dependencies, list) else []
+        if not isinstance(dependencies, list) or any(d is None for d in parsed_dependencies):
             raise Refused("findings_shape", f"depends_on must list {{deliverable: 1..{total}, file, line >= 1}}: "
                           f"{dependencies!r}", fix)
+        path, issue = finding["file"], finding["issue"]
+        assert isinstance(path, str) and isinstance(issue, str) and isinstance(line, int)
+        parsed_findings.append({"file": path, "line": line, "issue": issue,
+                                "dependencies": [d for d in parsed_dependencies if d is not None], "raw": finding})
+    return parsed_findings
 
 
 def outer_elapsed(envelope: JsonObject, what: str, fix: str) -> JsonObject:
@@ -310,10 +333,10 @@ def wrap(args: WrapArguments, client: JevClient) -> JsonObject:
                       "Drop --for-triage; the common answer sets the findings.")
     choice = result_choice(parsed_receipts, final, args.for_triage)
     findings = [] if findings is None else findings
-    check_findings(findings, choice, total)
+    parsed_findings = check_findings(findings, choice, total)
     out: JsonObject = {"sanity_bead": fields["sanity_bead"], "dev_bead": fields["dev_bead"],
                        "deliverable": fields["deliverable"], "commit_checked": fields["commit_checked"],
-                       "findings": findings, "jev": jev}
+                       "findings": [finding["raw"] for finding in parsed_findings], "jev": jev}
     if final is not None:
         out["jev_final"] = final
     return {"success": True, "data": out, "error": None, **elapsed}
