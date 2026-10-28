@@ -389,6 +389,15 @@ def context_path_exists(manifest: JsonObject, path: str) -> bool:
     return not lines or 1 <= int(lines["start"]) <= int(lines["end"]) <= len(git("show", target).splitlines())
 
 
+class SelectionEntry(TypedDict):
+    deliverable: int
+    llm: str
+    jev: str
+    selected: str
+    reason: str
+    rerun: JsonValue
+
+
 def selected_results(args: MergeArguments, manifest: JsonObject, sanity_bead: str,
                      dev_bead: str) -> tuple[list[JsonValue], list[JsonValue], dict[int, str]]:
     """Choose whole validated replies; selection metadata is never a reply edit."""
@@ -446,10 +455,15 @@ def selected_results(args: MergeArguments, manifest: JsonObject, sanity_bead: st
             raise Reject(f"deliverable {number}: selection status does not match reply")
         if entry["selected"] not in {"llm", "jev", "rerun"} or not isinstance(entry["reason"], str):
             raise Reject(f"deliverable {number}: invalid selection or reason")
-        if not entry["reason"] and (entry["llm"] != entry["jev"] or entry["selected"] == "rerun"):
+        llm_status, jev_status, selected_name, selection_reason = entry["llm"], entry["jev"], entry["selected"], entry["reason"]
+        assert isinstance(llm_status, str) and isinstance(jev_status, str)
+        assert isinstance(selected_name, str) and isinstance(selection_reason, str)
+        parsed_entry: SelectionEntry = {"deliverable": number, "llm": llm_status, "jev": jev_status,
+                                        "selected": selected_name, "reason": selection_reason, "rerun": entry["rerun"]}
+        if not parsed_entry["reason"] and (parsed_entry["llm"] != parsed_entry["jev"] or parsed_entry["selected"] == "rerun"):
             raise Reject(f"deliverable {number}: reason required for disagreement or rerun")
-        rerun = entry["rerun"]
-        if (entry["selected"] == "rerun") != (rerun is not None):
+        rerun = parsed_entry["rerun"]
+        if (parsed_entry["selected"] == "rerun") != (rerun is not None):
             raise Reject(f"deliverable {number}: rerun must match selected")
         if rerun is not None:
             if not isinstance(rerun, dict) or set(rerun) != {"reviewer", "context", "reply"}:
@@ -466,14 +480,14 @@ def selected_results(args: MergeArguments, manifest: JsonObject, sanity_bead: st
             if reply_number != number:
                 raise Reject(f"deliverable {number}: rerun reply names another deliverable")
             source = rerun["reviewer"]
-        elif entry["selected"] == "llm":
+        elif parsed_entry["selected"] == "llm":
             reply, status, source = *llm_by[number], "sanity-llm"
         else:
             reply, status, source = *jev_by[number], "sanity-jev"
-        if rerun is None and status == "cannot_run" and "cannot_run" != (llm_by if entry["selected"] == "jev" else jev_by)[number][1]:
+        if rerun is None and status == "cannot_run" and "cannot_run" != (llm_by if parsed_entry["selected"] == "jev" else jev_by)[number][1]:
             raise Reject(f"deliverable {number}: selection must take the reviewer with a valid reply")
-        if rerun is not None and status == "cannot_run" and "cannot_run" != entry["llm"] or \
-                rerun is not None and status == "cannot_run" and "cannot_run" != entry["jev"]:
+        if rerun is not None and status == "cannot_run" and "cannot_run" != parsed_entry["llm"] or \
+                rerun is not None and status == "cannot_run" and "cannot_run" != parsed_entry["jev"]:
             raise Reject(f"deliverable {number}: a failed rerun cannot replace a valid original reply")
         sources[number] = source
         selected.append(reply)
