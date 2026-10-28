@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+# pyright: strict
 """Bounded Jev transport and startup probe for the proposed sanity agent."""
 import argparse
+from collections.abc import Callable
 import copy
 from email.utils import parsedate_to_datetime
 import hashlib
@@ -18,7 +20,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 import repo_config
-from sprint_index_common import JsonObject, JsonValue, load_phase_config
+from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value, load_phase_config, string_list
 
 MODEL = "jev-1.13.0"
 HOST = "api.typesafe.ai"
@@ -99,15 +101,20 @@ def probability(value: JsonValue) -> bool:
             and math.isfinite(value) and 0 <= value <= 1)
 
 
-def validate_response(value, request):
+def validate_response(value: JsonValue, request: JsonObject) -> JsonObject:
     if not isinstance(value, dict) or value.get("model") != MODEL:
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Unexpected Jev response model or shape")
     answers = value.get("answers")
-    if not isinstance(answers, dict) or set(answers) != set(request["questions"]):
+    questions = request.get("questions")
+    if not isinstance(questions, dict) or not isinstance(answers, dict) or set(answers) != set(questions):
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Missing or unexpected answer IDs")
-    for name, question in request["questions"].items():
+    for name, question in questions.items():
         answer = answers[name]
-        options = set(question["criteria"])
+        if not isinstance(question, dict) or not isinstance(question.get("criteria"), dict):
+            raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
+        criteria = question["criteria"]
+        assert isinstance(criteria, dict)
+        options = set(criteria)
         if not isinstance(answer, dict):
             raise JevError("SANITY.JEV_RESPONSE_INVALID", "Answer must be an object")
         probs = answer.get("probabilities")
@@ -116,22 +123,27 @@ def validate_response(value, request):
                 or not probability(answer.get("confidence"))
                 or not isinstance(probs, dict) or set(probs) != options
                 or not all(probability(p) for p in probs.values())
-                or abs(sum(probs.values()) - 1) > 0.001):
+                or abs(sum(p for p in probs.values() if isinstance(p, (int, float))) - 1) > 0.001):
             raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
     return value
 
 
-def validate_request(request):
+def validate_request(request: JsonValue) -> bytes:
     if (not isinstance(request, dict) or request.get("model") != MODEL
             or not isinstance(request.get("state"), (str, dict, list))
             or not isinstance(request.get("questions"), dict) or not request["questions"]):
         raise JevError("VALIDATION.INPUT", "Expected pinned model, state and nonempty questions")
-    for name, q in request["questions"].items():
-        if (not isinstance(name, str) or not name or not isinstance(q, dict)
+    questions = request["questions"]
+    assert isinstance(questions, dict)
+    if not is_json_object(questions):
+        raise JevError("VALIDATION.INPUT", "Pilot supports well-formed Choice questions only")
+    for name, q in questions.items():
+        criteria = q.get("criteria") if isinstance(q, dict) else None
+        if (not name or not isinstance(q, dict)
                 or q.get("type") != "choice" or not isinstance(q.get("instructions"), (str, dict, list))
-                or not isinstance(q.get("criteria"), dict) or not 2 <= len(q["criteria"]) <= 255
-                or not all(isinstance(k, str) and k for k in q["criteria"])
-                or not all(v is None or isinstance(v, (str, dict, list)) for v in q["criteria"].values())):
+                or not is_json_object(criteria) or not 2 <= len(criteria) <= 255
+                or not all(k for k in criteria)
+                or not all(v is None or isinstance(v, (str, dict, list)) for v in criteria.values())):
             raise JevError("VALIDATION.INPUT", "Pilot supports well-formed Choice questions only")
     try:
         body = json.dumps(request, allow_nan=False).encode("utf-8")
@@ -155,7 +167,8 @@ def retry_delay(retry_after: str | None) -> float:
     return min(30.0, max(0.0, delay)) if math.isfinite(delay) else 30.0
 
 
-def evaluate(request, *, sleep=None, max_attempts=MAX_JEV_ATTEMPTS, _budget=None):
+def evaluate(request: JsonObject, *, sleep: Callable[[float], None] | None = None,
+             max_attempts: int = MAX_JEV_ATTEMPTS, _budget: AttemptBudget | None = None) -> JsonObject:
     key = api_key()
     body = validate_request(request)
     sleeper = sleep or time.sleep
@@ -194,6 +207,8 @@ def evaluate(request, *, sleep=None, max_attempts=MAX_JEV_ATTEMPTS, _budget=None
             value = json.loads(raw)
         except (ValueError, UnicodeError):
             raise JevError("SANITY.JEV_RESPONSE_INVALID", "Jev response was not JSON") from None
+        if not is_json_value(value):
+            raise JevError("SANITY.JEV_RESPONSE_INVALID", "Unexpected Jev response model or shape")
         return validate_response(value, request)
     raise JevError("SANITY.JEV_UNAVAILABLE", "Jev retry budget exhausted", True)
 
@@ -230,12 +245,17 @@ def receipt_mac(body: JsonObject, key: str) -> str:
     return hmac.new(key.encode("utf-8"), canonical({k: body[k] for k in RECEIPT_KEYS if k != "mac"}), hashlib.sha256).hexdigest()
 
 
-def receipt(request, response, key):
+def receipt(request: JsonObject, response: JsonObject, key: str) -> JsonObject:
     """What a caller copies to show this call happened: the one question's answer, bound to the request and keyed with
     the API key, so it cannot be written without the call."""
-    (name,) = request["questions"]
-    answer = response["answers"][name]
-    body = {"model": response["model"], "question": name, "choice": answer["choice"],
+    questions, answers = request.get("questions"), response.get("answers")
+    if not isinstance(questions, dict) or len(questions) != 1 or not isinstance(answers, dict):
+        raise JevError("SANITY.JEV_RESPONSE_INVALID", "Missing or unexpected answer IDs")
+    (name,) = questions
+    answer = answers.get(name)
+    if not isinstance(answer, dict) or "choice" not in answer or "probabilities" not in answer or "model" not in response:
+        raise JevError("SANITY.JEV_RESPONSE_INVALID", "Invalid Choice answer")
+    body: JsonObject = {"model": response["model"], "question": name, "choice": answer["choice"],
             "probabilities": answer["probabilities"],
             "response_id": response.get("id") if isinstance(response.get("id"), str) else None,
             "request_sha256": hashlib.sha256(canonical(request)).hexdigest()}
@@ -249,7 +269,7 @@ def verify_receipt(value: JsonValue, key: str) -> bool:
     return isinstance(mac, str) and hmac.compare_digest(mac, receipt_mac(value, key))
 
 
-def startup_request():
+def startup_request() -> JsonObject:
     # Synthetic state only: no repository source is sent during startup.
     return {"model": MODEL, "state": {"marker": "ready"}, "questions": {
         "startup": {"type": "choice", "instructions": "Which literal value is in state.marker?",
@@ -257,15 +277,18 @@ def startup_request():
     }}
 
 
-def written_request(text, evidence, context=None, part=None, external=None):
-    state = {"deliverable": text, "evidence": evidence}
+def written_request(text: str, evidence: str, context: dict[str, str] | None = None,
+                    part: tuple[str, list[str]] | None = None,
+                    external: list[JsonObject] | None = None) -> JsonObject:
+    state: JsonObject = {"deliverable": text, "evidence": evidence}
     if context:
-        state["context"] = context
+        state["context"] = {key: value for key, value in context.items()}
     if external:
-        state["external_evidence"] = external
+        state["external_evidence"] = [*external]
     instructions = "Does the committed evidence deliver the deliverable?"
     if part:
-        state["part"], state["changed_files"] = part
+        state["part"], changed_files = part
+        state["changed_files"] = [*changed_files]
         instructions = ("The evidence is one part of the committed diff of `changed_files`, split to fit the request "
                         "budget. Does this part deliver its share of the deliverable?")
     return {"model": MODEL, "state": state, "questions": {"written": {
@@ -296,7 +319,7 @@ def diff_pieces(diff: str, budget: int) -> list[str]:
         head, rest = head + "\n", "@@" + rest
     hunks = [h if i == 0 else "@@" + h for i, h in enumerate(rest.split("\n@@"))] if head else [rest]
     hunks = [h if h.endswith("\n") or i == len(hunks) - 1 else h + "\n" for i, h in enumerate(hunks)]
-    pieces = []
+    pieces: list[str] = []
     for hunk in hunks:
         if cost(head + hunk) <= budget:
             pieces.append(head + hunk)
@@ -304,7 +327,7 @@ def diff_pieces(diff: str, budget: int) -> list[str]:
         at, _, body = hunk.partition("\n")
         prefix = head + at + "\n"
         room = budget - cost(prefix)
-        lines = []
+        lines: list[str] = []
         for line in body.splitlines(keepends=True):
             step = max(1, room // 6)  # a character encodes to at most 6 JSON bytes
             lines += [line] if cost(line) <= room else [line[i:i + step] for i in range(0, len(line), step)]
@@ -319,27 +342,29 @@ def diff_pieces(diff: str, budget: int) -> list[str]:
     return pieces
 
 
-def split_request(request, target, changed_files):
+def split_request(request: JsonObject, target: int, changed_files: list[str]) -> list[JsonObject]:
     """Split evidence, context and external text into labelled requests without dropping content."""
     state = request.get("state")
     if not isinstance(state, dict) or not isinstance(state.get("deliverable"), str):
         raise oversize(request)
-    if (not isinstance(state.get("evidence", ""), str)
-            or not isinstance(state.get("context", {}), dict)
-            or not all(isinstance(key, str) and isinstance(value, str)
-                       for key, value in state.get("context", {}).items())
-            or not isinstance(state.get("external_evidence", []), list)
-            or not all(isinstance(entry, dict) and isinstance(entry.get("text", ""), str)
-                       for entry in state.get("external_evidence", []))):
+    evidence = state.get("evidence", "")
+    context = state.get("context", {})
+    external = state.get("external_evidence", [])
+    if (not isinstance(evidence, str) or not isinstance(context, dict)
+            or not all(isinstance(value, str) for value in context.values())
+            or not isinstance(external, list)
+            or not all(isinstance(entry, dict) and isinstance(entry.get("text", ""), str) for entry in external)):
         raise oversize(request)
     base = copy.deepcopy(request)
     base["state"] = {k: v for k, v in state.items() if k not in ("evidence", "context", "external_evidence", "part", "changed_files")}
-    base["state"].update(evidence="", part="999999 of 999999", changed_files=changed_files)
+    base_state = base["state"]
+    assert isinstance(base_state, dict)
+    base_state.update(evidence="", part="999999 of 999999", changed_files=[*changed_files])
     if size(base) >= target:
         raise oversize(request)
-    pieces = []
+    pieces: list[JsonObject] = []
 
-    def chunks(value, budget, is_diff=False):
+    def chunks(value: str, budget: int, is_diff: bool = False) -> list[str]:
         if budget < 8:
             raise oversize(request)
         if not value:
@@ -349,7 +374,7 @@ def split_request(request, target, changed_files):
             if proposed and all(len(json.dumps(p).encode()) - 2 <= budget for p in proposed):
                 return proposed
         # JSON escaping can expand a character; binary search each maximal cut.
-        result = []
+        result: list[str] = []
         while value:
             low, high = 1, len(value)
             while low <= high:
@@ -364,44 +389,59 @@ def split_request(request, target, changed_files):
             value = value[high:]
         return result
 
-    def add_text(field, value, key=None, entry=None):
+    def add_text(field: str, value: str, key: str | None = None, entry: JsonObject | None = None) -> None:
         sample = copy.deepcopy(base)
+        sample_state = sample["state"]
+        assert isinstance(sample_state, dict)
         if field == "context":
-            sample["state"][field] = {key: ""}
+            assert key is not None
+            sample_state[field] = {key: ""}
         elif field == "external_evidence":
             if entry is None:
                 raise ValueError("external evidence entry is required")
-            sample["state"][field] = [{**entry, "text": ""}]
+            sample_state[field] = [{**entry, "text": ""}]
         budget = target - size(sample) - 16
         for piece in chunks(value, budget, is_diff=field == "evidence"):
             part = copy.deepcopy(sample)
+            part_state = part["state"]
+            assert isinstance(part_state, dict)
             if field == "context":
-                part["state"][field][key] = piece
+                part_context = part_state[field]
+                assert isinstance(part_context, dict) and key is not None
+                part_context[key] = piece
             elif field == "external_evidence":
-                part["state"][field][0]["text"] = piece
+                part_external = part_state[field]
+                assert isinstance(part_external, list) and isinstance(part_external[0], dict)
+                part_external[0]["text"] = piece
             else:
-                part["state"][field] = piece
+                part_state[field] = piece
             if size(part) > target:
                 raise oversize(request)
             pieces.append(part)
 
-    evidence = state.get("evidence") or ""
     if evidence:
         add_text("evidence", evidence)
-    for key, value in (state.get("context") or {}).items():
+    for key, value in context.items():
+        assert isinstance(value, str)
         add_text("context", value, key=key)
-    for entry in state.get("external_evidence") or []:
-        add_text("external_evidence", entry.get("text", ""), entry=entry)
+    for entry in external:
+        assert isinstance(entry, dict)
+        entry_text = entry.get("text", "")
+        assert isinstance(entry_text, str)
+        add_text("external_evidence", entry_text, entry=entry)
     if not pieces:
         raise oversize(request)
     for index, part in enumerate(pieces, 1):
-        part["state"]["part"] = f"{index} of {len(pieces)}"
+        part_state = part["state"]
+        assert isinstance(part_state, dict)
+        part_state["part"] = f"{index} of {len(pieces)}"
     return pieces
 
 
-def evaluate_parts(requests, key, changed_files=None, *, sleep=None):
+def evaluate_parts(requests: list[JsonObject], key: str, changed_files: list[str] | None = None,
+                   *, sleep: Callable[[float], None] | None = None) -> JsonObject:
     """Initial parts have independent budgets; a 413's smaller children share their parent's remainder."""
-    queue = []
+    queue: list[tuple[JsonObject, AttemptBudget]] = []
     for request in requests:
         try:
             validate_request(request)
@@ -411,9 +451,11 @@ def evaluate_parts(requests, key, changed_files=None, *, sleep=None):
                 raise
             state = request["state"]
             files = state.get("changed_files", changed_files or []) if isinstance(state, dict) else changed_files or []
+            if not string_list(files):
+                raise oversize(request)
             initial = split_request(request, MAX_REQUEST_BYTES, files)
         queue.extend((part, AttemptBudget(MAX_JEV_ATTEMPTS)) for part in initial)
-    done = []
+    done: list[tuple[JsonObject, JsonObject]] = []
     while queue:
         request, budget = queue.pop(0)
         try:
@@ -421,20 +463,28 @@ def evaluate_parts(requests, key, changed_files=None, *, sleep=None):
         except JevError as exc:
             if exc.code != "SANITY.JEV_REQUEST_TOO_LARGE" or budget.remaining <= 0:
                 raise
-            files = request.get("state", {}).get("changed_files", changed_files or [])
+            state = request.get("state")
+            files = state.get("changed_files", changed_files or []) if isinstance(state, dict) else changed_files or []
+            if not string_list(files):
+                raise oversize(request)
             smaller = split_request(request, size(request) // 2, files)
             if len(smaller) < 2:
                 raise exc
             queue[0:0] = [(part, budget) for part in smaller]
             continue
         done.append((request, response))
-    if len(done) == 1 and "part" not in done[0][0].get("state", {}):
+    first_state = done[0][0].get("state", {}) if done else {}
+    if len(done) == 1 and isinstance(first_state, dict) and "part" not in first_state:
         request, response = done[0]
         return {**response, "receipt": receipt(request, response, key)}
-    return {"model": MODEL, "parts": [
-        {"part": f"{index} of {len(done)}", "changed_files": request["state"]["changed_files"],
-         "response": response, "receipt": receipt(request, response, key)}
-        for index, (request, response) in enumerate(done, 1)]}
+    parts: list[JsonValue] = []
+    for index, (request, response) in enumerate(done, 1):
+        state = request.get("state")
+        if not isinstance(state, dict) or "changed_files" not in state:
+            raise JevError("VALIDATION.INPUT", "Expected pinned model, state and nonempty questions")
+        parts.append({"part": f"{index} of {len(done)}", "changed_files": state["changed_files"],
+                      "response": response, "receipt": receipt(request, response, key)})
+    return {"model": MODEL, "parts": parts}
 
 
 EVIDENCE_REFS = {"pr_body": ("repo", "pr"), "pr_comment": ("repo", "comment_id")}
@@ -463,20 +513,20 @@ def evidence_ref(ref: JsonValue) -> bool:
     return True
 
 
-def external_evidence(ref, worktree):
+def external_evidence(ref: JsonObject, worktree: str) -> JsonObject:
     """Inline bead notes or a PR body/comment fetched here, labelled with where it came from."""
     kind = ref["kind"]
     if kind == "bead_notes" and evidence_ref(ref):
         label = ref["bead"]
         return {"kind": kind, "ref": label, "url": None, "updated_at": None, "author": None, "text": ref["text"]}
-    if kind not in EVIDENCE_REFS or not evidence_ref(ref):
+    if not isinstance(kind, str) or kind not in EVIDENCE_REFS or not evidence_ref(ref):
         raise JevError("VALIDATION.INPUT", "External evidence reference is invalid")
     label = f"{ref['repo']}#{ref.get('pr', ref.get('comment_id'))}"
     argv = (["gh", "api", f"repos/{ref['repo']}/pulls/{ref['pr']}"] if kind == "pr_body" else
             ["gh", "api", f"repos/{ref['repo']}/issues/comments/{ref['comment_id']}"])
     try:
         proc = subprocess.run(argv, cwd=worktree, capture_output=True, text=True, timeout=60)
-        value = json.loads(proc.stdout) if proc.returncode == 0 else None
+        value: JsonValue = json.loads(proc.stdout) if proc.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired, ValueError):
         value = None
     if isinstance(value, dict) and "body" in value and value["body"] is None:
@@ -490,35 +540,37 @@ def external_evidence(ref, worktree):
             "author": author, "text": text}
 
 
-def assignment_requests(assignment):
+def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
     """The sanity requests, built from the assignment so no agent writes them: the deliverable text verbatim, the
     committed diff of the changed files and the context entries at the pinned commit (a `path:start-end` entry only
     those lines, labelled with the entry). One request when it fits under
     MAX_REQUEST_BYTES; each `external_evidence` reference (bead notes, PR body, PR comment) fetched with its source.
     With `context` and `external_evidence` empty and the diff over the cap, `changed_files` split into groups (a file whose
     diff alone is over the cap split by hunks) whose requests each fit, one Jev call per part."""
-    try:
-        text, worktree = assignment["deliverable"]["text"], assignment["worktree_path"]
-        commit, base, changed, context = (assignment[k] for k in ("commit", "base_sha", "changed_files", "context"))
-        if not all(isinstance(v, str) and v for v in (text, worktree, commit, base)) or not all(
-                isinstance(v, list) and all(isinstance(p, str) and p for p in v) for v in (changed, context)):
-            raise TypeError
-    except (KeyError, TypeError):
+    if not isinstance(assignment, dict):
+        raise JevError("VALIDATION.INPUT", "Assignment lacks deliverable text, worktree, commits or file lists") from None
+    deliverable = assignment.get("deliverable")
+    text = deliverable.get("text") if isinstance(deliverable, dict) else None
+    worktree, commit, base = assignment.get("worktree_path"), assignment.get("commit"), assignment.get("base_sha")
+    changed, context = assignment.get("changed_files"), assignment.get("context")
+    if (not isinstance(text, str) or not text or not isinstance(worktree, str) or not worktree
+            or not isinstance(commit, str) or not commit or not isinstance(base, str) or not base
+            or not string_list(changed) or not all(changed) or not string_list(context) or not all(context)):
         raise JevError("VALIDATION.INPUT", "Assignment lacks deliverable text, worktree, commits or file lists") from None
     refs = assignment.get("external_evidence", [])
     if not isinstance(refs, list) or not all(evidence_ref(ref) for ref in refs):
         raise JevError("VALIDATION.INPUT", "Assignment external_evidence entry is not a bead_notes, pr_body or pr_comment reference")
 
-    def git(*args):
+    def git(*args: str) -> str:
         proc = subprocess.run(["git", "-C", worktree, *args], capture_output=True, text=True)
         if proc.returncode:
             raise JevError("VALIDATION.INPUT", "Committed evidence unreadable at the pinned commits")
         return proc.stdout
 
-    def diff(*paths):
+    def diff(*paths: str) -> str:
         return git("diff", "--no-color", f"{base}...{commit}", "--", *paths) if paths else ""
 
-    def excerpt(entry):
+    def excerpt(entry: str) -> str:
         """A plain path's whole file at `commit`, or only lines start..end (1-based, inclusive) of `path:start-end`."""
         lines = CONTEXT_RANGE.fullmatch(entry)
         if not lines:
@@ -529,7 +581,7 @@ def assignment_requests(assignment):
             raise JevError("VALIDATION.INPUT", f"Context entry {entry} names lines outside its file at the pinned commit")
         return "".join(kept[start - 1:end])
 
-    external = [external_evidence(ref, worktree) for ref in refs]
+    external = [external_evidence(ref, worktree) for ref in refs if isinstance(ref, dict)]
     request = written_request(text, diff(*changed), {entry: excerpt(entry) for entry in context}, external=external)
     if size(request) <= MAX_REQUEST_BYTES:
         return [request]
@@ -541,7 +593,8 @@ def assignment_requests(assignment):
         raise oversize(request, "The deliverable text alone makes the request {size} bytes, over the 96000-byte Jev "
                        "budget, so no split of `changed_files` fits. Tell the task assigner this deliverable's text "
                        "must be split into smaller numbered deliverables in the plan.")
-    groups, evidence = [], ""
+    groups: list[str] = []
+    evidence = ""
     for piece in (p for path in changed for p in diff_pieces(diff(path), budget)):
         if evidence and size(written_request(text, evidence + piece, part=label)) > MAX_REQUEST_BYTES:
             groups.append(evidence)
@@ -551,13 +604,17 @@ def assignment_requests(assignment):
     return [written_request(text, part, part=(f"{i} of {len(groups)}", changed)) for i, part in enumerate(groups, 1)]
 
 
-def parts(requests, responses, key):
+def parts(requests: list[JsonObject], responses: list[JsonObject], key: str) -> JsonObject:
     """Every part's full result, in order, with its own receipt: no part is reduced into another. Reconciling parts
     that disagree is the sanity teammate's triage, never this client's."""
-    return {"model": MODEL, "parts": [
-        {"part": request["state"]["part"], "changed_files": request["state"]["changed_files"],
-         "response": response, "receipt": receipt(request, response, key)}
-        for request, response in zip(requests, responses)]}
+    values: list[JsonValue] = []
+    for request, response in zip(requests, responses):
+        state = request.get("state")
+        if not isinstance(state, dict) or "part" not in state or "changed_files" not in state:
+            raise JevError("VALIDATION.INPUT", "Expected pinned model, state and nonempty questions")
+        values.append({"part": state["part"], "changed_files": state["changed_files"],
+                       "response": response, "receipt": receipt(request, response, key)})
+    return {"model": MODEL, "parts": values}
 
 
 def escalation_recipients() -> list[str]:
@@ -566,10 +623,11 @@ def escalation_recipients() -> list[str]:
     for argv in ([["atm", "escalation", "list", "--team", team, "--json"]] if team else []) + [["atm", "escalation", "list", "--json"]]:
         try:
             listed = subprocess.run(argv, text=True, capture_output=True, timeout=15)
-            value = json.loads(listed.stdout) if listed.returncode == 0 else {}
+            value: JsonValue = json.loads(listed.stdout) if listed.returncode == 0 else {}
         except (OSError, subprocess.TimeoutExpired, ValueError):
             value = {}
-        found = [r for r in (value.get("recipients") or []) if isinstance(r, str) and r] if isinstance(value, dict) else []
+        recipients = value.get("recipients") if isinstance(value, dict) else None
+        found = [r for r in recipients if isinstance(r, str) and r] if isinstance(recipients, list) else []
         if found:
             return found
     return []
@@ -590,10 +648,20 @@ def announce(message: str, lead: str) -> None:
             print(f"Announcement to {recipient} unavailable; coordinator must report the error via ATM.", file=sys.stderr)
 
 
-def evaluation_result(args, *, clock=time.monotonic, sleep=None):
-    elapsed_s = None
-    requests = []
-    assignment = None
+class JevArguments(argparse.Namespace):
+    startup: bool
+    request: Path | None
+    assignment: Path | None
+    error: str | None
+    announce: bool
+    phase: str | None
+
+
+def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.monotonic,
+                      sleep: Callable[[float], None] | None = None) -> JsonObject:
+    elapsed_s: float | None = None
+    requests: list[JsonObject] = []
+    assignment: JsonValue = None
     try:
         if args.startup:
             request = startup_request()
@@ -601,28 +669,41 @@ def evaluation_result(args, *, clock=time.monotonic, sleep=None):
             text = args.assignment.read_text()
             fenced = FENCED.fullmatch(text)
             assignment = json.loads(fenced.group(1) if fenced else text)
+            if not is_json_value(assignment):
+                raise JevError("VALIDATION.INPUT", "Assignment lacks deliverable text, worktree, commits or file lists")
             requests = assignment_requests(assignment)
             request = requests[0]
         else:
-            request = json.loads(args.request.read_text())
+            assert args.request is not None
+            raw_request: JsonValue = json.loads(args.request.read_text())
+            if not isinstance(raw_request, dict):
+                validate_request(raw_request)
+                raise JevError("VALIDATION.INPUT", "Expected pinned model, state and nonempty questions")
+            request = raw_request
         started = clock()
         try:
+            data: JsonObject
             if args.assignment:
-                assert isinstance(assignment, dict)
-                data = evaluate_parts(requests, api_key(), assignment["changed_files"], sleep=sleep)
+                assert isinstance(assignment, dict) and string_list(assignment.get("changed_files"))
+                changed_files = assignment["changed_files"]
+                assert string_list(changed_files)
+                data = evaluate_parts(requests, api_key(), changed_files, sleep=sleep)
             elif args.startup:
                 data = evaluate(request, sleep=sleep)
             else:
                 data = evaluate_parts([request], api_key(), sleep=sleep)
         finally:
             elapsed_s = max(0.0, clock() - started)
-        if not args.startup and len(request["questions"]) == 1 and "parts" not in data and "receipt" not in data:
+        questions = request.get("questions")
+        if not args.startup and isinstance(questions, dict) and len(questions) == 1 and "parts" not in data and "receipt" not in data:
             data = {**data, "receipt": receipt(request, data, api_key())}
         if args.startup:
-            if data["answers"]["startup"]["choice"] != "ready":
+            answers = data.get("answers")
+            startup = answers.get("startup") if isinstance(answers, dict) else None
+            if not isinstance(startup, dict) or startup.get("choice") != "ready":
                 raise JevError("SANITY.JEV_RESPONSE_INVALID", "Startup probe returned the wrong literal choice")
             data = {"model": MODEL, "status": "ready", "scope": "authenticated synthetic probe only; sanity accuracy unverified"}
-        result = {"success": True, "data": data, "error": None}
+        result: JsonObject = {"success": True, "data": data, "error": None}
     except JevError as exc:
         result = failure(exc)
     except (OSError, ValueError, UnicodeError):
@@ -631,7 +712,8 @@ def evaluation_result(args, *, clock=time.monotonic, sleep=None):
     return result
 
 
-def main(argv: list[str] | None = None, *, clock=time.monotonic, sleep=None) -> int:
+def main(argv: list[str] | None = None, *, clock: Callable[[], float] = time.monotonic,
+         sleep: Callable[[float], None] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--startup", action="store_true")
@@ -641,7 +723,7 @@ def main(argv: list[str] | None = None, *, clock=time.monotonic, sleep=None) -> 
     parser.add_argument("--announce", action="store_true",
                         help="with --startup or --error: send a failure to ATM's escalation recipients (else the phase lead)")
     parser.add_argument("--phase", help="phase whose tracked settings name the lead; required with --announce")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(argv, namespace=JevArguments())
     if args.announce and (args.request or args.assignment or not args.phase):
         parser.error("--announce requires --startup or --error and an explicit --phase")
     if args.error is not None and (not args.announce or not args.error.strip()):
@@ -666,6 +748,7 @@ def main(argv: list[str] | None = None, *, clock=time.monotonic, sleep=None) -> 
     if args.announce and not result["success"]:
         assert phase_lead is not None
         error = result["error"]
+        assert isinstance(error, dict)
         announce(f"dev-sanity Jev startup failed: {error['code']}: {error['message']}. No sc-sanity-jev checks run; dev-sanity records every JEV slot as unavailable until a startup probe passes.", phase_lead)
     print(json.dumps(result, allow_nan=False))
     return 0 if result["success"] else 2

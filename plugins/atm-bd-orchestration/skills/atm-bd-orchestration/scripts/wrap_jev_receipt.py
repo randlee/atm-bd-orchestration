@@ -97,7 +97,8 @@ def assignment_fields(assignment: JsonValue) -> tuple[AssignmentFields, int]:
     if not all(isinstance(value, str) for value in (sanity, dev_id, commit)):
         raise Refused("assignment_fields", "assignment bead IDs and commit must be strings", fix)
     assert isinstance(sanity, str) and isinstance(dev_id, str) and isinstance(commit, str)
-    if not isinstance(number, int) or isinstance(number, bool) or not isinstance(total, int) or not 1 <= number <= total:
+    if (not isinstance(number, int) or isinstance(number, bool) or not isinstance(total, int)
+            or isinstance(total, bool) or not 1 <= number <= total):
         raise Refused("assignment_fields", f"deliverable.number {number!r} is not in 1..{total!r}", fix)
     return {"sanity_bead": sanity, "dev_bead": dev_id, "deliverable": number, "commit_checked": commit}, total
 

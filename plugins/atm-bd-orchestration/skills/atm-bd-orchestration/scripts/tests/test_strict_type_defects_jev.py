@@ -1,6 +1,7 @@
 """Regression tests for concrete type defects found by the BN-2 lane."""
 
 import json
+import argparse
 import importlib.util
 import importlib.machinery
 import os
@@ -17,6 +18,14 @@ WRAPPER = SCRIPT.parent / "wrap_jev_receipt.py"
 
 
 class MalformedBeadTests(unittest.TestCase):
+    def jev_module(self):
+        path = SCRIPT.parent / "jev_client.py"
+        spec = importlib.util.spec_from_file_location("test_jev_client", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
     def merge_module(self):
         path = SCRIPT.parent / "sanity-merge"
         loader = importlib.machinery.SourceFileLoader("test_sanity_merge", str(path))
@@ -128,3 +137,87 @@ class MalformedBeadTests(unittest.TestCase):
             with self.assertRaises(module.Reject) as refusal:
                 module.load_manifest(path)
         self.assertIn("manifest must be a JSON object", str(refusal.exception))
+
+    def test_jev_response_rejects_non_object_criteria(self):
+        module = self.jev_module()
+        with self.assertRaises(module.JevError) as failure:
+            module.validate_response({"model": module.MODEL, "answers": {"q": {}}},
+                                     {"questions": {"q": {"criteria": None}}})
+        self.assertEqual(failure.exception.code, "SANITY.JEV_RESPONSE_INVALID")
+
+    def test_jev_receipt_rejects_missing_questions(self):
+        module = self.jev_module()
+        with self.assertRaises(module.JevError) as failure:
+            module.receipt({"questions": []}, {"answers": {}}, "test")
+        self.assertEqual(failure.exception.code, "SANITY.JEV_RESPONSE_INVALID")
+
+    def test_jev_escalations_ignore_non_array_recipients(self):
+        module = self.jev_module()
+        output = subprocess.CompletedProcess(["atm"], 0, stdout='{"recipients": "xy"}', stderr="")
+        with patch.object(module.subprocess, "run", return_value=output):
+            self.assertEqual(module.escalation_recipients(), [])
+
+    def test_jev_startup_handles_non_object_answers(self):
+        module = self.jev_module()
+        args = argparse.Namespace(startup=True, request=None, assignment=None)
+        with patch.object(module, "evaluate", return_value={"answers": []}):
+            result = module.evaluation_result(args, clock=lambda: 0.0)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"]["code"], "SANITY.JEV_RESPONSE_INVALID")
+
+    def test_jev_split_retry_rejects_non_object_state(self):
+        module = self.jev_module()
+        request = {"state": "not-an-object"}
+        oversized = module.JevError("SANITY.JEV_REQUEST_TOO_LARGE", "too large", True)
+        with patch.object(module, "validate_request"), patch.object(module, "evaluate", side_effect=oversized):
+            with self.assertRaises(module.JevError) as failure:
+                module.evaluate_parts([request], "test")
+        self.assertEqual(failure.exception.code, "SANITY.JEV_REQUEST_TOO_LARGE")
+
+    def test_jev_parts_rejects_non_object_state(self):
+        module = self.jev_module()
+        with self.assertRaises(module.JevError) as failure:
+            module.parts([{"state": []}], [{}], "test")
+        self.assertEqual(failure.exception.code, "VALIDATION.INPUT")
+
+    def test_jev_parts_rejects_missing_part_fields(self):
+        module = self.jev_module()
+        with self.assertRaises(module.JevError) as failure:
+            module.parts([{"state": {}}], [{}], "test")
+        self.assertEqual(failure.exception.code, "VALIDATION.INPUT")
+
+    def test_jev_external_evidence_rejects_unhashable_kind(self):
+        module = self.jev_module()
+        with self.assertRaises(module.JevError) as failure:
+            module.external_evidence({"kind": []}, ".")
+        self.assertEqual(failure.exception.code, "VALIDATION.INPUT")
+
+    def test_wrapper_rejects_boolean_deliverable_total(self):
+        spec = importlib.util.spec_from_file_location("test_wrap_jev_bool", WRAPPER)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with self.assertRaises(module.Refused):
+            module.assignment_fields({"sanity_bead": "s", "dev_bead": {"id": "d"},
+                                      "deliverable": {"number": 1}, "deliverables_total": True, "commit": "abc"})
+
+    def test_wrapper_rejects_client_without_receipt_operations(self):
+        spec = importlib.util.spec_from_file_location("test_wrap_jev_missing", WRAPPER)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            client = Path(directory) / "client.py"
+            client.write_text("value = 1\n")
+            with patch.object(module, "CLIENT", client):
+                with self.assertRaises(module.Refused):
+                    module.load_client()
+
+    def test_merge_rejects_client_without_receipt_operations(self):
+        module = self.merge_module()
+        with tempfile.TemporaryDirectory() as directory:
+            client = Path(directory) / "client.py"
+            client.write_text("value = 1\n")
+            loaded, error = module.load_client(client)
+        self.assertIsNone(loaded)
+        self.assertIn("receipt operations", error)
