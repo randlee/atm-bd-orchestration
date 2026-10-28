@@ -35,6 +35,17 @@ class MalformedBeadTests(unittest.TestCase):
         loader.exec_module(module)
         return module
 
+    def test_manifest_rejects_incorrect_field_types_at_input(self):
+        module = self.merge_module()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.json"
+            good = {"sha": "abc", "branch": "branch", "deliverables_total": 1, "lint": {}}
+            for field, value in (("sha", 1), ("branch", []), ("deliverables_total", True)):
+                with self.subTest(field=field):
+                    path.write_text(json.dumps({**good, field: value}))
+                    with self.assertRaises(module.Reject):
+                        module.load_manifest(path)
+
     def test_non_object_metadata_is_reported_without_traceback(self):
         with tempfile.TemporaryDirectory() as directory:
             bead = Path(directory) / "bead.json"
