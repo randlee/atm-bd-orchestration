@@ -878,6 +878,7 @@ def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.m
     elapsed_s: float | None = None
     requests: list[JsonObject] = []
     assignment: JsonValue = None
+    changed_files: list[str] = []
     try:
         if args.startup:
             request = startup_request()
@@ -887,6 +888,7 @@ def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.m
             assignment = json.loads(fenced.group(1) if fenced else text)
             if not is_json_value(assignment):
                 raise JevError("VALIDATION.INPUT", "Assignment lacks deliverable text, worktree, commits or file lists")
+            changed_files = parse_evidence_assignment(assignment)["changed"]
             requests = assignment_requests(assignment)
             request = requests[0]
         else:
@@ -900,9 +902,6 @@ def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.m
         try:
             data: JsonObject
             if args.assignment:
-                assert isinstance(assignment, dict) and string_list(assignment.get("changed_files"))
-                changed_files = assignment["changed_files"]
-                assert string_list(changed_files)
                 data = evaluate_parts(requests, api_key(), changed_files, sleep=sleep)
             elif args.startup:
                 data = evaluate(request, sleep=sleep)
@@ -910,8 +909,8 @@ def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.m
                 data = evaluate_parts([request], api_key(), sleep=sleep)
         finally:
             elapsed_s = max(0.0, clock() - started)
-        questions = request.get("questions")
-        if not args.startup and isinstance(questions, dict) and len(questions) == 1 and "parts" not in data and "receipt" not in data:
+        questions = parse_request(request)["questions"]
+        if not args.startup and len(questions) == 1 and "parts" not in data and "receipt" not in data:
             data = {**data, "receipt": receipt(request, data, api_key())}
         if args.startup:
             answers = data.get("answers")
