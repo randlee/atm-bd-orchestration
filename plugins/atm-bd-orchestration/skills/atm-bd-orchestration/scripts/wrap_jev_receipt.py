@@ -89,6 +89,18 @@ class ReceiptFields(TypedDict):
     choice: str
 
 
+class FinalSelection(TypedDict):
+    choice: str
+    reason: JsonValue
+    parts: JsonValue
+
+
+class ParsedReceipts(TypedDict):
+    receipts: list[ReceiptFields]
+    labels: list[str]
+    split: bool
+
+
 def assignment_fields(assignment: JsonValue) -> tuple[AssignmentFields, int]:
     fix = "Pass the assignment you received, unchanged, as --assignment."
     if not isinstance(assignment, dict):
@@ -108,14 +120,16 @@ def assignment_fields(assignment: JsonValue) -> tuple[AssignmentFields, int]:
     return {"sanity_bead": sanity, "dev_bead": dev_id, "deliverable": number, "commit_checked": commit}, total
 
 
-def client_receipts(jev: JsonValue, client: JevClient, key: str) -> list[ReceiptFields]:
+def client_receipts(jev: JsonValue, client: JevClient, key: str) -> ParsedReceipts:
     """The receipts carried by `jev` (one receipt, or a split request's part list), each verified."""
+    labels: list[str] = []
     if isinstance(jev, list):
         receipts: list[JsonObject] = []
         for i, part in enumerate(jev, 1):
             label = f"{i} of {len(jev)}"
             if not isinstance(part, dict) or part.get("part") != label:
                 raise Refused("part_order", f"Jev part {label} is missing or mislabelled", RERUN)
+            labels.append(label)
             receipt = part.get("receipt")
             if not isinstance(receipt, dict) or not client.verify_receipt(receipt, key):
                 raise Refused("receipt_mac", f"no valid Jev receipt on part {label}", RERUN)
@@ -140,39 +154,41 @@ def client_receipts(jev: JsonValue, client: JevClient, key: str) -> list[Receipt
         question, choice = receipt["question"], receipt["choice"]
         assert isinstance(question, str) and isinstance(choice, str)
         parsed.append({"question": question, "choice": choice})
-    return parsed
+    return {"receipts": parsed, "labels": labels, "split": isinstance(jev, list)}
 
 
-def result_choice(jev: JsonValue, receipts: list[ReceiptFields], final: JsonValue,
+def result_choice(parsed: ParsedReceipts, final: JsonValue,
                   for_triage: bool = False) -> str:
     """The result: the receipts' common choice, or dev-sanity's triaged `final` when they disagree; `no` (its one
     skipped finding) for a reply sent to triage."""
-    choices = {receipt["choice"] for receipt in receipts}
+    choices = {receipt["choice"] for receipt in parsed["receipts"]}
     if final is not None and (not isinstance(final, dict) or final.get("choice") not in choices):
         raise Refused("choice_in_receipts", f"final selection {final!r} names no choice any receipt holds "
                       f"({sorted(choices)})", "Write --final as {choice, reason, parts} with a choice a part answered.")
+    selection: FinalSelection | None = None
+    if isinstance(final, dict):
+        choice = final.get("choice")
+        assert isinstance(choice, str)
+        selection = {"choice": choice, "reason": final.get("reason"), "parts": final.get("parts")}
     if len(choices) == 1:
         return next(iter(choices))
-    if not isinstance(jev, list):
+    if not parsed["split"]:
         raise Refused("part_order", "the client's part list is missing", RERUN)
-    labels = [part["part"] for part in jev if isinstance(part, dict)]
-    if final is None and for_triage:
+    labels = parsed["labels"]
+    if selection is None and for_triage:
         return "no"
-    if final is None:
+    if selection is None:
         raise Refused("final_selection", f"Jev parts disagree ({sorted(choices)}) and no final selection was given",
                       "sc-sanity-jev: rerun with --for-triage and the one skipped finding. dev-sanity: triage the "
                       "parts, then rerun with --reply <reply> --final <file> holding {choice, reason, parts}.")
-    reason = final.get("reason")
+    reason = selection["reason"]
     if not isinstance(reason, str) or not reason.strip():
         raise Refused("final_reason", "the final selection has no reason",
                       "Add a nonempty `reason` citing every part's result to the --final file.")
-    if final.get("parts") != labels:
-        raise Refused("final_parts", f"final selection parts {final.get('parts')!r} are not {labels!r}",
+    if selection["parts"] != labels:
+        raise Refused("final_parts", f"final selection parts {selection['parts']!r} are not {labels!r}",
                       f"Set `parts` in the --final file to {json.dumps(labels)}.")
-    choice = final["choice"]
-    if not isinstance(choice, str):
-        raise Refused("final_selection", "final selection is not a string", RERUN)
-    return choice
+    return selection["choice"]
 
 
 def check_findings(findings: JsonValue, choice: str, total: int) -> None:
@@ -264,11 +280,11 @@ def wrap(args: WrapArguments, client: JevClient) -> JsonObject:
     if not key:
         raise Refused("receipt_key", "TYPESAFE_API_KEY is not set, so the Jev receipt cannot be verified",
                       "Run with the same TYPESAFE_API_KEY the jev_client.py call used.")
-    receipts = client_receipts(jev, client, key)
-    if args.for_triage and len({receipt["choice"] for receipt in receipts}) == 1:
+    parsed_receipts = client_receipts(jev, client, key)
+    if args.for_triage and len({receipt["choice"] for receipt in parsed_receipts["receipts"]}) == 1:
         raise Refused("for_triage", "every Jev part answers the same, so there is nothing to triage",
                       "Drop --for-triage; the common answer sets the findings.")
-    choice = result_choice(jev, receipts, final, args.for_triage)
+    choice = result_choice(parsed_receipts, final, args.for_triage)
     findings = [] if findings is None else findings
     check_findings(findings, choice, total)
     out: JsonObject = {"sanity_bead": fields["sanity_bead"], "dev_bead": fields["dev_bead"],
