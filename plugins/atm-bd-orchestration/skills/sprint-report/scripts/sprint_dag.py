@@ -1,11 +1,13 @@
 # pyright: strict
 """Plan-scoped, live-bead execution DAG for sprint-report --dag."""
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from graphlib import TopologicalSorter, CycleError
 from html import escape
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 import re
 import shutil
@@ -14,12 +16,12 @@ from string import Template
 import sys
 import xml.etree.ElementTree as ET
 
-from sprint_index_common import JsonValue, NormalizedIndex, is_json_object, run_json as _run_json, index_bead_pairs, validate_index
+from sprint_index_common import IndexSprint, JsonValue, NormalizedIndex, is_json_object, is_object_list, run_json as _run_json, index_bead_pairs, validate_index
 from sprint_qa import choose_round, qa_icon, qa_verdict, findings_summary
 from phase_beads import phase_beads
 from operation_models import (
     AtmTask, AtmTaskEvent, BeadRecord, is_atm_tasks, is_atm_task_events,
-    is_bead_records,
+    is_bead_records, is_object, matches_typeddict,
 )
 from typing import NotRequired, TypedDict
 
@@ -90,7 +92,67 @@ class QaState(TypedDict):
     findings: str | None
     verdict: str | None
     qa_beads: list[str]
-    open_findings: list[str]
+    open_findings: NotRequired[list[str]]
+
+
+def normalized_index(value: object) -> NormalizedIndex:
+    validate_index(value)
+    if not is_object(value):
+        raise RuntimeError('phase index does not match the normalized index schema')
+    root_bead_id = value.get('root_bead_id')
+    if not isinstance(root_bead_id, str):
+        raise RuntimeError('phase index does not match the normalized index schema')
+    source_rows = value.get('sprints')
+    if not is_object_list(source_rows):
+        raise RuntimeError('phase index sprints must be a list')
+    rows: list[IndexSprint] = []
+    for source_row in source_rows:
+        if not is_object(source_row):
+            raise RuntimeError('phase index sprint must be an object')
+        dev = source_row.get('dev_bead_id')
+        sanity = source_row.get('sanity_bead_id')
+        dependencies = source_row.get('depends_on_sanity_bead_ids', [])
+        sprint = source_row.get('sprint_bead_id', dev)
+        if (not isinstance(dev, str) or not isinstance(sanity, str) or not isinstance(sprint, str)
+                or not is_object_list(dependencies) or not all(isinstance(item, str) for item in dependencies)):
+            raise RuntimeError('phase index sprint does not match the normalized index schema')
+        dependency_ids: list[str] = [item for item in dependencies if isinstance(item, str)]
+        rows.append({'sprint_bead_id': sprint, 'dev_bead_id': dev, 'sanity_bead_id': sanity,
+                     'depends_on_sanity_bead_ids': dependency_ids})
+    return {'root_bead_id': root_bead_id, 'sprints': rows}
+
+
+def bead_map(value: object) -> dict[str, BeadRecord]:
+    if not is_object(value):
+        raise RuntimeError('bead map must be a mapping')
+    result: dict[str, BeadRecord] = {}
+    for key, bead in value.items():
+        if not matches_typeddict(bead, BeadRecord):
+            raise RuntimeError('bead map contains an invalid record')
+        result[key] = bead
+    return result
+
+
+def node_state_map(value: object) -> dict[str, NodeState]:
+    if not is_object(value):
+        raise ValueError('node state map must be a mapping')
+    result: dict[str, NodeState] = {}
+    for key, state in value.items():
+        if not matches_typeddict(state, NodeState):
+            raise ValueError('node state map contains an invalid record')
+        result[key] = state
+    return result
+
+
+def qa_state_map(value: object) -> dict[str, QaState]:
+    if not is_object(value):
+        raise ValueError('QA state map must be a mapping')
+    result: dict[str, QaState] = {}
+    for key, state in value.items():
+        if not matches_typeddict(state, QaState):
+            raise ValueError('QA state map contains an invalid record')
+        result[key] = state
+    return result
 
 
 def tag(name: str) -> str:
@@ -108,9 +170,10 @@ def prerequisites(bead: BeadRecord) -> list[str]:
     return targets
 
 
-def build_graph(index: NormalizedIndex, beads: Mapping[str, BeadRecord]) -> Graph:
+def build_graph(index: object, beads: object) -> Graph:
     """Render only the declared phase graph; Beads contribute live state."""
-    validate_index(index)
+    index = normalized_index(index)
+    beads = bead_map(beads)
     devs = set(index_bead_pairs(index))
     missing = devs - beads.keys()
     if missing:
@@ -174,7 +237,7 @@ def collect_state(repo: Path, graph: Graph, beads: dict[str, BeadRecord],
             'captured_at': datetime.now(timezone.utc).isoformat()}
 
 
-def states(graph: Graph, snapshot: Snapshot, index: NormalizedIndex) -> dict[str, NodeState]:
+def states(graph: Graph, snapshot: Snapshot, index: object) -> dict[str, NodeState]:
     beads, events = snapshot['beads'], snapshot['events']
     pairs = graph['gate_pairs']
     gates: dict[str, str] = {gate: dev for dev, gate in pairs.items()}
@@ -256,8 +319,9 @@ def is_qa_of(bead: BeadRecord, dev_id: str) -> bool:
         edge.get('type') == 'parent-child' and edge.get('depends_on_id') == dev_id for edge in edges)
 
 
-def qa_states(graph: Graph, beads: Mapping[str, BeadRecord], index: NormalizedIndex) -> dict[str, QaState]:
+def qa_states(graph: Graph, beads: object, index: object) -> dict[str, QaState]:
     """Share table QA semantics, counting open findings across every round."""
+    beads = bead_map(beads)
     result: dict[str, QaState] = {}
     for key in graph['nodes']:
         rounds = [bead for bead in beads.values() if is_qa_of(bead, key)]
@@ -349,8 +413,10 @@ def qa_badge(parent: ET.Element[str], x: float, y: float, qa: QaState) -> None:
     title.text = title_text
 
 
-def overlay(layout: str, icons: dict[str, NodeState], captured_at: str,
-            qa: dict[str, QaState] | None = None) -> str:
+def overlay(layout: str, icons: object, captured_at: str,
+            qa: object | None = None) -> str:
+    icons = node_state_map(icons)
+    qa = qa_state_map(qa) if qa is not None else None
     root = ET.fromstring(layout)
     graph = root.find(tag('g'))
     if graph is None:
