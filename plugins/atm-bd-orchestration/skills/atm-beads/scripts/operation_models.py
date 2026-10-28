@@ -7,10 +7,15 @@ they invoked before passing them to report and graph logic.
 from __future__ import annotations
 
 import json
-from typing import NotRequired, Required, TypeAlias, TypeGuard, TypedDict
+import sys
+from collections.abc import Mapping
+from types import UnionType
+from typing import Any, ForwardRef, Literal, NotRequired, Required, TypeAlias, TypeGuard, TypedDict, TypeVar, Union, get_args, get_origin, get_type_hints, is_typeddict
 
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 JsonObject: TypeAlias = dict[str, JsonValue]
+
+T = TypeVar("T")
 
 
 class DependencyRecord(TypedDict, total=False):
@@ -133,8 +138,70 @@ def bead_record_to_json(record: BeadRecord) -> JsonObject:
     return decoded
 
 
-def has_string_fields(value: dict[str, object], fields: tuple[str, ...]) -> bool:
-    return all(key not in value or isinstance(value[key], str) for key in fields)
+def _matches_annotation(value: object, annotation: object) -> bool:
+    if isinstance(annotation, (str, ForwardRef)):
+        annotation = eval(annotation if isinstance(annotation, str) else annotation.__forward_arg__, globals())
+    if annotation is Any or annotation is object:
+        return True
+    if annotation is type(None):
+        return value is None
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin is Literal:
+        return any(type(value) is type(item) and value == item for item in args)
+    if origin in (Union, UnionType):
+        return any(_matches_annotation(value, item) for item in args)
+    if origin is list:
+        return isinstance(value, list) and all(_matches_annotation(item, args[0]) for item in value)
+    if origin in (dict, Mapping):
+        return isinstance(value, Mapping) and all(
+            _matches_annotation(key, args[0]) and _matches_annotation(item, args[1]) for key, item in value.items()
+        )
+    if is_typeddict(annotation):
+        return _matches_typeddict(value, annotation)
+    return type(value) is annotation if annotation in (int, bool, float) else (
+        isinstance(value, annotation) if isinstance(annotation, type) else False
+    )
+
+
+def _matches_typeddict(value: object, schema: type[Any]) -> bool:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        return False
+
+    module = sys.modules.get(schema.__module__)
+    namespace = vars(module) if module is not None else None
+    frame = sys._getframe()
+    while namespace is None and frame is not None:
+        if frame.f_globals.get("__name__") == schema.__module__:
+            namespace = frame.f_globals
+        frame = frame.f_back
+    hints = get_type_hints(schema, globalns=namespace or globals(), include_extras=True)
+    required_keys = set(schema.__required_keys__)
+    optional_keys = set(schema.__optional_keys__)
+    for key, annotation in hints.items():
+        origin = get_origin(annotation)
+        if origin is Required:
+            required_keys.add(key)
+            optional_keys.discard(key)
+        elif origin is NotRequired:
+            optional_keys.add(key)
+            required_keys.discard(key)
+        if key in optional_keys and key not in value:
+            continue
+        if key in required_keys and key not in value:
+            return False
+        if key in value and not _matches_annotation(
+            value[key], get_args(annotation)[0] if origin in (Required, NotRequired) else annotation
+        ):
+            return False
+
+    return required_keys <= value.keys()
+
+
+def matches_typeddict(value: object, schema: type[T]) -> TypeGuard[T]:
+    """Check a mapping against a TypedDict's annotations, preserving extra keys."""
+    return _matches_typeddict(value, schema)
 
 
 def is_dependency_record(value: object) -> TypeGuard[DependencyRecord]:
@@ -142,50 +209,16 @@ def is_dependency_record(value: object) -> TypeGuard[DependencyRecord]:
         return False
     kind = value.get("type", value.get("dependency_type"))
     target = value.get("depends_on_id", value.get("id"))
-    return (isinstance(kind, str) and isinstance(target, str)
-            and has_string_fields(value, ("type", "dependency_type", "depends_on_id", "id")))
+    return isinstance(kind, str) and isinstance(target, str) and matches_typeddict(value, DependencyRecord)
 
 
 def is_bead_metadata(value: object) -> TypeGuard[BeadMetadata]:
-    if not is_object(value):
-        return False
-    string_fields = (
-        "branch", "checked_bead", "difficulty", "integration_branch", "phase",
-        "severity", "stack", "sprint", "verdict", "worktree", "pr_target",
-    )
-    if not has_string_fields(value, string_fields):
-        return False
-    for key in ("layer", "round"):
-        item = value.get(key)
-        if key in value and item is not None and not isinstance(item, (str, int, float, bool)):
-            return False
-    return True
+    return matches_typeddict(value, BeadMetadata)
 
 
 def is_bead_record(value: object) -> TypeGuard[BeadRecord]:
-    if not is_object(value) or not isinstance(value.get("id"), str) or not isinstance(value.get("status"), str):
-        return False
-    if not has_string_fields(value, ("status", "title", "close_reason", "parent")):
-        return False
-    labels = value.get("labels")
-    if "labels" in value:
-        if not is_object_list(labels) or any(not isinstance(label, str) for label in labels):
-            return False
-    dependencies = value.get("dependencies")
-    if "dependencies" in value:
-        if not is_object_list(dependencies) or any(not is_dependency_record(edge) for edge in dependencies):
-            return False
-    metadata = value.get("metadata")
-    if "metadata" in value and not is_bead_metadata(metadata):
-        return False
-    priority = value.get("priority")
-    if "priority" in value and (isinstance(priority, bool) or not isinstance(priority, (int, str))):
-        return False
-    blocked_by = value.get("blocked_by")
-    if "blocked_by" in value:
-        if not is_object_list(blocked_by) or any(not isinstance(item, str) for item in blocked_by):
-            return False
-    return True
+    return (matches_typeddict(value, BeadRecord)
+            and all(is_dependency_record(edge) for edge in value.get("dependencies", [])))
 
 
 def is_bead_records(value: object) -> TypeGuard[list[BeadRecord]]:
@@ -193,7 +226,7 @@ def is_bead_records(value: object) -> TypeGuard[list[BeadRecord]]:
 
 
 def is_atm_member(value: object) -> TypeGuard[AtmMember]:
-    return (is_object(value) and has_string_fields(value, ("name", "identity", "id", "agent_type", "model"))
+    return (matches_typeddict(value, AtmMember)
             and any(isinstance(value.get(key), str) for key in ("name", "identity", "id")))
 
 
@@ -202,8 +235,7 @@ def is_atm_members(value: object) -> TypeGuard[list[AtmMember]]:
 
 
 def is_atm_task(value: object) -> TypeGuard[AtmTask]:
-    return (is_object(value) and isinstance(value.get("task_id"), str)
-            and has_string_fields(value, ("assignee", "owner", "state", "status")))
+    return matches_typeddict(value, AtmTask)
 
 
 def is_atm_tasks(value: object) -> TypeGuard[list[AtmTask]]:
@@ -211,8 +243,7 @@ def is_atm_tasks(value: object) -> TypeGuard[list[AtmTask]]:
 
 
 def is_atm_task_event(value: object) -> TypeGuard[AtmTaskEvent]:
-    return (is_object(value) and isinstance(value.get("event"), str)
-            and has_string_fields(value, ("at", "to_state")))
+    return matches_typeddict(value, AtmTaskEvent)
 
 
 def is_atm_task_events(value: object) -> TypeGuard[list[AtmTaskEvent]]:
@@ -220,36 +251,15 @@ def is_atm_task_events(value: object) -> TypeGuard[list[AtmTaskEvent]]:
 
 
 def is_pull_request_ref(value: object) -> TypeGuard[PullRequestRef]:
-    return is_object(value) and isinstance(value.get("ref"), str)
+    return matches_typeddict(value, PullRequestRef)
 
 
 def is_pull_request_check(value: object) -> TypeGuard[PullRequestCheck]:
-    if not is_object(value):
-        return False
-    return all(key not in value or value[key] is None or isinstance(value[key], str)
-               for key in ("conclusion", "state", "status"))
+    return matches_typeddict(value, PullRequestCheck)
 
 
 def is_pull_request(value: object) -> TypeGuard[PullRequest]:
-    if not is_object(value) or not isinstance(value.get("state"), str) or not has_string_fields(
-        value, ("state", "headRefName", "baseRefName", "title", "mergeStateStatus", "mergeable")
-    ):
-        return False
-    if isinstance(value.get("number"), bool) or not isinstance(value.get("number"), int):
-        return False
-    if "isDraft" in value and not isinstance(value["isDraft"], bool):
-        return False
-    for key in ("merged_at", "mergedAt"):
-        if key in value and value[key] is not None and not isinstance(value[key], str):
-            return False
-    for key in ("head", "base"):
-        if key in value and not is_pull_request_ref(value[key]):
-            return False
-    if "statusCheckRollup" in value:
-        checks = value["statusCheckRollup"]
-        if not is_object_list(checks) or any(not is_pull_request_check(check) for check in checks):
-            return False
-    return True
+    return matches_typeddict(value, PullRequest)
 
 
 def is_pull_requests(value: object) -> TypeGuard[list[PullRequest]]:

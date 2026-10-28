@@ -3,7 +3,10 @@ import importlib.util
 from pathlib import Path
 import subprocess
 import sys
+from types import ModuleType
 import unittest
+from collections.abc import Mapping
+from typing import Literal, TypedDict
 from unittest import mock
 
 SKILLS = Path(__file__).resolve().parents[2]
@@ -13,6 +16,7 @@ sys.path[:0] = [str(BEADS_SCRIPTS), str(REPORT_SCRIPTS),
                 str(SKILLS / 'atm-bd-orchestration/scripts')]
 import bead_formulas
 import operation_models as models
+JsonValue = models.JsonValue
 
 loader = importlib.machinery.SourceFileLoader('sprint_report_models', str(REPORT_SCRIPTS / 'sprint-report'))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -22,34 +26,56 @@ loader.exec_module(report)
 
 
 class OperationModelTests(unittest.TestCase):
-    def test_bead_metadata_guard_checks_every_declared_field(self):
-        string_fields = (
-            'branch', 'checked_bead', 'difficulty', 'integration_branch', 'phase',
-            'severity', 'stack', 'sprint', 'verdict', 'worktree', 'pr_target',
-        )
-        metadata: dict[str, str | int] = {field: f'{field}-value' for field in string_fields}
-        metadata.update({'layer': 1, 'round': 2})
-        self.assertTrue(models.is_bead_metadata(metadata))
-        self.assertTrue(models.is_bead_records([{
-            'id': 'atm-x-1', 'status': 'open', 'metadata': metadata,
-        }]))
+    def test_typed_dict_annotation_kinds_accept_valid_and_reject_wrong_types(self):
+        class Nested(TypedDict):
+            count: int
 
-        for field in string_fields:
-            with self.subTest(field=field):
-                malformed = {**metadata, field: 7}
-                self.assertFalse(models.is_bead_metadata(malformed))
-                self.assertFalse(models.is_bead_records([{
-                    'id': 'atm-x-1', 'status': 'open', 'metadata': malformed,
-                }]))
+        cases = [
+            ('str', str, 'text', 3),
+            ('int excludes bool', int, 3, True),
+            ('bool excludes int', bool, True, 1),
+            ('float excludes int', float, 2.5, 2),
+            ('Literal', Literal['ready', 1], 'ready', True),
+            ('union and Optional', int | None, None, 'none'),
+            ('list[X]', list[str], ['a', 'b'], ['a', 2]),
+            ('nested TypedDict', Nested, {'count': 2}, {'count': True}),
+            ('Mapping[str, X]', Mapping[str, int], {'a': 2}, {1: 2}),
+            ('recursive JsonValue alias', models.JsonValue,
+             {'items': [None, True, 3, 2.5, 'text', {'nested': ['end']}]}, {'items': [object()]}),
+        ]
+        for label, annotation, valid, invalid in cases:
+            with self.subTest(annotation=label):
+                schema = TypedDict('Probe', {'value': annotation})
+                self.assertTrue(models.matches_typeddict({'value': valid}, schema))
+                self.assertFalse(models.matches_typeddict({'value': invalid}, schema))
 
-        for field in ('layer', 'round'):
-            for malformed_value in ([], {}):
-                with self.subTest(field=field, value=malformed_value):
-                    self.assertFalse(models.is_bead_metadata({**metadata, field: malformed_value}))
-        for field in ('layer', 'round'):
-            for valid_value in (None, '2', 2, 2.5, True):
-                with self.subTest(field=field, value=valid_value):
-                    self.assertTrue(models.is_bead_metadata({**metadata, field: valid_value}))
+    def test_existing_typed_dict_models_accept_valid_fixtures(self):
+        cases = [
+            (models.is_dependency_record, {'type': 'blocks', 'depends_on_id': 'atm-x-1'}),
+            (models.is_bead_metadata, {'branch': 'sprint/x-1', 'round': 2}),
+            (models.is_bead_record, {'id': 'atm-x-1', 'status': 'open'}),
+            (models.is_atm_member, {'identity': 'dev'}),
+            (models.is_atm_task, {'task_id': 'task-1'}),
+            (models.is_atm_task_event, {'event': 'completed'}),
+            (models.is_pull_request_ref, {'ref': 'main'}),
+            (models.is_pull_request_check, {'state': 'SUCCESS'}),
+            (models.is_pull_request, {'number': 1, 'state': 'OPEN'}),
+        ]
+        for guard, fixture in cases:
+            with self.subTest(model=guard.__name__):
+                self.assertTrue(guard(fixture))
+
+    def test_typed_dict_guards_preserve_unknown_keys_and_optional_fields(self):
+        self.assertTrue(models.is_bead_metadata({'branch': 'main', 'future_field': {'x': 1}}))
+        self.assertTrue(models.is_bead_record({'id': 'atm-x-1', 'status': 'open', 'future_field': True}))
+
+    def test_matches_typeddict_resolves_unregistered_schema_module_globals(self):
+        namespace = ModuleType('dynamic_schema').__dict__
+        namespace.update(TypedDict=TypedDict, JsonValue=models.JsonValue, matches=models.matches_typeddict)
+        exec('class DynamicRecord(TypedDict):\n    payload: JsonValue\n'
+             'def check(value): return matches(value, DynamicRecord)', namespace)
+        self.assertNotIn(namespace['DynamicRecord'].__module__, sys.modules)
+        self.assertTrue(namespace['check']({'payload': {'nested': [1, True, None]}}))
 
     def test_bd_records_validate_operation_fields_and_dependencies(self):
         rows = [{
