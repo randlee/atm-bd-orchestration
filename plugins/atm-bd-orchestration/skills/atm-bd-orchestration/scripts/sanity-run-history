@@ -27,6 +27,13 @@ def fail(message: str) -> NoReturn:
     raise SystemExit(f"sanity-run-history: {message}")
 
 
+class SlotError(TypedDict):
+    code: str
+    message: str
+    recoverable: bool
+    deliverable: int | None
+
+
 class CompletionVars(TypedDict):
     sprint: str
     run_id: str
@@ -41,7 +48,7 @@ class CompletionVars(TypedDict):
     phase: str
     jev_elapsed_s: int | float | None
     kind: str
-    errors: list[JsonObject]
+    errors: list[SlotError]
     jev_receipts: list[JsonValue]
 
 
@@ -133,7 +140,7 @@ def valid_slot_error(error: JsonValue) -> bool:
                  and not isinstance(error["deliverable"], bool) and error["deliverable"] >= 1)))
 
 
-def slot_errors(value: JsonObject) -> list[JsonObject]:
+def slot_errors(value: JsonObject) -> list[SlotError]:
     """Each failed slot's error, copied verbatim from its failure envelope; vars without reviewer_results have none.
     A malformed envelope (one whose error is not a well-typed code/message/recoverable) is not a slot error: its
     reviewer merge is CANNOT_RUN, whose `error` the row carries, so it never keeps the row from being logged."""
@@ -147,7 +154,14 @@ def slot_errors(value: JsonObject) -> list[JsonObject]:
         error = result.get("error")
         if isinstance(error, dict):
             errors.append({key: error.get(key) for key in SLOT_ERROR_KEYS})
-    return [error for error in errors if valid_slot_error(error)]
+    parsed: list[SlotError] = []
+    for error in errors:
+        if valid_slot_error(error):
+            code, message, recoverable, deliverable = error["code"], error["message"], error["recoverable"], error["deliverable"]
+            assert isinstance(code, str) and isinstance(message, str) and isinstance(recoverable, bool)
+            assert deliverable is None or isinstance(deliverable, int)
+            parsed.append({"code": code, "message": message, "recoverable": recoverable, "deliverable": deliverable})
+    return parsed
 
 
 def jev_receipts(value: JsonObject) -> list[JsonValue]:
@@ -258,7 +272,8 @@ def main() -> None:
         "jev_elapsed_s": vars["jev_elapsed_s"],
         "llm_elapsed_s": elapsed if vars["reviewer"] == "sanity-llm" else None,
         "kind": vars["kind"],
-        "errors": [*vars["errors"]],
+        "errors": [{"code": error["code"], "message": error["message"], "recoverable": error["recoverable"],
+                    "deliverable": error["deliverable"]} for error in vars["errors"]],
         "jev_receipts": vars["jev_receipts"],
         "task": args.task, "sprint": vars["sprint"], "phase": phase,
         "pr_number": args.pr_number, "findings": vars["findings_count"],
