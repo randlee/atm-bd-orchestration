@@ -229,18 +229,24 @@ def failure_envelope(result: JsonObject, index: int, total: int) -> FailureEnvel
     return error
 
 
-class MergeDependency(TypedDict):
+class DependencyFields(TypedDict):
     deliverable: int
     file: str
     line: int
+
+
+class MergeDependency(DependencyFields):
     raw: JsonObject
 
 
-class MergeFinding(TypedDict):
+class FindingFields(TypedDict):
     kind: str
     file: str
     line: int
     issue: str
+
+
+class MergeFinding(FindingFields):
     depends_on: list[MergeDependency]
 
 
@@ -278,35 +284,24 @@ def validate(result: JsonObject, index: int, manifest: Manifest, sanity_bead: st
     for finding in findings:
         if not isinstance(finding, dict):
             raise Reject(f"{where}: finding must be {{kind: skipped, file, line >= 1, issue}}: {finding!r}")
-        line = finding.get("line")
-        if (finding.get("kind") != CHECKER_KIND
-                or not isinstance(finding.get("file"), str) or not finding["file"]
-                or not isinstance(line, int) or isinstance(line, bool)
-                or line < 1 or not isinstance(finding.get("issue"), str) or not finding["issue"]):
+        raw_finding = finding
+        if (not matches_typeddict(finding, FindingFields) or finding["kind"] != CHECKER_KIND
+                or not finding["file"] or finding["line"] < 1 or not finding["issue"]):
             raise Reject(f"{where}: finding must be {{kind: skipped, file, line >= 1, issue}}: {finding!r}")
-        dependencies = finding.get("depends_on", [])
+        dependencies = raw_finding.get("depends_on", [])
         if not isinstance(dependencies, list):
             raise Reject(f"{where}: depends_on must be a list")
         parsed_dependencies: list[MergeDependency] = []
         for dependency in dependencies:
             if not isinstance(dependency, dict):
                 raise Reject(f"{where}: depends_on entries must be {{deliverable: 1..{total}, file, line >= 1}}: {dependency!r}")
-            dependency_number, dependency_line = dependency.get("deliverable"), dependency.get("line")
-            if (not isinstance(dependency_number, int)
-                    or isinstance(dependency_number, bool)
-                    or not 1 <= dependency_number <= total
-                    or not isinstance(dependency.get("file"), str) or not dependency["file"]
-                    or not isinstance(dependency_line, int)
-                    or isinstance(dependency_line, bool) or dependency_line < 1):
+            raw_dependency = dependency
+            if (not matches_typeddict(dependency, DependencyFields) or not 1 <= dependency["deliverable"] <= total
+                    or not dependency["file"] or dependency["line"] < 1):
                 raise Reject(f"{where}: depends_on entries must be {{deliverable: 1..{total}, file, line >= 1}}: {dependency!r}")
-            path = dependency["file"]
-            assert isinstance(path, str)
-            parsed_dependencies.append({"deliverable": dependency_number, "file": path,
-                                        "line": dependency_line, "raw": dependency})
-        path, issue = finding["file"], finding["issue"]
-        assert isinstance(path, str) and isinstance(issue, str)
-        validated_findings.append({"kind": CHECKER_KIND, "file": path, "line": line,
-                                   "issue": issue, "depends_on": parsed_dependencies})
+            parsed_dependencies.append({**dependency, "raw": raw_dependency})
+        validated_findings.append({"kind": finding["kind"], "file": finding["file"], "line": finding["line"],
+                                   "issue": finding["issue"], "depends_on": parsed_dependencies})
     return number, validated_findings
 
 

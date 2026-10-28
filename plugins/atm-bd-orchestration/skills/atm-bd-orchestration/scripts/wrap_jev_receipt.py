@@ -206,10 +206,14 @@ class FindingDependency(TypedDict):
     line: int
 
 
-class Finding(TypedDict):
+class FindingFields(TypedDict):
+    kind: str
     file: str
     line: int
     issue: str
+
+
+class Finding(FindingFields):
     dependencies: list[FindingDependency]
     raw: JsonObject
 
@@ -226,31 +230,23 @@ def check_findings(findings: JsonValue, choice: str, total: int) -> list[Finding
     for finding in findings:
         if not isinstance(finding, dict):
             raise Refused("findings_shape", f"finding must be {{kind: skipped, file, line >= 1, issue}}: {finding!r}", fix)
-        line = finding.get("line")
-        if (finding.get("kind") != CHECKER_KIND
-                or not isinstance(finding.get("file"), str) or not finding["file"]
-                or not isinstance(line, int) or isinstance(line, bool)
-                or line < 1 or not isinstance(finding.get("issue"), str) or not finding["issue"]):
+        raw_finding = finding
+        if (not matches_typeddict(finding, FindingFields) or finding["kind"] != CHECKER_KIND
+                or not finding["file"] or finding["line"] < 1 or not finding["issue"]):
             raise Refused("findings_shape", f"finding must be {{kind: skipped, file, line >= 1, issue}}: {finding!r}", fix)
-        dependencies = finding.get("depends_on", [])
+        dependencies = raw_finding.get("depends_on", [])
         def parse_dependency(d: JsonValue) -> FindingDependency | None:
-            if not isinstance(d, dict):
+            if (not matches_typeddict(d, FindingDependency) or not 1 <= d["deliverable"] <= total
+                    or not d["file"] or d["line"] < 1):
                 return None
-            number, dependency_line, path = d.get("deliverable"), d.get("line"), d.get("file")
-            if not (isinstance(number, int) and not isinstance(number, bool) and 1 <= number <= total
-                    and isinstance(path, str) and bool(path)
-                    and isinstance(dependency_line, int) and not isinstance(dependency_line, bool) and dependency_line >= 1):
-                return None
-            return {"deliverable": number, "file": path, "line": dependency_line}
+            return d
 
         parsed_dependencies = [parse_dependency(d) for d in dependencies] if isinstance(dependencies, list) else []
         if not isinstance(dependencies, list) or any(d is None for d in parsed_dependencies):
             raise Refused("findings_shape", f"depends_on must list {{deliverable: 1..{total}, file, line >= 1}}: "
                           f"{dependencies!r}", fix)
-        path, issue = finding["file"], finding["issue"]
-        assert isinstance(path, str) and isinstance(issue, str) and isinstance(line, int)
-        parsed_findings.append({"file": path, "line": line, "issue": issue,
-                                "dependencies": [d for d in parsed_dependencies if d is not None], "raw": finding})
+        parsed_findings.append({**finding, "dependencies": [d for d in parsed_dependencies if d is not None],
+                                "raw": raw_finding})
     return parsed_findings
 
 
