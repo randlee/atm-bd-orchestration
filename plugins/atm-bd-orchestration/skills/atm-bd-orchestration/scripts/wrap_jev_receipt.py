@@ -84,6 +84,11 @@ class AssignmentFields(TypedDict):
     commit_checked: str
 
 
+class ReceiptFields(TypedDict):
+    question: str
+    choice: str
+
+
 def assignment_fields(assignment: JsonValue) -> tuple[AssignmentFields, int]:
     fix = "Pass the assignment you received, unchanged, as --assignment."
     if not isinstance(assignment, dict):
@@ -103,7 +108,7 @@ def assignment_fields(assignment: JsonValue) -> tuple[AssignmentFields, int]:
     return {"sanity_bead": sanity, "dev_bead": dev_id, "deliverable": number, "commit_checked": commit}, total
 
 
-def client_receipts(jev: JsonValue, client: JevClient, key: str) -> list[JsonObject]:
+def client_receipts(jev: JsonValue, client: JevClient, key: str) -> list[ReceiptFields]:
     """The receipts carried by `jev` (one receipt, or a split request's part list), each verified."""
     if isinstance(jev, list):
         receipts: list[JsonObject] = []
@@ -127,18 +132,22 @@ def client_receipts(jev: JsonValue, client: JevClient, key: str) -> list[JsonObj
         if not isinstance(jev, dict) or not client.verify_receipt(jev, key):
             raise Refused("receipt_mac", "no valid Jev receipt: it was not written by a jev_client.py call", RERUN)
         receipts = [jev]
+    parsed: list[ReceiptFields] = []
     for receipt in receipts:
         if receipt["question"] != "written" or receipt["choice"] not in ("yes", "no"):
             raise Refused("receipt_question", f"Jev receipt answers {receipt['question']!r} with "
                           f"{receipt['choice']!r}, not written: yes or no", RERUN)
-    return receipts
+        question, choice = receipt["question"], receipt["choice"]
+        assert isinstance(question, str) and isinstance(choice, str)
+        parsed.append({"question": question, "choice": choice})
+    return parsed
 
 
-def result_choice(jev: JsonValue, receipts: list[JsonObject], final: JsonValue,
+def result_choice(jev: JsonValue, receipts: list[ReceiptFields], final: JsonValue,
                   for_triage: bool = False) -> str:
     """The result: the receipts' common choice, or dev-sanity's triaged `final` when they disagree; `no` (its one
     skipped finding) for a reply sent to triage."""
-    choices = {choice for receipt in receipts if isinstance((choice := receipt["choice"]), str)}
+    choices = {receipt["choice"] for receipt in receipts}
     if final is not None and (not isinstance(final, dict) or final.get("choice") not in choices):
         raise Refused("choice_in_receipts", f"final selection {final!r} names no choice any receipt holds "
                       f"({sorted(choices)})", "Write --final as {choice, reason, parts} with a choice a part answered.")
@@ -256,7 +265,7 @@ def wrap(args: WrapArguments, client: JevClient) -> JsonObject:
         raise Refused("receipt_key", "TYPESAFE_API_KEY is not set, so the Jev receipt cannot be verified",
                       "Run with the same TYPESAFE_API_KEY the jev_client.py call used.")
     receipts = client_receipts(jev, client, key)
-    if args.for_triage and len({choice for receipt in receipts if isinstance((choice := receipt["choice"]), str)}) == 1:
+    if args.for_triage and len({receipt["choice"] for receipt in receipts}) == 1:
         raise Refused("for_triage", "every Jev part answers the same, so there is nothing to triage",
                       "Drop --for-triage; the common answer sets the findings.")
     choice = result_choice(jev, receipts, final, args.for_triage)

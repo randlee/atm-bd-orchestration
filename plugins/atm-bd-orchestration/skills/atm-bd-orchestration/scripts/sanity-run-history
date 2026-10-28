@@ -36,7 +36,13 @@ class CompletionVars(TypedDict):
     completed_at: str
     verdict: str
     findings_count: int | None
-    raw: JsonObject
+    error: JsonValue
+    dev: str | None
+    phase: str
+    jev_elapsed_s: int | float | None
+    kind: str
+    errors: list[JsonObject]
+    jev_receipts: list[JsonValue]
 
 
 def read_vars(path: Path) -> CompletionVars:
@@ -71,9 +77,14 @@ def read_vars(path: Path) -> CompletionVars:
     assert isinstance(commit, str) and isinstance(started_at, str) and isinstance(completed_at, str)
     assert isinstance(verdict, str)
     assert count is None or (isinstance(count, int) and not isinstance(count, bool))
+    checked = value.get("checked_bead_data")
+    if not isinstance(checked, dict):
+        checked = {}
     return CompletionVars(sprint=sprint, run_id=run_id, reviewer=reviewer, commit=commit,
                           started_at=started_at, completed_at=completed_at, verdict=verdict,
-                          findings_count=count, raw=value)
+                          findings_count=count, error=value.get("error"), dev=checked_dev(checked),
+                          phase=phase_from_bead(checked, sprint), jev_elapsed_s=reviewer_elapsed(value),
+                          kind=result_kind(value), errors=slot_errors(value), jev_receipts=jev_receipts(value))
 
 
 SLOT_ERROR_KEYS = ("code", "message", "recoverable", "deliverable")
@@ -223,21 +234,17 @@ def main() -> None:
     vars = read_vars(args.vars)
     completed = utc_timestamp(vars["completed_at"])
     elapsed = max(0, round(completed.timestamp() - utc_timestamp(vars["started_at"]).timestamp()))
-    checked = vars["raw"].get("checked_bead_data")
-    if not isinstance(checked, dict):
-        checked = {}
-    sprint = vars["sprint"]
-    phase = phase_from_bead(checked, sprint)
+    phase = vars["phase"]
     record: JsonObject = {
         "run_id": vars["run_id"], "reviewer": vars["reviewer"], "commit": vars["commit"],
         "started_at": vars["started_at"], "duration_seconds": elapsed,
-        "error": vars["raw"].get("error"),
-        "dev": checked_dev(checked),
-        "jev_elapsed_s": reviewer_elapsed(vars["raw"]),
+        "error": vars["error"],
+        "dev": vars["dev"],
+        "jev_elapsed_s": vars["jev_elapsed_s"],
         "llm_elapsed_s": elapsed if vars["reviewer"] == "sanity-llm" else None,
-        "kind": result_kind(vars["raw"]),
-        "errors": [*slot_errors(vars["raw"])],
-        "jev_receipts": jev_receipts(vars["raw"]),
+        "kind": vars["kind"],
+        "errors": [*vars["errors"]],
+        "jev_receipts": vars["jev_receipts"],
         "task": args.task, "sprint": vars["sprint"], "phase": phase,
         "pr_number": args.pr_number, "findings": vars["findings_count"],
         "verdict": vars["verdict"], "final_verdict": args.final_verdict,
