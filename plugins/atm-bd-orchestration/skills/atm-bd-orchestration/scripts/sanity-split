@@ -312,6 +312,18 @@ PULLS = ("gh", "api", "repos/{owner}/{repo}/pulls?state=all&per_page=100", "--pa
          "--jq", ".[] | {number: .number, base: .base.sha, head: .head.sha}")
 
 
+class PullRequestRange(TypedDict):
+    number: str
+    base: str
+    head: str
+
+
+def parse_pull_request_range(value: JsonValue) -> PullRequestRange:
+    if not is_json_object(value):
+        raise TypeError("pull request row must be a JSON object")
+    return {"number": str(value["number"]), "base": str(value["base"]), "head": str(value["head"])}
+
+
 def layer_ranges(worktree: str, prs: list[str]) -> list[tuple[str, str]]:
     """Each stack layer's own range, (base.sha, head.sha), from one paginated pulls listing joined locally."""
     try:
@@ -325,10 +337,8 @@ def layer_ranges(worktree: str, prs: list[str]) -> list[tuple[str, str]]:
     try:
         for line in run.stdout.splitlines():
             if line.strip():
-                row = json.loads(line)
-                if not is_json_object(row):
-                    raise TypeError("pull request row must be a JSON object")
-                listed[str(row["number"])] = (str(row["base"]), str(row["head"]))
+                row = parse_pull_request_range(json.loads(line))
+                listed[row["number"]] = (row["base"], row["head"])
     except (ValueError, KeyError, TypeError):
         raise Fail(3, f"gh api pulls returned a row without number/base.sha/head.sha: {line[:200]}")
     missing = [pr for pr in prs if pr not in listed]
