@@ -217,7 +217,7 @@ CLIENT_MESSAGES = re.compile("|".join([
 RECEIPT_KEYS = ("model", "question", "choice", "probabilities", "response_id", "request_sha256", "mac")
 
 
-def is_client_message(message):
+def is_client_message(message: str | None) -> bool:
     return isinstance(message, str) and CLIENT_MESSAGES.fullmatch(message) is not None
 
 
@@ -281,10 +281,10 @@ def oversize(request, fix=None):
     return exc
 
 
-def diff_pieces(diff, budget):
+def diff_pieces(diff: str, budget: int) -> list[str]:
     """`diff` (one file's) as pieces each under `budget` encoded bytes: the file header with one hunk, a hunk too large
     for that cut by lines under its header and @@ line, and a line too large for that cut by characters."""
-    def cost(text):
+    def cost(text: str) -> int:
         return len(json.dumps(text).encode("utf-8")) - 2
     head, _, rest = diff.partition("\n@@")
     if not rest:

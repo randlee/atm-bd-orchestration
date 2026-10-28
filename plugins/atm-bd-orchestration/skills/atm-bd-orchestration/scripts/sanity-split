@@ -79,12 +79,12 @@ CODES = {2: "SANITY.PLAN_INVALID", 3: "SANITY.TARGET_UNREADABLE", 4: "SANITY.COM
 
 
 class Fail(Exception):
-    def __init__(self, code, message):
+    def __init__(self, code: int, message: str) -> None:
         super().__init__(message)
         self.code = code
 
 
-def die(code, message):
+def die(code: int, message: str) -> int:
     print(f"{CODES.get(code, 'USAGE')}: {message}", file=sys.stderr)
     return code
 
@@ -197,7 +197,7 @@ def parse_deliverables(description):
     return [{"number": n, "text": t} for n, t in items]
 
 
-def git(worktree, *argv, code=3, what=None):
+def git(worktree: str, *argv: str, code: int = 3, what: str | None = None) -> str:
     try:
         run = subprocess.run(["git", "-C", worktree, *argv], capture_output=True, text=True)
     except OSError as exc:
@@ -266,7 +266,7 @@ def layer_files(worktree, prs, sha):
     return sorted(set().union(*(changed_files(worktree, base, head) for base, head in ranges)))
 
 
-def changed_files(worktree, base_sha, sha):
+def changed_files(worktree: str, base_sha: str, sha: str) -> list[str]:
     out = git(worktree, "diff", "--name-status", "-z", "--find-renames", f"{base_sha}...{sha}")
     fields = out.split("\0")
     files, i = [], 0
@@ -281,7 +281,7 @@ def changed_files(worktree, base_sha, sha):
     return sorted(set(files))
 
 
-def glob_regex(pattern):
+def glob_regex(pattern: str) -> re.Pattern[str]:
     out, i = "", 0
     while i < len(pattern):
         c = pattern[i]
@@ -298,7 +298,7 @@ def glob_regex(pattern):
     return re.compile(f"^{out}$")
 
 
-def outside_fence(files, owned_paths):
+def outside_fence(files: list[str], owned_paths: list[str]) -> list[str]:
     if not owned_paths:
         return []
     fences = [glob_regex(p) for p in owned_paths]
