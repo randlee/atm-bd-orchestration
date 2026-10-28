@@ -61,6 +61,30 @@ class MalformedBeadTests(unittest.TestCase):
         self.assertIn("metadata must be an object", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
+    def test_wrong_bead_field_types_are_reported_without_traceback(self):
+        invalid = (
+            ({"title": 7}, "title, description, and notes must be strings"),
+            ({"description": ["bad"]}, "title, description, and notes must be strings"),
+            ({"notes": ["bad"]}, "title, description, and notes must be strings"),
+            ({"metadata": {"sprint_bead": 7}}, "metadata.sprint_bead must be a string"),
+            ({"metadata": {"owned_paths": [7]}}, "metadata.owned_paths must be a list of strings"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            bead = Path(directory) / "bead.json"
+            for fields, message in invalid:
+                with self.subTest(fields=fields):
+                    bead.write_text(json.dumps({"id": "x-1", "description": "## Deliverables\n1. Example", **fields}))
+                    result = subprocess.run(
+                        [sys.executable, str(SCRIPT), "--task", "x-1-sanity", "--bead", "x-1",
+                         "--worktree", directory, "--branch", "fixture", "--commit", "abc",
+                         "--base", "base", "--lint-command", "true", "--scratch", directory,
+                         "--bead-json", str(bead), "--split-only"],
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(result.returncode, 3)
+                    self.assertIn(message, result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+
     def test_receipt_assignment_rejects_non_string_commit(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
