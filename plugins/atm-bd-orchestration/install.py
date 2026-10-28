@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: strict
 """atm-bd-orchestration install hook and standalone installer.
 
 Two ways in:
@@ -70,7 +71,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Literal, Mapping, NotRequired, Optional, Tuple, TypeAlias, TypedDict
+from importlib import import_module
+from pydantic import TypeAdapter, ValidationError
+from typing_extensions import TypeAliasType
 
 PKG_DIR = Path(__file__).resolve().parent
 PACKAGE = "atm-bd-orchestration"
@@ -129,6 +133,128 @@ TOOL_INSTALLS = {
     "jq": "brew install jq",
 }
 HANDLED_ELSEWHERE_REQUIREMENTS = frozenset({"python3", "pyyaml", "pydantic", "sc-compose"})
+
+JsonValue = TypeAliasType("JsonValue", None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"])
+JsonObject: TypeAlias = dict[str, JsonValue]
+ConfigValue: TypeAlias = str | int | bool | list[str]
+Config: TypeAlias = dict[str, ConfigValue]
+ConfigInputValue: TypeAlias = JsonValue | list[str]
+
+
+def json_object(value: object, context: str) -> JsonObject:
+    try:
+        return TypeAdapter(JsonObject).validate_python(value, strict=True)
+    except ValidationError as error:
+        raise InstallError(f"{context}: expected a JSON-compatible string-keyed object: {error}") from error
+
+
+class HookResult(TypedDict):
+    result: Literal["success", "fail"]
+    message: NotRequired[str]
+
+
+class InstallOptions(TypedDict):
+    global_: NotRequired[bool]
+    local: NotRequired[bool]
+    user: NotRequired[bool]
+    project: NotRequired[bool]
+    codex: NotRequired[bool]
+    force: NotRequired[bool]
+    overwrite: NotRequired[bool]
+    expand: NotRequired[bool]
+    args: NotRequired[JsonObject]
+
+
+class Registry(TypedDict):
+    render: list[str]
+
+
+class Manifest(TypedDict):
+    version: str
+    artifacts: dict[str, list[str]]
+    requires: list[str]
+
+
+class ConfigTemplate(TypedDict, total=False):
+    required_variables: list[str]
+    defaults: dict[str, ConfigValue]
+
+
+class ConsumerRegistry(TypedDict, total=False):
+    bead_prefix: JsonValue
+    dev_sanity_member: JsonValue
+    qa_member: JsonValue
+    team_lead_member: JsonValue
+    worktree_base: JsonValue
+    test_command: JsonValue
+    lint_command: JsonValue
+    integration_branch_pattern: JsonValue
+    plans_dir: JsonValue
+    requirements_globs: JsonValue
+    adr_globs: JsonValue
+    policy_path: JsonValue
+    reviewers_round1: JsonValue
+    max_sanity_rounds: JsonValue
+    gate_timeout_s: JsonValue
+    roles: dict[str, JsonValue]
+
+
+class LegacyOwnership(TypedDict):
+    files: dict[str, list[str]]
+
+
+class BeadsMetadata(TypedDict, total=False):
+    dolt_mode: str
+
+
+class InstallLock(TypedDict):
+    package: str
+    files: dict[str, str]
+
+
+class Member(TypedDict, total=False):
+    name: str
+    agent_type: str
+    alias: str
+
+
+class MembersResponse(TypedDict):
+    members: list[Member]
+
+
+class Team(TypedDict):
+    name: str
+
+
+class TeamsResponse(TypedDict):
+    teams: list[Team]
+
+
+class AtmTable(TypedDict, total=False):
+    default_team: str
+
+
+class Pane(TypedDict, total=False):
+    name: str
+    alias: str
+
+
+class Window(TypedDict, total=False):
+    panes: list[Pane]
+
+
+class RmuxTable(TypedDict, total=False):
+    windows: list[Window]
+
+
+class StartupEntry(TypedDict, total=False):
+    all: list[str]
+
+
+class AtmToml(TypedDict, total=False):
+    atm: AtmTable
+    rmux: RmuxTable
+    startup: dict[str, StartupEntry]
 PYTHON_INSTALL = "install Python 3.11 or newer with your system package manager"
 
 
@@ -136,40 +262,62 @@ class InstallError(RuntimeError):
     """An install refusal; the message names what to fix."""
 
 
+@dataclass(frozen=True)
+class YamlAPI:
+    safe_load: Callable[[str], object]
+    error_type: type[Exception]
+
+
 # ---------------------------------------------------------------------------
 # Package files
 # ---------------------------------------------------------------------------
 
 
-def _yaml():
+def _yaml() -> YamlAPI:
     try:
-        import yaml  # type: ignore
+        module = import_module("yaml")
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise InstallError("PyYAML is required to read registry.yaml (pip install pyyaml)") from exc
-    return yaml
-
-
-def _load_yaml(path: Path) -> Dict[str, Any]:
     try:
-        data = _yaml().safe_load(path.read_text(encoding="utf-8")) or {}
-    except _yaml().YAMLError as exc:
+        safe_load = TypeAdapter(Callable[[str], object]).validate_python(getattr(module, "safe_load"), strict=True)
+        error_type = TypeAdapter(type[Exception]).validate_python(getattr(module, "YAMLError"), strict=True)
+    except ValidationError as error:
+        raise InstallError("PyYAML is installed but its safe_load/YAMLError interface is invalid") from error
+    return YamlAPI(safe_load=safe_load, error_type=error_type)
+
+
+def _load_yaml(path: Path) -> JsonObject:
+    yaml_api = _yaml()
+    try:
+        loaded: object = yaml_api.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml_api.error_type as exc:
         raise InstallError(f"{path}: not valid YAML: {exc}") from exc
-    if not isinstance(data, dict):
-        raise InstallError(f"{path}: expected a mapping at the top level")
-    return data
+    return json_object(loaded, str(path))
 
 
-def load_registry(pkg_dir: Path = PKG_DIR) -> Dict[str, Any]:
-    return _load_yaml(pkg_dir / REGISTRY_FILE)
+def _string_list(value: object, context: str) -> list[str]:
+    try:
+        return TypeAdapter(list[str]).validate_python(value, strict=True)
+    except ValidationError as error:
+        raise InstallError(f"{context}: expected a list of strings") from error
 
 
-def load_manifest(pkg_dir: Path = PKG_DIR) -> Dict[str, Any]:
-    return _load_yaml(pkg_dir / MANIFEST_FILE)
+def load_registry(pkg_dir: Path = PKG_DIR) -> Registry:
+    try:
+        return TypeAdapter(Registry).validate_python(_load_yaml(pkg_dir / REGISTRY_FILE), strict=True)
+    except ValidationError as error:
+        raise InstallError(f"{pkg_dir / REGISTRY_FILE}: invalid registry data: {error}") from error
 
 
-def load_manifest_artifacts(pkg_dir: Path = PKG_DIR) -> Dict[str, List[str]]:
-    artifacts = load_manifest(pkg_dir).get("artifacts") or {}
-    return {k: list(v or []) for k, v in artifacts.items()}
+def load_manifest(pkg_dir: Path = PKG_DIR) -> Manifest:
+    try:
+        return TypeAdapter(Manifest).validate_python(_load_yaml(pkg_dir / MANIFEST_FILE), strict=True)
+    except ValidationError as error:
+        raise InstallError(f"{pkg_dir / MANIFEST_FILE}: invalid manifest data: {error}") from error
+
+
+def load_manifest_artifacts(pkg_dir: Path = PKG_DIR) -> dict[str, list[str]]:
+    return load_manifest(pkg_dir)["artifacts"]
 
 
 def package_version(pkg_dir: Path = PKG_DIR) -> str:
@@ -182,7 +330,8 @@ TOOL_REQUIREMENT_RE = re.compile(r"([a-z][a-z0-9-]*)(?: >= ([0-9]+(?:\.[0-9]+){0
 
 def sc_compose_range(pkg_dir: Path = PKG_DIR) -> Tuple[str, int]:
     """(floor, major ceiling) for the sc-compose CLI and Python wheel: the manifest's `sc-compose >= X.Y.Z, < N`."""
-    for entry in load_manifest(pkg_dir).get("requires") or []:
+    requires = load_manifest(pkg_dir).get("requires", [])
+    for entry in requires:
         m = SC_COMPOSE_RANGE_RE.fullmatch(str(entry))
         if m:
             return m.group(1), int(m.group(2))
@@ -208,8 +357,9 @@ def sc_compose_upgrade(pkg_dir: Path = PKG_DIR) -> str:
 
 def declared_tool_requirements(pkg_dir: Path = PKG_DIR) -> list[tuple[str, str]]:
     """CLI version floors declared in the manifest, excluding sc-compose's range."""
-    requirements = []
-    for entry in load_manifest(pkg_dir).get("requires") or []:
+    requirements: list[tuple[str, str]] = []
+    requires = load_manifest(pkg_dir).get("requires", [])
+    for entry in requires:
         requirement = str(entry).split("#", 1)[0].strip()
         if SC_COMPOSE_RANGE_RE.fullmatch(requirement):
             continue
@@ -229,7 +379,8 @@ def declared_tool_requirements(pkg_dir: Path = PKG_DIR) -> list[tuple[str, str]]
 
 def manifest_requirement_floor(name: str, pkg_dir: Path = PKG_DIR) -> str:
     """The required version floor for one non-range manifest requirement."""
-    for entry in load_manifest(pkg_dir).get("requires") or []:
+    requires = load_manifest(pkg_dir).get("requires", [])
+    for entry in requires:
         match = TOOL_REQUIREMENT_RE.fullmatch(str(entry).split("#", 1)[0].strip())
         if match is not None and match.group(1) == name:
             floor = match.group(2)
@@ -268,16 +419,22 @@ def config_variables(pkg_dir: Path = PKG_DIR) -> List[str]:
     m = re.match(r"---\n(.*?)\n---\n", text, re.S)
     if not m:
         raise InstallError(f"{CONFIG_TEMPLATE}: no front matter")
-    names = (_yaml().safe_load(m.group(1)) or {}).get("required_variables") or []
-    return [str(n) for n in names]
+    try:
+        loaded = TypeAdapter(ConfigTemplate).validate_python(_yaml().safe_load(m.group(1)) or {}, strict=True)
+        return loaded.get("required_variables", [])
+    except ValidationError as error:
+        raise InstallError(f"{CONFIG_TEMPLATE}: required_variables must be a list of strings") from error
 
 
-def load_legacy_owned(pkg_dir: Path = PKG_DIR) -> Dict[str, set]:
+def load_legacy_owned(pkg_dir: Path = PKG_DIR) -> dict[str, set[str]]:
     path = pkg_dir / LEGACY_OWNED
     if not path.is_file():
         return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {rel: set(shas) for rel, shas in (data.get("files") or {}).items()}
+    try:
+        value = TypeAdapter(LegacyOwnership).validate_python(json.loads(path.read_text(encoding="utf-8")), strict=True)
+    except (json.JSONDecodeError, ValidationError) as error:
+        raise InstallError(f"{path}: files must map paths to sha256 lists") from error
+    return {relative_path: set(hashes) for relative_path, hashes in value["files"].items()}
 
 
 def sha256(data: bytes) -> str:
@@ -315,8 +472,8 @@ def _registry_location(name: str) -> str:
     return f"{CONSUMER_REGISTRY} {name}"
 
 
-def parse_set(items: Iterable[str]) -> Dict[str, str]:
-    overrides: Dict[str, str] = {}
+def parse_set(items: Iterable[str]) -> Config:
+    overrides: Config = {}
     for item in items:
         if "=" not in item:
             raise InstallError(f"--set expects NAME=VALUE, got {item!r}")
@@ -325,19 +482,28 @@ def parse_set(items: Iterable[str]) -> Dict[str, str]:
     return overrides
 
 
-def _coerce_set_value(name: str, raw: Any) -> Any:
+def _coerce_set_value(name: str, raw: ConfigInputValue) -> ConfigInputValue:
     if name not in LIST_VARIABLES or not isinstance(raw, str):
         return raw
     text = raw.strip()
     if text.startswith("["):
         try:
-            return json.loads(text)
+            parsed: object = json.loads(text)
         except json.JSONDecodeError as exc:
             raise InstallError(f"--set {name}: not a JSON array: {exc}") from exc
+        if not isinstance(parsed, list):
+            raise InstallError(f"--set {name}: JSON value must be an array of non-empty strings")
+        try:
+            values = TypeAdapter(list[str]).validate_python(parsed, strict=True)
+        except ValidationError as exc:
+            raise InstallError(f"--set {name}: JSON value must be an array of non-empty strings") from exc
+        if not all(values):
+            raise InstallError(f"--set {name}: JSON value must be an array of non-empty strings")
+        return values
     return [part.strip() for part in text.split(",") if part.strip()]
 
 
-def resolve_config(repo_root: Path, overrides: Dict[str, Any], pkg_dir: Path = PKG_DIR) -> Dict[str, Any]:
+def resolve_config(repo_root: Path, overrides: Mapping[str, ConfigInputValue], pkg_dir: Path = PKG_DIR) -> Config:
     """Read the declared variables from registry.yaml and --set. Missing ones are left
     out (the strict render names them); unknown --set keys and wrong types are errors."""
     names = [*config_variables(pkg_dir), "max_sanity_rounds", "gate_timeout_s"]
@@ -347,15 +513,16 @@ def resolve_config(repo_root: Path, overrides: Dict[str, Any], pkg_dir: Path = P
             "unknown --set variable(s): " + ", ".join(unknown)
             + f"; the variables are the required_variables of {CONFIG_TEMPLATE}: " + ", ".join(names))
     registry = repo_root / CONSUMER_REGISTRY
-    reg = _load_yaml(registry) if registry.is_file() else {}
+    try:
+        reg = TypeAdapter(ConsumerRegistry).validate_python(_load_yaml(registry), strict=True) if registry.is_file() else ConsumerRegistry()
+    except ValidationError as error:
+        raise InstallError(f"{registry}: invalid registry configuration: {error}") from error
     misplaced = sorted(n for n in ROLE_KEYS if n in reg)
     if misplaced:
         raise InstallError(
             f"{registry}: " + ", ".join(f"{n} belongs under roles.{ROLE_KEYS[n]}" for n in misplaced))
-    roles = reg.get("roles") or {}
-    if not isinstance(roles, dict):
-        raise InstallError(f"{registry}: roles must be a mapping")
-    values: Dict[str, Any] = {}
+    roles = reg.get("roles", {})
+    values: Config = {}
     rounds = overrides.get("max_sanity_rounds", reg.get("max_sanity_rounds", 5))
     if isinstance(rounds, str) and rounds.isdecimal():
         rounds = int(rounds)
@@ -380,15 +547,22 @@ def resolve_config(repo_root: Path, overrides: Dict[str, Any], pkg_dir: Path = P
         if value is None:
             continue
         if name in LIST_VARIABLES:
-            if not isinstance(value, list) or not all(isinstance(v, str) and v for v in value):
+            if not isinstance(value, list):
                 raise InstallError(f"{name} must be a list of non-empty strings ({_registry_location(name)}), got {value!r}")
+            try:
+                values_list = TypeAdapter(list[str]).validate_python(value, strict=True)
+            except ValidationError as error:
+                raise InstallError(f"{name} must be a list of non-empty strings ({_registry_location(name)}), got {value!r}") from error
+            if not all(values_list):
+                raise InstallError(f"{name} must be a list of non-empty strings ({_registry_location(name)}), got {value!r}")
+            value = values_list
         elif not isinstance(value, str) or not value:
             raise InstallError(f"{name} must be a non-empty string ({_registry_location(name)}), got {value!r}")
         values[name] = value
     return values
 
 
-def derived_values(repo_root: Path, config: Dict[str, Any]) -> Dict[str, str]:
+def derived_values(repo_root: Path, config: Config) -> dict[str, str]:
     """The install-time render values that come from the repository itself."""
     slug = _git_origin_slug(repo_root)
     if not slug:
@@ -406,7 +580,7 @@ def derived_values(repo_root: Path, config: Dict[str, Any]) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _sc_compose(template_text: str, variables: Dict[str, Any], *, suffix: str) -> Tuple[Optional[str], str]:
+def _sc_compose(template_text: str, variables: JsonObject, *, suffix: str) -> Tuple[Optional[str], str]:
     """(rendered text, "") or (None, the sc-compose error), rendered strictly by the sc-compose wheel."""
     sys.path.insert(0, str(PKG_DIR / "skills/atm-beads/scripts"))
     try:
@@ -428,9 +602,10 @@ def _sc_compose(template_text: str, variables: Dict[str, Any], *, suffix: str) -
 MISSING_RE = re.compile(r"missing required variable: ([A-Za-z0-9_]+)")
 
 
-def render_config(values: Dict[str, Any], pkg_dir: Path = PKG_DIR) -> bytes:
+def render_config(values: Config, pkg_dir: Path = PKG_DIR) -> bytes:
     """Render the config template strictly. A missing variable fails, naming it."""
-    out, error = _sc_compose((pkg_dir / CONFIG_TEMPLATE).read_text(encoding="utf-8"), values, suffix=".yaml.j2")
+    out, error = _sc_compose((pkg_dir / CONFIG_TEMPLATE).read_text(encoding="utf-8"),
+                             json_object(values, "render configuration"), suffix=".yaml.j2")
     if out is None:
         missing = list(dict.fromkeys(MISSING_RE.findall(error)))
         if missing:
@@ -500,7 +675,7 @@ def check_tools() -> None:
                            f"be the same version; install {sc_compose_upgrade()} and rerun")
     try:
         from importlib.metadata import version
-        import sc_compose  # noqa: F401
+        __import__("sc_compose")
         interpreter_version = version("sc-compose")
     except (ImportError, PackageNotFoundError) as exc:
         raise InstallError(f"the installer interpreter {sys.executable} cannot load sc-compose; "
@@ -518,19 +693,26 @@ def check_beads_server_mode(repo_root: Path) -> None:
         raise InstallError(f"BEADS_NOT_SERVER_MODE: {path} not found; the loop needs a beads database in "
                            "Dolt server mode (bd doctor --json), so initialise it against a dolt sql-server")
     try:
-        mode = json.loads(path.read_text(encoding="utf-8")).get("dolt_mode")
-    except (OSError, json.JSONDecodeError) as exc:
+        metadata = TypeAdapter(BeadsMetadata).validate_python(json.loads(path.read_text(encoding="utf-8")), strict=True)
+        mode = metadata.get("dolt_mode")
+    except (OSError, json.JSONDecodeError, ValidationError) as exc:
         raise InstallError(f"BEADS_NOT_SERVER_MODE: {path}: unreadable: {exc}") from exc
     if mode != "server":
         raise InstallError(f"BEADS_NOT_SERVER_MODE: {path} has dolt_mode {mode!r}, not 'server'; validate-plan needs "
                            "bd doctor --json, which only server mode provides")
 
 
-def check_agents(repo_root: Path, config: Dict[str, Any], shipped_agents: Iterable[str]) -> None:
+def check_agents(repo_root: Path, config: Config, shipped_agents: Iterable[str]) -> None:
     shipped = {Path(rel).stem for rel in shipped_agents}
     missing: List[str] = []
     for var in AGENT_VARIABLES:
-        names = config[var] if isinstance(config[var], list) else [config[var]]
+        configured = config[var]
+        if isinstance(configured, str):
+            names = [configured]
+        elif isinstance(configured, list):
+            names = configured
+        else:
+            raise InstallError(f"{var} must name agents as strings")
         for name in names:
             if name in shipped or (repo_root / ".claude" / "agents" / f"{name}.md").is_file():
                 continue
@@ -548,39 +730,40 @@ def check_agents(repo_root: Path, config: Dict[str, Any], shipped_agents: Iterab
 class Plan:
     repo_root: Path
     target_prefix: str                                   # ".claude/" or ".codex/"
-    writes: Dict[str, Tuple[bytes, bool]] = field(default_factory=dict)   # repo-rel -> (bytes, executable)
-    removals: List[str] = field(default_factory=list)
-    problems: List[str] = field(default_factory=list)
-    lock_files: Dict[str, str] = field(default_factory=dict)
-    backups: List[str] = field(default_factory=list)     # files in the way, moved to .backup/ by --overwrite
+    writes: dict[str, tuple[bytes, bool]] = field(default_factory=lambda: dict[str, tuple[bytes, bool]]())   # repo-rel -> (bytes, executable)
+    removals: list[str] = field(default_factory=lambda: list[str]())
+    problems: list[str] = field(default_factory=lambda: list[str]())
+    lock_files: dict[str, str] = field(default_factory=lambda: dict[str, str]())
+    backups: list[str] = field(default_factory=lambda: list[str]())     # files in the way, moved to .backup/ by --overwrite
     registry_text: Optional[str] = None                  # registry.yaml with the roles written, if it changes
     dev_sanity_member: Optional[str] = None              # team member to add for the dev-sanity role (.claude only)
-    notices: List[str] = field(default_factory=list)     # steps the install could not do; printed for the user
-    written: List[str] = field(default_factory=list)     # files whose bytes changed (filled by apply_plan)
-    members_added: List[str] = field(default_factory=list)  # team members created (filled by apply_plan)
+    notices: list[str] = field(default_factory=lambda: list[str]())     # steps the install could not do; printed for the user
+    written: list[str] = field(default_factory=lambda: list[str]())     # files whose bytes changed (filled by apply_plan)
+    members_added: list[str] = field(default_factory=lambda: list[str]())  # team members created (filled by apply_plan)
     sanity: Optional["SanityMember"] = None              # the dev-sanity roster outcome (filled by apply_plan)
 
 
-def _read_lock(repo_root: Path) -> Optional[Dict[str, Any]]:
+def _read_lock(repo_root: Path) -> Optional[InstallLock]:
     path = repo_root / LOCK_OUT
     if not path.is_file():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        data = TypeAdapter(InstallLock).validate_python(json.loads(path.read_text(encoding="utf-8")), strict=True)
+    except (json.JSONDecodeError, ValidationError) as exc:
         raise InstallError(f"{path}: not valid JSON ({exc}); restore it from git") from exc
-    if data.get("package") != PACKAGE or not isinstance(data.get("files"), dict):
+    if data["package"] != PACKAGE:
         raise InstallError(f"{path}: not an {PACKAGE} install record; restore it from git")
     return data
 
 
-def desired_files(pkg_dir: Path, target_prefix: str, *, codex: bool, render_values: Dict[str, str],
-                  config_bytes: bytes) -> Dict[str, Tuple[bytes, bool, str]]:
+def desired_files(pkg_dir: Path, target_prefix: str, *, codex: bool, render_values: dict[str, str],
+                  config_bytes: bytes) -> dict[str, tuple[bytes, bool, str]]:
     """repo-relative path -> (bytes, executable, package source path)."""
-    renders = set(load_registry(pkg_dir).get("render") or [])
+    render_value = load_registry(pkg_dir).get("render", [])
+    renders = set(_string_list(render_value, f"{pkg_dir / 'registry.yaml'}: render"))
     artifacts = load_manifest_artifacts(pkg_dir)
     cats = ("skills",) if codex else ("skills", "agents")
-    out: Dict[str, Tuple[bytes, bool, str]] = {}
+    out: dict[str, tuple[bytes, bool, str]] = {}
     for cat in cats:
         for rel in artifacts.get(cat, []):
             src = pkg_dir / rel
@@ -594,8 +777,8 @@ def desired_files(pkg_dir: Path, target_prefix: str, *, codex: bool, render_valu
     return out
 
 
-def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex: bool,
-                 overwrite: bool = False) -> Tuple[Plan, Dict[str, Any]]:
+def plan_install(pkg_dir: Path, dest: Path, overrides: Config, *, codex: bool,
+                 overwrite: bool = False) -> Tuple[Plan, Config]:
     """Resolve, render and check everything; return the plan. Writes nothing."""
     pkg_dir = Path(pkg_dir).resolve()
     repo_root = repo_root_for(dest)
@@ -605,14 +788,23 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
     check_beads_server_mode(repo_root)
     artifacts = load_manifest_artifacts(pkg_dir)
     check_agents(repo_root, config, [] if codex else artifacts.get("agents", []))
-    render_values = {**{k: v for k, v in config.items() if k in RENDER_VARIABLES}, **derived_values(repo_root, config)}
+    render_values = {k: v for k, v in config.items() if k in RENDER_VARIABLES and isinstance(v, str)}
+    render_values.update(derived_values(repo_root, config))
 
     wanted = desired_files(pkg_dir, target_prefix, codex=codex, render_values=render_values, config_bytes=config_bytes)
     lock = _read_lock(repo_root)
-    locked: Dict[str, str] = dict(lock["files"]) if lock else {}
+    locked: dict[str, str] = {}
+    if lock is not None:
+        try:
+            locked = TypeAdapter(dict[str, str]).validate_python(lock["files"], strict=True)
+        except ValidationError as error:
+            raise InstallError(f"{repo_root / LOCK_OUT}: files must map paths to hashes") from error
     legacy = load_legacy_owned(pkg_dir) if lock is None else {}
+    dev_sanity_value = config.get("dev_sanity_member")
+    if dev_sanity_value is not None and not isinstance(dev_sanity_value, str):
+        raise InstallError("dev_sanity_member must be a string")
     plan = Plan(repo_root=repo_root, target_prefix=target_prefix,
-                dev_sanity_member=None if codex else config["dev_sanity_member"])
+                dev_sanity_member=None if codex else dev_sanity_value)
 
     def owned(key: str, data: bytes, pkg_rel: Optional[str]) -> Optional[bool]:
         """True owned and unmodified, False in the way, None for locked-but-modified."""
@@ -621,7 +813,7 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
             return True if locked[key] == digest else None
         if pkg_rel is None:
             return False
-        shipped = {sha256(wanted[key][0])} if key in wanted else set()
+        shipped: set[str] = {sha256(wanted[key][0])} if key in wanted else set()
         src = pkg_dir / pkg_rel
         if src.is_file() and pkg_rel != CONFIG_TEMPLATE:
             shipped.add(sha256(src.read_bytes()))   # sc-install copies the raw source before complete()
@@ -630,7 +822,7 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
 
     # A target skill directory that exists must hold at least one file this package owns.
     skill_names = sorted({rel.split("/")[1] for rel in artifacts.get("skills", [])})
-    foreign_dirs: set = set()
+    foreign_dirs: set[str] = set()
     for name in skill_names:
         skill_dir = repo_root / target_prefix / "skills" / name
         if not skill_dir.is_dir():
@@ -696,7 +888,11 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
             plan.removals.append(key)
 
     try:
-        plan.registry_text = roles_text(repo_root / CONSUMER_REGISTRY, {role: config[var] for var, role in ROLE_KEYS.items()})
+        role_values = {role: config[var] for var, role in ROLE_KEYS.items()}
+        if not all(isinstance(member, str) for member in role_values.values()):
+            raise InstallError("role config values must be strings")
+        roles = {role: member for role, member in role_values.items() if isinstance(member, str)}
+        plan.registry_text = roles_text(repo_root / CONSUMER_REGISTRY, roles)
     except InstallError as exc:
         plan.problems.append(str(exc))
 
@@ -707,7 +903,7 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Dict[str, Any], *, codex:
     return plan, config
 
 
-def _legacy_pkg_rel(key: str, target_prefix: str, legacy: Dict[str, set]) -> Optional[str]:
+def _legacy_pkg_rel(key: str, target_prefix: str, legacy: dict[str, set[str]]) -> Optional[str]:
     rel = key[len(target_prefix):] if key.startswith(target_prefix) else None
     return rel if rel is not None and rel in legacy else None
 
@@ -717,7 +913,7 @@ def _legacy_pkg_rel(key: str, target_prefix: str, legacy: Dict[str, set]) -> Opt
 # ---------------------------------------------------------------------------
 
 
-def roles_text(registry: Path, roles: Dict[str, str]) -> Optional[str]:
+def roles_text(registry: Path, roles: dict[str, str]) -> Optional[str]:
     """registry.yaml with roles.<role> set, keeping the rest of the file as written;
     None when nothing changes."""
     text = registry.read_text(encoding="utf-8") if registry.is_file() else ""
@@ -747,16 +943,20 @@ def roles_text(registry: Path, roles: Dict[str, str]) -> Optional[str]:
             else:
                 block.append(f"{indent}{role}: {member}\n")
         new = "".join(lines[:start + 1] + block + trailing + lines[end:])
+    yaml_api = _yaml()
     try:
-        new_roles = (_yaml().safe_load(new) or {}).get("roles") or {}
-    except _yaml().YAMLError:
+        decoded: object = yaml_api.safe_load(new)
+        decoded_object = json_object(decoded, str(registry)) if decoded is not None else {}
+        roles_value = decoded_object.get("roles", {})
+        new_roles = json_object(roles_value, f"{registry}: roles") if isinstance(roles_value, dict) else {}
+    except yaml_api.error_type:
         new_roles = {}
-    if not isinstance(new_roles, dict) or any(new_roles.get(k) != v for k, v in roles.items()):
+    if any(new_roles.get(k) != v for k, v in roles.items()):
         raise InstallError(f"{registry}: could not write roles {roles} (is roles: a flow mapping?); set them by hand and rerun")
     return None if new == text else new
 
 
-def write_roles(registry: Path, roles: Dict[str, str]) -> bool:
+def write_roles(registry: Path, roles: dict[str, str]) -> bool:
     """Set roles.<role> in registry.yaml. Returns True when the file changed."""
     new = roles_text(registry, roles)
     if new is None:
@@ -777,8 +977,10 @@ def provision_tool_identity(repo_root: Path) -> bool:
         existing = subprocess.run(["atm", "members", "--team", "tool", "--json"], cwd=repo_root,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if existing.returncode == 0:
-            members = json.loads(existing.stdout).get("members", [])
-            if any(isinstance(member, dict) and member.get("name") == "atm-bd" and member.get("agent_type") == "tool"
+            members = _members(existing.stdout)
+            if members is None:
+                raise ValueError("atm members response did not contain typed members")
+            if any(member.get("name") == "atm-bd" and member.get("agent_type") == "tool"
                    for member in members):
                 return False
     except (OSError, ValueError, AttributeError, TypeError) as exc:
@@ -788,13 +990,12 @@ def provision_tool_identity(repo_root: Path) -> bool:
 
 def atm_default_team(repo_root: Path) -> Optional[str]:
     """`[atm] default_team` from the repository's .atm.toml, or None when absent or unreadable."""
-    atm = _atm_toml(repo_root).get("atm")
-    team = atm.get("default_team") if isinstance(atm, dict) else None
+    team = _atm_toml(repo_root).get("atm", {}).get("default_team")
     return team if isinstance(team, str) and team else None
 
 
-def _atm_json(argv: List[str], repo_root: Path) -> Tuple[Optional[Any], str]:
-    """Run a read-only atm command; (parsed JSON, "") or (None, reason)."""
+def _atm_json(argv: List[str], repo_root: Path) -> Tuple[Optional[str], str]:
+    """Run a read-only atm command; (its JSON response text, "") or (None, reason)."""
     try:
         done = subprocess.run(argv, cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except OSError as exc:
@@ -802,48 +1003,48 @@ def _atm_json(argv: List[str], repo_root: Path) -> Tuple[Optional[Any], str]:
     if done.returncode != 0:
         return None, f"{' '.join(argv)} failed ({done.stderr.strip() or done.stdout.strip() or f'exit {done.returncode}'})"
     try:
-        return json.loads(done.stdout), ""
-    except ValueError as exc:
+        json.loads(done.stdout)
+        return done.stdout, ""
+    except json.JSONDecodeError as exc:
         return None, f"{' '.join(argv)} printed no JSON ({exc})"
 
 
-def _members(data: Any) -> Optional[List[Dict[str, Any]]]:
-    members = data.get("members") if isinstance(data, dict) else None
-    if not isinstance(members, list):
+def _members(data: str | None) -> Optional[List[Member]]:
+    if data is None:
         return None
-    return [m for m in members if isinstance(m, dict)]
-
-
-def _team_names(data: Any) -> Optional[List[str]]:
-    teams = data.get("teams") if isinstance(data, dict) else None
-    if not isinstance(teams, list):
-        return None
-    names: List[str] = []
-    for entry in teams:
-        name = entry.get("name") if isinstance(entry, dict) else None
-        if not isinstance(name, str) or not name:
-            return None
-        names.append(name)
-    return names
-
-
-def _atm_toml(repo_root: Path) -> Dict[str, Any]:
     try:
-        return tomllib.loads((repo_root / ATM_CONFIG).read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
+        return TypeAdapter(MembersResponse).validate_python(json.loads(data), strict=True)["members"]
+    except (json.JSONDecodeError, ValidationError):
+        return None
+
+
+def _team_names(data: str | None) -> Optional[List[str]]:
+    if data is None:
+        return None
+    try:
+        teams = TypeAdapter(TeamsResponse).validate_python(json.loads(data), strict=True)["teams"]
+    except (json.JSONDecodeError, ValidationError):
+        return None
+    return [team["name"] for team in teams]
+
+
+def _atm_toml(repo_root: Path) -> AtmToml:
+    try:
+        return TypeAdapter(AtmToml).validate_python(
+            tomllib.loads((repo_root / ATM_CONFIG).read_text(encoding="utf-8")), strict=True
+        )
+    except (OSError, tomllib.TOMLDecodeError, ValidationError):
+        return AtmToml()
 
 
 def pane_alias(repo_root: Path, member: str) -> Optional[str]:
     """The `alias` of the .atm.toml `[[rmux.windows.panes]]` entry named `member`, if any."""
-    rmux = _atm_toml(repo_root).get("rmux")
-    windows = rmux.get("windows") if isinstance(rmux, dict) else None
-    for window in windows if isinstance(windows, list) else []:
-        panes = window.get("panes") if isinstance(window, dict) else None
-        for pane in panes if isinstance(panes, list) else []:
-            if isinstance(pane, dict) and pane.get("name") == member:
+    rmux = _atm_toml(repo_root).get("rmux", {})
+    for window in rmux.get("windows", []):
+        for pane in window.get("panes", []):
+            if pane.get("name") == member:
                 alias = pane.get("alias")
-                return alias if isinstance(alias, str) and alias else None
+                return alias if alias else None
     return None
 
 
@@ -860,10 +1061,13 @@ def herdr_rename_hint(name: str) -> str:
     return f"name the dev-sanity herdr agent {name} or nudges will not reach it: herdr agent rename <pane> {name}"
 
 
-def _host_name(member: Dict[str, Any]) -> Optional[str]:
+def _host_name(member: Member) -> Optional[str]:
     """The name Herdr targets a member by on this host: its alias, else its member name."""
     alias = member.get("alias")
-    return alias if isinstance(alias, str) and alias else member.get("name")
+    name = member.get("name")
+    if isinstance(alias, str) and alias:
+        return alias
+    return name if isinstance(name, str) else None
 
 
 @dataclass
@@ -912,7 +1116,7 @@ def provision_dev_sanity_member(repo_root: Path, member: str) -> SanityMember:
     host_names: Dict[str, str] = {}   # host name -> member@team, our own team first
     for other in [team, *(t for t in teams if t != team)]:
         if other == team:
-            members: Optional[List[Dict[str, Any]]] = own_members
+            members: Optional[List[Member]] = own_members
         else:
             data, reason = _atm_json(["atm", "members", "--team", other, "--json"], repo_root)
             members = _members(data) if reason == "" else None
@@ -948,8 +1152,8 @@ def _toml_key(name: str) -> str:
 
 def recommended_startup_block(repo_root: Path, member: str, lead: Optional[str]) -> Optional[str]:
     """The `[startup.<member>]` block to recommend for .atm.toml, or None when it has one."""
-    startup = _atm_toml(repo_root).get("startup")
-    if isinstance(startup, dict) and member in startup:
+    startup = _atm_toml(repo_root).get("startup", {})
+    if member in startup:
         return None
     lines = [
         "Your role is dev-sanity under atm-bd-orchestration: read .claude/agents/dev-sanity.md now "
@@ -961,7 +1165,7 @@ def recommended_startup_block(repo_root: Path, member: str, lead: Optional[str])
     return f"[startup.{_toml_key(member)}]\nall = [{body} ]\n"
 
 
-def change_report(plan: Plan, config: Dict[str, Any]) -> List[str]:
+def change_report(plan: Plan, config: Mapping[str, JsonValue]) -> List[str]:
     """The itemized list of what the install changed, plus the .atm.toml recommendation."""
     out = ["Changes:"]
     out += [f"  written: {key}" for key in plan.written]
@@ -980,7 +1184,8 @@ def change_report(plan: Plan, config: Dict[str, Any]) -> List[str]:
         recommend: List[str] = []
         if sanity is not None and sanity.suggest_alias:
             recommend += ["[[rmux.windows.panes]]", f"name = {json.dumps(member)}", f"alias = {json.dumps(sanity.suggest_alias)}", ""]
-        block = recommended_startup_block(plan.repo_root, member, config.get("team_lead_member"))
+        lead = config.get("team_lead_member")
+        block = recommended_startup_block(plan.repo_root, member, lead if isinstance(lead, str) else None)
         if block:
             recommend += block.rstrip("\n").splitlines()
         if recommend:
@@ -988,7 +1193,7 @@ def change_report(plan: Plan, config: Dict[str, Any]) -> List[str]:
     return out
 
 
-def completion_report(plan: Plan, config: Dict[str, Any]) -> List[str]:
+def completion_report(plan: Plan, config: Mapping[str, JsonValue]) -> List[str]:
     """What every install front end prints after apply_plan: the change list, then one NOT DONE line per notice."""
     return [*change_report(plan, config), *(f"{PACKAGE}: NOT DONE: {notice}" for notice in plan.notices)]
 
@@ -1046,39 +1251,46 @@ def apply_plan(plan: Plan, version: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _ok() -> Dict[str, str]:
+def _ok() -> dict[str, str]:
     return {"result": "success"}
 
 
-def _fail(message: str) -> Dict[str, str]:
+def _fail(message: str) -> dict[str, str]:
     return {"result": "fail", "message": message}
 
 
-def _codex(destination_path: str, options: dict) -> bool:
+def _codex(destination_path: str, options: Mapping[str, JsonValue]) -> bool:
     return bool(options.get("codex")) or Path(destination_path).name == ".codex"
 
 
-def _plan_or_fail(source_path: str, destination_path: str, options: dict) -> Tuple[Optional[Plan], Dict[str, Any], Optional[dict]]:
+def _plan_or_fail(source_path: str, destination_path: str, options: Mapping[str, JsonValue]) -> Tuple[Optional[Plan], Dict[str, JsonValue], Optional[dict[str, str]]]:
     try:
         check_tools()
-        plan, config = plan_install(Path(source_path), Path(destination_path), dict(options.get("args") or {}),
+        args_value = options.get("args", {})
+        if not isinstance(args_value, dict):
+            raise InstallError("hook args must be a mapping")
+        try:
+            args = TypeAdapter(Config).validate_python(args_value, strict=True)
+        except ValidationError as error:
+            raise InstallError("hook args must map variables to strings, positive integers, booleans or string lists") from error
+        plan, config = plan_install(Path(source_path), Path(destination_path), args,
                                     codex=_codex(destination_path, options),
                                     overwrite=bool(options.get("overwrite") or options.get("force")))
     except InstallError as exc:
         return None, {}, _fail(str(exc))
     if plan.problems:
         return None, {}, _fail("; ".join(plan.problems))
-    return plan, config, None
+    return plan, json_object(config, "resolved install configuration"), None
 
 
-def prepare(source_path: str, destination_path: str, options: dict) -> dict:
+def prepare(source_path: str, destination_path: str, options: Mapping[str, JsonValue]) -> dict[str, str]:
     """Check the tools, the repository values, the beads mode, the agents and file
     ownership before anything is copied. Writes nothing."""
     _, _, failure = _plan_or_fail(source_path, destination_path, options)
     return failure or _ok()
 
 
-def complete(source_path: str, destination_path: str, options: dict) -> dict:
+def complete(source_path: str, destination_path: str, options: Mapping[str, JsonValue]) -> dict[str, str]:
     """Place every file (rendered where listed), remove unchanged files no longer
     shipped, write the config, the install record and the roles."""
     plan, config, failure = _plan_or_fail(source_path, destination_path, options)
@@ -1098,7 +1310,7 @@ def complete(source_path: str, destination_path: str, options: dict) -> dict:
     return _ok()
 
 
-def cleanup(source_path: str, destination_path: str, options: dict) -> dict:
+def cleanup(source_path: str, destination_path: str, options: Mapping[str, JsonValue]) -> dict[str, str]:
     """Nothing to clean: prepare() writes nothing and complete() writes only recorded files."""
     return _ok()
 
@@ -1123,12 +1335,13 @@ def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
         print(f"install.py: {exc}", file=sys.stderr)
         return 1
     dest = Path(args.dest).expanduser().resolve()
-    options = {"global": False, "local": True, "user": False, "project": False,
-               "codex": args.codex or dest.name == ".codex", "force": False, "overwrite": args.overwrite, "expand": True, "args": overrides}
+    options: dict[str, JsonValue] = {"global": False, "local": True, "user": False, "project": False,
+               "codex": args.codex or dest.name == ".codex", "force": False, "overwrite": args.overwrite, "expand": True,
+               "args": json_object(overrides, "installer arguments")}
     for step in (prepare, complete):
         result = step(str(pkg_dir), str(dest), options)
         if result["result"] != "success":
-            print(f"install.py: {result['message']}", file=sys.stderr)
+            print(f"install.py: {result.get('message', 'installer failed')}", file=sys.stderr)
             return 1
     return 0
 
