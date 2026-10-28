@@ -138,7 +138,15 @@ def parse_reply(reply: JsonValue, index: int) -> JsonValue:
         raise Reject(f"result {index}: reply is not fenced JSON: {exc}")
 
 
-def failure_envelope(result: JsonObject, index: int, total: int) -> JsonObject:
+class FailureEnvelope(TypedDict):
+    code: str
+    message: str
+    recoverable: bool
+    suggested_action: str
+    deliverable: int
+
+
+def failure_envelope(result: JsonObject, index: int, total: int) -> FailureEnvelope:
     """A complete failure envelope, or Reject (exit 1) when `success` is false but the envelope is not."""
     error = result.get("error")
     if result.get("data") is not None or not isinstance(error, dict):
@@ -149,7 +157,9 @@ def failure_envelope(result: JsonObject, index: int, total: int) -> JsonObject:
         raise Reject(f"result {index}: failure envelope must have code, message, recoverable, suggested_action")
     if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= total:
         raise Reject(f"result {index}: failure envelope must name its deliverable (1..{total}), got {number!r}")
-    return error
+    code, message, recoverable, action = error["code"], error["message"], error["recoverable"], error["suggested_action"]
+    assert isinstance(code, str) and isinstance(message, str) and isinstance(recoverable, bool) and isinstance(action, str)
+    return {"code": code, "message": message, "recoverable": recoverable, "suggested_action": action, "deliverable": number}
 
 
 def validate(result: JsonObject, index: int, manifest: JsonObject, sanity_bead: str,
@@ -220,7 +230,6 @@ def reply_status(result: JsonValue, index: int, manifest: JsonObject, sanity_bea
             raise Reject("manifest deliverables_total must be an integer")
         error = failure_envelope(result, index, total)
         number = error["deliverable"]
-        assert isinstance(number, int) and not isinstance(number, bool)
         return number, "cannot_run"
     number, findings = validate(result, index, manifest, sanity_bead, dev_bead)
     return number, "undone" if findings else "done"
@@ -715,7 +724,6 @@ def main(argv: list[str]) -> int:
             if result["success"] is False:
                 envelope = failure_envelope(result, index, total)
                 error_code, error_message = envelope["code"], envelope["message"]
-                assert isinstance(error_code, str) and isinstance(error_message, str)
                 unavailable(error_code, error_message,
                             f"{envelope['code']} {'recoverable' if envelope['recoverable'] else 'fatal'} {envelope['deliverable']}")
                 print(f"deliverable {envelope['deliverable']}: {envelope['message']}", file=sys.stderr)
