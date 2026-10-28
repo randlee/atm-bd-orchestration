@@ -1,3 +1,4 @@
+# pyright: strict
 """The one deadline for every bd, git, gh and validate-plan command the gates and the close hook run.
 
 `ATM_BD_GATE_TIMEOUT_S` sets it in seconds and wins when set; otherwise the repository key `gate_timeout_s` of
