@@ -185,10 +185,25 @@ def phase_from_bead(bead: JsonObject, sprint: str) -> str:
     return phase_from_sprint(sprint)
 
 
-def load_log(path: Path) -> list[JsonObject]:
+class HistoryRow(TypedDict):
+    run_id: JsonValue
+    reviewer: JsonValue
+    identity: tuple[JsonValue, JsonValue, JsonValue, JsonValue, JsonValue, JsonValue]
+    missing_later_fields: list[str]
+    raw: JsonObject
+
+
+def history_row(value: JsonObject) -> HistoryRow:
+    return {"run_id": value.get("run_id"), "reviewer": value.get("reviewer"),
+            "identity": (value.get("commit"), value.get("task"), value.get("sprint"),
+                         value.get("pr_number"), value.get("iteration"), value.get("final_verdict")),
+            "missing_later_fields": [key for key in LATER_FIELDS if key not in value], "raw": value}
+
+
+def load_log(path: Path) -> list[HistoryRow]:
     if not path.exists():
         return []
-    records: list[JsonObject] = []
+    records: list[HistoryRow] = []
     try:
         lines = path.read_text().splitlines()
         for number, line in enumerate(lines, start=1):
@@ -201,7 +216,7 @@ def load_log(path: Path) -> list[JsonObject]:
                 raise
             if not is_json_object(record):
                 fail(f"log {path}:{number} is not a JSON object")
-            records.append(record)
+            records.append(history_row(record))
     except (OSError, json.JSONDecodeError) as exc:
         fail(f"cannot read log {path}: {exc}")
     return records
@@ -350,15 +365,16 @@ def append_record(log_path: Path, record: JsonObject) -> None:
 
 def _append_locked(log_path: Path, record: JsonObject) -> None:
     records = load_log(log_path)
-    same_run = [r for r in records if r.get("run_id") == record["run_id"]]
-    if any(any(r.get(k) != record[k] for k in ("commit", "task", "sprint", "pr_number", "iteration", "final_verdict")) for r in same_run):
+    current = history_row(record)
+    same_run = [r for r in records if r["run_id"] == current["run_id"]]
+    if any(r["identity"] != current["identity"] for r in same_run):
         fail("shared run identity disagrees with existing record")
-    prior = [r for r in same_run if r.get("reviewer") == record["reviewer"]]
+    prior = [r for r in same_run if r["reviewer"] == current["reviewer"]]
     if prior:
         # completed_local follows the process TZ; a retry under another TZ is the same row.
         # A row logged before a field existed (`errors`, `jev_receipts`) is compared without it.
-        later = [key for key in LATER_FIELDS if key not in prior[-1]]
-        if {**prior[-1], "completed_local": None} != {**{k: v for k, v in record.items() if k not in later}, "completed_local": None}:
+        later = prior[-1]["missing_later_fields"]
+        if {**prior[-1]["raw"], "completed_local": None} != {**{k: v for k, v in record.items() if k not in later}, "completed_local": None}:
             fail("run/reviewer already logged with different results")
         return
     original_size = log_path.stat().st_size if log_path.exists() else 0
