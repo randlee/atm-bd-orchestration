@@ -23,7 +23,7 @@ from sprint_index_common import (
 from sprint_qa import metadata, choose_round, qa_verdict, qa_icon, findings_summary
 from phase_beads import phase_beads
 from operation_models import (
-    AtmMember, AtmTask, AtmTaskEvent, BeadRecord, PullRequest,
+    AtmMember, AtmTask, AtmTaskEvent, BeadMetadata, BeadRecord, PullRequest,
     PullRequestCheck,
     is_atm_members, is_atm_tasks, is_atm_task_events, is_bead_records,
     is_pull_request, is_pull_request_pages, matches_typeddict,
@@ -327,11 +327,13 @@ def live_sprint_rows(index: NormalizedIndex, beads: dict[str, BeadRecord]) -> li
         bead = beads.get(container_id) or beads[dev_id]
         meta = {**metadata(beads[dev_id]), **metadata(bead)}
         sprint = meta.get("sprint")
+        raw_layer = meta.get("layer")
+        layer = raw_layer if raw_layer is None or isinstance(raw_layer, (str, int, float, bool)) else None
         rows.append({
             "id": dev_id,
             "sprint": sprint if isinstance(sprint, str) else dev_id,
             "title": bead.get("title") or "",
-            "layer": meta.get("layer"),
+            "layer": layer,
         })
     def order(row: SprintRow) -> tuple[int, int, str]:
         raw_layer = row["layer"]
@@ -352,7 +354,7 @@ def dev_members(members: list[AtmMember]) -> list[AtmMember]:
 
 def dispatch_rows(ready: list[BeadRecord], members: list[AtmMember], active: set[str]) -> list[dict[str, str]]:
     """Read-only dispatch rows recommending idle `dev` members for each difficulty, then one tier up; the lead decides."""
-    rows = []
+    rows: list[dict[str, str]] = []
     for bead in ready:
         meta = metadata(bead)
         labels = set(label_values(bead))
@@ -362,8 +364,13 @@ def dispatch_rows(ready: list[BeadRecord], members: list[AtmMember], active: set
             fitting = "UNCLASSIFIED"
         else:
             idle = [m for m in dev_members(members) if member_name(m) not in active]
-            names = next((found for tier in difficulty_tiers(difficulty)
-                          if (found := [member_name(m) for m in idle if model_matches(str(m.get("model") or ""), tier)])), [])
+            names: list[str] = []
+            for tier in difficulty_tiers(difficulty):
+                matching = [member_name(member) for member in idle
+                            if model_matches(str(member.get("model") or ""), tier)]
+                if matching:
+                    names = matching
+                    break
             fitting = ",".join(filter(None, names)) or "WAIT"
         layer = layer_number(meta.get("layer", 2**31 - 1))
         rows.append({"id": str(bead.get("id", "")), "stage": stage,
@@ -414,8 +421,7 @@ def main() -> int:
             cwd=repo, text=True,
         ).strip())
         sanity_runs: dict[str, int | None] = dict(phase_sanity_iterations(common_dir.parent / ".sc" / "sanity-log", phase))
-        rows = index.get("sprints")
-        if not isinstance(rows, list) or not rows:
+        if not index["sprints"]:
             raise RuntimeError("sprint index contains no sprints")
         all_beads = phase_beads(common_dir.parent, phase)
         if args.dag or args.view:
@@ -436,9 +442,9 @@ def main() -> int:
             while changed:
                 changed = False
                 for bead in all_beads:
-                    bead_id = bead.get("id")
+                    bead_id = bead["id"]
                     if any(edge_type(edge) == "parent-child" and edge_id(edge) in descendants
-                           for edge in dependency_rows(bead)) and isinstance(bead_id, str) and bead_id not in descendants:
+                           for edge in dependency_rows(bead)) and bead_id not in descendants:
                         descendants.add(bead_id); changed = True
             print(render_dispatch(dispatch_rows([bead for bead in ready if str(bead.get("id")) in descendants], members, active), members))
             return 0
@@ -459,10 +465,10 @@ def main() -> int:
                           and related_bead(bead, dev_id, "blocks")]
             if live_gates != [gate_id]:
                 raise RuntimeError(f"{dev_id}: indexed sanity bead {gate_id} does not match live gates {live_gates}")
-        missing_history = {str(bead["id"]) for bead in sanity_by_dev.values()} - sanity_runs.keys()
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            for task, count in pool.map(lambda task: historical_sanity_iterations(repo, task), missing_history):
-                sanity_runs[task] = count
+        missing_history: set[str] = {bead["id"] for bead in sanity_by_dev.values()} - sanity_runs.keys()
+        for task_id in missing_history:
+            task, count = historical_sanity_iterations(repo, task_id)
+            sanity_runs[task] = count
         containers = sprint_beads(index)
         related_ids = row_ids + list(containers.values()) + [str(bead["id"]) for bead in sanity_by_dev.values()] + [
             str(qa["id"]) for qa in selected_qa.values() if qa
@@ -485,17 +491,20 @@ def main() -> int:
                             "state": "MERGED" if pr.get("merged_at") else pr["state"].upper(),
                             "mergedAt": pr.get("merged_at"), "headRefName": head["ref"],
                             "baseRefName": base["ref"]})
-        def sprint_meta(dev_id):
+        def sprint_meta(dev_id: str) -> BeadMetadata:
             dev_bead = live_by_id.get(dev_id)
             container_bead = live_by_id.get(containers[dev_id])
-            dev_metadata = metadata(dev_bead) if dev_bead else {}
-            container_metadata = metadata(container_bead) if container_bead else {}
-            return {**dev_metadata, **container_metadata}
+            dev_metadata: BeadMetadata = metadata(dev_bead) if dev_bead else BeadMetadata()
+            container_metadata: BeadMetadata = metadata(container_bead) if container_bead else BeadMetadata()
+            combined: BeadMetadata = BeadMetadata()
+            combined.update(dev_metadata)
+            combined.update(container_metadata)
+            return combined
         heads: set[str | None] = {branch for dev_id in dev_ids
                  if (branch := string_field(sprint_meta(dev_id).get("branch"), "branch"))}
         heads.add(integration_branch)
         selected = [pr for head in heads if (pr := select_pr(prs, head))]
-        def refresh_pr(pr):
+        def refresh_pr(pr: PullRequest) -> PullRequest:
             value = run_json(repo, "gh", "pr", "view", str(pr["number"]), "--json",
                              "number,state,isDraft,mergedAt,statusCheckRollup,headRefName,baseRefName,title,mergeStateStatus,mergeable")
             if not is_pull_request(value):
@@ -511,13 +520,16 @@ def main() -> int:
     detailed_rows: list[str] = []
     for row in rows:
         dev_id = str(row["id"])
-        dev = live_by_id.get(dev_id, {"id": dev_id, "status": "unknown"})
-        sanity_id = sanity_by_dev.get(dev_id, {}).get("id")
+        dev = live_by_id.get(dev_id)
+        if dev is None:
+            raise RuntimeError(f"planned dev bead not found in live data: {dev_id}")
+        sanity_bead = sanity_by_dev.get(dev_id)
+        sanity_id = sanity_bead["id"] if sanity_bead else None
         sanity = live_by_id.get(str(sanity_id)) if sanity_id else None
         sanity_count = sanity_runs.get(str(sanity_id))
         sanity_cell = "?" if sanity_count is None else str(sanity_count) if sanity_count else ""
         selected = selected_qa.get(dev_id)
-        qa = live_by_id.get(str(selected.get("id"))) if isinstance(selected, dict) else None
+        qa = live_by_id.get(selected["id"]) if selected else None
         qa_ids = {str(candidate["id"]) for candidate in qa_by_dev.get(dev_id, [])}
         findings = [
             bead for bead in all_beads
