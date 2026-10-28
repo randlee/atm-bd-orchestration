@@ -512,6 +512,25 @@ class CommentReference(TypedDict):
 EvidenceReference = BeadNotesReference | PullRequestReference | CommentReference
 
 
+class GitHubEvidence(TypedDict):
+    text: str
+    url: JsonValue
+    updated_at: JsonValue
+    author: JsonValue
+
+
+def parse_github_evidence(value: JsonValue, kind: str, label: str) -> GitHubEvidence:
+    if isinstance(value, dict) and "body" in value and value["body"] is None:
+        value = {**value, "body": ""}  # GitHub uses null for an empty description.
+    if not isinstance(value, dict) or not isinstance(value.get("body"), str):
+        raise JevError("VALIDATION.INPUT", f"External evidence unreadable: {kind} {label}")
+    body = value["body"]
+    assert isinstance(body, str)
+    user = value.get("user")
+    return {"text": body, "url": value.get("html_url"), "updated_at": value.get("updated_at"),
+            "author": user.get("login") if isinstance(user, dict) else None}
+
+
 def evidence_ref(ref: JsonValue) -> bool:
     """True for one well-formed `external_evidence` reference."""
     if not isinstance(ref, dict):
@@ -560,6 +579,10 @@ def external_evidence(ref: JsonObject, worktree: str) -> JsonObject:
     parsed = parse_evidence_ref(ref)
     if parsed is None:
         raise JevError("VALIDATION.INPUT", "External evidence reference is invalid")
+    return external_evidence_from_ref(parsed, worktree)
+
+
+def external_evidence_from_ref(parsed: EvidenceReference, worktree: str) -> JsonObject:
     kind = parsed["kind"]
     if parsed["kind"] == "bead_notes":
         return {"kind": kind, "ref": parsed["bead"], "url": None, "updated_at": None,
@@ -574,15 +597,9 @@ def external_evidence(ref: JsonObject, worktree: str) -> JsonObject:
         value: JsonValue = json.loads(proc.stdout) if proc.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired, ValueError):
         value = None
-    if isinstance(value, dict) and "body" in value and value["body"] is None:
-        value = {**value, "body": ""}  # GitHub returns `"body": null` for an empty description
-    if not isinstance(value, dict) or not isinstance(value.get("body"), str):
-        raise JevError("VALIDATION.INPUT", f"External evidence unreadable: {kind} {label}")
-    text = value["body"]
-    user = value.get("user")
-    author = user.get("login") if isinstance(user, dict) else None
-    return {"kind": kind, "ref": label, "url": value.get("html_url"), "updated_at": value.get("updated_at"),
-            "author": author, "text": text}
+    evidence = parse_github_evidence(value, kind, label)
+    return {"kind": kind, "ref": label, "url": evidence["url"], "updated_at": evidence["updated_at"],
+            "author": evidence["author"], "text": evidence["text"]}
 
 
 class EvidenceAssignment(TypedDict):
@@ -592,7 +609,7 @@ class EvidenceAssignment(TypedDict):
     base: str
     changed: list[str]
     context: list[str]
-    refs: list[JsonObject]
+    refs: list[EvidenceReference]
 
 
 def parse_evidence_assignment(assignment: JsonValue) -> EvidenceAssignment:
@@ -607,10 +624,16 @@ def parse_evidence_assignment(assignment: JsonValue) -> EvidenceAssignment:
             or not string_list(changed) or not all(changed) or not string_list(context) or not all(context)):
         raise JevError("VALIDATION.INPUT", "Assignment lacks deliverable text, worktree, commits or file lists") from None
     refs = assignment.get("external_evidence", [])
-    if not isinstance(refs, list) or not all(evidence_ref(ref) for ref in refs):
+    if not isinstance(refs, list):
         raise JevError("VALIDATION.INPUT", "Assignment external_evidence entry is not a bead_notes, pr_body or pr_comment reference")
+    parsed_refs: list[EvidenceReference] = []
+    for ref in refs:
+        parsed = parse_evidence_ref(ref)
+        if parsed is None:
+            raise JevError("VALIDATION.INPUT", "Assignment external_evidence entry is not a bead_notes, pr_body or pr_comment reference")
+        parsed_refs.append(parsed)
     return {"text": text, "worktree": worktree, "commit": commit, "base": base,
-            "changed": changed, "context": context, "refs": [ref for ref in refs if isinstance(ref, dict)]}
+            "changed": changed, "context": context, "refs": parsed_refs}
 
 
 def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
@@ -644,7 +667,7 @@ def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
             raise JevError("VALIDATION.INPUT", f"Context entry {entry} names lines outside its file at the pinned commit")
         return "".join(kept[start - 1:end])
 
-    external = [external_evidence(ref, worktree) for ref in refs]
+    external = [external_evidence_from_ref(ref, worktree) for ref in refs]
     request = written_request(text, diff(*changed), {entry: excerpt(entry) for entry in context}, external=external)
     if size(request) <= MAX_REQUEST_BYTES:
         return [request]
