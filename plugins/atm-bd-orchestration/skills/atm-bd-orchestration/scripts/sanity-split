@@ -85,6 +85,40 @@ class Fail(Exception):
         self.code = code
 
 
+class SplitArguments(argparse.Namespace):
+    task: str
+    bead: str
+    worktree: str
+    branch: str
+    commit: str
+    base: str
+    lint_command: str
+    scratch: str
+    bead_json: str | None
+    close_context: Path | None
+    layer_pr: list[str]
+    external_evidence: list[str]
+    split_only: bool
+    template: Path
+    lint_timeout_seconds: int
+
+
+class SupervisorArguments(argparse.Namespace):
+    worktree: str
+    command: str
+    log: str
+    exit_file: str
+    timeout_seconds: float
+
+
+class LintRun(TypedDict):
+    command: str
+    log: str
+    exit_file: str
+    pid: int
+    timeout_seconds: int
+
+
 def die(code: int, message: str) -> int:
     print(f"{CODES.get(code, 'USAGE')}: {message}", file=sys.stderr)
     return code
@@ -215,7 +249,7 @@ def git(worktree: str, *argv: str, code: int = 3, what: str | None = None) -> st
     return run.stdout
 
 
-def pin(args):
+def pin(args: SplitArguments) -> tuple[str, str]:
     if not Path(args.worktree).is_dir():
         raise Fail(3, f"worktree {args.worktree} is not a directory")
     sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{args.commit}^{{commit}}",
@@ -325,7 +359,7 @@ def render(template, variables):
         raise Fail(5, f"rendered assignment {variables['deliverable_number']} is not JSON")
 
 
-def start_lint(args):
+def start_lint(args: SplitArguments) -> LintRun:
     scratch = Path(args.scratch)
     scratch.mkdir(parents=True, exist_ok=True)
     log = scratch / f"{args.task}-lint.log"
@@ -389,7 +423,7 @@ def supervise(argv: list[str]) -> int:
     for flag in ("--worktree", "--command", "--log", "--exit-file"):
         parser.add_argument(flag, required=True)
     parser.add_argument("--timeout-seconds", type=float, default=1800)
-    args = parser.parse_args(argv)
+    args = parser.parse_args(argv, namespace=SupervisorArguments())
     exit_file = Path(args.exit_file)
     outcome, child = "error", None
 
@@ -433,7 +467,7 @@ def main() -> int:
     parser.add_argument("--template", type=Path, default=TEMPLATE)
     parser.add_argument("--lint-timeout-seconds", type=int, default=1800)
     try:
-        args = parser.parse_args()
+        args = parser.parse_args(namespace=SplitArguments())
     except SystemExit:
         return 1
     try:
