@@ -377,6 +377,30 @@ class ScreenedReceipt(TypedDict):
     raw: JsonObject
 
 
+class ReviewEnvelope(TypedDict):
+    success: bool
+    data: JsonValue
+    error: JsonValue
+
+
+class JevPayload(TypedDict):
+    jev: JsonValue
+    final: JsonValue
+    findings: JsonValue
+
+
+def inspect_review_envelope(value: JsonValue) -> ReviewEnvelope | None:
+    if not isinstance(value, dict) or not isinstance(value.get("success"), bool):
+        return None
+    success = value["success"]
+    assert isinstance(success, bool)
+    return {"success": success, "data": value.get("data"), "error": value.get("error")}
+
+
+def inspect_jev_payload(value: JsonObject) -> JevPayload:
+    return {"jev": value.get("jev"), "final": value.get("jev_final"), "findings": value.get("findings")}
+
+
 def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, str | None], seen: set[str]) -> str | None:
     """Why a sanity-jev reply cannot stand, or None. A success needs the client's receipt in `data.jev` (verified with
     TYPESAFE_API_KEY), or for a split request every part in order with its own verified receipt; findings that agree
@@ -384,11 +408,12 @@ def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, st
     `data.jev_final` dev-sanity recorded after triage citing every part; and requests no other deliverable's receipt
     used. A SANITY.JEV_* failure needs the client's own message verbatim.
     Anything not an envelope is left to the envelope checks."""
-    if not isinstance(result, dict) or not isinstance(result.get("success"), bool):
+    envelope = inspect_review_envelope(result)
+    if envelope is None:
         return None
     client, load_error = client_pair
-    if result["success"] is False:
-        error = result.get("error")
+    if envelope["success"] is False:
+        error = envelope["error"]
         if not isinstance(error, dict):
             return None
         code = error.get("code")
@@ -398,7 +423,7 @@ def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, st
             return load_error or "Jev client is unavailable"
         return None if client.is_client_message(error.get("message")) else \
             f"Jev failure message is not the client's own text: {error.get('message')!r}"
-    data = result.get("data")
+    data = envelope["data"]
     if not isinstance(data, dict):
         return None
     if load_error or client is None:
@@ -406,7 +431,8 @@ def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, st
     key = os.environ.get("TYPESAFE_API_KEY", "").strip()
     if not key:
         return "TYPESAFE_API_KEY is not set, so the Jev receipt cannot be verified"
-    jev, final = data.get("jev"), data.get("jev_final")
+    payload = inspect_jev_payload(data)
+    jev, final = payload["jev"], payload["final"]
     if isinstance(jev, list):  # a split request: every part's result, in order, each with its own receipt
         receipts: list[JsonObject] = []
         for i, part in enumerate(jev, 1):
@@ -450,7 +476,7 @@ def jev_reply_problem(result: JsonValue, client_pair: tuple[JevClient | None, st
             return ("Jev parts disagree and data.jev_final does not record dev-sanity's triaged result "
                     "({choice, reason, parts} citing every part)")
         choice = final["choice"]
-    findings = data.get("findings")
+    findings = payload["findings"]
     if not isinstance(findings, list) or len(findings) != (1 if choice == "no" else 0):
         return f"Jev choice {choice!r} contradicts the reply's findings"
     request_hashes = [receipt["raw"]["request_sha256"] for receipt in parsed_receipts]
