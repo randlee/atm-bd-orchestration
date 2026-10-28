@@ -68,8 +68,8 @@ class Predicate(TypedDict):
 
 class Coverage(TypedDict):
  scope: str
- limitations: list[str]
  obligation_ids: list[str]
+ limitations: NotRequired[list[str]]
 
 
 class SourceSelection(TypedDict):
@@ -98,9 +98,9 @@ class QuestionSpec(TypedDict):
 
 
 class Question(TypedDict):
- type: str
- instructions: str
  criteria: dict[str, str]
+ type: NotRequired[str]
+ instructions: NotRequired[str]
 
 
 class Manifest(TypedDict):
