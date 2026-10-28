@@ -17,7 +17,7 @@ import socket
 import subprocess
 import sys
 import time
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 import repo_config
@@ -491,6 +491,27 @@ def evaluate_parts(requests: list[JsonObject], key: str, changed_files: list[str
 EVIDENCE_REFS = {"pr_body": ("repo", "pr"), "pr_comment": ("repo", "comment_id")}
 
 
+class BeadNotesReference(TypedDict):
+    kind: Literal["bead_notes"]
+    bead: str
+    text: str
+
+
+class PullRequestReference(TypedDict):
+    kind: Literal["pr_body"]
+    repo: str
+    pr: int
+
+
+class CommentReference(TypedDict):
+    kind: Literal["pr_comment"]
+    repo: str
+    comment_id: int
+
+
+EvidenceReference = BeadNotesReference | PullRequestReference | CommentReference
+
+
 def evidence_ref(ref: JsonValue) -> bool:
     """True for one well-formed `external_evidence` reference."""
     if not isinstance(ref, dict):
@@ -514,17 +535,40 @@ def evidence_ref(ref: JsonValue) -> bool:
     return True
 
 
+def parse_evidence_ref(ref: JsonValue) -> EvidenceReference | None:
+    if not evidence_ref(ref) or not isinstance(ref, dict):
+        return None
+    kind = ref["kind"]
+    if kind == "bead_notes":
+        bead, text = ref["bead"], ref["text"]
+        assert isinstance(bead, str) and isinstance(text, str)
+        return {"kind": "bead_notes", "bead": bead, "text": text}
+    repo = ref["repo"]
+    assert isinstance(repo, str)
+    if kind == "pr_body":
+        number = ref["pr"]
+        assert isinstance(number, int) and not isinstance(number, bool)
+        return {"kind": "pr_body", "repo": repo, "pr": number}
+    number = ref["comment_id"]
+    assert isinstance(number, int) and not isinstance(number, bool)
+    return {"kind": "pr_comment", "repo": repo, "comment_id": number}
+
+
 def external_evidence(ref: JsonObject, worktree: str) -> JsonObject:
     """Inline bead notes or a PR body/comment fetched here, labelled with where it came from."""
-    kind = ref["kind"]
-    if kind == "bead_notes" and evidence_ref(ref):
-        label = ref["bead"]
-        return {"kind": kind, "ref": label, "url": None, "updated_at": None, "author": None, "text": ref["text"]}
-    if not isinstance(kind, str) or kind not in EVIDENCE_REFS or not evidence_ref(ref):
+    ref["kind"]  # Preserve the missing-kind error for callers of this function.
+    parsed = parse_evidence_ref(ref)
+    if parsed is None:
         raise JevError("VALIDATION.INPUT", "External evidence reference is invalid")
-    label = f"{ref['repo']}#{ref.get('pr', ref.get('comment_id'))}"
-    argv = (["gh", "api", f"repos/{ref['repo']}/pulls/{ref['pr']}"] if kind == "pr_body" else
-            ["gh", "api", f"repos/{ref['repo']}/issues/comments/{ref['comment_id']}"])
+    kind = parsed["kind"]
+    if parsed["kind"] == "bead_notes":
+        return {"kind": kind, "ref": parsed["bead"], "url": None, "updated_at": None,
+                "author": None, "text": parsed["text"]}
+    repo = parsed["repo"]
+    number = parsed["pr"] if parsed["kind"] == "pr_body" else parsed["comment_id"]
+    label = f"{repo}#{number}"
+    argv = (["gh", "api", f"repos/{repo}/pulls/{number}"] if kind == "pr_body" else
+            ["gh", "api", f"repos/{repo}/issues/comments/{number}"])
     try:
         proc = subprocess.run(argv, cwd=worktree, capture_output=True, text=True, timeout=60)
         value: JsonValue = json.loads(proc.stdout) if proc.returncode == 0 else None
