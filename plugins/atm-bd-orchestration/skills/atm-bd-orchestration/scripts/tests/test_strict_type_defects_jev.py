@@ -1,6 +1,7 @@
 """Regression tests for concrete type defects found by the BN-2 lane."""
 
 import json
+import importlib.util
 from pathlib import Path
 import subprocess
 import sys
@@ -46,3 +47,20 @@ class MalformedBeadTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("assignment_fields", result.stderr)
         self.assertIn("commit must be strings", result.stderr)
+
+    def test_receipt_part_with_non_object_answers_is_refused(self):
+        spec = importlib.util.spec_from_file_location("test_wrap_jev", WRAPPER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        class ValidMacClient:
+            def verify_receipt(self, value, key):
+                return True
+
+        parts = [{"part": "1 of 1", "receipt": {"choice": "yes", "probabilities": {}},
+                  "response": {"answers": []}}]
+        with self.assertRaises(module.Refused) as refusal:
+            module.client_receipts(parts, ValidMacClient(), "test")
+        self.assertIn("part_response", str(refusal.exception))
