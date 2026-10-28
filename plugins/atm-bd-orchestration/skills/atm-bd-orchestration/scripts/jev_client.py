@@ -439,15 +439,25 @@ EVIDENCE_REFS = {"pr_body": ("repo", "pr"), "pr_comment": ("repo", "comment_id")
 
 def evidence_ref(ref: JsonValue) -> bool:
     """True for one well-formed `external_evidence` reference."""
-    if isinstance(ref, dict) and ref.get("kind") == "bead_notes" and set(ref) == {"kind", "bead", "text"}:
-        return isinstance(ref["bead"], str) and bool(ref["bead"]) and not ref["bead"].startswith("-") and isinstance(ref["text"], str)
-    if isinstance(ref, dict) and ref.get("kind") == "bead_notes":
+    if not isinstance(ref, dict):
         return False
-    kind = ref.get("kind") if isinstance(ref, dict) else None
+    if ref.get("kind") == "bead_notes" and set(ref) == {"kind", "bead", "text"}:
+        bead, text = ref["bead"], ref["text"]
+        return isinstance(bead, str) and bool(bead) and not bead.startswith("-") and isinstance(text, str)
+    if ref.get("kind") == "bead_notes":
+        return False
+    kind = ref.get("kind")
     keys = EVIDENCE_REFS.get(kind) if isinstance(kind, str) else None
-    return keys is not None and set(ref) == {"kind", *keys} and all(
-        type(ref[k]) is int and ref[k] > 0 if k in ("pr", "comment_id")
-        else isinstance(ref[k], str) and ref[k] and not ref[k].startswith("-") for k in keys)
+    if keys is None or set(ref) != {"kind", *keys}:
+        return False
+    for key in keys:
+        value = ref[key]
+        if key in ("pr", "comment_id"):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                return False
+        elif not isinstance(value, str) or not value or value.startswith("-"):
+            return False
+    return True
 
 
 def external_evidence(ref, worktree):

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: strict
 """Append a completed sanity run to the repository-local ignored JSONL ledger and print its path."""
 
 from __future__ import annotations
@@ -13,23 +14,25 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import NoReturn
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 import sc_render  # noqa: E402
 from sanity_shared import ledger_path, primary_root, valid_elapsed_s  # noqa: E402
+from sprint_index_common import JsonObject, JsonValue, is_json_object  # noqa: E402
 
 
 def fail(message: str) -> NoReturn:
     raise SystemExit(f"sanity-run-history: {message}")
 
 
-def read_vars(path: Path) -> dict[str, object]:
+def read_vars(path: Path) -> JsonObject:
     try:
         value = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
         fail(f"cannot read completion vars {path}: {exc}")
-    if not isinstance(value, dict):
+    if not is_json_object(value):
         fail("completion vars must be a JSON object")
     for field in ("sprint", "run_id", "reviewer", "commit", "started_at", "completed_at"):
         if not isinstance(value.get(field), str) or not value[field]:
@@ -51,59 +54,68 @@ def read_vars(path: Path) -> dict[str, object]:
 
 SLOT_ERROR_KEYS = ("code", "message", "recoverable", "deliverable")
 LATER_FIELDS = ("errors", "jev_receipts", "dev", "jev_elapsed_s", "llm_elapsed_s", "kind")
-API_FAILURE_MATCHERS = {
+API_FAILURE_MATCHERS: dict[str, tuple[Callable[[str], bool], ...]] = {
     "sanity-llm": (lambda code: code == "SANITY.LLM_API_FAILURE",),
     "sanity-jev": (lambda code: code.startswith("SANITY.JEV_"),),
 }
 
 
-def reviewer_elapsed(value):
+def reviewer_elapsed(value: JsonObject) -> int | float | None:
     """Concurrent Jev calls contribute their maximum wall time, not their sum."""
     if value.get("reviewer") != "sanity-jev":
         return None
     times: list[int | float] = []
-    for result in value.get("reviewer_results") or []:
+    results = value.get("reviewer_results") or []
+    if not isinstance(results, list):
+        return None
+    for result in results:
         if isinstance(result, dict):
             elapsed = result.get("elapsed_s")
-            if valid_elapsed_s(elapsed):
+            if isinstance(elapsed, (int, float)) and valid_elapsed_s(elapsed):
                 times.append(elapsed)
     return max(times) if times else None
 
 
-def checked_dev(bead):
-    assignee = bead.get("assignee") if isinstance(bead, dict) else None
+def checked_dev(bead: JsonObject) -> str | None:
+    assignee = bead.get("assignee")
     return assignee if isinstance(assignee, str) and assignee else None
 
 
-def result_kind(value):
+def result_kind(value: JsonObject) -> str:
     error = value.get("error")
     code = error.get("code") if isinstance(error, dict) else None
-    matchers = API_FAILURE_MATCHERS.get(value.get("reviewer"), ())
+    reviewer = value.get("reviewer")
+    matchers = API_FAILURE_MATCHERS.get(reviewer, ()) if isinstance(reviewer, str) else ()
     return "API_FAILURE" if isinstance(code, str) and any(matcher(code) for matcher in matchers) else "verdict"
 
 
-def valid_slot_error(error: object) -> bool:
+def valid_slot_error(error: JsonValue) -> bool:
     """`code`, `message`, `recoverable` well typed; `deliverable` a number >= 1, or None when the envelope lacks it."""
-    return (isinstance(error, dict) and set(error) == set(SLOT_ERROR_KEYS)
+    return (is_json_object(error) and set(error) == set(SLOT_ERROR_KEYS)
             and type(error["code"]) is str and bool(error["code"]) and type(error["message"]) is str
             and type(error["recoverable"]) is bool
-            and (error["deliverable"] is None or (type(error["deliverable"]) is int and error["deliverable"] >= 1)))
+            and (error["deliverable"] is None or (isinstance(error["deliverable"], int)
+                 and not isinstance(error["deliverable"], bool) and error["deliverable"] >= 1)))
 
 
-def slot_errors(value: dict[str, object]) -> list[dict[str, object]]:
+def slot_errors(value: JsonObject) -> list[JsonObject]:
     """Each failed slot's error, copied verbatim from its failure envelope; vars without reviewer_results have none.
     A malformed envelope (one whose error is not a well-typed code/message/recoverable) is not a slot error: its
     reviewer merge is CANNOT_RUN, whose `error` the row carries, so it never keeps the row from being logged."""
     results = value.get("reviewer_results")
     if not isinstance(results, list):
         return []
-    errors = [{key: result["error"].get(key) for key in SLOT_ERROR_KEYS}
-              for result in results
-              if isinstance(result, dict) and result.get("success") is False and isinstance(result.get("error"), dict)]
+    errors: list[JsonObject] = []
+    for result in results:
+        if not isinstance(result, dict) or result.get("success") is not False:
+            continue
+        error = result.get("error")
+        if isinstance(error, dict):
+            errors.append({key: error.get(key) for key in SLOT_ERROR_KEYS})
     return [error for error in errors if valid_slot_error(error)]
 
 
-def jev_receipts(value: dict[str, object]) -> list[object]:
+def jev_receipts(value: JsonObject) -> list[JsonValue]:
     """The receipt (`data.jev`) of every sanity-jev success reply, or each part's receipt of a split reply, copied
     verbatim; sanity-llm rows carry none."""
     if value.get("reviewer") != "sanity-jev":
@@ -111,8 +123,13 @@ def jev_receipts(value: dict[str, object]) -> list[object]:
     results = value.get("reviewer_results")
     if not isinstance(results, list):
         return []
-    found = [result["data"].get("jev") for result in results
-             if isinstance(result, dict) and result.get("success") is True and isinstance(result.get("data"), dict)]
+    found: list[JsonValue] = []
+    for result in results:
+        if not isinstance(result, dict) or result.get("success") is not True:
+            continue
+        data = result.get("data")
+        if isinstance(data, dict):
+            found.append(data.get("jev"))
     return [receipt for jev in found for receipt in (
         [part.get("receipt") if isinstance(part, dict) else part for part in jev] if isinstance(jev, list) else [jev])]
 
@@ -124,8 +141,8 @@ def phase_from_sprint(sprint: str) -> str:
     return match.group(1)
 
 
-def phase_from_bead(bead: dict, sprint: str) -> str:
-    metadata = bead.get("metadata") if isinstance(bead, dict) else None
+def phase_from_bead(bead: JsonObject, sprint: str) -> str:
+    metadata = bead.get("metadata")
     value = metadata.get("phase") if isinstance(metadata, dict) else None
     match = re.fullmatch(r"(?:phase-)?([a-z][a-z0-9_-]*)", value.lower()) if isinstance(value, str) else None
     if match:
@@ -133,10 +150,10 @@ def phase_from_bead(bead: dict, sprint: str) -> str:
     return phase_from_sprint(sprint)
 
 
-def load_log(path: Path) -> list[dict[str, object]]:
+def load_log(path: Path) -> list[JsonObject]:
     if not path.exists():
         return []
-    records: list[dict[str, object]] = []
+    records: list[JsonObject] = []
     try:
         lines = path.read_text().splitlines()
         for number, line in enumerate(lines, start=1):
@@ -144,10 +161,10 @@ def load_log(path: Path) -> list[dict[str, object]]:
                 continue
             try:
                 record = json.loads(line)
-            except json.JSONDecodeError as exc:
+            except json.JSONDecodeError:
                 # Never append behind malformed/truncated bytes or rewrite history.
                 raise
-            if not isinstance(record, dict):
+            if not is_json_object(record):
                 fail(f"log {path}:{number} is not a JSON object")
             records.append(record)
     except (OSError, json.JSONDecodeError) as exc:
@@ -155,8 +172,10 @@ def load_log(path: Path) -> list[dict[str, object]]:
     return records
 
 
-def utc_timestamp(value):
+def utc_timestamp(value: JsonValue) -> datetime:
     try:
+        if not isinstance(value, str):
+            raise ValueError("timestamp must be a string")
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.utcoffset() != timezone.utc.utcoffset(parsed):
             raise ValueError("timestamp must be UTC")
@@ -186,7 +205,7 @@ def main() -> None:
     sprint = vars["sprint"]
     assert isinstance(sprint, str)
     phase = phase_from_bead(checked, sprint)
-    record = {
+    record: JsonObject = {
         "run_id": vars["run_id"], "reviewer": vars["reviewer"], "commit": vars["commit"],
         "started_at": vars["started_at"], "duration_seconds": elapsed,
         "error": vars.get("error"),
@@ -194,7 +213,7 @@ def main() -> None:
         "jev_elapsed_s": reviewer_elapsed(vars),
         "llm_elapsed_s": elapsed if vars["reviewer"] == "sanity-llm" else None,
         "kind": result_kind(vars),
-        "errors": slot_errors(vars),
+        "errors": [*slot_errors(vars)],
         "jev_receipts": jev_receipts(vars),
         "task": args.task, "sprint": vars["sprint"], "phase": phase,
         "pr_number": args.pr_number, "findings": vars["findings_count"],
@@ -223,8 +242,8 @@ RECORD_TYPES = {
 }
 
 
-def validate_record(record):
-    if not isinstance(record, dict) or set(record) != set(RECORD_TYPES) | {"findings", "error", "errors", "jev_receipts", "dev", "jev_elapsed_s", "llm_elapsed_s", "kind"}:
+def validate_record(record: JsonValue) -> JsonObject:
+    if not is_json_object(record) or set(record) != set(RECORD_TYPES) | {"findings", "error", "errors", "jev_receipts", "dev", "jev_elapsed_s", "llm_elapsed_s", "kind"}:
         fail("rendered record has incorrect fields")
     if record["dev"] is not None and (not isinstance(record["dev"], str) or not record["dev"]):
         fail("rendered record.dev must be a nonempty string or null")
@@ -234,9 +253,8 @@ def validate_record(record):
     if record["kind"] not in {"verdict", "API_FAILURE"}:
         fail("rendered record.kind must be verdict or API_FAILURE")
     for field, expected in RECORD_TYPES.items():
-        exact_types = expected if isinstance(expected, tuple) else (expected,)
-        if type(record[field]) not in exact_types or (expected is str and not record[field]):
-            fail(f"rendered record.{field} must be " + " or ".join(item.__name__ for item in exact_types))
+        if type(record[field]) is not expected or (expected is str and not record[field]):
+            fail(f"rendered record.{field} must be {expected.__name__}")
     if record["reviewer"] not in {"sanity-llm", "sanity-jev"}:
         fail("rendered record has invalid reviewer")
     if not isinstance(record["errors"], list) or not all(valid_slot_error(error) for error in record["errors"]):
@@ -250,9 +268,12 @@ def validate_record(record):
         fail("a sanity-jev PASS/FAIL row requires the Jev receipt of every deliverable")
     if record["final_verdict"] not in {"PASS", "FAIL", "CANNOT_RUN"}:
         fail("rendered record has invalid final_verdict")
-    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", record["commit"]):
+    commit = record["commit"]
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit):
         fail("rendered record.commit must be a full commit SHA")
-    if record["pr_number"] < 1 or record["iteration"] < 1 or record["duration_seconds"] < 0:
+    pr_number, iteration, duration = record["pr_number"], record["iteration"], record["duration_seconds"]
+    if (not isinstance(pr_number, int) or not isinstance(iteration, int) or not isinstance(duration, int)
+            or pr_number < 1 or iteration < 1 or duration < 0):
         fail("rendered record has invalid numeric range")
     started, completed = (utc_timestamp(record[key]) for key in ("started_at", "completed_at"))
     if completed < started:
@@ -270,7 +291,7 @@ def validate_record(record):
     return record
 
 
-def render_record(variables):
+def render_record(variables: JsonObject) -> JsonObject:
     """Strict render, validate typed JSON, then hand to the locked append.
 
     No shell pipeline: failed render/validation cannot append any output.
@@ -284,7 +305,7 @@ def render_record(variables):
     return validate_record(record)
 
 
-def append_record(log_path, record):
+def append_record(log_path: Path, record: JsonObject) -> None:
     """Serialize the whole read/check/append transaction, including duplicate detection.
 
     This lock is separate from sc-compose's append lock: taking that lock here
@@ -297,7 +318,7 @@ def append_record(log_path, record):
         _append_locked(log_path, record)
 
 
-def _append_locked(log_path, record):
+def _append_locked(log_path: Path, record: JsonObject) -> None:
     records = load_log(log_path)
     same_run = [r for r in records if r.get("run_id") == record["run_id"]]
     if any(any(r.get(k) != record[k] for k in ("commit", "task", "sprint", "pr_number", "iteration", "final_verdict")) for r in same_run):
