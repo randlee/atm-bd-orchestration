@@ -104,11 +104,31 @@ class AssignmentText(TypedDict):
     text: str | None
 
 
+class LintDescriptor(TypedDict):
+    exit_file: str | None
+    log: str | None
+    command: JsonValue
+    has_command: bool
+
+
+def parse_lint_descriptor(lint: JsonObject) -> LintDescriptor:
+    exit_file, log = lint.get("exit_file"), lint.get("log")
+    return {"exit_file": exit_file if isinstance(exit_file, str) else None,
+            "log": log if isinstance(log, str) else None,
+            "command": lint.get("command"), "has_command": "command" in lint}
+
+
+def lint_command(lint: LintDescriptor) -> JsonValue:
+    if not lint["has_command"]:
+        raise KeyError("command")
+    return lint["command"]
+
+
 class Manifest(TypedDict):
     sha: str
     branch: str
     deliverables_total: int
-    lint: JsonObject
+    lint: LintDescriptor
     worktree: str | None
     invalid_worktree: JsonValue
     run_id: JsonValue
@@ -147,7 +167,7 @@ def load_manifest(path: str | Path) -> Manifest:
             parsed = parse_assignment_text(assignment)
             if parsed is not None:
                 parsed_assignments.append(parsed)
-    return {"sha": sha, "branch": branch, "deliverables_total": total, "lint": lint,
+    return {"sha": sha, "branch": branch, "deliverables_total": total, "lint": parse_lint_descriptor(lint),
             "worktree": worktree if isinstance(worktree, str) else None,
             "invalid_worktree": None if isinstance(worktree, str) else worktree,
             "run_id": manifest.get("run_id"), "has_run_id": "run_id" in manifest,
@@ -624,24 +644,17 @@ def verify_worktree(manifest: Manifest) -> None:
         raise TaskFailure("SANITY.COMMIT_MISMATCH fatal 0", "worktree has uncommitted or untracked changes")
 
 
-class LintFiles(TypedDict):
-    exit_file: str
-    log: str
-    raw: JsonObject
-
-
-def parse_lint_files(lint: JsonValue) -> LintFiles:
+def lint_result(manifest: JsonObject) -> tuple[int, list[JsonObject], str]:
+    lint = manifest["lint"]
     if not isinstance(lint, dict):
         raise Reject("manifest has no lint entry; sanity-split ran with --split-only")
-    exit_name, log_name = lint.get("exit_file"), lint.get("log")
-    if not isinstance(exit_name, str) or not isinstance(log_name, str):
+    return lint_result_from_descriptor(parse_lint_descriptor(lint), manifest.get("worktree_path"))
+
+
+def lint_result_from_descriptor(lint: LintDescriptor, worktree_value: JsonValue) -> tuple[int, list[JsonObject], str]:
+    exit_name, log_name = lint["exit_file"], lint["log"]
+    if exit_name is None or log_name is None:
         raise Reject("manifest lint exit_file and log must be strings")
-    return {"exit_file": exit_name, "log": log_name, "raw": lint}
-
-
-def lint_result(manifest: Manifest) -> tuple[int, list[JsonObject], str]:
-    lint_files = parse_lint_files(manifest["lint"])
-    lint, exit_name, log_name = lint_files["raw"], lint_files["exit_file"], lint_files["log"]
     exit_file = Path(exit_name)
     if not exit_file.exists():
         raise Reject("lint still running", code=4)
@@ -658,7 +671,7 @@ def lint_result(manifest: Manifest) -> tuple[int, list[JsonObject], str]:
         log = ""
     findings: list[JsonObject] = []
     if exit_code != 0:
-        raw_worktree = manifest["worktree"] if manifest["worktree"] is not None else manifest["invalid_worktree"] or ""
+        raw_worktree = worktree_value or ""
         if not isinstance(raw_worktree, str):
             raise Reject("manifest worktree_path must be a string")
         worktree = raw_worktree.rstrip("/") + "/"
@@ -671,10 +684,10 @@ def lint_result(manifest: Manifest) -> tuple[int, list[JsonObject], str]:
             if key not in seen:
                 seen.add(key)
                 findings.append({"kind": "lint", "file": path, "line": key[1],
-                                 "issue": f"`{lint['command']}` reported a diagnostic here"})
+                                 "issue": f"`{lint_command(lint)}` reported a diagnostic here"})
         if not findings:
             findings.append({"kind": "lint", "file": "(lint)", "line": 0,
-                             "issue": f"`{lint['command']}` exited {exit_code} without locatable diagnostics; see {lint['log']}"})
+                             "issue": f"`{lint_command(lint)}` exited {exit_code} without locatable diagnostics; see {log_name}"})
     return exit_code, findings, log
 
 
@@ -822,7 +835,8 @@ def main(argv: list[str]) -> int:
         missing = [n for n in range(1, total + 1) if n not in by_number]
         if missing:
             raise Reject(f"deliverable {missing[0]}: no result" + (f" (also {missing[1:]})" if missing[1:] else ""))
-        lint_exit, lint_findings, _ = lint_result(manifest)
+        lint_exit, lint_findings, _ = lint_result_from_descriptor(
+            manifest["lint"], manifest["worktree"] if manifest["worktree"] is not None else manifest["invalid_worktree"])
         verify_worktree(manifest)
     except Reject as exc:
         print(str(exc), file=sys.stderr)
@@ -862,8 +876,7 @@ def main(argv: list[str]) -> int:
         })
     count = len(finding_records)
     lint = manifest["lint"]
-    assert isinstance(lint, dict)
-    lint_md = f"`{lint['command']}` exit {lint_exit}"
+    lint_md = f"`{lint_command(lint)}` exit {lint_exit}"
     if lint_findings:
         lint_md += "\n" + "\n".join(fmt(f) for f in lint_findings)
     json.dump({
