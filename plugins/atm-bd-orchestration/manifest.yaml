@@ -218,6 +218,7 @@ artifacts:
     - skills/atm-beads/scripts/bead_schema.py
     - skills/atm-beads/scripts/check-phase-artifact
     - skills/atm-beads/scripts/close_fields.py
+    - skills/atm-beads/scripts/operation_models.py
     - skills/atm-beads/scripts/phase-config
     - skills/atm-beads/scripts/phase-index-path
     - skills/atm-beads/scripts/plan_contract.py
@@ -255,6 +256,7 @@ artifacts:
     - skills/sprint-report/scripts/sprint-report
     - skills/sprint-report/scripts/sprint_dag.py
     - skills/sprint-report/scripts/sprint_qa.py
+    - skills/sprint-report/tests/test_operation_models.py
     - skills/sprint-report/tests/test_phase_beads.py
     - skills/sprint-report/tests/test_sprint_dag.py
     - skills/sprint-report/tests/test_sprint_report.py

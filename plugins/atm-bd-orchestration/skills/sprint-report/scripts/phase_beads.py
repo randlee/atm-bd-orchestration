@@ -12,13 +12,11 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol, TypeAlias, TypeGuard
+from typing import Protocol
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-bd-orchestration/scripts"))
 import bd_cache  # noqa: E402
-
-JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
-JsonObject: TypeAlias = dict[str, JsonValue]
+from operation_models import BeadRecord, is_bead_records  # noqa: E402
 
 
 class PhaseBeadCache(Protocol):
@@ -27,46 +25,13 @@ class PhaseBeadCache(Protocol):
     def list(self, phase: str) -> object: ...
 
 
-def is_object_list(value: object) -> TypeGuard[list[object]]:
-    return isinstance(value, list)
+def bead_rows(value: object) -> list[BeadRecord]:
+    if not is_bead_records(value):
+        raise ValueError("bd list returned invalid bead records")
+    return value
 
 
-def is_object_mapping(value: object) -> TypeGuard[dict[object, object]]:
-    return isinstance(value, dict)
-
-
-def is_json_value(value: object) -> TypeGuard[JsonValue]:
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return True
-    if is_object_list(value):
-        return all(is_json_value(item) for item in value)
-    if is_object_mapping(value):
-        return all(isinstance(key, str) and is_json_value(item) for key, item in value.items())
-    return False
-
-
-def is_json_object(value: object) -> TypeGuard[JsonObject]:
-    if not is_object_mapping(value):
-        return False
-    return all(isinstance(key, str) and is_json_value(item) for key, item in value.items())
-
-
-def is_bead_row(value: object) -> TypeGuard[JsonObject]:
-    return is_json_object(value) and isinstance(value.get("id"), str)
-
-
-def bead_rows(value: object) -> list[JsonObject]:
-    if not is_object_list(value):
-        raise ValueError("bd list did not return a list")
-    rows: list[JsonObject] = []
-    for row in value:
-        if not is_bead_row(row):
-            raise ValueError("bd list returned a row without a string id")
-        rows.append(row)
-    return rows
-
-
-def direct(repo: Path, phase: str) -> list[JsonObject]:
+def direct(repo: Path, phase: str) -> list[BeadRecord]:
     """The phase's beads straight from bd, scoped to its label."""
     command = ["bd", "list", "-l", f"phase-{phase}", "-n", "0", "--status", bd_cache.STATUSES, "--json"]
     result = subprocess.run(command, cwd=repo, capture_output=True, text=True, timeout=bd_cache.BD_TIMEOUT)
@@ -80,7 +45,7 @@ def phase_beads(
     repo: Path,
     phase: str,
     cache_factory: Callable[[Path], PhaseBeadCache] | None = None,
-) -> list[JsonObject]:
+) -> list[BeadRecord]:
     """Sync the phase into the cache, then read it; every fallback is announced on stderr."""
     factory = cache_factory if cache_factory is not None else bd_cache.BdCache
     try:

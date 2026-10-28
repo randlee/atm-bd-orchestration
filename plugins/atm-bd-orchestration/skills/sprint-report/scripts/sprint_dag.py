@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from graphlib import TopologicalSorter, CycleError
 from html import escape
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 import re
 import shutil
@@ -12,9 +13,14 @@ from string import Template
 import sys
 import xml.etree.ElementTree as ET
 
-from sprint_index_common import JsonObject, JsonValue, is_json_object, run_json as _run_json, index_bead_pairs, validate_index
+from sprint_index_common import JsonValue, NormalizedIndex, is_json_object, run_json as _run_json, index_bead_pairs, validate_index
 from sprint_qa import choose_round, qa_icon, qa_verdict, findings_summary
 from phase_beads import phase_beads
+from operation_models import (
+    AtmTask, AtmTaskEvent, BeadRecord, is_atm_tasks, is_atm_task_events,
+    is_bead_records,
+)
+from typing import TypedDict
 
 RENDERER = Path(__file__).resolve().parents[1] / 'renderer'
 NS = 'http://www.w3.org/2000/svg'
@@ -25,25 +31,63 @@ def run_json(repo: Path, *args: str) -> JsonValue:
     return _run_json(repo, *args)
 
 
-def run_json_records(repo: Path, key: str, *args: str) -> list[JsonObject]:
+def record_payload(repo: Path, key: str, *args: str) -> object:
     value = run_json(repo, *args)
     if is_json_object(value):
         value = value.get(key)
-    if not isinstance(value, list) or any(not is_json_object(row) for row in value):
-        raise RuntimeError(f"{' '.join(args)} did not return JSON object records")
-    return [row for row in value if is_json_object(row)]
+    return value
+
+
+def run_bead_records(repo: Path, key: str, *args: str) -> list[BeadRecord]:
+    value = record_payload(repo, key, *args)
+    if not is_bead_records(value):
+        raise RuntimeError(f"{' '.join(args)} did not return validated bd bead records")
+    return value
+
+
+def run_atm_tasks(repo: Path, *args: str) -> list[AtmTask]:
+    value = record_payload(repo, "tasks", *args)
+    if not is_atm_tasks(value):
+        raise RuntimeError(f"{' '.join(args)} did not return validated ATM task records")
+    return value
+
+
+def run_atm_task_events(repo: Path, *args: str) -> list[AtmTaskEvent]:
+    value = record_payload(repo, "events", *args)
+    if not is_atm_task_events(value):
+        raise RuntimeError(f"{' '.join(args)} did not return validated ATM task-event records")
+    return value
+
+
+class Graph(TypedDict):
+    nodes: list[str]
+    edges: list[list[str]]
+    gate_pairs: dict[str, str]
+    edge_meaning: str
+    render_direction: str
+
+
+class Snapshot(TypedDict):
+    beads: dict[str, BeadRecord]
+    tasks: dict[str, AtmTask]
+    blocked: dict[str, list[str]]
+    events: dict[str, list[AtmTaskEvent] | None]
+    iterations: dict[str, int | None]
+    errors: dict[str, str]
+    captured_at: str
 
 
 def tag(name):
     return '{' + NS + '}' + name
 
 
-def prerequisites(bead):
-    return [edge['depends_on_id'] for edge in bead.get('dependencies', [])
-            if edge.get('type') == 'blocks']
+def prerequisites(bead: BeadRecord) -> list[str]:
+    return [target for edge in bead.get('dependencies', [])
+            if edge.get('type', edge.get('dependency_type')) == 'blocks'
+            if (target := edge.get('depends_on_id', edge.get('id')))]
 
 
-def build_graph(index, beads):
+def build_graph(index, beads: Mapping[str, BeadRecord]) -> Graph:
     """Render only the declared phase graph; Beads contribute live state."""
     validate_index(index)
     devs = set(index_bead_pairs(index))
@@ -78,41 +122,45 @@ def build_graph(index, beads):
             'render_direction': 'prerequisite to dependent'}
 
 
-def collect_state(repo, graph, beads, counts, phase):
-    errors = {}
+def collect_state(repo: Path, graph: Graph, beads: dict[str, BeadRecord],
+                  counts: dict[str, int | None], phase: str) -> Snapshot:
+    errors: dict[str, str] = {}
     def history(key):
         try:
-            return key, run_json_records(repo, 'events', 'atm', 'task', 'events', key, '--all', '--json')
+            return key, run_atm_task_events(repo, 'atm', 'task', 'events', key, '--all', '--json')
         except (OSError, RuntimeError, KeyError, subprocess.CalledProcessError) as exc:
             return key, str(exc)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        histories: dict[str, list[JsonObject] | str | None] = dict(pool.map(history, graph['nodes']))
-    for key, value in list(histories.items()):
-        if not isinstance(value, list):
-            errors[key] = value
-            histories[key] = None
+        histories: dict[str, list[AtmTaskEvent] | str | None] = dict(pool.map(history, graph['nodes']))
+    typed_histories: dict[str, list[AtmTaskEvent] | None] = {}
+    for key, value in histories.items():
+        if isinstance(value, list):
+            typed_histories[key] = value
+        else:
+            errors[key] = value if isinstance(value, str) else "event history was not available"
+            typed_histories[key] = None
     try:
-        tasks = {t['task_id']: t for t in run_json_records(repo, 'tasks', 'atm', 'task', 'list', '--all', '--json')
+        tasks = {t['task_id']: t for t in run_atm_tasks(repo, 'atm', 'task', 'list', '--all', '--json')
                  if t['task_id'] in graph['nodes']}
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         tasks = {}
         errors['task_list'] = str(exc)
     blocked = {b['id']: b.get('blocked_by', [])
-               for b in run_json_records(repo, 'beads', 'bd', 'blocked', '-l', f'phase-{phase}',
+               for b in run_bead_records(repo, 'beads', 'bd', 'blocked', '-l', f'phase-{phase}',
                                  '--label-any', 'stage:dev,stage:dev-sanity', '--json')}
-    return {'beads': beads, 'tasks': tasks, 'blocked': blocked, 'events': histories,
+    return {'beads': dict(beads), 'tasks': tasks, 'blocked': blocked, 'events': typed_histories,
             'iterations': counts, 'errors': errors,
             'captured_at': datetime.now(timezone.utc).isoformat()}
 
 
-def states(graph, snapshot, index):
+def states(graph: Graph, snapshot: Snapshot, index):
     beads, events = snapshot['beads'], snapshot['events']
     pairs = graph['gate_pairs']
     gates = {gate: dev for dev, gate in pairs.items()}
     def completed(key):
         return [e for e in (events.get(key) or []) if e.get('event') == 'completed']
     def latest(key):
-        return max((e['at'] for e in completed(key)), default='')
+        return max((e.get('at', '') for e in completed(key)), default='')
     def open_findings(key):
         dev = gates.get(key)
         return [b['id'] for b in beads.values() if b.get('status') != 'closed' and any(
@@ -127,10 +175,11 @@ def states(graph, snapshot, index):
         if 'overridden' in reason.lower():
             return 'override', reason
         task_state = snapshot.get('tasks', {}).get(key, {}).get('state')
-        history_state = (events.get(key) or [{}])[-1].get('to_state')
-        if task_state == 'active' or history_state == 'active' or bead['status'] == 'in_progress':
+        history = events.get(key) or []
+        history_state = history[-1].get('to_state') if history else None
+        if task_state == 'active' or history_state == 'active' or bead.get('status') == 'in_progress':
             return 'active', 'Work in progress'
-        if key in snapshot['blocked'] or bead['status'] == 'blocked':
+        if key in snapshot['blocked'] or bead.get('status') == 'blocked':
             return 'blocked', 'Blocked by unfinished prerequisites'
         if task_state in ('assigned', 'queued') or history_state == 'assigned':
             return 'waiting', 'Assigned; completion not recorded'
@@ -140,7 +189,7 @@ def states(graph, snapshot, index):
                 return 'findings', 'Open sanity findings: ' + ', '.join(findings)
             meta = bead.get('metadata') or {}
             passed = str(meta.get('verdict', '')).upper() == 'PASS' or re.match(r'^PASS\b', reason, re.I)
-            if bead['status'] == 'closed' and passed:
+            if bead.get('status') == 'closed' and passed:
                 dev = gates[key]
                 if events.get(key) is None or events.get(dev) is None or 'task_list' in snapshot.get('errors', {}):
                     return 'uncertain', reason + '; ATM history unavailable'
@@ -149,9 +198,9 @@ def states(graph, snapshot, index):
                 if latest(dev) > latest(key):
                     return 'uncertain', reason + '; PASS predates latest dev completion'
                 return 'done', reason
-            if bead['status'] == 'closed' or re.match(r'^FAIL\b', reason, re.I):
+            if bead.get('status') == 'closed' or re.match(r'^FAIL\b', reason, re.I):
                 return 'findings', reason or 'No explicit sanity PASS'
-        elif key in pairs and bead['status'] == 'closed':
+        elif key in pairs and bead.get('status') == 'closed':
             if not completed(key) or 'task_list' in snapshot.get('errors', {}):
                 return 'uncertain', reason + '; dev completion history unavailable'
             gate_state, detail = verdict(pairs[key])
@@ -185,7 +234,7 @@ def is_qa_of(bead, dev_id):
         edge.get('type') == 'parent-child' and edge.get('depends_on_id') == dev_id for edge in edges)
 
 
-def qa_states(graph, beads, index):
+def qa_states(graph: Graph, beads: Mapping[str, BeadRecord], index):
     """Share table QA semantics, counting open findings across every round."""
     result = {}
     for key in graph['nodes']:
@@ -379,8 +428,9 @@ def open_wyvern(artifact):
     return True
 
 
-def generate(repo, index, counts, phase, output=None, open_image=False, open_view=False,
-             plan_html=None, beads=None):
+def generate(repo: Path, index, counts: dict[str, int | None], phase: str,
+             output: Path | None = None, open_image: bool = False, open_view: bool = False,
+             plan_html: Path | None = None, beads: Sequence[BeadRecord] | None = None):
     if not (RENDERER / 'node_modules/@viz-js/viz').exists():
         raise RuntimeError(f'DAG renderer dependencies missing; run npm ci --prefix {RENDERER}')
     phase = str(phase).removeprefix('phase-')
@@ -389,11 +439,11 @@ def generate(repo, index, counts, phase, output=None, open_image=False, open_vie
     output.parent.mkdir(parents=True, exist_ok=True)
     def path(suffix):
         return output.parent / (output.name + suffix)
-    beads = {b['id']: b for b in (beads if beads is not None else phase_beads(repo, phase))}
-    graph = build_graph(index, beads)
-    snapshot = collect_state(repo, graph, beads, counts, phase)
+    bead_map = {b['id']: b for b in (beads if beads is not None else phase_beads(repo, phase))}
+    graph = build_graph(index, bead_map)
+    snapshot = collect_state(repo, graph, bead_map, counts, phase)
     icons = states(graph, snapshot, index)
-    qa = qa_states(graph, beads, index)
+    qa = qa_states(graph, bead_map, index)
     for key in icons:
         icons[key]['qa'] = qa[key]
     source = dot_source(graph, phase)

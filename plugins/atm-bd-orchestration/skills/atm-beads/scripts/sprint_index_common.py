@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import NotRequired, TypeAlias, TypeGuard, TypedDict
 
 import repo_config
+from operation_models import BeadRecord
 
 PHASE = re.compile(r"[a-z0-9]+")
 SPRINT_NAME = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
@@ -132,44 +133,9 @@ def run_json(repo: Path, *args: str) -> JsonValue:
         raise RuntimeError(f"{' '.join(args)} returned invalid JSON: {exc}") from exc
 
 
-def json_objects(value: object, source: str) -> list[JsonObject]:
-    if not is_object_list(value):
-        raise RuntimeError(f"{source} did not return a JSON array")
-    rows: list[JsonObject] = []
-    for row in value:
-        if not is_json_object(row):
-            raise RuntimeError(f"{source} returned a non-object array row")
-        rows.append(row)
-    return rows
-
-
-def run_json_object(repo: Path, *args: str) -> JsonObject:
-    value = run_json(repo, *args)
-    if not is_json_object(value):
-        raise RuntimeError(f"{' '.join(args)} did not return a JSON object")
-    return value
-
-
-def run_json_records(repo: Path, key: str, *args: str) -> list[JsonObject]:
-    value = run_json(repo, *args)
-    if is_json_object(value):
-        value = value.get(key)
-    return json_objects(value, ' '.join(args))
-
-
-def run_json_pages(repo: Path, *args: str) -> list[list[JsonObject]]:
-    value = run_json(repo, *args)
-    if not is_object_list(value):
-        raise RuntimeError(f"{' '.join(args)} did not return a JSON array of pages")
-    pages: list[list[JsonObject]] = []
-    for page in value:
-        pages.append(json_objects(page, ' '.join(args)))
-    return pages
-
-
-def phase_id(root: str, record: JsonObject) -> str:
+def phase_id(root: str, record: BeadRecord) -> str:
     metadata = record.get("metadata")
-    phase = metadata.get("phase") if is_json_object(metadata) else None
+    phase = metadata.get("phase") if metadata else None
     if not phase:
         match = re.search(r"-phase-([a-z0-9]+)$", root)
         phase = match.group(1) if match else None

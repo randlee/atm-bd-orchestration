@@ -162,7 +162,7 @@ class Run:
                                  for r in rows}
         return self.plans[phase]
 
-    def show(self, bead: str) -> dict:
+    def show(self, bead: str) -> bead_formulas.BeadRecord:
         row = self.bd.show(bead)
         if row is None:
             raise TargetError("BEAD_GROUPS_TARGET_NOT_FOUND", f"{bead} does not exist")
@@ -196,15 +196,16 @@ class Run:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{bead} lacks {', '.join(missing)}")
         sidecar = self.sidecar("sprint-group")
         option = self.option_for(sidecar)
-        plan = self.plan(str(meta["phase"]))
-        if meta["sprint"] not in plan or plan[meta["sprint"]][0] != bead:
-            raise TargetError("BEAD_GROUPS_PLAN_MISMATCH", f"{bead} is not sprint {meta['sprint']} of phase {meta['phase']}'s plan file")
-        deps = plan[meta["sprint"]][2]
-        compose = {"parent": bead, "phase": meta["phase"], "sprint": meta["sprint"], "stack": meta["stack"],
-                   "layer": meta["layer"], "difficulty": meta["difficulty"], "priority": container.get("priority", 2),
-                   "branch": meta["branch"], "worktree": meta["worktree"], "pr_target": meta["pr_target"],
+        phase, sprint = str(meta.get("phase")), str(meta.get("sprint"))
+        plan = self.plan(phase)
+        if sprint not in plan or plan[sprint][0] != bead:
+            raise TargetError("BEAD_GROUPS_PLAN_MISMATCH", f"{bead} is not sprint {sprint} of phase {phase}'s plan file")
+        deps = plan[sprint][2]
+        compose = {"parent": bead, "phase": phase, "sprint": sprint, "stack": meta.get("stack"),
+                   "layer": meta.get("layer"), "difficulty": meta.get("difficulty"), "priority": container.get("priority", 2),
+                   "branch": meta.get("branch"), "worktree": meta.get("worktree"), "pr_target": meta.get("pr_target"),
                    "edge_option": option, "reviewers_round1": list(self.config["reviewers_round1"]),
-                   **self.close_compose(str(meta["phase"]), container.get("title") or "")}
+                   **self.close_compose(phase, container.get("title") or "")}
         compose["ref"] = fmt(sidecar["ref"], {"vars": compose})
         relate_vars = {**sidecar.get("defaults", {}), "predecessor_sanity": [plan[d][1] for d in deps],
                        "predecessors": [plan[d][0] for d in deps],
@@ -237,12 +238,14 @@ class Run:
         sidecar = self.sidecar("finding-group")
         option = self.option_for(sidecar)
         import bead_schema
-        stack_id = stack_bead_id(sprint_index_common.load_phase_config(self.repo, str(meta['phase']))['root'])
+        phase = str(meta.get('phase'))
+        sprint_name = str(meta.get('sprint'))
+        stack_id = stack_bead_id(sprint_index_common.load_phase_config(self.repo, phase)['root'])
         stack = self.show(stack_id)
-        issues = bead_schema.problems(stack, bead_schema.StackBead)
+        issues = bead_schema.problems(bead_formulas.bead_record_to_json(stack), bead_schema.StackBead)
         if issues:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", "; ".join(issues))
-        stack_meta = bead_schema.StackMetadata.model_validate(stack["metadata"])
+        stack_meta = bead_schema.StackMetadata.model_validate(stack.get("metadata", {}))
         pr_target = stack_meta.layers[-1].branch if stack_meta.layers else stack_meta.trunk
         out: list[dict | TargetError] = []
         for finding in findings:
@@ -262,10 +265,10 @@ class Run:
                     raise TargetError("BEAD_GROUPS_FOUND_ON_LAYER_NOT_INTEGER",
                                       f"finding {ref}: found_on_layer {layer!r} is not an integer; pass the integer stack layer, "
                                       "or omit found_on_layer and put free text in the finding description")
-                branch = f"fix/{meta['sprint']}-{slug}"
+                branch = f"fix/{sprint_name}-{slug}"
                 # Layer records carry no difficulty, so the cut takes it from the finding or the sprint and the fix group carries all four keys together.
                 cut = {"branch": branch, "worktree": str(Path(self.config["worktree_base"]) / branch), "pr_target": pr_target,
-                       "difficulty": finding.get("difficulty") or meta["difficulty"]}
+                       "difficulty": finding.get("difficulty") or meta.get("difficulty")}
                 if finding["severity"] != "blocking":
                     raise TargetError("BEAD_GROUPS_NOT_BLOCKING", f"finding {ref} is {finding['severity']}; only blocking findings are poured, file it as a finding bead")
                 ids = {k: finding[k] if k in finding else meta.get(k) for k in ("requirements", "adrs")}
@@ -275,12 +278,12 @@ class Run:
                 compose = {"parent": sprint, "finding_ref": ref, "round": round_, "severity": finding["severity"],
                            "reviewer": finding["reviewer"], "finding_title": finding["title"], "remedy": finding["remedy"],
                            "filed_by": filed_by, "found_at_commit": found_at, **ids,
-                           "phase": meta["phase"], "sprint": meta["sprint"], "stack": meta["stack"],
+                           "phase": phase, "sprint": sprint_name, "stack": meta.get("stack"),
                            **cut,
                            "found_on_layer": finding.get("found_on_layer", ""),
                            "has_found_on_layer": finding.get("found_on_layer") not in (None, ""),
                            "priority": finding.get("priority", 1),
-                           "edge_option": option, **self.close_compose(str(meta["phase"]), f"{meta['sprint']}: fix {ref}: {finding['title']}", stack_id)}
+                           "edge_option": option, **self.close_compose(phase, f"{sprint_name}: fix {ref}: {finding['title']}", stack_id)}
                 compose["ref"] = fmt(sidecar["ref"], {"vars": {**compose, "finding_ref": slug}})
                 existing = self.bd.show(attach_id(sprint, compose["ref"], "fix"))
                 raw_existing_cut = (existing or {}).get("metadata")

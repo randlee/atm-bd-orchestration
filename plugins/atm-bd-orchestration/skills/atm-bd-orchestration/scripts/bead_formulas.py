@@ -13,51 +13,17 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from subprocess import CompletedProcess
-from typing import TypeAlias, TypeGuard
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
+from operation_models import BeadRecord, bead_record_to_json as bead_record_to_json, is_bead_records  # noqa: E402
 
 PACKAGE_FORMULAS = Path(__file__).resolve().parents[1] / "formulas"
 OVERRIDE_DIR = Path(".atm-bd") / "formula"
 TEMPLATE_SUFFIX = ".formula.toml.j2"
 RELATIONS_SUFFIX = ".relations.json"
-JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
-JsonObject: TypeAlias = dict[str, JsonValue]
-
-
-def is_object_list(value: object) -> TypeGuard[list[object]]:
-    return isinstance(value, list)
-
-
-def is_object_mapping(value: object) -> TypeGuard[dict[object, object]]:
-    return isinstance(value, dict)
-
-
-def is_json_value(value: object) -> TypeGuard[JsonValue]:
-    if value is None or isinstance(value, (str, bool, int, float)):
-        return True
-    if is_object_list(value):
-        for item in value:
-            if not is_json_value(item):
-                return False
-        return True
-    if is_object_mapping(value):
-        for key, item in value.items():
-            if not isinstance(key, str) or not is_json_value(item):
-                return False
-        return True
-    return False
-
-
-def is_json_object(value: object) -> TypeGuard[JsonObject]:
-    if not is_object_mapping(value):
-        return False
-    for key, item in value.items():
-        if not isinstance(key, str) or not is_json_value(item):
-            return False
-    return True
-
-
 def search_path(repo: Path | None) -> list[Path]:
     """Directories searched for formula files, highest precedence first."""
     return ([Path(repo) / OVERRIDE_DIR] if repo is not None else []) + [PACKAGE_FORMULAS]
@@ -113,8 +79,8 @@ class Bd:
             raise BdError(argv, proc.returncode, proc.stdout, proc.stderr)
         return proc
 
-    def show(self, bead: str) -> JsonObject | None:
-        """The bead as `bd show --json` reports it, or None when it does not exist."""
+    def show(self, bead: str) -> BeadRecord | None:
+        """One validated bd bead record, or None when it does not exist."""
         proc = self.run("show", bead, "--json", check=False)
         if proc.returncode:
             text = (proc.stderr + proc.stdout).lower()
@@ -122,12 +88,7 @@ class Bd:
                 return None
             raise BdError([self.executable, "show", bead], proc.returncode, proc.stdout, proc.stderr)
         rows: object = json.loads(proc.stdout)
-        if not is_object_list(rows):
-            raise ValueError("bd show returned invalid JSON rows")
-        parsed_rows: list[JsonObject] = []
-        for row in rows:
-            if not is_json_object(row):
-                raise ValueError("bd show returned invalid JSON rows")
-            parsed_rows.append(row)
-        return parsed_rows[0] if parsed_rows else None
+        if not is_bead_records(rows):
+            raise ValueError("bd show returned invalid bead records")
+        return rows[0] if rows else None
 
