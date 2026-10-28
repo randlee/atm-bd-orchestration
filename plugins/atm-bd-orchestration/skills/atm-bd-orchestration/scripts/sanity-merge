@@ -517,13 +517,24 @@ def verify_worktree(manifest: JsonObject) -> None:
         raise TaskFailure("SANITY.COMMIT_MISMATCH fatal 0", "worktree has uncommitted or untracked changes")
 
 
-def lint_result(manifest: JsonObject) -> tuple[int, list[JsonObject], str]:
-    lint = manifest["lint"]
+class LintFiles(TypedDict):
+    exit_file: str
+    log: str
+    raw: JsonObject
+
+
+def parse_lint_files(lint: JsonValue) -> LintFiles:
     if not isinstance(lint, dict):
         raise Reject("manifest has no lint entry; sanity-split ran with --split-only")
     exit_name, log_name = lint.get("exit_file"), lint.get("log")
     if not isinstance(exit_name, str) or not isinstance(log_name, str):
         raise Reject("manifest lint exit_file and log must be strings")
+    return {"exit_file": exit_name, "log": log_name, "raw": lint}
+
+
+def lint_result(manifest: JsonObject) -> tuple[int, list[JsonObject], str]:
+    lint_files = parse_lint_files(manifest["lint"])
+    lint, exit_name, log_name = lint_files["raw"], lint_files["exit_file"], lint_files["log"]
     exit_file = Path(exit_name)
     if not exit_file.exists():
         raise Reject("lint still running", code=4)
@@ -564,17 +575,28 @@ def fmt(finding: JsonObject) -> str:
     return f"- `{finding['file']}:{finding['line']}` {finding['kind']}: {finding['issue']}"
 
 
+class AssignmentText(TypedDict):
+    number: JsonValue
+    text: str | None
+
+
+def parse_assignment_text(value: JsonValue) -> AssignmentText | None:
+    if not isinstance(value, dict):
+        return None
+    body = value.get("assignment")
+    deliverable = body.get("deliverable") if isinstance(body, dict) else None
+    text = deliverable.get("text") if isinstance(deliverable, dict) else None
+    return {"number": value.get("number"), "text": text if isinstance(text, str) and text else None}
+
+
 def deliverable_text(manifest: JsonObject, number: int) -> str:
     assignments = manifest.get("assignments", [])
     if not isinstance(assignments, list):
         return f"Deliverable {number}"
     for assignment in assignments:
-        if isinstance(assignment, dict) and assignment.get("number") == number:
-            body = assignment.get("assignment")
-            deliverable = body.get("deliverable") if isinstance(body, dict) else None
-            text = deliverable.get("text") if isinstance(deliverable, dict) else None
-            if isinstance(text, str) and text:
-                return text
+        parsed = parse_assignment_text(assignment)
+        if parsed is not None and parsed["number"] == number and parsed["text"]:
+            return parsed["text"]
     return f"Deliverable {number}"
 
 
