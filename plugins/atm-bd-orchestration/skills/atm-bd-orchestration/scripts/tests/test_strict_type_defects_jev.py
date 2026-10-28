@@ -40,7 +40,7 @@ class MalformedBeadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "manifest.json"
             good = {"sha": "abc", "branch": "branch", "deliverables_total": 1, "lint": {}}
-            for field, value in (("sha", 1), ("branch", []), ("deliverables_total", True)):
+            for field, value in (("sha", 1), ("branch", []), ("deliverables_total", True), ("run_id", 42)):
                 with self.subTest(field=field):
                     path.write_text(json.dumps({**good, field: value}))
                     with self.assertRaises(module.Reject):

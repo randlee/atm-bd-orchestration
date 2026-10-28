@@ -131,7 +131,7 @@ class Manifest(TypedDict):
     lint: LintDescriptor
     worktree: str | None
     invalid_worktree: JsonValue
-    run_id: JsonValue
+    run_id: str | None
     has_run_id: bool
     operational_reviewer: JsonValue
     has_operational_reviewer: bool
@@ -157,6 +157,9 @@ def load_manifest(path: str | Path) -> Manifest:
         raise Reject("manifest sha and branch must be strings")
     if not isinstance(total, int) or isinstance(total, bool):
         raise Reject("manifest deliverables_total must be an integer")
+    run_id = manifest.get("run_id")
+    if run_id is not None and not isinstance(run_id, str):
+        raise Reject("manifest run_id must be a string or null")
     assert isinstance(lint, dict)
     worktree = manifest.get("worktree_path")
     reviewers = manifest.get("reviewers", [])
@@ -170,7 +173,7 @@ def load_manifest(path: str | Path) -> Manifest:
     return {"sha": sha, "branch": branch, "deliverables_total": total, "lint": parse_lint_descriptor(lint),
             "worktree": worktree if isinstance(worktree, str) else None,
             "invalid_worktree": None if isinstance(worktree, str) else worktree,
-            "run_id": manifest.get("run_id"), "has_run_id": "run_id" in manifest,
+            "run_id": run_id, "has_run_id": "run_id" in manifest,
             "operational_reviewer": manifest.get("operational_reviewer"),
             "has_operational_reviewer": "operational_reviewer" in manifest,
             "reviewers": [reviewer for reviewer in reviewers if isinstance(reviewer, str)] if isinstance(reviewers, list) else None,
@@ -328,7 +331,7 @@ def canonical_sha256(value: JsonValue) -> str:
 
 
 class ReviewerVars(TypedDict):
-    run_id: JsonValue
+    run_id: str | None
     reviewer: str
     results: list[JsonValue]
     digest: str
@@ -351,7 +354,7 @@ def load_reviewer_vars(path: str, reviewer: str, manifest: Manifest) -> Reviewer
     digest = canonical_sha256(results)
     if value.get("reviewer_results_sha256") != digest:
         raise Reject(f"reviewer vars {path} reviewer_results_sha256 does not match reviewer_results")
-    return {"run_id": value.get("run_id"), "reviewer": reviewer, "results": results, "digest": digest}
+    return {"run_id": manifest["run_id"], "reviewer": reviewer, "results": results, "digest": digest}
 
 
 def load_client(path: Path) -> tuple[JevClient | None, str | None]:
