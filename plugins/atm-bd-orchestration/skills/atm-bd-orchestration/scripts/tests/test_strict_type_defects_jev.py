@@ -18,7 +18,7 @@ WRAPPER = SCRIPT.parent / "wrap_jev_receipt.py"
 
 
 def load_module(path):
-    loader = importlib.machinery.SourceFileLoader("test_" + path.stem.replace("-", "_"), str(path))
+    loader = importlib.machinery.SourceFileLoader("_bn2_regression_" + path.stem.replace("-", "_"), str(path))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
