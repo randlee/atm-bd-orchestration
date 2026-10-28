@@ -15,7 +15,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Callable
-from typing import NoReturn
+from typing import NoReturn, TypedDict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 import sc_render  # noqa: E402
@@ -27,7 +27,19 @@ def fail(message: str) -> NoReturn:
     raise SystemExit(f"sanity-run-history: {message}")
 
 
-def read_vars(path: Path) -> JsonObject:
+class CompletionVars(TypedDict):
+    sprint: str
+    run_id: str
+    reviewer: str
+    commit: str
+    started_at: str
+    completed_at: str
+    verdict: str
+    findings_count: int | None
+    raw: JsonObject
+
+
+def read_vars(path: Path) -> CompletionVars:
     try:
         value = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
@@ -49,7 +61,19 @@ def read_vars(path: Path) -> JsonObject:
         fail("findings_count must be a nonnegative integer")
     for field in ("started_at", "completed_at"):
         utc_timestamp(value[field])
-    return value
+    # The original consumer indexes this field even for CANNOT_RUN.
+    value["findings_count"]
+    sprint, run_id, reviewer, commit, started_at, completed_at = (
+        value[field] for field in ("sprint", "run_id", "reviewer", "commit", "started_at", "completed_at")
+    )
+    verdict = value["verdict"]
+    assert isinstance(sprint, str) and isinstance(run_id, str) and isinstance(reviewer, str)
+    assert isinstance(commit, str) and isinstance(started_at, str) and isinstance(completed_at, str)
+    assert isinstance(verdict, str)
+    assert count is None or (isinstance(count, int) and not isinstance(count, bool))
+    return CompletionVars(sprint=sprint, run_id=run_id, reviewer=reviewer, commit=commit,
+                          started_at=started_at, completed_at=completed_at, verdict=verdict,
+                          findings_count=count, raw=value)
 
 
 SLOT_ERROR_KEYS = ("code", "message", "recoverable", "deliverable")
@@ -199,22 +223,21 @@ def main() -> None:
     vars = read_vars(args.vars)
     completed = utc_timestamp(vars["completed_at"])
     elapsed = max(0, round(completed.timestamp() - utc_timestamp(vars["started_at"]).timestamp()))
-    checked = vars.get("checked_bead_data")
+    checked = vars["raw"].get("checked_bead_data")
     if not isinstance(checked, dict):
         checked = {}
     sprint = vars["sprint"]
-    assert isinstance(sprint, str)
     phase = phase_from_bead(checked, sprint)
     record: JsonObject = {
         "run_id": vars["run_id"], "reviewer": vars["reviewer"], "commit": vars["commit"],
         "started_at": vars["started_at"], "duration_seconds": elapsed,
-        "error": vars.get("error"),
+        "error": vars["raw"].get("error"),
         "dev": checked_dev(checked),
-        "jev_elapsed_s": reviewer_elapsed(vars),
+        "jev_elapsed_s": reviewer_elapsed(vars["raw"]),
         "llm_elapsed_s": elapsed if vars["reviewer"] == "sanity-llm" else None,
-        "kind": result_kind(vars),
-        "errors": [*slot_errors(vars)],
-        "jev_receipts": jev_receipts(vars),
+        "kind": result_kind(vars["raw"]),
+        "errors": [*slot_errors(vars["raw"])],
+        "jev_receipts": jev_receipts(vars["raw"]),
         "task": args.task, "sprint": vars["sprint"], "phase": phase,
         "pr_number": args.pr_number, "findings": vars["findings_count"],
         "verdict": vars["verdict"], "final_verdict": args.final_verdict,
