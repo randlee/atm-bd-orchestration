@@ -1272,15 +1272,20 @@ def test_sc_install_hook_flow_matches_standalone(tmp_path):
     assert norm(a, hooked) == norm(b, standalone)
 
 
-@pytest.mark.parametrize("version", [(3, 10, 9), (3, 12, 0), (3, 14, 0)])
+@pytest.mark.parametrize("version", [(3, 9, 9), (3, 10, 9)])
 def test_python_boundary_refuses_unsupported_interpreters(version):
     with pytest.raises(install.UnsupportedPythonError, match="UNSUPPORTED_PYTHON.*Python 3.11"):
         install._check_python_version(version, "test interpreter")
 
 
+@pytest.mark.parametrize("version", [(3, 11, 0), (3, 12, 0), (3, 14, 0)])
+def test_python_boundary_accepts_the_floor_and_newer(version):
+    install._check_python_version(version, "test interpreter")
+
+
 def test_prepare_refuses_unsupported_host_before_writes(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.14.0")
+    shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.10.0")
     monkeypatch.setenv("PATH", str(bin_dir))
     destination = tmp_path / ".claude"
     result = install.prepare(str(PKG), str(destination), {})
@@ -1290,7 +1295,7 @@ def test_prepare_refuses_unsupported_host_before_writes(tmp_path, monkeypatch):
 
 
 def test_prepare_refuses_unsupported_installer_before_dependencies(tmp_path, monkeypatch):
-    monkeypatch.setattr(install.sys, "version_info", (3, 14, 0))
+    monkeypatch.setattr(install.sys, "version_info", (3, 10, 0))
     destination = tmp_path / ".claude"
     result = install.prepare(str(PKG), str(destination), {})
     assert "UNSUPPORTED_PYTHON: installer interpreter" in result["message"]

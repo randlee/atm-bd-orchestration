@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- `install.py` accepts a `python3` newer than 3.11 when it can import the sc-compose wheel: the version gate is now the 3.11 floor plus the existing wheel probe, instead of an exact 3.11 pin (#629).
+
 ## [0.19.9] - 2026-10-28
 
 ### Changed

@@ -73,4 +73,4 @@ No repository- or team-specific string may appear in `skills/` or `agents/`;
 repository becomes a required variable in `config/atm-bd-orchestration.yaml.j2`,
 never an edit.
 
-The installer and host `python3` require Python 3.11: sc-compose 1.7.0 ships cp311 wheels only. [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).
+The installer and host `python3` require Python 3.11 or newer: above the 3.11 floor the installer probes that the interpreter can import the sc-compose wheel (1.7.0 ships cp311 wheels only, so newer interpreters build it from source). [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).
