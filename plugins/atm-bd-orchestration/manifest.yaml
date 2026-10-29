@@ -282,7 +282,7 @@ install:
 
 # Runtime requirements
 requires:
-  - python3 >= 3.11
+  - python3 >= 3.11, < 3.12  # Python 3.11 only: sc-compose 1.7.0 ships cp311 wheels only; https://github.com/randlee/sc-compose/issues/819
   - pyyaml
   - pydantic
   - sc-compose >= 1.7.0, < 2  # CLI and Python wheel, the same version in this range: install.sc_compose_range()
