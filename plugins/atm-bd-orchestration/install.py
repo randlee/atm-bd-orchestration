@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11,<3.12"
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# ///
 # pyright: strict
 """atm-bd-orchestration install hook and standalone installer.
 
@@ -141,8 +145,19 @@ TOOL_INSTALLS = {
     "bd": "brew install beads",
     "git": "brew install git",
     "jq": "brew install jq",
+    "uv": "brew install uv (or: curl -LsSf https://astral.sh/uv/install.sh | sh)",
 }
-HANDLED_ELSEWHERE_REQUIREMENTS = frozenset({"python3", "pyyaml", "pydantic", "sc-compose"})
+
+SCRIPT_HEADER = (
+    "#!/usr/bin/env -S uv run --script\n"
+    "# /// script\n"
+    '# requires-python = ">=3.11,<3.12"\n'
+    '# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]\n'
+    "# ///\n"
+)
+"""The first lines of every executable script. `uv run --script` gives each run Python 3.11 with the
+scripts' dependencies from this inline metadata (PEP 723), whatever `python3` is first on PATH, and
+one header means one cached environment, so a script may start a sibling with `sys.executable` (#629)."""
 
 ConfigValue: TypeAlias = str | int | bool | list[str]
 Config: TypeAlias = dict[str, ConfigValue]
@@ -273,7 +288,6 @@ class AtmToml(TypedDict, total=False):
     atm: AtmTable
     rmux: RmuxTable
     startup: dict[str, StartupEntry]
-PYTHON_INSTALL = "install Python 3.11 with your system package manager"
 
 
 class InstallError(RuntimeError):
@@ -394,9 +408,24 @@ def sc_compose_supported(version: str, pkg_dir: Path = PKG_DIR) -> bool:
 
 def sc_compose_upgrade(pkg_dir: Path = PKG_DIR) -> str:
     floor, ceiling = sc_compose_range(pkg_dir)
-    return (f"python3 -m pip install 'sc-compose>={floor},<{ceiling}' and "
-            f"brew upgrade randlee/tap/sc-compose (or cargo install sc-compose --version '>={floor}, <{ceiling}' --locked), "
-            "the CLI and wheel at the same version")
+    return (f"brew upgrade randlee/tap/sc-compose (or cargo install sc-compose --version '>={floor}, <{ceiling}' --locked) "
+            "so the CLI is the version the script runtime resolves; `uv cache clean sc-compose` refreshes a stale wheel")
+
+
+def script_runtime_sc_compose_version() -> str:
+    """The sc-compose wheel version the scripts run with: `uv run --script` on a probe carrying SCRIPT_HEADER."""
+    with tempfile.TemporaryDirectory() as tmp:
+        probe = Path(tmp) / "probe.py"
+        probe.write_text(SCRIPT_HEADER + "import importlib.metadata as m, pydantic, sc_compose, yaml\n"
+                         "print(m.version('sc-compose'))\n", encoding="utf-8")
+        run = subprocess.run(["uv", "run", "--script", str(probe)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, cwd=tmp)
+    if run.returncode != 0:
+        lines = (run.stderr or run.stdout).strip().splitlines()
+        raise InstallError("SCRIPT_RUNTIME: `uv run --script` could not provide Python 3.11 with pydantic, PyYAML and the "
+                           f"sc-compose wheel, which the scripts need: {lines[-1] if lines else 'no output'}; "
+                           "run `uv python install 3.11` and rerun")
+    return run.stdout.strip()
 
 
 def declared_tool_requirements(pkg_dir: Path = PKG_DIR) -> list[tuple[str, str]]:
@@ -411,8 +440,6 @@ def declared_tool_requirements(pkg_dir: Path = PKG_DIR) -> list[tuple[str, str]]
         if match is None:
             raise InstallError(f"{pkg_dir / MANIFEST_FILE}: unrecognized requirement {requirement!r}")
         name, floor = match.groups()
-        if name in HANDLED_ELSEWHERE_REQUIREMENTS:
-            continue
         if name not in TOOL_INSTALLS:
             raise InstallError(f"{pkg_dir / MANIFEST_FILE}: unrecognized requirement {name!r}")
         if floor is None:
@@ -453,8 +480,6 @@ def _check_required_tool(name: str, required: str, install_command: str) -> None
     if actual is None:
         raise InstallError(f"{name} --version did not report a semantic version: {reported or 'no output'}; install it with: {install_command}")
     assert floor is not None
-    if name == "python3":
-        _check_python_version(actual, "python3 on PATH")
     if actual < floor:
         raise InstallError(f"{name} is {'.'.join(map(str, actual))}, older than required {required}; install it with: {install_command}")
 
@@ -711,7 +736,8 @@ def render_text(text: str, variables: Dict[str, str]) -> str:
 
 def check_tools() -> None:
     _check_python_version(tuple(sys.version_info[:3]), "installer interpreter")
-    _check_required_tool("python3", manifest_requirement_floor("python3"), PYTHON_INSTALL)
+    for name, floor in declared_tool_requirements():
+        _check_required_tool(name, floor, TOOL_INSTALLS[name])
     floor, ceiling = sc_compose_range()
     needs = f"the package needs >= {floor}, < {ceiling}"
     if shutil.which("sc-compose") is None:
@@ -721,21 +747,13 @@ def check_tools() -> None:
     if cli.returncode != 0 or not sc_compose_supported(cli_version):
         raise InstallError(f"sc-compose CLI is {cli.stdout.strip() or cli.stderr.strip()}, {needs}; "
                            f"install {sc_compose_upgrade()} and rerun")
-    # validate-plan runs scripts/bead_schema.py (pydantic) and the scripts render with the
-    # sc-compose wheel, all with the python3 on PATH.
-    probe = subprocess.run(["python3", "-c", "from pydantic import JsonValue, TypeAdapter; "
-                            "import yaml, sc_compose, importlib.metadata as m; print(m.version('sc-compose'))"],
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if probe.returncode != 0:
-        raise InstallError("python3 on PATH cannot import Pydantic v2 JsonValue/TypeAdapter, PyYAML and the sc-compose wheel, "
-                           "which the scripts need; install them (python3 -m pip "
-                           f"install 'pydantic>=2' pyyaml 'sc-compose=={cli_version}') and rerun")
-    wheel_version = probe.stdout.strip()
+    # The scripts run under `uv run --script` (SCRIPT_HEADER): that runtime's sc-compose wheel is the one that counts.
+    wheel_version = script_runtime_sc_compose_version()
     if not sc_compose_supported(wheel_version):
-        raise InstallError(f"python3 on PATH has the sc-compose wheel {wheel_version}, {needs}; "
+        raise InstallError(f"the script runtime has the sc-compose wheel {wheel_version}, {needs}; "
                            f"install {sc_compose_upgrade()} and rerun")
     if wheel_version != cli_version:
-        raise InstallError(f"the sc-compose CLI is {cli_version} and the python3 wheel is {wheel_version}; they must "
+        raise InstallError(f"the sc-compose CLI is {cli_version} and the script runtime's wheel is {wheel_version}; they must "
                            f"be the same version; install {sc_compose_upgrade()} and rerun")
     try:
         from importlib.metadata import version
@@ -747,8 +765,6 @@ def check_tools() -> None:
     if interpreter_version != cli_version:
         raise InstallError(f"the sc-compose CLI is {cli_version} but the installer interpreter wheel is "
                            f"{interpreter_version}; upgrade the app or host to sc-compose=={cli_version} and rerun")
-    for name, floor in declared_tool_requirements():
-        _check_required_tool(name, floor, TOOL_INSTALLS[name])
 
 
 def check_beads_server_mode(repo_root: Path) -> None:

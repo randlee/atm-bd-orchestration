@@ -34,9 +34,12 @@ Requirements in the consuming repository:
   `reviewers_round1` (agents this package ships count). `dev_sanity_member`
   names a team member and is not checked: it may have no agent file;
 - a git `origin` remote (`owner/name`);
-- every manifest requirement on PATH: `python3` (with PyYAML and pydantic),
-  `sc-compose`, `atm`, `bd`, `jq`, `git`, and `atm-bd`. The installer
-  verifies their declared version floors before it writes anything.
+- every manifest requirement on PATH: `uv`, `sc-compose`, `atm`, `bd`, `jq`,
+  `git`, and `atm-bd`. The installer verifies their declared version floors
+  before it writes anything. No `python3` on PATH is consulted: every script
+  starts with `#!/usr/bin/env -S uv run --script` and PEP 723 inline metadata,
+  so `uv` gives each run Python 3.11 with pydantic, PyYAML and the sc-compose
+  wheel.
 - `gh` and `gh-stack` for lead-only stacked-PR work (not installer-verified).
 
 Jev sanity checks and post-mortem screening also need `TYPESAFE_API_KEY` in the
@@ -51,9 +54,9 @@ and cannot announce its result.
 Standalone, from a checkout of this repository:
 
 ```bash
-python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude
-python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.codex   # skills only, no agents
-python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude --set test_command="make test"
+plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude
+plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.codex   # skills only, no agents
+plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude --set test_command="make test"
 ```
 
 Through `atm-bd skill`: the `atm-bd` console package's entry point wraps
@@ -226,7 +229,7 @@ file when its bytes are what 0.4.0 installs or what any 0.x version shipped
 ```bash
 cd plugins/atm-bd-orchestration
 uv run --with pytest --with pydantic --with pyyaml python -m pytest -q
-python3 tests/gen_manifest.py --check   # manifest.yaml artifacts and the registry.yaml render list are generated
+uv run --project ../../apps/atm-bd-console python tests/gen_manifest.py --check   # manifest.yaml artifacts and the registry.yaml render list are generated
 ```
 
 `conftest.py` sets the import path and keeps pytest out of `skills/` and
@@ -236,7 +239,7 @@ they resolve paths from the repository layout. One upstream test that reads the
 source repository's own phase-d plan is deselected. The install tests need
 `sc-compose` and are skipped, with a message, when it is not on PATH;
 `tests/test_sc_compose_version.py` fails unless the sc-compose CLI and the
-`python3` wheel are one version in the manifest's `sc-compose >= 1.7.0, < 2`
+script runtime's wheel are one version in the manifest's `sc-compose >= 1.7.0, < 2`
 range (CI installs the floor);
 `test_real_upgrade_from_a_0_2_3_install` needs the package history (a full
 clone). CI (`.github/workflows/tests.yml`) runs all of them on ubuntu and macos.
@@ -287,4 +290,4 @@ until upstream carries it, then drops it from this list.
   - `skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json`:
     `"qa_round": 2`.
 
-The installer and host `python3` require Python 3.11: sc-compose 1.7.0 ships cp311 wheels only. [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).
+The installer's own interpreter and the scripts' inline metadata require Python 3.11: sc-compose 1.7.0 ships cp311 wheels only. The `python3` on PATH does not matter; `uv` supplies 3.11 to every script run. [Stable-ABI wheel request](https://github.com/randlee/sc-compose/issues/820) (supersedes #819); once it ships, the pin widens.

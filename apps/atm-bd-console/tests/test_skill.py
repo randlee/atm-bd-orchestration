@@ -125,7 +125,8 @@ def host_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     tool_dir.mkdir()
     compose_version = importlib.metadata.version("sc-compose")
     outputs = {
-        "python3": f'if [ "$1" = "--version" ]; then echo "Python 3.11.0"; else echo "{compose_version}"; fi',
+        "python3": 'echo "Python 3.14.7"',
+        "uv": f'if [ "$1" = "--version" ]; then echo "uv 0.12.5"; else echo "{compose_version}"; fi',
         "sc-compose": f'echo "sc-compose {compose_version}"',
         "atm": 'echo "atm 99.0.0"',
         "atm-bd": 'echo "atm-bd 99.0.0"',

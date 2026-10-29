@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import io
 from pathlib import Path
@@ -427,7 +428,8 @@ def test_versions_agree():
 
 
 def shim_sc_compose(bin_dir: Path, cli: str, wheel: str, python_version: str = "3.11.0") -> None:
-    """`sc-compose --version` prints `sc-compose <cli>`; `python3 -c ...` prints the wheel version <wheel>."""
+    """`sc-compose --version` prints `sc-compose <cli>`; `uv run --script ...` prints the wheel version <wheel>;
+    `python3` on PATH reports <python_version> and is never consulted."""
     bin_dir.mkdir(exist_ok=True)
     for name, out in (("sc-compose", f"sc-compose {cli}"),
                       ("atm-bd", f"atm-bd {install.manifest_requirement_floor('atm-bd')}"),
@@ -435,10 +437,12 @@ def shim_sc_compose(bin_dir: Path, cli: str, wheel: str, python_version: str = "
                       ("jq", "jq-1.6"), ("git", "git version 2.27.0")):
         (bin_dir / name).write_text(f"#!/bin/sh\necho '{out}'\n")
         (bin_dir / name).chmod(0o755)
-    (bin_dir / "python3").write_text(
-        f"#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'Python {python_version}'; else echo '{wheel}'; fi\n"
-    )
+    (bin_dir / "python3").write_text(f"#!/bin/sh\necho 'Python {python_version}'\n")
     (bin_dir / "python3").chmod(0o755)
+    (bin_dir / "uv").write_text(
+        f"#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'uv 0.12.5'; else echo '{wheel}'; fi\n"
+    )
+    (bin_dir / "uv").chmod(0o755)
 
 
 @pytest.mark.parametrize("cli, wheel, refusal", [
@@ -447,8 +451,8 @@ def shim_sc_compose(bin_dir: Path, cli: str, wheel: str, python_version: str = "
     ("1.12.0", "1.12.0", None),
     ("1.6.1", "1.6.1", "sc-compose CLI is sc-compose 1.6.1, the package needs >= 1.7.0, < 2"),
     ("2.0.0", "2.0.0", "sc-compose CLI is sc-compose 2.0.0, the package needs >= 1.7.0, < 2"),
-    ("1.7.0", "1.6.1", "python3 on PATH has the sc-compose wheel 1.6.1, the package needs >= 1.7.0, < 2"),
-    ("1.7.1", "1.7.0", "the sc-compose CLI is 1.7.1 and the python3 wheel is 1.7.0; they must be the same version"),
+    ("1.7.0", "1.6.1", "the script runtime has the sc-compose wheel 1.6.1, the package needs >= 1.7.0, < 2"),
+    ("1.7.1", "1.7.0", "the sc-compose CLI is 1.7.1 and the script runtime's wheel is 1.7.0; they must be the same version"),
 ])
 def test_check_tools_accepts_one_sc_compose_version_in_the_range(tmp_path, monkeypatch, cli, wheel, refusal):
     import importlib.metadata
@@ -461,7 +465,7 @@ def test_check_tools_accepts_one_sc_compose_version_in_the_range(tmp_path, monke
     with pytest.raises(install.InstallError) as caught:
         install.check_tools()
     assert refusal in str(caught.value)
-    assert "python3 -m pip install 'sc-compose>=1.7.0,<2'" in str(caught.value)
+    assert "brew upgrade randlee/tap/sc-compose" in str(caught.value)
 
 
 def test_install_refuses_installer_interpreter_mismatch_before_writes(tmp_path, monkeypatch):
@@ -537,12 +541,34 @@ def test_check_tools_refuses_an_atm_without_hook_and_cron(tmp_path, monkeypatch)
         install.check_tools()
 
 
-def test_check_tools_refuses_python_below_its_manifest_floor(tmp_path, monkeypatch):
+def test_check_tools_ignores_the_python3_on_path(tmp_path, monkeypatch):
+    import importlib.metadata
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.7.0")
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.10.0")
+    shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.14.7")
     monkeypatch.setenv("PATH", str(bin_dir))
 
-    with pytest.raises(install.InstallError, match=r"UNSUPPORTED_PYTHON: python3 on PATH is 3\.10\.0.*Python 3\.11"):
+    install.check_tools()
+
+
+def test_check_tools_requires_uv_for_the_script_runtime(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    (bin_dir / "uv").unlink()
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    with pytest.raises(install.InstallError, match=r"uv is not on PATH; install it with: brew install uv"):
+        install.check_tools()
+
+
+def test_check_tools_reports_a_script_runtime_that_cannot_resolve(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    (bin_dir / "uv").write_text("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'uv 0.12.5'; else "
+                                "echo 'error: No interpreter found for Python >=3.11, <3.12' >&2; exit 2; fi\n")
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    with pytest.raises(install.InstallError, match=r"SCRIPT_RUNTIME: .*No interpreter found for Python >=3\.11.*uv python install 3\.11"):
         install.check_tools()
 
 
@@ -552,6 +578,7 @@ def test_the_manifest_requires_sc_compose_from_1_7_0_below_2():
 
 def test_manifest_declares_every_installer_verified_cli():
     assert install.declared_tool_requirements() == [
+        ("uv", "0.4"),
         ("atm", "1.6.3"),
         ("bd", "1.3.0"),
         ("jq", "1.6"),
@@ -663,7 +690,7 @@ def pkg_copy(tmp_path):
 
 
 def regenerate(pkg: Path) -> None:
-    run_command(["python3", str(pkg / "tests/gen_manifest.py")], check=True)
+    run_command([sys.executable, str(pkg / "tests/gen_manifest.py")], check=True)
 
 
 # ---------------------------------------------------------------- values (no sc-compose)
@@ -1202,7 +1229,7 @@ def test_real_upgrade_from_a_0_2_3_install(tmp_path, capsys):
     old_pkg = tmp_path / "old"
     repo = make_repo(tmp_path)
     (repo / ".atm.toml").write_text('[atm]\ndefault_team = "my-team"\n')
-    old = run_command(["python3", str(old_pkg / "install.py"), "--dest", str(repo / ".claude")],
+    old = run_command([sys.executable, str(old_pkg / "install.py"), "--dest", str(repo / ".claude")],
                       stderr=subprocess.STDOUT, text=True)
     assert old.returncode == 0, old.stdout
     assert not (repo / install.LOCK_OUT).exists()
@@ -1278,15 +1305,15 @@ def test_python_boundary_refuses_unsupported_interpreters(version):
         install._check_python_version(version, "test interpreter")
 
 
-def test_prepare_refuses_unsupported_host_before_writes(tmp_path, monkeypatch):
+def test_prepare_does_not_refuse_on_the_host_python3(tmp_path, monkeypatch):
+    import importlib.metadata
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.7.0")
     bin_dir = tmp_path / "bin"
     shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.14.0")
     monkeypatch.setenv("PATH", str(bin_dir))
     destination = tmp_path / ".claude"
     result = install.prepare(str(PKG), str(destination), {})
-    assert "UNSUPPORTED_PYTHON" in result["message"]
-    assert "Python 3.11" in result["message"]
-    assert not destination.exists()
+    assert "UNSUPPORTED_PYTHON" not in str(result)
 
 
 def test_prepare_refuses_unsupported_installer_before_dependencies(tmp_path, monkeypatch):
