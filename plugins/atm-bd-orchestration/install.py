@@ -273,11 +273,23 @@ class AtmToml(TypedDict, total=False):
     atm: AtmTable
     rmux: RmuxTable
     startup: dict[str, StartupEntry]
-PYTHON_INSTALL = "install Python 3.11 or newer with your system package manager"
+PYTHON_INSTALL = "install Python 3.11 with your system package manager"
 
 
 class InstallError(RuntimeError):
     """An install refusal; the message names what to fix."""
+
+
+class UnsupportedPythonError(InstallError):
+    """The interpreter is outside the supported Python 3.11 boundary."""
+
+
+def _check_python_version(version: tuple[int, ...], interpreter: str) -> None:
+    if version[:2] != (3, 11):
+        raise UnsupportedPythonError(
+            f"UNSUPPORTED_PYTHON: {interpreter} is {'.'.join(map(str, version))}; "
+            "install and run under Python 3.11 (sc-compose 1.7.0 ships cp311 wheels only)"
+        )
 
 
 def _load_validation_dependencies() -> None:
@@ -357,7 +369,7 @@ def package_version(pkg_dir: Path = PKG_DIR) -> str:
 
 
 SC_COMPOSE_RANGE_RE = re.compile(r"sc-compose >= ([0-9]+\.[0-9]+\.[0-9]+), < ([0-9]+)")
-TOOL_REQUIREMENT_RE = re.compile(r"([a-z][a-z0-9-]*)(?: >= ([0-9]+(?:\.[0-9]+){0,2}))?")
+TOOL_REQUIREMENT_RE = re.compile(r"([a-z][a-z0-9-]*)(?: >= ([0-9]+(?:\.[0-9]+){0,2})(?:, < [0-9]+(?:\.[0-9]+){0,2})?)?")
 
 
 def sc_compose_range(pkg_dir: Path = PKG_DIR) -> Tuple[str, int]:
@@ -441,6 +453,8 @@ def _check_required_tool(name: str, required: str, install_command: str) -> None
     if actual is None:
         raise InstallError(f"{name} --version did not report a semantic version: {reported or 'no output'}; install it with: {install_command}")
     assert floor is not None
+    if name == "python3":
+        _check_python_version(actual, "python3 on PATH")
     if actual < floor:
         raise InstallError(f"{name} is {'.'.join(map(str, actual))}, older than required {required}; install it with: {install_command}")
 
@@ -696,6 +710,7 @@ def render_text(text: str, variables: Dict[str, str]) -> str:
 
 
 def check_tools() -> None:
+    _check_python_version(tuple(sys.version_info[:3]), "installer interpreter")
     _check_required_tool("python3", manifest_requirement_floor("python3"), PYTHON_INSTALL)
     floor, ceiling = sc_compose_range()
     needs = f"the package needs >= {floor}, < {ceiling}"
@@ -1314,6 +1329,7 @@ def _codex(destination_path: str, options: InstallerHookOptions) -> bool:
 
 def _plan_or_fail(source_path: str, destination_path: str, options: InstallerHookInput) -> Tuple[Optional[Plan], Config, Optional[dict[str, str]]]:
     try:
+        _check_python_version(tuple(sys.version_info[:3]), "installer interpreter")
         _load_validation_dependencies()
         check_tools()
         try:
@@ -1380,6 +1396,7 @@ def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
                         help=f"move modified or foreign files in the way to {BACKUP_DIR}/<time>/ and install over them")
     args = parser.parse_args(argv)
     try:
+        _check_python_version(tuple(sys.version_info[:3]), "installer interpreter")
         _load_validation_dependencies()
         overrides = parse_set(args.set)
     except InstallError as exc:
