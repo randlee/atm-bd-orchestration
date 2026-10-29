@@ -25,7 +25,7 @@ uv run --frozen pyright src
 
 ## Installation and prerequisites
 
-Install the package with `uv tool install atm-bd` (Python 3.11).
+Install the package with `uv tool install atm-bd` (Python 3.11 or newer).
 To install from source instead, use `uv tool install
 "git+https://github.com/randlee/atm-bd-orchestration.git#subdirectory=apps/atm-bd-console"`.
 The console and cron commands operate on a configured repository and require
@@ -258,4 +258,4 @@ To rotate safely:
 Do not truncate or rename active logs while writers are running. A scheduled
 rotation job must coordinate the same stop/archive/restart sequence.
 
-The installer and host `python3` require Python 3.11: sc-compose 1.7.0 ships cp311 wheels only. [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).
+The installer and host `python3` require Python 3.11 or newer: above the 3.11 floor the installer probes that the interpreter can import the sc-compose wheel (1.7.0 ships cp311 wheels only, so newer interpreters build it from source). [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).

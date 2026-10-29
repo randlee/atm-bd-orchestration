@@ -42,7 +42,7 @@ You need these command-line tools and three Python packages. Check them once per
 
 | Tool | Why | Needs | Install | Check |
 | --- | --- | --- | --- | --- |
-| `python3` | Runs the installed scripts | 3.11 only | your system package manager | `python3 --version` |
+| `python3` | Runs the installed scripts | 3.11 or newer | your system package manager | `python3 --version` |
 | `atm-bd` | The console and the skill installer | 0.19.2 for these steps | `uv tool install atm-bd` | `atm-bd --version` |
 | `atm` | Agent messaging, task assignment, hooks and crons | 1.6.3 or newer | the GitHub prerelease from [randlee/atm-core](https://github.com/randlee/atm-core/releases) until a stable release has `atm hook`; `brew install randlee/tap/atm` gives 1.6.1, which lacks `atm hook` and `atm cron` | `atm --version`, `atm hook --help` |
 | `bd` | Beads, the issue tracker the work runs on | 1.3.0 or newer | `brew install beads` | `bd --version` |
@@ -293,4 +293,4 @@ Every error names the setting or tool at fault, so paste it to Claude and ask fo
 
 The console only reads files in the folder you start it from; it does not look in parent folders.
 
-The installer and host `python3` require Python 3.11: sc-compose 1.7.0 ships cp311 wheels only. [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).
+The installer and host `python3` require Python 3.11 or newer: above the 3.11 floor the installer probes that the interpreter can import the sc-compose wheel (1.7.0 ships cp311 wheels only, so newer interpreters build it from source). [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).

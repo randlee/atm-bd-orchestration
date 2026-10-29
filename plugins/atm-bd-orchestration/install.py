@@ -273,7 +273,7 @@ class AtmToml(TypedDict, total=False):
     atm: AtmTable
     rmux: RmuxTable
     startup: dict[str, StartupEntry]
-PYTHON_INSTALL = "install Python 3.11 with your system package manager"
+PYTHON_INSTALL = "install Python 3.11 or newer with your system package manager"
 
 
 class InstallError(RuntimeError):
@@ -281,14 +281,15 @@ class InstallError(RuntimeError):
 
 
 class UnsupportedPythonError(InstallError):
-    """The interpreter is outside the supported Python 3.11 boundary."""
+    """The interpreter is below the supported Python 3.11 floor."""
 
 
 def _check_python_version(version: tuple[int, ...], interpreter: str) -> None:
-    if version[:2] != (3, 11):
+    if version[:2] < (3, 11):
         raise UnsupportedPythonError(
             f"UNSUPPORTED_PYTHON: {interpreter} is {'.'.join(map(str, version))}; "
-            "install and run under Python 3.11 (sc-compose 1.7.0 ships cp311 wheels only)"
+            "install and run under Python 3.11 or newer (the check that this interpreter can "
+            "import the sc-compose wheel follows separately)"
         )
 
 
