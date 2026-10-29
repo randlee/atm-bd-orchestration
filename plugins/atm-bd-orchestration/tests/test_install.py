@@ -420,7 +420,7 @@ def test_config_template_declares_exactly_the_spec_variables_and_sanity_default(
 
 def test_versions_agree():
     version = install.package_version(PKG)
-    assert version == "0.19.8"
+    assert version == "0.19.9"
     assert json.loads((PKG / ".claude-plugin/plugin.json").read_text())["version"] == version
     assert f"## [{version}]" in (PKG / "CHANGELOG.md").read_text()
 
@@ -542,7 +542,7 @@ def test_check_tools_refuses_python_below_its_manifest_floor(tmp_path, monkeypat
     shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.10.0")
     monkeypatch.setenv("PATH", str(bin_dir))
 
-    with pytest.raises(install.InstallError, match=r"python3 is 3\.10\.0, older than required 3\.11"):
+    with pytest.raises(install.InstallError, match=r"UNSUPPORTED_PYTHON: python3 on PATH is 3\.10\.0.*Python 3\.11"):
         install.check_tools()
 
 
@@ -864,7 +864,7 @@ def test_fresh_install(tmp_path, capsys):
     assert config["reviewers_round1"] == ["req-qa", "arch-qa"]
     # the install record: version and the sha256 of every file written
     record = lock(repo)
-    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.19.8"
+    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.19.9"
     expected = {f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]} | {install.CONFIG_OUT}
     assert set(record["files"]) == expected
     assert all(sha((repo / k).read_bytes()) == v for k, v in record["files"].items())
@@ -1179,7 +1179,7 @@ def test_migration_owns_shipped_and_legacy_bytes_and_fails_on_others(tmp_path, p
     assert rc == 0, err
     assert (repo / ".claude" / script).read_bytes() == (PKG / script).read_bytes()
     assert not (repo / ".claude" / dropped).exists()
-    assert lock(repo)["version"] == "0.19.8"
+    assert lock(repo)["version"] == "0.19.9"
 
 
 def _git_has(rev: str) -> bool:
@@ -1270,3 +1270,29 @@ def test_sc_install_hook_flow_matches_standalone(tmp_path):
     norm = lambda snap, root: {k: v.replace(str(root.resolve()).encode(), b"ROOT").replace(str(root.resolve().parent).encode(), b"PARENT")
                                for k, v in snap.items() if k != install.LOCK_OUT}
     assert norm(a, hooked) == norm(b, standalone)
+
+
+@pytest.mark.parametrize("version", [(3, 10, 9), (3, 12, 0), (3, 14, 0)])
+def test_python_boundary_refuses_unsupported_interpreters(version):
+    with pytest.raises(install.UnsupportedPythonError, match="UNSUPPORTED_PYTHON.*Python 3.11"):
+        install._check_python_version(version, "test interpreter")
+
+
+def test_prepare_refuses_unsupported_host_before_writes(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.14.0")
+    monkeypatch.setenv("PATH", str(bin_dir))
+    destination = tmp_path / ".claude"
+    result = install.prepare(str(PKG), str(destination), {})
+    assert "UNSUPPORTED_PYTHON" in result["message"]
+    assert "Python 3.11" in result["message"]
+    assert not destination.exists()
+
+
+def test_prepare_refuses_unsupported_installer_before_dependencies(tmp_path, monkeypatch):
+    monkeypatch.setattr(install.sys, "version_info", (3, 14, 0))
+    destination = tmp_path / ".claude"
+    result = install.prepare(str(PKG), str(destination), {})
+    assert "UNSUPPORTED_PYTHON: installer interpreter" in result["message"]
+    assert "Python 3.11" in result["message"]
+    assert not destination.exists()

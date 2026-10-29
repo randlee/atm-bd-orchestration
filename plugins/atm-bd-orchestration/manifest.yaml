@@ -1,5 +1,5 @@
 name: atm-bd-orchestration
-version: 0.19.8
+version: 0.19.9
 description: >
   Bead-driven phase orchestration for ATM agent teams: the phase plan as a
   beads graph (atm-beads), dispatch, dev-sanity, QA and stack landing driven
@@ -152,6 +152,9 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_split.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_stack.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_task_close_hook.py
+    - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_jev.py
+    - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_report.py
+    - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_tools.py
     - skills/atm-bd-orchestration/scripts/tests/test_task_close.py
     - skills/atm-bd-orchestration/scripts/tests/test_templates.py
     - skills/atm-bd-orchestration/scripts/tests/test_transitions.py
@@ -218,6 +221,7 @@ artifacts:
     - skills/atm-beads/scripts/bead_schema.py
     - skills/atm-beads/scripts/check-phase-artifact
     - skills/atm-beads/scripts/close_fields.py
+    - skills/atm-beads/scripts/operation_models.py
     - skills/atm-beads/scripts/phase-config
     - skills/atm-beads/scripts/phase-index-path
     - skills/atm-beads/scripts/plan_contract.py
@@ -255,6 +259,7 @@ artifacts:
     - skills/sprint-report/scripts/sprint-report
     - skills/sprint-report/scripts/sprint_dag.py
     - skills/sprint-report/scripts/sprint_qa.py
+    - skills/sprint-report/tests/test_operation_models.py
     - skills/sprint-report/tests/test_phase_beads.py
     - skills/sprint-report/tests/test_sprint_dag.py
     - skills/sprint-report/tests/test_sprint_report.py
@@ -277,7 +282,7 @@ install:
 
 # Runtime requirements
 requires:
-  - python3 >= 3.11
+  - python3 >= 3.11, < 3.12  # Python 3.11 only: sc-compose 1.7.0 ships cp311 wheels only; https://github.com/randlee/sc-compose/issues/819
   - pyyaml
   - pydantic
   - sc-compose >= 1.7.0, < 2  # CLI and Python wheel, the same version in this range: install.sc_compose_range()

@@ -286,3 +286,5 @@ until upstream carries it, then drops it from this list.
     `qa_round` above 1 without own ids.
   - `skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json`:
     `"qa_round": 2`.
+
+The installer and host `python3` require Python 3.11: sc-compose 1.7.0 ships cp311 wheels only. [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).
