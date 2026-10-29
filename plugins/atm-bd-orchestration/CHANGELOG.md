@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.11] - 2026-10-29
+
 ### Changed
 - Every executable script starts with `#!/usr/bin/env -S uv run --script` and PEP 723 inline metadata (`requires-python = ">=3.11,<3.12"`, pydantic, PyYAML, the manifest's sc-compose range), so each run gets Python 3.11 and the scripts' dependencies from uv whatever `python3` is first on PATH. The installer requires `uv >= 0.4` and probes that runtime's sc-compose wheel against the CLI; it no longer checks or requires a `python3` on PATH (`UNSUPPORTED_PYTHON: python3 on PATH` is gone; the installer's own interpreter must still be 3.11). Agents, templates and references invoke the scripts directly, never through `python3` (#629).
 
