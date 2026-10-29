@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.10] - 2026-10-29
+
 ### Fixed
 - `operation_models.BeadMetadata` reads the historical closed-bead shape: `branch` and `pr_target` admit `null` (the placeholder earlier pours left until the link step filled them) and `stack` admits an integer stack number. `bd list` returns every bead, so `is_bead_records` rejected 385 closed beads in atm-core and `sprint-report --table` and `bead-groups` died on them; closed beads are not rewritten (#631).
 
