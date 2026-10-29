@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.19.12] - 2026-10-29
+
+### Fixed
+- `atm-task-close.py` sanity dispatch defaults `layer_prs` to the derived checked PR when the close vars do not set it, so `sanity-split` adds the PR body as `pr_body` evidence and Jev judges parity-proof deliverables with it; lead-supplied `layer_prs` are kept. `sanity-split` writes the concrete `owner/repo` read from `origin` instead of gh's `{owner}/{repo}` placeholder, and `jev_client` rejects a placeholder repo (#636).
+- `bead-groups` skips closed beads before the `BeadRow` check, so closed QA beads carrying the historical `null`/integer metadata shape no longer raise `phase beads contain a malformed bead record` and refuse every pour in the phase (`BEAD_GROUPS_CANNOT_RUN` on atm-core phase bg); open beads are still checked (#639).
+
 ## [0.19.11] - 2026-10-29
 
 ### Changed
