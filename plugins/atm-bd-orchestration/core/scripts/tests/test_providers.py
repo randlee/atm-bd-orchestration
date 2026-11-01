@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from atm_bd_types import ErrorKind, MergedPrRef, PrOp, ProviderCommands
+from pr_lookup import comment_body
 from providers import execute, load_provider
 from result import Err, Ok
 
@@ -103,3 +104,18 @@ def test_merged_lookup_checks_each_candidate(tmp_path: Path) -> None:
                      cwd=tmp_path, runner=run, accept_merged=lambda pr: pr.merge_commit == "wanted")
     assert isinstance(result, Ok) and isinstance(result.value, MergedPrRef)
     assert result.value.number == "2" and result.value.merge_commit == "wanted"
+
+
+def test_azure_comment_evidence_uses_configured_repo_and_thread(tmp_path: Path) -> None:
+    config = {"provider": "azure", "azure": {"organization": "org", "project": "project", "repository": "actual-repo"}}
+    seen: list[list[str]] = []
+
+    def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"comments": [{"content": "evidence", "author": {"uniqueName": "dev"}}]}), "")
+
+    with patch("pr_lookup.repo_config.load", return_value=config), patch("providers.subprocess.run", side_effect=run):
+        result = comment_body("12", tmp_path, "other/repo", "34")
+    assert isinstance(result, Ok) and result.value.body == "evidence"
+    assert "repositoryId=actual-repo" in seen[0]
+    assert "pullRequestId=12" in seen[0] and "threadId=34" in seen[0]

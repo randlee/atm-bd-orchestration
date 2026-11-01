@@ -326,12 +326,15 @@ def validate_phase(beads: list[JsonObject], profile: Profile = Profile.FULL) -> 
         stamp = metadata.get("profile") if is_object_mapping(metadata) else None
         if stamp is None and any(stage in labels for stage in ("stage:dev", "stage:fix", "stage:dev-sanity", "stage:qa")):
             stamp = "full"  # Historical stage beads predate profile stamps.
-        if profile == Profile.LITE and "stage:dev-sanity" in labels:
-            found.append(f"{bead_id}: sanity bead is forbidden in a lite phase")
-        if profile == Profile.FULL and stamp == "lite":
-            found.append(f"{bead_id}: lite bead in a full phase")
-        if profile == Profile.LITE and stamp == "full":
-            found.append(f"{bead_id}: full bead in a lite phase")
+        match profile:
+            case Profile.FULL:
+                if stamp == "lite":
+                    found.append(f"{bead_id}: lite bead in a full phase")
+            case Profile.LITE:
+                if "stage:dev-sanity" in labels:
+                    found.append(f"{bead_id}: sanity bead is forbidden in a lite phase")
+                if stamp == "full":
+                    found.append(f"{bead_id}: full bead in a lite phase")
         if re.fullmatch(r".+-phase-[a-z0-9]+", bead_id):
             model = RootBead
         elif bead.get("issue_type") == "gate":

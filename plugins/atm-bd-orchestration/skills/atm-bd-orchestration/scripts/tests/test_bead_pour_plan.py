@@ -35,6 +35,7 @@ class PlanFixture:
         self.runner = object.__new__(groups.Run)
         self.runner.repo = root
         self.runner.option = None
+        self.runner.profile = lambda _phase: "full"
         self.runner.config = {"worktree_base": str(root / "worktrees"), "lint_command": "just lint",
                               "policy_path": "policy.md", "max_sanity_rounds": 5,
                               "reviewers_round1": ["req-qa", "arch-qa"]}
@@ -184,6 +185,20 @@ class PourPlanTests(unittest.TestCase):
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0]["operation"], "preview_attach")
         self.assertIn({"from": "step:dev", "to": f"bead:{self.sprint}.group-dev", "type": "blocks"}, requests[0]["relations"])
+
+    def test_lite_finding_formula_has_fix_and_qa(self):
+        lite = core_scripts().parents[1] / "skills/atm-bd-lite/formulas"
+        self.runner.profile = lambda _phase: "lite"
+        finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "arch-qa", "title": "issue", "remedy": "fix it"}
+        with patch.object(groups.bead_formulas, "relations", return_value=lite / "finding-group.relations.json"):
+            target = self.fixture.findings(self.sprint, f"{self.sprint}.group-qa", finding)[0]
+        template = self.fixture.root / "lite-finding.toml.j2"
+        template.write_text((lite / "finding-group.formula.toml.j2").read_text().replace("{{{", "{{").replace("}}}", "}}"))
+        steps = tomllib.loads(sc_render.render(template, target["compose"]))["steps"]
+        self.assertEqual([step["id"] for step in steps], ["fix", "qa"])
+        self.assertEqual(steps[1]["needs"], ["fix"])
+        self.assertTrue(all(step["metadata"]["profile"] == "lite" for step in steps))
+        self.assertTrue(all("sanity_bead" not in step["metadata"] for step in steps))
 
     def test_flat_finding_formula_and_layer_cut(self):
         self.fixture.rows["t-phase-x.stack"]["metadata"]["layers"] = [
