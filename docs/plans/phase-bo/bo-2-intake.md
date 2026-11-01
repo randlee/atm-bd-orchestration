@@ -38,6 +38,7 @@ The scan looks at other open issues, open pull requests, and each active phase: 
 
 ## Acceptance
 
+- Each agent stays at 1–3KB. Review against the phase plan's Review standard. A review that adds prose fails.
 - Each file has YAML frontmatter with `name`, `version`, and a one-sentence description, and returns fenced JSON whose `data.determination` is one label.
 - `dup/#N` is the close determination. The agent does not classify kind, area, size, or priority.
 - `phase-done/yes` carries the pull request number and commit. The next patch label is applied by the skill from `release-version.toml`.

@@ -34,6 +34,7 @@ Add the normal-difficulty agents that verify the report and set architecture and
 
 ## Acceptance
 
+- Each agent stays at 1–3KB. Review against the phase plan's Review standard. A review that adds prose fails.
 - Each file has YAML frontmatter with `name`, `version`, and a one-sentence description, and returns fenced JSON whose `data.determination` is one label.
 - `issue-report-verify` does not set kind, priority, arch, or security.
 - `issue-gap-classify` returns one of the three gap labels and no other status.

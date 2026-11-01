@@ -34,5 +34,6 @@ Add the four fast agents that set kind, area, size, and priority. Each returns o
 
 ## Acceptance
 
+- Each agent stays at 1–3KB. Review against the phase plan's Review standard. A review that adds prose fails.
 - Each file has YAML frontmatter with `name`, `version`, and a one-sentence description, and returns fenced JSON whose `data.determination` is exactly one label from its family.
 - No agent in this sprint sets `dup/`, `phase/`, `arch/`, `security/`, or `status/verified`.

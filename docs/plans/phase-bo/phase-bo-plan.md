@@ -31,6 +31,17 @@ Plugin path: `plugins/triaging-gh-issues`.
 | `bo-5` | [bo-5-plan.md](bo-5-plan.md) | hard | `bo-1` | plan-write and plan-accept agents |
 | `bo-6` | [bo-6-close.md](bo-6-close.md) | fast | `bo-1` | landed, close, release, and credit agents |
 
+## Review standard
+
+Dev and quality-mgr review skills and agents against [claude-code-skills-agents-guidelines.md](https://github.com/randlee/synaptic-canvas/blob/main/docs/claude-code-skills-agents-guidelines.md) v0.7.
+
+| Rule | Pass |
+| --- | --- |
+| Skill | Gerund name. Step 1 checks `bd` and `gh`, then `references/installation-and-troubleshooting.md`. Dispatch table only. Agent instructions stay in the agent file. |
+| Agent | Noun-verb name. `version` in frontmatter. One determination. Fenced JSON `{success, data, error}`. |
+| Size | 1–3KB. A file past that splits into another agent. |
+| QA loop | A review does not add prose, examples, or a restated rule to an agent. The fix is a deletion or a new agent file. |
+
 ## Difficulty
 
 | Difficulty | Models |

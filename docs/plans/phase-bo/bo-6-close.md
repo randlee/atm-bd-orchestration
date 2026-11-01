@@ -40,6 +40,7 @@ Add the agents that record landed work, mark `status/close`, close at the patch 
 
 ## Acceptance
 
+- Each agent stays at 1–3KB. Review against the phase plan's Review standard. A review that adds prose fails.
 - Each file has YAML frontmatter with `name`, `version`, and a one-sentence description, and returns fenced JSON with one determination.
 - `issue-close-mark` does not close the issue.
 - `issue-release-close` does not add `status/close`.

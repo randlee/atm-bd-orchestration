@@ -32,6 +32,7 @@ Add the agents that write the plan bead and accept it. `issue-plan-write` is har
 
 ## Acceptance
 
+- Each agent stays at 1–3KB. Review against the phase plan's Review standard. A review that adds prose fails.
 - Each file has YAML frontmatter with `name`, `version`, and a one-sentence description, and returns fenced JSON whose `data.determination` is one label.
 - `issue-plan-write` returns one plan bead id. It does not set `status/plan-accepted`.
 - `plan-accept` returns only `status/plan-accepted` or `status/plan-rejected`.

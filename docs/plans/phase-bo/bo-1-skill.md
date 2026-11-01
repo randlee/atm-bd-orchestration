@@ -30,6 +30,8 @@ Create the `triaging-gh-issues` plugin and the skill that deploys one agent when
 
 ## Acceptance
 
+- The skill is a dispatch table. It does not copy agent instructions.
+- Review against the phase plan's Review standard. A review that adds prose to the skill fails.
 - Home-file logins are not written into the repo.
 - A login on global `approver.logins` is `approver` and `contributor`. A login on either contributor list is `contributor`. Any other login stays blank.
 - `contributor` absent holds at `gates.whitelist.holds`. `approver` holds only when `gates.approver.holds` is non-empty.
