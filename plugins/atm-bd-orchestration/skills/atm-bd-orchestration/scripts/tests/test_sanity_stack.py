@@ -127,6 +127,9 @@ class World:
                 status, error = 1, "injected hosted verification failure"
             else:
                 output = json.dumps(self.stacks)
+        elif argv[:3] == ["gh", "pr", "edit"]:
+            pull = next(pull for pull in self.pulls if pull["number"] == int(argv[3]))
+            pull["base"] = argv[argv.index("--base") + 1]
         elif argv[:3] == ["gh", "stack", "link"]:
             if self.already_stacked:
                 status, error = 1, "PR already stacked"
@@ -616,3 +619,18 @@ def test_torn_link_requires_explicit_recovery(world):
     assert 'repair the stack ledger' in result['evidence']
     assert world.bead['metadata'] == previous
     assert world.bead['assignee'] == ''
+
+
+def test_provider_edit_base_retargets_before_linking(world):
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    world.pulls[1]['base'] = 'trunk'
+    assert world.link(first)['result'] == 'stacked'
+    world.calls.clear()
+    result = world.link(second)
+    assert result['result'] == 'stacked'
+    edit = ['gh', 'pr', 'edit', '2', '--base', 'first']
+    link = ['gh', 'stack', 'link', '--base', 'trunk', '1', '2']
+    assert world.calls.index(edit) < world.calls.index(link)
+    assert world.pulls[1]['base'] == 'first'
+    assert world.bead['metadata']['layers'][-1]['base'] == 'first'
