@@ -27,6 +27,14 @@ assert spec is not None
 groups = importlib.util.module_from_spec(spec)
 loader.exec_module(groups)
 import sc_render
+from core_paths import profile_formulas_dir
+from result import Ok
+
+
+def lite_formulas():
+    found = profile_formulas_dir("lite", core_scripts())
+    assert isinstance(found, Ok)
+    return found.value
 
 
 class PlanFixture:
@@ -152,7 +160,7 @@ class PourPlanTests(unittest.TestCase):
 
     def test_lite_dry_run_previews_dev_qa_and_predecessor_dev(self):
         dependent = self.fixture.sprint(number=2, predecessors=("x-1",))
-        lite = core_scripts().parents[1] / "skills/atm-bd-lite/formulas"
+        lite = lite_formulas()
         template = self.fixture.root / "lite.toml.j2"
         template.write_text((lite / "sprint-group.formula.toml.j2").read_text())
         sidecar = lite / "sprint-group.relations.json"
@@ -187,7 +195,7 @@ class PourPlanTests(unittest.TestCase):
         self.assertIn({"from": "step:dev", "to": f"bead:{self.sprint}.group-dev", "type": "blocks"}, requests[0]["relations"])
 
     def test_lite_finding_formula_has_fix_and_qa(self):
-        lite = core_scripts().parents[1] / "skills/atm-bd-lite/formulas"
+        lite = lite_formulas()
         self.runner.profile = lambda _phase: "lite"
         finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "arch-qa", "title": "issue", "remedy": "fix it"}
         with patch.object(groups.bead_formulas, "relations", return_value=lite / "finding-group.relations.json"):

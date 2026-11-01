@@ -10,6 +10,7 @@ from typing import Any, Literal, get_args, get_origin, get_type_hints
 import pytest
 import result
 from atm_bd_types import Error, ErrorDetail
+from contract_samples import ERRORS
 
 from atm_bd_console import types
 from atm_bd_console.enums import QaState, SprintState
@@ -126,6 +127,24 @@ def test_contract_class_is_frozen_with_design_fields(name: str) -> None:
     assert is_dataclass(cls)
     assert vars(cls)["__dataclass_params__"].frozen
     assert tuple(field.name for field in fields(cls)) == tuple(FIELDS[name].split())
+
+
+@pytest.mark.parametrize("name", sorted(ERROR_NAMES))
+def test_rust_error_is_immutable_with_design_fields(name: str) -> None:
+    detail_type = getattr(ErrorDetail, name)
+    error = next(item for item in ERRORS if isinstance(item.detail, detail_type))
+    assert isinstance(error, Error)
+    detail = error.detail
+    expected = tuple(FIELDS[name].split())[1:-1]
+    assert detail_type.__match_args__ == expected
+    assert detail is not None
+    for field in expected:
+        value = getattr(detail, field)
+        with pytest.raises(AttributeError):
+            setattr(detail, field, value)
+    for field in ("kind", "fix"):
+        with pytest.raises(AttributeError):
+            setattr(error, field, getattr(error, field))
 
 
 @pytest.mark.parametrize(("name", "field"), sorted(LITERALS))
