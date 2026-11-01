@@ -49,7 +49,7 @@ LITE_TEMPLATE_DIR = Path(".claude/skills/atm-bd-lite/templates")
 LITE_TEMPLATES = {
     "dev": str(LITE_TEMPLATE_DIR / "dev-template.xml.j2"),
     "fix": str(LITE_TEMPLATE_DIR / "fix-assignment.xml.j2"),
-    "qa": str(LITE_TEMPLATE_DIR / "qa-template-lite.xml.j2"),
+    "qa": str(LITE_TEMPLATE_DIR / "qa-template.xml.j2"),
     "plan_review": str(CORE_TEMPLATE_DIR / "plan-review-template.xml.j2"),
     "review": str(CORE_TEMPLATE_DIR / "review-template.xml.j2"),
 }

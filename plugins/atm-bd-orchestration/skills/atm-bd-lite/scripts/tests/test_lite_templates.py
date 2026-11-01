@@ -15,8 +15,20 @@ ROOT = Path(__file__).parents[6]
 CORE = ROOT / "plugins/atm-bd-orchestration/core/scripts"
 sys.path.insert(0, str(CORE))
 import sc_render
+from sprint_index_common import LITE_TEMPLATES
 
 TEMPLATES = ROOT / "plugins/atm-bd-orchestration/skills/atm-bd-lite/templates"
+PACKAGE = ROOT / "plugins/atm-bd-orchestration"
+
+
+@pytest.mark.parametrize("emitted_path", LITE_TEMPLATES.values())
+def test_every_emitted_lite_template_path_exists_in_package(emitted_path: str) -> None:
+    relative = Path(emitted_path)
+    if relative.parts[:3] == (".claude", "skills", "atm-bd-lite"):
+        source = PACKAGE / "skills/atm-bd-lite/templates" / relative.name
+    else:
+        source = PACKAGE / "core/templates" / relative.name
+    assert source.is_file(), f"{emitted_path} is not shipped; expected {source}"
 
 
 @pytest.mark.parametrize("provider", ["github", "azure"])

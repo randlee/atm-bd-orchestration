@@ -12,7 +12,7 @@ from phase_fixtures import TEMPLATE_DIRECTORY, TEMPLATE_NAMES, phase_data, phase
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
-from sprint_index_common import load_phase_config, validate_phase_config
+from sprint_index_common import LITE_TEMPLATES, load_phase_config, validate_phase_config
 
 
 class PhaseConfigTests(unittest.TestCase):
@@ -176,16 +176,18 @@ class PhaseConfigTests(unittest.TestCase):
 
     def test_lite_init_uses_fixture_templates_and_names_profile(self):
         self.configure_repo()
-        lite = self.repo / ".claude/skills/atm-bd-lite/templates"
-        lite.mkdir(parents=True)
-        for name in ("dev-template.xml.j2", "fix-assignment.xml.j2", "qa-template-lite.xml.j2"):
-            (lite / name).write_text("fixture")
+        for relative in LITE_TEMPLATES.values():
+            path = self.repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fixture")
         result = self.init("--phase", "lite", "--lead", "lead", "--profile", "lite")
         self.assertEqual(result.returncode, 0, result.stderr)
         data = load_phase_config(self.repo, "lite")
         self.assertEqual(data.get("profile"), "lite")
         self.assertNotIn("sanity", data["templates"])
-        self.assertEqual(data["templates"]["dev"], str(lite.relative_to(self.repo) / "dev-template.xml.j2"))
+        self.assertEqual(data["templates"], LITE_TEMPLATES)
+        for relative in LITE_TEMPLATES.values():
+            self.assertTrue((self.repo / relative).is_file(), relative)
 
     def test_legacy_dev_fix_is_ignored_even_if_its_file_is_missing(self):
         data = copy.deepcopy(self.data)
