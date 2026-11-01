@@ -123,7 +123,7 @@ pub enum ErrorDetail {
 #[cfg_attr(feature = "python", pyo3_stub_gen::derive::gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python",
-    pyclass(module = "atm_bd_types", get_all, frozen, from_py_object)
+    pyclass(module = "atm_bd_types", frozen, eq, from_py_object)
 )]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Error {
@@ -137,6 +137,25 @@ pub struct Error {
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl Error {
+    #[getter]
+    fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+    #[getter]
+    fn message(&self) -> String {
+        self.message.clone()
+    }
+    #[getter]
+    fn fix(&self) -> String {
+        self.fix.clone()
+    }
+    #[getter]
+    #[gen_stub(override_return_type(
+        type_repr = "ErrorDetail.CommandFailed | ErrorDetail.Timeout | ErrorDetail.Rejected | ErrorDetail.Unreachable | ErrorDetail.ParseFailed | ErrorDetail.NotFound | ErrorDetail.ConfigInvalid | ErrorDetail.LockHeld | ErrorDetail.IoFailed | None"
+    ))]
+    fn detail(&self) -> Option<ErrorDetail> {
+        self.detail.clone()
+    }
     #[new]
     #[pyo3(signature = (kind, message, fix, detail=None))]
     fn new(kind: ErrorKind, message: String, fix: String, detail: Option<ErrorDetail>) -> Self {
