@@ -3,7 +3,7 @@ name: lite-fix-task
 version: 1.0.0
 description: Fix assignment for a lite-profile finding.
 format: xml
-required_variables: [provider, task_id, sprint, phase, finding, worktree_path, branch, pr_target]
+required_variables: [provider, provider.create, task_id, sprint, phase, finding, worktree_path, branch, pr_target]
 metadata:
   type: fix-task
   tags: [stage:fix, orchestration:beads, profile:lite]
@@ -18,5 +18,8 @@ metadata:
   <worktree><![CDATA[{{ worktree_path }}]]></worktree>
   <branch><![CDATA[{{ branch }}]]></branch>
   <pr-target><![CDATA[{{ pr_target }}]]></pr-target>
-  <workflow><![CDATA[Validate the finding, implement its fix, run deterministic tests and lint, push the PR, then run .atm-bd/scripts/hook_runner.py --role fix --phase {{ phase }} --vars <lead-vars> --result <result.json>.]]></workflow>
+  <provider-commands>
+    <create><![CDATA[{{ provider.create | replace("'{base}'", "<top>") | replace("'{head}'", branch | string) | replace("'{title}'", '"<one-line title>"') | replace("'{body_file}'", "<scratch>/" ~ task_id ~ "-pr-body.md") | replace("{body_file}", "<scratch>/" ~ task_id ~ "-pr-body.md") | cdata_escape }}]]></create>
+  </provider-commands>
+  <workflow><![CDATA[Validate the finding, implement its fix, run deterministic tests and lint, push the branch, create its PR against the current stack top with the rendered provider create command above, then run .atm-bd/scripts/hook_runner.py --role fix --phase {{ phase }} --vars <lead-vars> --result <result.json>.]]></workflow>
 </atm-task>

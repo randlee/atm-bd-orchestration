@@ -3,7 +3,7 @@ name: lite-dev-task
 version: 1.0.0
 description: Dev assignment for a lite-profile bead.
 format: xml
-required_variables: [provider, task_id, sprint, phase, worktree_path, branch, pr_target, lint_command, test_command]
+required_variables: [provider, provider.create, task_id, sprint, phase, worktree_path, branch, pr_target, lint_command, test_command]
 metadata:
   type: dev-task
   tags: [stage:dev, orchestration:beads, profile:lite]
@@ -18,10 +18,13 @@ metadata:
   <worktree><![CDATA[{{ worktree_path }}]]></worktree>
   <branch><![CDATA[{{ branch }}]]></branch>
   <pr-target><![CDATA[{{ pr_target }}]]></pr-target>
+  <provider-commands>
+    <create><![CDATA[{{ provider.create | replace("'{base}'", "<top>") | replace("'{head}'", branch | string) | replace("'{title}'", '"<one-line title>"') | replace("'{body_file}'", "<scratch>/" ~ task_id ~ "-pr-body.md") | replace("{body_file}", "<scratch>/" ~ task_id ~ "-pr-body.md") | cdata_escape }}]]></create>
+  </provider-commands>
   <workflow>
     <step><![CDATA[Run assignment gates and claim/start the bead. Read its full scope and stay within owned_paths.]]></step>
     <step><![CDATA[Implement and validate with {{ test_command }} and {{ lint_command }}. Keep every test deterministic; do not use timing, sleeps, races, or event-loop ordering.]]></step>
-    <step><![CDATA[Push the branch and open/update its PR against the current stack top. Record the exact stack view and evidence.]]></step>
+    <step><![CDATA[Push the branch and open its PR against the current stack top with the rendered provider create command above. Record the exact stack view and evidence.]]></step>
     <step><![CDATA[Complete with .atm-bd/scripts/hook_runner.py --role dev --phase {{ phase }} --vars <lead-vars> --result <result.json>. The installed runner gathers live bead, task, PR, and stack state before planning or running the transition.]]></step>
   </workflow>
 </atm-task>

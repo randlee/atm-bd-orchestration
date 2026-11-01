@@ -43,7 +43,9 @@ def test_lite_assignment_templates_render_for_both_providers(
     path = TEMPLATES / name
     header = sc_render.render_dispatch
     variables: dict[str, Any] = {
-        "provider": {"name": provider, "view": "gh pr view '{number}'" if provider == "github" else "az repos pr show --id '{number}'",
+        "provider": {"name": provider,
+                     "create": "gh pr create --base '{base}' --head '{head}' --title '{title}' --body-file '{body_file}'" if provider == "github" else "az repos pr create --source-branch '{head}' --target-branch '{base}' --title '{title}' --description @{body_file} --output json",
+                     "view": "gh pr view '{number}'" if provider == "github" else "az repos pr show --id '{number}'",
                      "comment": "gh pr comment '{number}'" if provider == "github" else "az repos pr update --id '{number}'",
                      "checks": "gh pr checks '{number}'" if provider == "github" else "az repos pr policy list --id '{number}'",
                      "stack_view": "gh stack view '{stack_bead}'" if provider == "github" else "az repos list"},
@@ -54,6 +56,16 @@ def test_lite_assignment_templates_render_for_both_providers(
     }
     rendered = header(path, variables, tmp_path / "phase.toml", Profile.LITE)
     assert isinstance(rendered, Ok)
+    if name in ("dev-template.xml.j2", "fix-assignment.xml.j2"):
+        assert "provider-commands" in rendered.value
+        assert "feature/lite" in rendered.value
+        assert "--title \"<one-line title>\"" in rendered.value
+        assert "<scratch>/atm-phase-lt.dev-1-pr-body.md" in rendered.value
+        if provider == "github":
+            assert "gh pr create" in rendered.value
+        else:
+            assert "az repos pr create" in rendered.value
+            assert "--target-branch <top>" in rendered.value
     if provider == "azure":
         assert "gh " not in rendered.value
 
