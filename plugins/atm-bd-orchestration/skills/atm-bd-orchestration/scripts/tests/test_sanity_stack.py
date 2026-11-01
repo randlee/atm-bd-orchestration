@@ -14,6 +14,7 @@ import pytest
 from stack_top import select_stack_top
 import stack_link
 import stack_link_ops
+import repo_config
 from task_close_world import World as HookWorld, hook as close_hook
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -111,6 +112,12 @@ class World:
                 output = "not JSON"
             else:
                 output = json.dumps({"remaining": 0 if self.unavailable else 500})
+        elif argv[:4] == ["az", "repos", "pr", "list"]:
+            head = argv[argv.index("--source-branch") + 1]
+            output = json.dumps([{"pullRequestId": p["number"], "url": f"https://example.test/{p['number']}",
+                                  "targetRefName": "refs/heads/" + p["base"],
+                                  "lastMergeSourceCommit": {"commitId": p["sha"]}, "isDraft": p["draft"]}
+                                 for p in self.pulls if p["head"] == head])
         elif argv[:2] == ["gh", "api"] and "/pulls?head=" in argv[2]:
             self.clock.now += self.advance_on_pulls
             self.advance_on_pulls = 0
@@ -634,3 +641,18 @@ def test_provider_edit_base_retargets_before_linking(world):
     assert world.calls.index(edit) < world.calls.index(link)
     assert world.pulls[1]['base'] == 'first'
     assert world.bead['metadata']['layers'][-1]['base'] == 'first'
+
+
+def test_azure_provider_records_layer_without_hosted_stack(world):
+    config = world.root / repo_config.RELATIVE_PATH
+    config.parent.mkdir(parents=True)
+    config.write_text('provider: azure\nazure:\n  organization: org\n  project: project\n  repository: repo\n')
+    values = world.branch('first', 'trunk', 1)
+    values['worktree_path'] = str(world.root)
+    result = world.link(values)
+    assert result['result'] == 'stacked'
+    assert result['top']['linked'] is True
+    assert result['stack_number'] is None
+    assert world.bead['metadata']['layers'][-1]['base'] == 'trunk'
+    assert any(call[:4] == ['az', 'repos', 'pr', 'list'] for call in world.calls)
+    assert not any(call[0] == 'gh' for call in world.calls)
