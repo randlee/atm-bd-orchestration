@@ -1,0 +1,22 @@
+---
+name: lite-fix-task
+version: 1.0.0
+description: Fix assignment for a lite-profile finding.
+format: xml
+required_variables: [provider, task_id, sprint, finding, worktree_path, branch, pr_target]
+metadata:
+  type: fix-task
+  tags: [stage:fix, orchestration:beads, profile:lite]
+  workflow:
+    scope: {kind: sprint, variable: sprint}
+    state: fix-start
+    stage: fix
+    transition: start
+---
+<atm-task id="{{ task_id }}" sprint="{{ sprint }}" profile="lite">
+  <description><![CDATA[Resolve the finding {{ finding }} within the bead's owned_paths.]]></description>
+  <worktree><![CDATA[{{ worktree_path }}]]></worktree>
+  <branch><![CDATA[{{ branch }}]]></branch>
+  <pr-target><![CDATA[{{ pr_target }}]]></pr-target>
+  <workflow><![CDATA[Validate the finding, implement its fix, run deterministic tests and lint, push the PR, then run atm-bd-task-close --role fix --vars <lead-vars> --result <result.json>.]]></workflow>
+</atm-task>

@@ -1,0 +1,40 @@
+# pyright: strict
+"""Shared deterministic fixtures for the pure lite hook planner."""
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+from typing import Any
+import sys
+
+from atm_bd_types import CloseVars, Transition
+
+HOOK = Path(__file__).parents[1] / "atm-bd-task-hook.py"
+SPEC = importlib.util.spec_from_file_location("lite_task_hook", HOOK)
+assert SPEC is not None and SPEC.loader is not None
+MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
+SPEC.loader.exec_module(MODULE)
+hook: Any = MODULE
+
+
+def make_close_vars() -> CloseVars:
+    return CloseVars()
+
+
+def observed(**changes: object) -> Any:
+    base: dict[str, object] = {"task_id": "atm-bo-5.group-dev", "bead_id": "atm-bo-5.group-dev", "lead": "fenix",
+            "reason": "blocked by upstream", "findings_file": "findings.json", "pr_number": "123",
+            "pr_base": "sprint/bo-4-stack-gate", "pr_head": "sprint/bo-5-lite-skill", "pr_sha": "a" * 40,
+            "stack_top": "sprint/bo-4-stack-gate", "gate_stacked": True}
+    for key, value in changes.items():
+        base[key] = value
+    return hook.Observed(**base)
+
+
+def command_argv(result: Any) -> list[tuple[str, ...]]:
+    return [command.argv for command in result.value]
+
+
+def run_hook(transition: Transition, *, state: Any | None = None) -> Any:
+    return hook.plan(transition, make_close_vars(), state or observed())

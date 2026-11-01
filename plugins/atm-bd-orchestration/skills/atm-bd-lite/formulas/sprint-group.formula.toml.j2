@@ -1,7 +1,7 @@
 ---
 name: sprint-group
 version: 4.3.0
-description: Beads formula for the dev, sanity and QA tasks of one sprint, attached under its sprint container. bead-groups supplies every variable.
+description: Beads formula for the dev and QA tasks of one sprint, attached under its sprint container. bead-groups supplies every variable.
 format: toml
 required_variables:
   - parent
@@ -23,7 +23,7 @@ required_variables:
   - reviewers_round1
 ---
 formula = "sprint-group"
-description = "Sprint {{{ sprint }}}: dev, sanity and QA under sprint container {{{ parent }}}."
+description = "Sprint {{{ sprint }}}: dev and QA under sprint container {{{ parent }}}."
 version = 4
 type = "workflow"
 

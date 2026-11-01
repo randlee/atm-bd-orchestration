@@ -1,0 +1,20 @@
+---
+name: lite-qa-task
+version: 1.0.0
+description: QA assignment for a lite-profile sprint.
+format: xml
+required_variables: [provider, task_id, sprint, commit, pr_number, pr_url, worktree_path]
+metadata:
+  type: qa-task
+  tags: [stage:qa, orchestration:beads, profile:lite]
+  workflow:
+    scope: {kind: sprint, variable: sprint}
+    state: qa-start
+    stage: qa
+    transition: start
+---
+<atm-task id="{{ task_id }}" sprint="{{ sprint }}" profile="lite">
+  <description><![CDATA[Review the complete lite sprint at {{ commit }} and PR #{{ pr_number }} ({{ pr_url }}). Report concrete findings with reproduction evidence.]]></description>
+  <worktree><![CDATA[{{ worktree_path }}]]></worktree>
+  <workflow><![CDATA[Start the task, inspect the complete diff against the stack base, run the required validation, and write a structured result. Close with atm-bd-task-close --role qa --vars <lead-vars> --result <result.json>.]]></workflow>
+</atm-task>

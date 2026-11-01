@@ -1,0 +1,27 @@
+---
+name: lite-dev-task
+version: 1.0.0
+description: Dev assignment for a lite-profile bead.
+format: xml
+required_variables: [provider, task_id, sprint, worktree_path, branch, pr_target, lint_command, test_command]
+metadata:
+  type: dev-task
+  tags: [stage:dev, orchestration:beads, profile:lite]
+  workflow:
+    scope: {kind: sprint, variable: sprint}
+    state: dev-start
+    stage: dev
+    transition: start
+---
+<atm-task id="{{ task_id }}" sprint="{{ sprint }}" profile="lite">
+  <description><![CDATA[Implement the assigned lite bead. Its description, design, acceptance criteria, and owned_paths are authoritative.]]></description>
+  <worktree><![CDATA[{{ worktree_path }}]]></worktree>
+  <branch><![CDATA[{{ branch }}]]></branch>
+  <pr-target><![CDATA[{{ pr_target }}]]></pr-target>
+  <workflow>
+    <step><![CDATA[Run assignment gates and claim/start the bead. Read its full scope and stay within owned_paths.]]></step>
+    <step><![CDATA[Implement and validate with {{ test_command }} and {{ lint_command }}. Keep every test deterministic; do not use timing, sleeps, races, or event-loop ordering.]]></step>
+    <step><![CDATA[Push the branch and open/update its PR against the current stack top. Record the exact stack view and evidence.]]></step>
+    <step><![CDATA[Complete with atm-bd-task-close --role dev --vars <lead-vars> --result <result.json>. The hook profile-gates and performs the transition.]]></step>
+  </workflow>
+</atm-task>

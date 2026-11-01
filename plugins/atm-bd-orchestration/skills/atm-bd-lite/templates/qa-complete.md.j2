@@ -1,0 +1,20 @@
+---
+name: lite-qa-complete
+version: 1.0.0
+description: Lite QA completion report.
+format: markdown
+required_variables: [task_id, sprint, verdict, findings_md, validation_md]
+metadata:
+  type: qa-complete
+  tags: [stage:qa, orchestration:beads, profile:lite]
+  workflow: {scope: {kind: sprint, variable: sprint}, state: qa-complete, stage: qa, transition: complete}
+---
+# Lite QA {{ verdict }}
+
+Task: {{ task_id }} · Sprint: {{ sprint }}
+
+## Findings
+{{ findings_md }}
+
+## Validation
+{{ validation_md }}

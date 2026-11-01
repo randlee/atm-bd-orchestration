@@ -1,0 +1,20 @@
+---
+name: lite-dev-complete
+version: 1.0.0
+description: Lite dev completion report.
+format: markdown
+required_variables: [task_id, sprint, commit, pr_number, pr_url, validation_md, deliverables_md]
+metadata:
+  type: dev-complete
+  tags: [stage:dev, orchestration:beads, profile:lite]
+  workflow: {scope: {kind: sprint, variable: sprint}, state: dev-complete, stage: dev, transition: complete}
+---
+# Lite development complete
+
+Task: {{ task_id }} · Sprint: {{ sprint }} · Commit: {{ commit }}
+PR: [#{{ pr_number }}]({{ pr_url }})
+
+{{ deliverables_md }}
+
+## Validation
+{{ validation_md }}
