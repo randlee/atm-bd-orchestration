@@ -43,7 +43,8 @@
       "body": "body",
       "head_sha": "headRefOid",
       "author": "author.login",
-      "updated_at": "updatedAt"
+      "updated_at": "updatedAt",
+      "draft": "isDraft"
     }
   },
   "edit_base": {
@@ -99,7 +100,8 @@
       "body": "body",
       "head_sha": "head.sha",
       "author": "user.login",
-      "updated_at": "updated_at"
+      "updated_at": "updated_at",
+      "draft": "draft"
     }
   },
   "stack_link": {
@@ -110,8 +112,10 @@
       "{number}"
     ],
     "body": "none",
-    "output": "exit_code",
-    "result": {}
+    "output": "text",
+    "result": {
+      "stack_number": "(?i)stack\\s*#(\\d+)"
+    }
   },
   "stack_view": {
     "argv": [

@@ -17,12 +17,14 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import time
 import tomllib
 from datetime import datetime, timezone
+from typing import cast
 
 import yaml
 
@@ -53,7 +55,8 @@ import repo_config
 import pr_lookup
 import sc_render
 from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
-from stack_top import select_stack_top
+from stack_top import JsonObject, select_stack_top
+import stack_close_gate
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 
@@ -630,79 +633,19 @@ class Hook:
 
     def checks(self):
         values = self.values
-        head = values["commit"]
-        dirty = self.run(["git", "status", "--porcelain"], git=True).stdout.strip()
-        if dirty:
-            raise CloseError("HEAD.DIRTY", dirty, "Commit or remove worktree changes before retrying.")
-        remote_available = False
-        remote_ref = f"refs/heads/{values['branch']}"
-        argv = ["git", "ls-remote", "origin", remote_ref]
-        for _attempt in range(3):
+        bead = self.read_bead(values["stack_bead"]) if values.get("stack_bead") else {"metadata": {}}
+        def runner(argv, **kwargs):
             try:
-                argv = ["git", "ls-remote", "origin", remote_ref]
-                remote = self.run(argv, git=True, check=False)
-                if remote.returncode:
-                    self.record_github_failure(argv, remote.stderr)
-                    continue
-                remote_fields = remote.stdout.split()
-                if not remote_fields or remote_fields[0] != head:
-                    raise CloseError("HEAD.NOT_PUSHED", "origin head differs from HEAD", "Push this branch and retry.")
-                argv = ["git", "fetch", "origin"]
-                fetched = self.run(argv, git=True, check=False)
-                if fetched.returncode:
-                    self.record_github_failure(argv, fetched.stderr)
-                    continue
-                remote_available = True
-                break
+                return self.run(argv, git=True, check=False)
             except CloseError as error:
-                if error.code != "COMMAND.FAILED":
-                    raise
-                self.record_github_failure(argv, error)
-        if not remote_available:
-            self.github = "unavailable"
-            tracking_ref = f"refs/remotes/origin/{values['branch']}"
-            tracking = self.run(["git", "rev-parse", tracking_ref], git=True).stdout.strip()
-            if tracking != head:
-                raise CloseError("HEAD.NOT_PUSHED", "cached origin head differs from HEAD",
-                                 "Push this branch and refresh origin before retrying.")
-        top, top_head = self.stack_top()
-        values["rebased_onto"] = top_head
-        ancestor = self.run(["git", "merge-base", "--is-ancestor", f"origin/{top}", head], git=True, check=False)
-        if ancestor.returncode == 1:
-            raise CloseError("BASE.NOT_ANCESTOR", top, f"Rebase onto origin/{top}, push, then rerun the hook.")
-        if ancestor.returncode:
-            raise CloseError("COMMAND.FAILED", ancestor.stderr, "Repair the local git ancestry check.")
-        if self.github == "unavailable":
-            self.keep_recorded_pr()
-            return
-        for _attempt in range(3):
-            provider_argv = []
-            def run_provider(argv, **kwargs):
-                provider_argv[:] = argv
-                try:
-                    return self.run(argv, git=True, check=False)
-                except CloseError as error:
-                    raise OSError(str(error)) from error
-            found = pr_lookup.find_pr_by_head(
-                values["branch"], self.root, expected_head=head,
-                runner=run_provider,
-            )
-            if not isinstance(found, _CoreErr):
-                values["pr_number"] = found.value.number
-                values["pr_url"] = found.value.url
-                self.pr_base = found.value.base
-                return
-            from atm_bd_types import ErrorKind
-            if found.error.kind == ErrorKind.NOT_FOUND:
-                raise CloseError("PR.NOT_FOUND", found.error.message,
-                                 "Open exactly one PR at the pushed head, then rerun the hook.")
-            if found.error.kind == ErrorKind.REJECTED:
-                raise CloseError("PR.AMBIGUOUS", found.error.message, "Close duplicate pull requests and retry.")
-            if found.error.kind == ErrorKind.CONFIG_MISSING:
-                raise CloseError("VARS.EMPTY", found.error.message, found.error.fix)
-            self.record_github_failure(provider_argv, found.error.message)
-        self.github = "unavailable"
-        self.keep_recorded_pr()
+                raise OSError(str(error)) from error
+        checked = stack_close_gate.preflight(self.root, self.worktree, values["branch"], values["commit"],
+                                             cast(JsonObject, bead), values["pr_target"], runner)
+        if isinstance(checked, _CoreErr):
+            code = "COMMAND.INVALID" if checked.error.message.startswith("bd show ") else "STACK.GATE_FAILED"
+            raise CloseError(code, checked.error.message, checked.error.fix)
+        pr, values["rebased_onto"] = checked.value
+        values["pr_number"], values["pr_url"], self.pr_base = pr.number, pr.url, pr.base
 
     def keep_recorded_pr(self):
         # Without GitHub the PR identity is the one the bead already records.
@@ -831,7 +774,9 @@ class Hook:
     def dev(self, skip):
         values = self.values
         self.derive_local()
-        if self.snapshot(include_stack=not skip or (values["outcome"] == "not_reproducible" and bool(values.get("stack_bead")))):
+        if values["outcome"] != "not_reproducible":
+            self.checks()
+        if self.snapshot(include_stack=bool(values.get("stack_bead"))):
             return
         template = "fix-complete.md.j2" if self.role == "fix" else "dev-complete.md.j2"
         record = self.bead(values["checked_bead"])
@@ -854,11 +799,6 @@ class Hook:
                 self.path = completion
                 self.finish_dev(sanity, template, path=assignment_path)
                 return
-            if not skip:
-                self.checks()
-            else:
-                self.keep_recorded_pr()
-                values["rebased_onto"] = self.run(["git", "rev-parse", f"origin/{values['pr_target']}"], git=True).stdout.strip()
             self.require_completion_identity()
             self.render(template)
             completion.write_text(json.dumps(values), encoding="utf-8")
@@ -962,7 +902,7 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
     parser.add_argument("--role", required=True, choices=ROLES)
     parser.add_argument("--vars", required=True, type=Path)
     parser.add_argument("--result", type=Path, help="the fixer's result file; required for dev and fix")
-    parser.add_argument("--skip-checks", action="store_true", help="skips the PR and stack checks. Do NOT use without permission from the phase lead.")
+    parser.add_argument("--skip-checks", action="store_true", help="accepted for compatibility; the mandatory stack gate still runs.")
     hook = None
     args = None
     output: dict[str, object]

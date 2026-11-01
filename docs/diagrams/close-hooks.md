@@ -27,7 +27,7 @@ flowchart TB
   RES[/"dev's result file<br/>result_variables_by_role only"/]:::file
   MERGE{"a field in both files,<br/>or not a result field?"}
   BADV["VARS.INVALID / VARS.UNKNOWN"]:::bad
-  DERIVE["derive commit, pr_number, pr_url, rebased_onto,<br/>generated_at from git and the PR at HEAD;<br/>PR and stack checks"]:::script
+  DERIVE["derive commit, pr_number, pr_url, rebased_onto,<br/>generated_at from git and the PR at HEAD;<br/>read ledger; check PR base, pushed head and Git ancestry before writes"]:::script
   WRITE["journal: record commit, branch, pr_number, pr_url<br/>on the checked bead, then close it<br/>(each write drained at once)"]:::script
   APPLIED{"write applied?"}
   PEND["BEADS.WRITE_PENDING<br/>rerun with the same vars; applied once"]:::bad

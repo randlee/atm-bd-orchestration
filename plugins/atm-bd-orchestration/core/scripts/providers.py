@@ -108,7 +108,7 @@ def _uses_azure_invoke_json_body(argv: list[str], op: PrOp) -> bool:
     return argv[:3] == ["az", "devops", "invoke"] and op in (PrOp.CREATE, PrOp.COMMENT)
 
 
-def execute(commands: ProviderCommands, op: PrOp, values: Mapping[str, str], *, cwd: Path,
+def execute(commands: ProviderCommands, op: PrOp, values: Mapping[str, str | list[str]], *, cwd: Path,
             runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
             accept_merged: Callable[[MergedPrRef], bool] | None = None) -> Result[PrRef | MergedPrRef | JsonValue]:
     """Execute one configured command, sending JSON bodies through a temporary file."""
@@ -126,12 +126,13 @@ def execute(commands: ProviderCommands, op: PrOp, values: Mapping[str, str], *, 
     if not command_argv:  # Azure stack link is intentionally a no-op.
         return Ok(None)
     with tempfile.TemporaryDirectory(prefix="atm-bd-provider-") as directory:
-        substitutions = dict(values)
+        substitutions = {key: value for key, value in values.items() if isinstance(value, str)}
+        lists = {key: value for key, value in values.items() if isinstance(value, list)}
         # GitHub's CLI resolves these two placeholders from the current repository.
         substitutions.setdefault("owner", "{owner}")
         substitutions.setdefault("repo", "{repo}")
         if op == PrOp.VIEW:
-            substitutions.setdefault("fields", "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author")
+            substitutions.setdefault("fields", "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author,isDraft")
             substitutions.setdefault("jq", "@" if command_argv[0] == "az" else ".")
         if op == PrOp.LOOKUP_BY_HEAD:
             substitutions.setdefault("state", "open")
@@ -153,7 +154,12 @@ def execute(commands: ProviderCommands, op: PrOp, values: Mapping[str, str], *, 
             except OSError as exc:
                 return _problem(ErrorKind.IO_FAILED, str(exc), "Check temporary directory access and provider JSON.")
         try:
-            argv = [argument.format_map(substitutions) for argument in command_argv]
+            argv: list[str] = []
+            for argument in command_argv:
+                if argument.startswith("{") and argument.endswith("}") and argument[1:-1] in lists:
+                    argv.extend(lists[argument[1:-1]])
+                else:
+                    argv.append(argument.format_map(substitutions))
         except KeyError as exc:
             return _problem(ErrorKind.CONFIG_MISSING, f"missing provider value {exc}", "Supply the required provider value.")
         try:
@@ -213,7 +219,10 @@ def execute(commands: ProviderCommands, op: PrOp, values: Mapping[str, str], *, 
                 head_sha = field_at(parsed, fields.get("head_sha", ""))
                 if not isinstance(head_sha, str) or not head_sha:
                     return _problem(ErrorKind.PARSE_FAILED, "pull request lacks head SHA", "Check the provider field mapping.")
-                return Ok(PrRef(str(number), url, normalized, head_sha))
+                draft = field_at(parsed, fields.get("draft", ""))
+                if not isinstance(draft, bool):
+                    return _problem(ErrorKind.PARSE_FAILED, "pull request lacks draft status", "Check the provider field mapping.")
+                return Ok(PrRef(str(number), url, normalized, head_sha, draft))
             return _problem(ErrorKind.PARSE_FAILED, "provider result lacks number, url or base", "Check the provider field mapping.")
         return Ok(parsed)
 

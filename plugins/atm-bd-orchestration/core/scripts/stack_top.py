@@ -70,8 +70,6 @@ def select_stack_top(
         linked = layer.get("linked", True)
         if not isinstance(linked, bool):
             raise ValueError("stack layer linked flag must be boolean")
-        if not linked:
-            continue
         branch = layer.get("branch")
         head = layer.get("head")
         if isinstance(branch, str) and isinstance(head, str):

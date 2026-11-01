@@ -54,6 +54,7 @@ class World:
         # HEAD is stable even when a test removes commit from the dispatch values.
         self.head = self.values["commit"]
         self.pr_number = self.values["pr_number"]
+        self.pr_base_override: str | None = None
         (root / ".atm-bd").mkdir()
         (root / ".beads").mkdir()
         (root / ".beads/metadata.json").write_text(json.dumps({"dolt_database": "testdb", "project_id": "p-1"}))
@@ -204,7 +205,7 @@ class World:
                 if "branch" in self.values and argv[2] == f"refs/remotes/origin/{self.values['branch']}":
                     output = self.values.get("commit", self.head)
             elif argv[1] == "ls-remote":
-                output = self.values.get("commit", self.head) + "\trefs/heads/branch"
+                output = self.values.get("commit", self.head) + "\t" + argv[-1]
             elif argv[1:4] == ["remote", "get-url", "origin"]:
                 output = "git@github.com:example/repo.git"
             else:
@@ -215,7 +216,10 @@ class World:
             if self.github_failure:
                 return subprocess.CompletedProcess(argv, 1, "", "HTTP 429")
             number = self.values.get("pr_number", self.pr_number)
-            output = [{"number": number, "head": {"sha": self.values.get("commit", self.head)}, "base": {"ref": "deliberately-different"}, "html_url": f"https://github.com/example/repo/pull/{number}"}]
+            metadata = self.beads.get(self.values.get("stack_bead"), {}).get("metadata", {})
+            layers = metadata.get("layers", [])
+            top = layers[-1]["branch"] if layers else metadata.get("trunk") or self.values["pr_target"]
+            output = [{"number": number, "head": {"sha": self.values.get("commit", self.head)}, "base": {"ref": self.pr_base_override or top}, "draft": False, "html_url": f"https://github.com/example/repo/pull/{number}"}]
         else:
             raise AssertionError(argv)
         if write and argv[0] == "bd":

@@ -442,6 +442,8 @@ pub struct PrRef {
     pub url: String,
     pub base: String,
     pub head_sha: String,
+    #[serde(default)]
+    pub draft: bool,
 }
 
 #[cfg(feature = "python")]
@@ -449,12 +451,14 @@ pub struct PrRef {
 #[pymethods]
 impl PrRef {
     #[new]
-    fn new(number: String, url: String, base: String, head_sha: String) -> Self {
+    #[pyo3(signature = (number, url, base, head_sha, draft=false))]
+    fn new(number: String, url: String, base: String, head_sha: String, draft: bool) -> Self {
         Self {
             number,
             url,
             base,
             head_sha,
+            draft,
         }
     }
 }

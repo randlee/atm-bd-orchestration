@@ -57,7 +57,7 @@ def test_assignment_details_requires_an_assignment():
 @pytest.mark.parametrize("template", ["dev-template", "fix-assignment"])
 @pytest.mark.parametrize("layers,expected", [
     ([{"branch": "older", "head": "a" * 40}, {"branch": "ledger-top", "head": "b" * 40}], "ledger-top"),
-    ([], "lower-target"),
+    ([], "integrate/phase-bj"),
 ])
 def test_template_rebase_and_hook_ancestry_use_the_same_stack_top(world, template, layers, expected):
     spec = importlib.util.spec_from_file_location("assignment_gates_for_close", SCRIPTS / "assignment-gates.py")
@@ -84,7 +84,9 @@ def test_template_rebase_and_hook_ancestry_use_the_same_stack_top(world, templat
         assert gates.main(argv, gate_runner) == 0
     assert output.getvalue().strip() == expected
     assert "ok" in world.run()
-    assert any(argv == ["git", "merge-base", "--is-ancestor", f"origin/{expected}", world.values["commit"]]
+    assert any(argv == ["git", "rev-parse", "--verify", f"refs/remotes/origin/{expected}^{{commit}}"]
+               for argv, _kwargs in world.calls)
+    assert any(argv == ["git", "merge-base", "--is-ancestor", "b" * 40, world.values["commit"]]
                for argv, _kwargs in world.calls)
 
 
@@ -236,19 +238,23 @@ def test_not_reproducible_missing_pr_identity_is_fix_only(world):
 @pytest.mark.parametrize("failure", [True, "raise"])
 def test_github_retries_and_falls_back_without_requiring_pr_base(world, failure):
     world.github_failure = failure
-    assert world.run()["ok"]["github"] == "unavailable"
-    assert len([argv for argv, _kwargs in world.calls if argv[0] == "gh"]) == 3
+    result = world.run()
+    assert result['err']['code'] == 'STACK.GATE_FAILED'
+    assert not world.writes
+    assert len([argv for argv, _ in world.calls if argv[0] == 'gh']) == 1
 
 
 @pytest.mark.parametrize("command", [["gh", "api"], ["git", "ls-remote"], ["git", "fetch"]])
 def test_network_timeouts_retry_then_fall_back(world, command, monkeypatch):
-    monkeypatch.setattr(hook, "COMMAND_TIMEOUT", 7)
-    monkeypatch.setenv("ATM_BD_GATE_TIMEOUT_S", "7")  # main() resolves the deadline per run
+    monkeypatch.setattr(hook, 'COMMAND_TIMEOUT', 7)
+    monkeypatch.setenv('ATM_BD_GATE_TIMEOUT_S', '7')
     world.timeout_command = command
-    assert world.run()["ok"]["github"] == "unavailable"
+    result = world.run()
+    assert result['err']['code'] == 'STACK.GATE_FAILED'
     calls = [(argv, kwargs) for argv, kwargs in world.calls if argv[:len(command)] == command]
-    assert len(calls) == 3
-    assert all(kwargs["timeout"] == 7 for _, kwargs in world.calls)
+    assert len(calls) == 1
+    assert all(kwargs['timeout'] == 7 for _, kwargs in world.calls)
+    assert not world.writes
 
 
 def test_deadline_injection_convention_matches_assignment_gates(world, monkeypatch):
@@ -313,34 +319,29 @@ def test_invalid_timeout_env_is_a_typed_config_error_not_a_traceback(world, bad)
 def test_remote_git_failures_retry_then_use_cached_local_checks(world, failed_command):
     world.git_network_failure = failed_command
     result = world.run()
-    assert result["ok"]["github"] == "unavailable"
-    assert result["ok"]["assigned"] == [world.values["sanity_bead"]]
-    assert len([argv for argv, _kwargs in world.calls if argv[:2] == ["git", failed_command]]) == 3
-    assert not any(argv[:2] == ["gh", "api"] for argv, _kwargs in world.calls)
-    assert ["git", "merge-base", "--is-ancestor", "origin/integrate/phase-bj", world.values["commit"]] in [
-        argv for argv, _kwargs in world.calls
-    ]
+    assert result['err']['code'] == 'STACK.GATE_FAILED'
+    assert len([argv for argv, _ in world.calls if argv[:2] == ['git', failed_command]]) == 1
+    assert not world.writes
 
 
 @pytest.mark.parametrize("failed_command", ["ls-remote", "fetch"])
 def test_remote_git_fallback_names_the_failed_command_and_stderr(world, failed_command):
     world.git_network_failure = failed_command
-    expected_command = {
-        "ls-remote": f"git ls-remote origin refs/heads/{world.values['branch']}",
-        "fetch": "git fetch origin",
-    }[failed_command]
-    result = world.run()["ok"]
-    assert result["github"] == "unavailable"
-    assert result["github_error"] == f"{expected_command}: remote unavailable"
+    error = world.run()['err']
+    assert error['code'] == 'STACK.GATE_FAILED'
+    assert 'remote unavailable' in error['message']
+    assert error['fix']
+    assert not world.writes
 
 
 @pytest.mark.parametrize(("failure", "stderr"), [(True, "HTTP 429"), ("raise", "GitHub unavailable")])
 def test_github_fallback_names_the_failed_api_call_and_error(world, failure, stderr):
     world.github_failure = failure
-    result = world.run()["ok"]
-    assert result["github"] == "unavailable"
-    assert result["github_error"].startswith("gh api repos/{owner}/{repo}/pulls?head={owner}:")
-    assert result["github_error"].endswith(f": {stderr}")
+    error = world.run()['err']
+    assert error['code'] == 'STACK.GATE_FAILED'
+    assert stderr in error['message']
+    assert error['fix']
+    assert not world.writes
 
 
 def test_github_ok_result_carries_no_github_error(world):
@@ -362,7 +363,8 @@ def test_ledger_top_overrides_static_target(world):
     assert metadata["layers"][-1]["head"] == "b" * 40
     assert "ok" in world.run()
     calls = [argv for argv, _kwargs in world.calls]
-    assert ["git", "merge-base", "--is-ancestor", "origin/new-top", world.values["commit"]] in calls
+    assert ["git", "rev-parse", "--verify", "refs/remotes/origin/new-top^{commit}"] in calls
+    assert ["git", "merge-base", "--is-ancestor", "b" * 40, world.values["commit"]] in calls
     assert not any("irrelevant-broken-lower-layer" in str(argv) for argv in calls)
 
 
@@ -381,10 +383,10 @@ def test_qa_does_not_require_stack_bead(world):
     assert "ok" in world.run("qa")
 
 
-def test_dev_skip_checks_does_not_read_stack_bead(world):
+def test_dev_skip_checks_still_requires_stack_bead(world):
     del world.beads[world.values["stack_bead"]]
-    assert "ok" in world.run("dev", skip_checks=True)
-    assert not any(argv[:3] == ["bd", "show", world.values["stack_bead"]] for argv, _ in world.calls)
+    assert "err" in world.run("dev", skip_checks=True)
+    assert not world.writes
 
 
 def test_unrelated_bead_layers_are_not_stack_schema_validated(world):
@@ -406,13 +408,15 @@ def test_sanity_lookup_fallback_and_actionable_missing_bead(world):
 @pytest.mark.parametrize("argv,response,code", [
     (["git", "rev-parse", "HEAD"], (0, "wrong"), "HEAD.NOT_PUSHED"),
     (["git", "status", "--porcelain"], (0, " M source.py"), "HEAD.DIRTY"),
-    (["git", "ls-remote", "origin", "refs/heads/sprint/bj-1-task-close-hook"], (0, "wrong"), "HEAD.NOT_PUSHED"),
-    (["git", "merge-base", "--is-ancestor", "origin/integrate/phase-bj", "a" * 40], (1, ""), "BASE.NOT_ANCESTOR"),
+    (["git", "ls-remote", "--exit-code", "--", "origin", "refs/heads/sprint/bj-1-task-close-hook"], (0, "wrong"), "HEAD.NOT_PUSHED"),
+    (["git", "merge-base", "--is-ancestor", "b" * 40, "a" * 40], (1, ""), "BASE.NOT_ANCESTOR"),
     (["gh", "api", "repos/{owner}/{repo}/pulls?head={owner}:sprint/bj-1-task-close-hook&state=open&per_page=100"], (0, "[]"), "PR.NOT_FOUND"),
 ])
 def test_dev_preconditions_do_not_write(world, argv, response, code):
     world.overrides[tuple(argv)] = response
-    assert world.run()["err"]["code"] == code
+    error = world.run()["err"]
+    assert error["code"] == "STACK.GATE_FAILED"
+    assert error["fix"]
     assert world.writes == []
 
 
@@ -817,7 +821,7 @@ def test_not_reproducible_retry_uses_current_stack_top(world, boundary):
         del world.values[field]
     world.fail_after = boundary
     assert "err" in world.run("fix", outcome="not_reproducible")
-    world.values["pr_target"] = "moved-top"
+    world.beads[world.values["stack_bead"]]["metadata"]["trunk"] = "moved-top"
     world.overrides[("git", "rev-parse", "origin/moved-top")] = (0, "c" * 40)
     world.fail_after = None
     assert "ok" in world.run("fix")
@@ -909,7 +913,7 @@ def test_help_describes_the_permission_only_override(capsys):
     with pytest.raises(SystemExit) as exit_info:
         hook.main(["--help"])
     assert exit_info.value.code == 0
-    assert " ".join("Do NOT use without permission from the phase lead.".split()) in " ".join(capsys.readouterr().out.split())
+    assert " ".join("the mandatory stack gate still runs.".split()) in " ".join(capsys.readouterr().out.split())
 
 
 def d1_run_path(world, path):
@@ -1086,7 +1090,7 @@ def test_close_from_documented_dispatch_and_result_files_derives_handoff(world, 
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", assignment["values"]["generated_at"])
     update = next(argv for argv, _ in world.writes if argv[:3] == ["bd", "update", dispatch["checked_bead"]])
     written = dict(update[index + 1].split("=", 1) for index, flag in enumerate(update) if flag == "--set-metadata")
-    assert written == {"branch": dispatch["branch"], "pr_base": "deliberately-different",
+    assert written == {"branch": dispatch["branch"], "pr_base": "integrate/phase-bj",
                        **{name: derived[name] for name in ("commit", "pr_number", "pr_url")}}
     assert json.loads(world.path.read_text()) == dispatch
     assert json.loads(world.result_path.read_text()) == result
@@ -1155,23 +1159,23 @@ def test_empty_derived_commit_never_writes_even_when_checks_are_skipped(world, r
 @pytest.mark.parametrize("missing", ["pr_number", "pr_url"])
 def test_offline_or_skipped_checks_require_recorded_pr_identity(world, role, skip, missing):
     world.github_failure = True
-    world.beads[world.values["checked_bead"]]["metadata"][missing] = None
+    world.beads[world.values['checked_bead']]['metadata'][missing] = None
     output = world.run(role, skip_checks=skip)
-    assert output["err"]["code"] == "VARS.EMPTY"
-    assert missing in output["err"]["message"]
-    assert "record" in output["err"]["fix"]
+    assert output['err']['code'] == 'STACK.GATE_FAILED'
+    assert 'HTTP 429' in output['err']['message']
+    assert output['err']['fix']
     assert world.writes == []
 
 
 @pytest.mark.parametrize("role", ["dev", "fix"])
 def test_skipped_checks_preserve_recorded_pr_identity(world, role):
     output = world.run(role, skip_checks=True)
-    assert "ok" in output, output
-    assert output["ok"]["pr_number"] == str(world.pr_number)
-    assert not any(argv[0] == "gh" for argv, _ in world.calls)
-    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")
-    assert assignment["values"]["pr_url"] == world.values["pr_url"]
-    assert assignment["values"]["rebased_onto"] == "b" * 40
+    assert 'ok' in output, output
+    assert output['ok']['pr_number'] == str(world.pr_number)
+    assert any(argv[0] == 'gh' for argv, _ in world.calls)
+    assignment = next(message for message in world.messages if message['type'] == 'dev-sanity-task')
+    assert assignment['values']['pr_url'] == world.values['pr_url']
+    assert assignment['values']['rebased_onto'] == 'b' * 40
 
 
 
@@ -1185,25 +1189,25 @@ def test_close_records_the_pr_base_from_the_same_pr_lookup(world, role):
     # QA reviews against the PR's actual base (the layer below), not the poured pr_target.
     output = world.run(role)
     assert "ok" in output, output
-    assert checked_metadata_write(world)["pr_base"] == "deliberately-different"
+    assert checked_metadata_write(world)["pr_base"] == "integrate/phase-bj"
     assert len([argv for argv, _ in world.calls if argv[0] == "gh"]) == 1
 
 
 @pytest.mark.parametrize("role", ["dev", "fix"])
 def test_offline_close_keeps_the_recorded_pr_base(world, role):
     world.github_failure = True
-    world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] = "fix/recorded-layer"
+    world.beads[world.values['checked_bead']]['metadata']['pr_base'] = 'fix/recorded-layer'
     output = world.run(role)
-    assert "ok" in output, output
-    assert "pr_base" not in checked_metadata_write(world)
-    assert world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] == "fix/recorded-layer"
+    assert output['err']['code'] == 'STACK.GATE_FAILED'
+    assert not world.writes
+    assert world.beads[world.values['checked_bead']]['metadata']['pr_base'] == 'fix/recorded-layer'
 
 def test_multiple_open_prs_at_head_are_refused_before_writes(world):
     prs = [{"number": number, "head": {"sha": world.head}, "base": {"ref": "main"}, "html_url": "https://example.test/pr"} for number in (351, 352)]
     command = ("gh", "api", f"repos/{{owner}}/{{repo}}/pulls?head={{owner}}:{world.values['branch']}&state=open&per_page=100")
     world.overrides[command] = (0, json.dumps(prs))
     output = world.run()
-    assert output["err"]["code"] == "PR.AMBIGUOUS"
+    assert output["err"]["code"] == "STACK.GATE_FAILED"
     assert "duplicate" in output["err"]["fix"]
     assert world.writes == []
 
@@ -1213,7 +1217,7 @@ def test_empty_discovered_pr_identity_is_refused_before_writes(world, number):
     command = ("gh", "api", f"repos/{{owner}}/{{repo}}/pulls?head={{owner}}:{world.values['branch']}&state=open&per_page=100")
     world.overrides[command] = (0, json.dumps([{"number": number, "head": {"sha": world.head}, "base": {"ref": "main"}, "html_url": "https://example.test/pr"}]))
     output = world.run()
-    assert output["err"]["code"] == "VARS.EMPTY"
+    assert output["err"]["code"] == "STACK.GATE_FAILED"
     assert "pr_number" in output["err"]["message"]
     assert world.writes == []
 

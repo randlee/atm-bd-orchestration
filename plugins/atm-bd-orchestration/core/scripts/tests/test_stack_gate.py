@@ -113,13 +113,13 @@ def test_missing_remote_branch_is_not_pushed(tmp_path: Path) -> None:
     assert isinstance(result, Ok) and isinstance(result.value, StackGateResult.NotPushed)
 
 
-def test_stack_top_uses_last_linked_layer_then_trunk_and_legacy_fallback() -> None:
+def test_stack_top_uses_last_recorded_layer_then_trunk_and_legacy_fallback() -> None:
     def resolve(branch: str) -> str:
         return f"sha-{branch}"
     assert select_stack_top({"metadata": {"trunk": "main", "layers": []}}, "other", resolve) == ("main", "sha-main")
     assert select_stack_top({"metadata": {"trunk": "main", "layers": [{"branch": "pending", "head": "x", "linked": False}]}},
-                            "other", resolve) == ("main", "sha-main")
+                            "other", resolve) == ("pending", "x")
     assert select_stack_top({"metadata": {"trunk": "main", "layers": [
         {"branch": "linked", "head": "sha-linked"}, {"branch": "pending", "head": "x", "linked": False}]}},
-        "other", resolve) == ("linked", "sha-linked")
+        "other", resolve) == ("pending", "x")
     assert select_stack_top({"metadata": {"layers": []}}, "legacy", resolve) == ("legacy", "sha-legacy")

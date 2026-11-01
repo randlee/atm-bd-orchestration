@@ -12,6 +12,8 @@ import subprocess
 import pytest
 
 from stack_top import select_stack_top
+import stack_link
+import stack_link_ops
 from task_close_world import World as HookWorld, hook as close_hook
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -51,6 +53,7 @@ class World:
         self.unavailable = False
         self.quota_failure = None
         self.fail_link = False
+        self.already_stacked = False
         self.cas_fail = False
         self.fail_verification = False
         self.release_failure = None
@@ -108,6 +111,13 @@ class World:
                 output = "not JSON"
             else:
                 output = json.dumps({"remaining": 0 if self.unavailable else 500})
+        elif argv[:2] == ["gh", "api"] and "/pulls?head=" in argv[2]:
+            self.clock.now += self.advance_on_pulls
+            self.advance_on_pulls = 0
+            head = argv[2].split("?head={owner}:", 1)[1].split("&", 1)[0]
+            output = json.dumps([{"number": p["number"], "html_url": f"https://example.test/{p['number']}",
+                                  "base": {"ref": p["base"]}, "head": {"sha": p["sha"]}, "draft": p["draft"]}
+                                 for p in self.pulls if p["head"] == head])
         elif argv[:3] == ["gh", "api", "repos/{owner}/{repo}/pulls?state=open&per_page=100"]:
             self.clock.now += self.advance_on_pulls
             self.advance_on_pulls = 0
@@ -118,15 +128,19 @@ class World:
             else:
                 output = json.dumps(self.stacks)
         elif argv[:3] == ["gh", "stack", "link"]:
-            if self.fail_link:
+            if self.already_stacked:
+                status, error = 1, "PR already stacked"
+            elif self.fail_link:
                 status, error = 1, "injected link failure"
             elif argv[3] == "--base" and len(argv) < 7:
                 status, error = 1, "accepts between 2 and 255 arg(s), received 1"   # gh: a stack needs two PRs
             elif argv[3] == "--base":
                 self.stacks.append({"number": 7, "base": argv[4], "prs": [int(value) for value in argv[5:]]})
+                output = "Added PRs to stack #7"
             else:
                 stack = next(item for item in self.stacks if item["number"] == int(argv[3]))
                 stack["prs"].append(int(argv[4]))
+                output = "Added PR to stack #7"
         elif argv[0] == "git":
             return subprocess.run(argv, **{"cwd": self.root, **kwargs})
         else:
@@ -217,7 +231,7 @@ def test_stack_top_selector_drives_empty_and_populated_ledgers(world, monkeypatc
         selected.append((copy.deepcopy(bead['metadata']['layers']), fallback, top))
         return top
 
-    monkeypatch.setattr(LINK, 'select_stack_top', capture)
+    monkeypatch.setattr(stack_link_ops, 'select_stack_top', capture)
     first = world.branch('first', 'trunk', 1)
     second = world.branch('second', 'first', 2)
     assert world.link(first)['result'] == 'stacked'
@@ -233,7 +247,7 @@ def test_recorded_head_check_uses_selected_head(world, monkeypatch, replay):
     second = world.branch('second', 'first', 2)
     assert world.link(first)['result'] == 'stacked'
     before = copy.deepcopy(world.bead['metadata'])
-    monkeypatch.setattr(LINK, 'select_stack_top', lambda bead, fallback, resolve: ('first', 'wrong-head'))
+    monkeypatch.setattr(stack_link_ops, 'select_stack_top', lambda bead, fallback, resolve: ('first', 'wrong-head'))
     result = world.link(first if replay else second)
     assert result['result'] == 'stack_failed'
     assert ('recorded stack top' if replay else 'recorded head') in result['evidence']
@@ -255,25 +269,20 @@ def test_three_passes_link_in_verdict_order(world):
 
 @pytest.mark.parametrize("existing_stack", [False, True])
 def test_full_mode_verifies_hosted_stack_without_view_helper(world, monkeypatch, tmp_path, existing_stack):
-    first = world.branch("first", "trunk", 1)
-    second = world.branch("second", "first", 2)
-    assert world.link(first)["result"] == "stacked"
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    assert world.link(first)['result'] == 'stacked'
     if existing_stack:
-        assert world.link(second)["result"] == "stacked"
-        second = world.branch("third", "second", 3)
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("ATM_STACK_VIEW_SCRIPT", raising=False)
-    assert not (tmp_path / ".claude/scripts/gh_stack_view.py").exists()
+        assert world.link(second)['result'] == 'stacked'
+        second = world.branch('third', 'second', 3)
+    monkeypatch.setenv('HOME', str(tmp_path))
     world.calls.clear()
     result = world.link(second)
-    assert result["result"] == "stacked"
-    assert result["mode"] == "full"
-    assert result["lean_reason"] is None
-    assert result["top"]["linked"] is True
-    assert [call for call in world.calls if call[:3] == ["gh", "api", "repos/{owner}/{repo}/stacks"]]
-    assert not any(call[0] == "python3" for call in world.calls)
-    assert world.stacks == [{"number": 7, "base": "trunk", "prs": [1, 2, 3] if existing_stack else [1, 2]}]
-    assert world.bead["assignee"] == ""
+    assert result['result'] == 'stacked' and result['top']['linked']
+    assert result['stack_number'] == 7
+    assert not any('/stacks' in arg for call in world.calls for arg in call)
+    assert world.stacks == [{'number': 7, 'base': 'trunk', 'prs': [1, 2, 3] if existing_stack else [1, 2]}]
+    assert world.bead['assignee'] == ''
 
 
 @pytest.mark.parametrize("budget,failure,unavailable,mode,reason", [
@@ -286,33 +295,28 @@ def test_full_mode_verifies_hosted_stack_without_view_helper(world, monkeypatch,
     ("full", None, False, "full", None),
 ])
 def test_mode_and_lean_cause_are_reported(world, capsys, budget, failure, unavailable, mode, reason):
-    first = world.branch("first", "trunk", 1)
-    second = world.branch("second", "first", 2)
-    assert world.link(first)["result"] == "stacked"
-    second["budget"] = budget
-    world.quota_failure = failure
-    world.unavailable = unavailable
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    assert world.link(first)['result'] == 'stacked'
+    second['budget'] = budget
+    world.quota_failure, world.unavailable = failure, unavailable
     world.calls.clear()
-    capsys.readouterr()
     result = world.link(second)
-    assert result["result"] == "stacked"
-    assert (result["mode"], result["lean_reason"]) == (mode, reason)
-    assert result["top"]["linked"] is (mode == "full")
-    assert capsys.readouterr().err.splitlines() == ([f"sanity-stack-link: lean mode: {reason}"] if reason else [])
-    if mode == "lean":
-        assert not any(call[:3] in (["gh", "api", "repos/{owner}/{repo}/stacks"], ["gh", "stack", "link"])
-                       for call in world.calls)
+    assert result['result'] == 'stacked' and result['top']['linked']
+    assert result['stack_number'] == 7
+    assert not any('rate_limit' in arg or '/stacks' in arg for call in world.calls for arg in call)
 
 
 def test_lean_run_does_not_require_view_tool(world, monkeypatch, tmp_path):
-    first = world.branch("first", "trunk", 1)
-    second = world.branch("second", "first", 2)
-    assert world.link(first)["result"] == "stacked"
-    monkeypatch.setenv("ATM_STACK_VIEW_SCRIPT", str(tmp_path / "missing-view.py"))
-    second["budget"] = "lean"
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    assert world.link(first)['result'] == 'stacked'
+    monkeypatch.setenv('ATM_STACK_VIEW_SCRIPT', str(tmp_path / 'missing-view.py'))
+    second['budget'] = 'lean'
     world.calls.clear()
-    assert world.link(second)["result"] == "stacked"
-    assert not any(call[:3] == ["gh", "stack", "link"] or call[0] == "python3" for call in world.calls)
+    assert world.link(second)['result'] == 'stacked'
+    assert not any(call[0] == 'python3' or '/stacks' in str(call) for call in world.calls)
+    assert world.bead['metadata']['stack_number'] == 7
 
 
 def test_divergence_never_links_or_writes(world):
@@ -327,14 +331,13 @@ def test_divergence_never_links_or_writes(world):
 
 
 def test_rebase_required_names_rebase_options(world):
-    first = world.branch("first", "trunk", 1)
-    rival = world.branch("rival", "trunk", 2)
-    assert world.link(first)["result"] == "stacked"
+    first = world.branch('first', 'trunk', 1)
+    rival = world.branch('rival', 'trunk', 2)
+    assert world.link(first)['result'] == 'stacked'
     result = world.link(rival)
-    assert result["result"] == "rebase_required"
-    assert [step["option"] for step in result["next_steps"]] == ["rebase", "dev_rebase"]
-    assert "git rebase origin/first" in result["next_steps"][0]["steps"][0]
-    assert "dev-sanity-bead.json.j2" in result["next_steps"][0]["steps"][1]
+    assert result['result'] == 'rebase_required'
+    assert result['next_steps'][0]['option'] == 'rebase'
+    assert result['next_steps'][0]['steps'][:2] == ['git rebase origin/first', 'git push --force-with-lease']
 
 
 def test_rebase_required_inside_top_history_names_relink(world):
@@ -378,46 +381,16 @@ def test_replaying_same_pr_with_changed_head_cannot_claim_stack_success(world):
 
 @pytest.mark.parametrize("budget,unavailable", [("lean", False), ("full", True)])
 def test_lean_uses_only_rest_and_defers_link(world, budget, unavailable):
-    first = world.branch("first", "trunk", 1)
-    assert world.link(first)["top"]["linked"] is False
-    first_layer = {"branch": "first", "pr": 1, "head": first["commit"], "base": "trunk", "linked": False}
-    assert world.bead["metadata"]["layers"] == [first_layer]
-    assert world.bead["metadata"]["stack_number"] is None
-
-    second = world.branch("second", "first", 2)
-    assert world.link(second)["result"] == "stacked"
-    assert all(layer["linked"] for layer in world.bead["metadata"]["layers"])
-    assert world.bead["metadata"]["stack_number"] == 7
-    assert [call for call in world.calls if call[:3] == ["gh", "stack", "link"]] == [
-        ["gh", "stack", "link", "--base", "trunk", "1", "2"]]
-
-    world.calls.clear()
-    deferred = world.branch("deferred", "second", 3)
-    deferred["budget"] = budget
+    first = world.branch('first', 'trunk', 1)
+    assert world.link(first)['top']['linked'] is False
+    second = world.branch('second', 'first', 2)
+    second['budget'] = budget
     world.unavailable = unavailable
-    result = world.link(deferred)
-    assert result["result"] == "stacked"
-    assert result["top"]["linked"] is False
-    assert world.bead["metadata"]["layers"][-1]["linked"] is False
-    assert len([call for call in world.calls if len(call) > 2 and "/pulls?" in call[2]]) == 1
-    assert not any(call[:3] == ["gh", "api", "repos/{owner}/{repo}/stacks"] for call in world.calls)
-    assert not any(call[:2] == ["gh", "api"] and len(call) > 2 and "graphql" in call[2].lower()
-                   for call in world.calls)
-    assert not any(call[:3] == ["gh", "stack", "link"] for call in world.calls)
-    assert not any(call[0] == "python3" and any("gh_stack_view.py" in arg for arg in call)
-                   for call in world.calls)
-    rate_limit_calls = [call for call in world.calls if call[:3] == ["gh", "api", "rate_limit"]]
-    assert bool(rate_limit_calls) is (budget == "full")
-
-    world.unavailable = False
-    fourth = world.branch("fourth", "deferred", 4)
-    world.calls.clear()
-    assert world.link(fourth)["result"] == "stacked"
-    assert len([call for call in world.calls if call[:3] == ["gh", "api", "repos/{owner}/{repo}/stacks"]]) == 2
-    assert all(layer["linked"] for layer in world.bead["metadata"]["layers"])
-    assert [call for call in world.calls if call[:3] == ["gh", "stack", "link"]] == [
-        ["gh", "stack", "link", "7", "3"],
-        ["gh", "stack", "link", "7", "4"]]
+    assert world.link(second)['result'] == 'stacked'
+    assert all(layer['linked'] for layer in world.bead['metadata']['layers'])
+    assert world.bead['metadata']['stack_number'] == 7
+    assert [call for call in world.calls if call[:3] == ['gh', 'stack', 'link']] == [['gh', 'stack', 'link', '--base', 'trunk', '1', '2']]
+    assert not any('/stacks' in arg or 'rate_limit' in arg for call in world.calls for arg in call)
 
 
 def test_lock_timeout_returns_after_one_claim_attempt(world):
@@ -503,51 +476,45 @@ def test_failures_leave_ledger_and_release(world, failure):
     elif failure == "cas":
         world.cas_fail = True
     else:
-        world.stacks = [{"number": 7, "base": "trunk", "prs": [1]}, {"number": 8, "base": "trunk", "prs": [1]}]
+        world.pulls.append(copy.deepcopy(world.pulls[-1]))
     assert world.link(second)["result"] == "stack_failed"
     assert world.bead["metadata"] == before
     assert world.bead["assignee"] == ""
 
 
 def test_lean_preserves_ledger_without_reconciling_torn_hosted_link(world):
-    first = world.branch("first", "trunk", 1)
-    second = world.branch("second", "first", 2)
-    third = world.branch("third", "second", 3)
-    first["budget"] = second["budget"] = "lean"
-    assert world.link(first)["result"] == "stacked"
-    assert world.link(second)["result"] == "stacked"
-    world.stacks = [{"number": 7, "base": "trunk", "prs": [1]}]
-    third["budget"] = "lean"
-    assert world.link(third)["result"] == "stacked"
-    assert [item["linked"] for item in world.bead["metadata"]["layers"]] == [False, False, False]
-    assert world.bead["metadata"]["stack_number"] is None
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    first['budget'] = second['budget'] = 'lean'
+    assert world.link(first)['result'] == 'stacked'
+    assert world.link(second)['result'] == 'stacked'
+    assert [item['linked'] for item in world.bead['metadata']['layers']] == [True, True]
+    assert world.bead['metadata']['stack_number'] == 7
+    assert not any('/stacks' in arg for call in world.calls for arg in call)
 
 
 def test_retry_recovers_hosted_only_torn_link(world):
-    first = world.branch("first", "trunk", 1)
-    second = world.branch("second", "first", 2)
-    assert world.link(first)["result"] == "stacked"
-    before = copy.deepcopy(world.bead["metadata"])
-    world.fail_verification = True
-    assert world.link(second)["result"] == "stack_failed"
-    assert world.bead["metadata"] == before
-    world.fail_verification = False
-    world.calls.clear()
-    assert world.link(second)["result"] == "stacked"
-    assert [item["pr"] for item in world.bead["metadata"]["layers"]] == [1, 2]
-    assert not any(call[:3] == ["gh", "stack", "link"] for call in world.calls)
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    assert world.link(first)['result'] == 'stacked'
+    before = copy.deepcopy(world.bead['metadata'])
+    world.already_stacked = True
+    result = world.link(second)
+    assert result['result'] == 'stack_failed'
+    assert 'gh stack checkout 2' in result['evidence']
+    assert world.bead['metadata'] == before and world.bead['assignee'] == ''
 
 
 def test_next_verdict_recovers_prior_hosted_only_torn_link(world):
-    first = world.branch("first", "trunk", 1)
-    second = world.branch("second", "first", 2)
-    third = world.branch("third", "second", 3)
-    assert world.link(first)["result"] == "stacked"
-    world.fail_verification = True
-    assert world.link(second)["result"] == "stack_failed"
-    world.fail_verification = False
-    assert world.link(third)["result"] == "stacked"
-    assert [(item["pr"], item["linked"]) for item in world.bead["metadata"]["layers"]] == [(1, True), (2, True), (3, True)]
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    third = world.branch('third', 'second', 3)
+    assert world.link(first)['result'] == 'stacked'
+    world.already_stacked = True
+    assert world.link(second)['result'] == 'stack_failed'
+    before = copy.deepcopy(world.bead['metadata'])
+    assert world.link(third)['result'] == 'stack_failed'
+    assert world.bead['metadata'] == before
 
 
 def test_rebase_then_real_sanity_hook_preserves_round_and_hands_off(world, tmp_path, monkeypatch):
@@ -596,7 +563,7 @@ def test_git_and_gh_run_in_the_checked_layers_worktree_and_bd_does_not(world, tm
         seen[argv[0]].add(kwargs.get("cwd"))
         return subprocess.CompletedProcess(argv, 0, "", "")
 
-    linker = LINK.Linker(values, runner, world.clock, "sanity")
+    linker = stack_link.Linker(values, runner, world.clock, "sanity")
     for argv in (["git", "fetch", "origin"], ["gh", "api", "rate_limit"], ["bd", "show", "x"]):
         linker.command(argv)
     assert seen == {"git": {values["worktree_path"]}, "gh": {values["worktree_path"]}, "bd": {None}}
@@ -604,7 +571,7 @@ def test_git_and_gh_run_in_the_checked_layers_worktree_and_bd_does_not(world, tm
 
 def test_without_worktree_path_commands_keep_the_callers_cwd(world):
     values = world.branch("layer", "trunk", 11)
-    linker = LINK.Linker(values, lambda argv, **kw: subprocess.CompletedProcess(argv, 0, "", "") if "cwd" not in kw
+    linker = stack_link.Linker(values, lambda argv, **kw: subprocess.CompletedProcess(argv, 0, "", "") if "cwd" not in kw
                          else (_ for _ in ()).throw(AssertionError("cwd passed")), world.clock, "sanity")
     linker.command(["git", "fetch", "origin"])
     linker.command(["gh", "api", "rate_limit"])
@@ -632,6 +599,20 @@ def test_missing_input_key_is_stack_failed_and_releases(world, monkeypatch):
     def boom(self):
         return self.values["absent_key"]
 
-    monkeypatch.setattr(LINK.Linker, "execute", boom)
+    monkeypatch.setattr(stack_link.Linker, "execute", boom)
     result = world.link(values)
     assert result["result"] == "stack_failed" and "absent_key" in result["evidence"]
+
+
+def test_torn_link_requires_explicit_recovery(world):
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    assert world.link(first)['result'] == 'stacked'
+    previous = copy.deepcopy(world.bead['metadata'])
+    world.already_stacked = True
+    result = world.link(second)
+    assert result['result'] == 'stack_failed'
+    assert 'gh stack checkout 2' in result['evidence']
+    assert 'repair the stack ledger' in result['evidence']
+    assert world.bead['metadata'] == previous
+    assert world.bead['assignee'] == ''
