@@ -31,6 +31,7 @@ artifacts:
     - skills/atm-bd-lite/scripts/tests/test_dev_close.py
     - skills/atm-bd-lite/scripts/tests/test_fix_close.py
     - skills/atm-bd-lite/scripts/tests/test_hook_contract.py
+    - skills/atm-bd-lite/scripts/tests/test_hook_runner_observes.py
     - skills/atm-bd-lite/scripts/tests/test_lite_cron.py
     - skills/atm-bd-lite/scripts/tests/test_lite_templates.py
     - skills/atm-bd-lite/scripts/tests/test_profile_gate.py

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
-import sys
 
 from atm_bd_types import CloseVars, Transition
+from atm_bd_types import StackGateResult
+from result import Ok, Result
+from stack_gate_types import FakeStackGate
 
 HOOK = Path(__file__).parents[1] / "atm-bd-task-hook.py"
 SPEC = importlib.util.spec_from_file_location("lite_task_hook", HOOK)
@@ -16,6 +20,24 @@ MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 hook: Any = MODULE
+
+
+class RecordingSubprocess:
+    """A deterministic subprocess boundary that records argv and returns queued results."""
+
+    def __init__(self, responses: list[subprocess.CompletedProcess[str]]) -> None:
+        self.responses = list(responses)
+        self.calls: list[tuple[str, ...]] = []
+
+    def __call__(self, argv: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        self.calls.append(tuple(argv))
+        if not self.responses:
+            raise AssertionError(f"unexpected subprocess call: {argv}")
+        return self.responses.pop(0)
+
+
+def fake_stack_gate(result: Result[StackGateResult] | None = None) -> FakeStackGate:
+    return FakeStackGate(result or Ok(StackGateResult.Stacked()))
 
 
 def make_close_vars() -> CloseVars:

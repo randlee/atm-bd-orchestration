@@ -3,7 +3,7 @@ name: lite-fix-task
 version: 1.0.0
 description: Fix assignment for a lite-profile finding.
 format: xml
-required_variables: [provider, task_id, sprint, finding, worktree_path, branch, pr_target]
+required_variables: [provider, task_id, sprint, phase, finding, worktree_path, branch, pr_target]
 metadata:
   type: fix-task
   tags: [stage:fix, orchestration:beads, profile:lite]
@@ -18,5 +18,5 @@ metadata:
   <worktree><![CDATA[{{ worktree_path }}]]></worktree>
   <branch><![CDATA[{{ branch }}]]></branch>
   <pr-target><![CDATA[{{ pr_target }}]]></pr-target>
-  <workflow><![CDATA[Validate the finding, implement its fix, run deterministic tests and lint, push the PR, then run atm-bd-task-close --role fix --vars <lead-vars> --result <result.json>.]]></workflow>
+  <workflow><![CDATA[Validate the finding, implement its fix, run deterministic tests and lint, push the PR, then run .atm-bd/scripts/hook_runner.py --role fix --phase {{ phase }} --vars <lead-vars> --result <result.json>.]]></workflow>
 </atm-task>

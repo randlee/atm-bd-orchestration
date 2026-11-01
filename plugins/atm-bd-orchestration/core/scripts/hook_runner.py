@@ -4,39 +4,33 @@
 # dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types==0.19.12"]
 # ///
 # pyright: strict
-"""Profile-first runner boundary for the lite transition planner."""
+"""Gather live lite workflow state and execute a pure transition plan."""
 from __future__ import annotations
 
 import importlib.util
 import json
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from atm_bd_types import CloseVars, Error, ErrorKind, Profile, Transition
+from atm_bd_types import CloseVars, Error, ErrorDetail, ErrorKind, PrRef, Profile, StackGateResult, Transition
 from result import Err, Ok, Result
+from stack_gate import GitStackGate
+from stack_gate_types import StackGate
+from stack_top import is_json_object, select_stack_top
 
 
 class HookModule(Protocol):
     Observed: Any
+
     def plan(self, transition: Transition, vars: CloseVars, observed: object) -> object: ...
 
 
-Executor = Callable[[Sequence[str]], Result[str]]
-TemplateRenderer = Callable[[Path, dict[str, object]], Result[str]]
-
-
-def render_lite_template(phase_file: Path, template: Path, variables: dict[str, object],
-                         renderer: TemplateRenderer) -> Result[str]:
-    """Refuse a non-lite phase before asking the renderer to read a template."""
-    from phase_profile import require_profile
-
-    gate = require_profile(phase_file, Profile.LITE)
-    if isinstance(gate, Err):
-        return gate
-    return renderer(template, variables)
+ProcessRunner = Callable[..., subprocess.CompletedProcess[str]]
+PrFinder = Callable[..., Result[PrRef]]
+GateFactory = Callable[[Path], StackGate]
 
 
 def _load_hook(path: Path) -> HookModule:
@@ -48,76 +42,294 @@ def _load_hook(path: Path) -> HookModule:
     return cast(HookModule, module)
 
 
-def run_transition(phase_file: Path, transition: Transition, close_vars: CloseVars, observed: object,
-                   hook_path: Path, executor: Executor) -> Result[None]:
-    """Gate before planning, then execute in order and stop at the first typed error."""
-    from phase_profile import require_profile
+def _run(argv: Sequence[str], cwd: Path, runner: ProcessRunner) -> Result[str]:
+    try:
+        completed = runner(list(argv), cwd=cwd, capture_output=True, text=True, check=False, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as failure:
+        return Err(Error(ErrorKind.UNREACHABLE, f"{' '.join(argv)}: {failure}",
+                         f"Restore the command and rerun the same hook invocation."))
+    if completed.returncode:
+        detail = (completed.stderr or completed.stdout).strip()
+        return Err(Error(ErrorKind.COMMAND_FAILED, f"{' '.join(argv)}: {detail}",
+                         f"Repair this step and rerun the same hook invocation.",
+                         ErrorDetail.CommandFailed(list(argv), completed.returncode, detail)))
+    return Ok(completed.stdout)
 
-    gate = require_profile(phase_file, Profile.LITE)
+
+def _json(argv: Sequence[str], cwd: Path, runner: ProcessRunner) -> Result[object]:
+    result = _run(argv, cwd, runner)
+    if isinstance(result, Err):
+        return result
+    try:
+        return Ok(json.loads(result.value))
+    except json.JSONDecodeError as failure:
+        return Err(Error(ErrorKind.PARSE_FAILED, f"{' '.join(argv)}: {failure}",
+                         "Repair the command's JSON output and rerun the hook."))
+
+
+def _one_row(value: object, command: str) -> Result[dict[str, object]]:
+    if isinstance(value, list):
+        rows = cast(list[object], value)
+        if len(rows) == 1:
+            value = rows[0]
+    if not isinstance(value, dict):
+        return Err(Error(ErrorKind.PARSE_FAILED, f"{command}: expected one JSON object",
+                         "Repair the bead command output and rerun the hook."))
+    return Ok(cast(dict[str, object], value))
+
+
+def _value(values: Mapping[str, object], *names: str) -> str | None:
+    for name in names:
+        found = values.get(name)
+        if isinstance(found, str) and found.strip():
+            return found
+    return None
+
+
+def collect_observed(
+    values: Mapping[str, object],
+    result_values: Mapping[str, object],
+    transition: Transition,
+    repo: Path,
+    hook_path: Path,
+    *,
+    runner: ProcessRunner = subprocess.run,
+    pr_finder: PrFinder | None = None,
+    gate_factory: GateFactory = GitStackGate,
+) -> Result[object]:
+    """Read current bead/task/stack/PR state and evaluate the pushed stack gate."""
+    from pr_lookup import find_pr_by_head
+
+    task_id = _value(values, "task_id", "dev_task_id", "qa_task_id")
+    bead_id = _value(values, "checked_bead", "task_id", "dev_task_id", "qa_task_id")
+    stack_bead = _value(values, "stack_bead")
+    branch = _value(values, "branch")
+    commit = _value(values, "commit")
+    pr_target = _value(values, "pr_target", "base")
+    if not all((task_id, bead_id, stack_bead, branch, commit, pr_target)):
+        missing = [name for name, item in (("task_id", task_id), ("checked_bead", bead_id),
+                   ("stack_bead", stack_bead), ("branch", branch), ("commit", commit),
+                   ("pr_target", pr_target)) if not item]
+        return Err(Error(ErrorKind.CONFIG_MISSING, f"close vars lack {', '.join(missing)}",
+                         "Supply the shared lite close vars for this task and retry."))
+
+    bead_result = _json(["bd", "show", cast(str, bead_id), "--json"], repo, runner)
+    if isinstance(bead_result, Err):
+        return bead_result
+    bead = _one_row(bead_result.value, f"bd show {bead_id}")
+    if isinstance(bead, Err):
+        return bead
+
+    stack_result = _json(["bd", "show", cast(str, stack_bead), "--json"], repo, runner)
+    if isinstance(stack_result, Err):
+        return stack_result
+    stack = _one_row(stack_result.value, f"bd show {stack_bead}")
+    if isinstance(stack, Err):
+        return stack
+    if not is_json_object(stack.value):
+        return Err(Error(ErrorKind.PARSE_FAILED, "stack bead has malformed JSON", "Repair the stack bead and retry."))
+
+    def resolve_head(name: str) -> object:
+        resolved = _run(["git", "rev-parse", "--verify", f"refs/remotes/origin/{name}"], repo, runner)
+        return resolved.value.strip() if isinstance(resolved, Ok) else ""
+
+    try:
+        stack_top, _top_sha = select_stack_top(stack.value, pr_target, resolve_head)
+    except ValueError as failure:
+        return Err(Error(ErrorKind.CONFIG_INVALID, str(failure), "Repair stack metadata and rerun the hook."))
+
+    lookup = pr_finder or find_pr_by_head
+    pr = lookup(cast(str, branch), repo, expected_head=cast(str, commit), runner=runner)
+    if isinstance(pr, Err):
+        return pr
+    gate = gate_factory(repo).check(pr.value.base, cast(str, branch), pr.value.head_sha, stack_top)
     if isinstance(gate, Err):
         return gate
-    try:
-        plan = _load_hook(hook_path).plan(transition, close_vars, observed)
-    except (ImportError, OSError, ValueError) as error:
-        return Err(Error(ErrorKind.CONFIG_INVALID, str(error), "Repair the installed lite hook and retry."))
-    if hasattr(plan, "error"):
-        return Err(cast(Any, plan).error)
-    commands = cast(Any, plan).value
-    for command in commands:
-        if command.idempotent_when(cast(Any, observed)):
+    gate_stacked = isinstance(gate.value, StackGateResult.Stacked)
+
+    events_result = _json(["atm", "task", "events", cast(str, task_id), "--json"], repo, runner)
+    if isinstance(events_result, Err):
+        return events_result
+    event_object = events_result.value
+    if isinstance(event_object, dict):
+        event_data = cast(dict[str, object], event_object)
+        events_value: object = event_data.get("events", [])
+    else:
+        events_value = event_object
+    if not isinstance(events_value, list):
+        return Err(Error(ErrorKind.PARSE_FAILED, "atm task events: expected events array",
+                         "Repair the task event output and retry."))
+    event_rows = cast(list[object], events_value)
+    task_state = ""
+    assigned_by: str | None = None
+    for event in reversed(event_rows):
+        if not isinstance(event, dict):
             continue
-        result = executor(command.argv)
+        event_data = cast(dict[str, object], event)
+        if not task_state and isinstance(event_data.get("to_state"), str):
+            task_state = cast(str, event_data["to_state"])
+        actor_value = event_data.get("actor")
+        actor = cast(dict[str, object], actor_value) if isinstance(actor_value, dict) else {}
+        if event_data.get("to_state") == "assigned" and isinstance(actor.get("member"), str):
+            assigned_by = cast(str, actor["member"])
+            break
+    task_closed = task_state in ("complete", "completed")
+
+    tasks_result = _json(["atm", "task", "list", "--all", "--json"], repo, runner)
+    if isinstance(tasks_result, Err):
+        return tasks_result
+    tasks_value: object = tasks_result.value
+    if not isinstance(tasks_value, list):
+        return Err(Error(ErrorKind.PARSE_FAILED, "atm task list: expected array",
+                         "Repair the task list output and retry."))
+    tasks = cast(list[object], tasks_value)
+    qa_id = _value(values, "qa_task_id", "qa_bead") or f"{bead_id}.group-qa"
+    qa_assigned = any(
+        isinstance(item, dict) and cast(dict[str, object], item).get("task_id") == qa_id
+        for item in tasks
+    )
+    qa_closed = str(bead.value.get("status", "")).lower() == "closed" if transition in (Transition.QA_PASS, Transition.QA_FAIL) else False
+    metadata_value = stack.value.get("metadata")
+    metadata = cast(dict[str, object], metadata_value) if isinstance(metadata_value, dict) else {}
+    layers = metadata.get("layers", [])
+    layer_rows = cast(list[object], layers) if isinstance(layers, list) else []
+    layer_linked = any(
+        isinstance(item, dict) and cast(dict[str, object], item).get("branch") == branch
+        for item in layer_rows
+    )
+    status = str(bead.value.get("status", "")).lower()
+    refused = transition is Transition.REFUSED and status == "open"
+    lead = _value(values, "lead", "phase_lead", "team_lead_member") or assigned_by
+    if not lead:
+        return Err(Error(ErrorKind.CONFIG_MISSING, "task events do not identify the assigning lead",
+                         "Supply lead in the shared close vars or repair the task assignment event."))
+    hook = _load_hook(hook_path)
+    observed = hook.Observed(
+        task_id=task_id, bead_id=bead_id, lead=lead,
+        reason=str(result_values.get("reason_md", result_values.get("reason", ""))),
+        findings_file=str(result_values.get("findings_file", values.get("result_file", ""))),
+        pr_number=pr.value.number, pr_base=pr.value.base, pr_head=cast(str, branch),
+        pr_sha=pr.value.head_sha, stack_top=stack_top, gate_stacked=gate_stacked,
+        bead_closed=status == "closed", layer_linked=layer_linked, qa_assigned=qa_assigned,
+        task_closed=task_closed, qa_closed=qa_closed,
+        findings_poured=False, notified=False, refused=refused,
+    )
+    return Ok(observed)
+
+
+def run_transition(
+    phase_file: Path,
+    transition: Transition,
+    values: Mapping[str, object],
+    result_values: Mapping[str, object],
+    repo: Path,
+    hook_path: Path,
+    *,
+    runner: ProcessRunner = subprocess.run,
+    pr_finder: PrFinder | None = None,
+    gate_factory: GateFactory = GitStackGate,
+) -> Result[None]:
+    """Gate first, then repeatedly observe, plan and execute one unsatisfied step."""
+    from phase_profile import require_profile
+
+    profile = require_profile(phase_file, Profile.LITE)
+    if isinstance(profile, Err):
+        return profile
+    close_vars = CloseVars()
+    hook = _load_hook(hook_path)
+    while True:
+        observed = collect_observed(values, result_values, transition, repo, hook_path, runner=runner,
+                                   pr_finder=pr_finder, gate_factory=gate_factory)
+        if isinstance(observed, Err):
+            return observed
+        planned = hook.plan(transition, close_vars, observed.value)
+        if hasattr(planned, "error"):
+            return Err(cast(Any, planned).error)
+        commands = cast(Any, planned).value
+        next_command = next((command for command in commands
+                             if not command.idempotent_when(cast(Any, observed.value))), None)
+        if next_command is None:
+            return Ok(None)
+        result = _run(next_command.argv, repo, runner)
         if isinstance(result, Err):
             return result
-    return Ok(None)
 
 
-def subprocess_executor(cwd: Path) -> Executor:
-    def execute(argv: Sequence[str]) -> Result[str]:
-        try:
-            done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False, timeout=60)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            return Err(Error(ErrorKind.UNREACHABLE, str(error), f"Repair and rerun: {' '.join(argv)}"))
-        if done.returncode:
-            return Err(Error(ErrorKind.COMMAND_FAILED, f"{' '.join(argv)}: {done.stderr.strip()}",
-                             f"Repair the failed step and rerun the same hook command: {' '.join(argv)}"))
-        return Ok(done.stdout)
-    return execute
+def _dict(path: Path) -> Result[dict[str, object]]:
+    try:
+        decoded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as failure:
+        return Err(Error(ErrorKind.CONFIG_INVALID, f"{path}: {failure}", "Repair the JSON file and retry."))
+    if not isinstance(decoded, dict):
+        return Err(Error(ErrorKind.CONFIG_INVALID, f"{path}: expected a JSON object", "Supply a JSON object."))
+    return Ok(cast(dict[str, object], decoded))
+
+
+def _transition(role: str, result_values: Mapping[str, object]) -> Result[Transition]:
+    outcome = str(result_values.get("verdict", result_values.get("outcome", ""))).upper()
+    if outcome == "REFUSED":
+        return Ok(Transition.REFUSED)
+    match role, outcome:
+        case "dev", _:
+            return Ok(Transition.DEV_CLOSE)
+        case "fix", _:
+            return Ok(Transition.FIX_CLOSE)
+        case "qa", "PASS":
+            return Ok(Transition.QA_PASS)
+        case "qa", "FAIL":
+            return Ok(Transition.QA_FAIL)
+        case _:
+            return Err(Error(ErrorKind.CONFIG_INVALID, f"invalid role/outcome {role}/{outcome}",
+                             "Use dev, fix, or QA with verdict PASS or FAIL."))
+
+
+def _lite_hook(repo: Path) -> Path | None:
+    for path in (repo / ".atm-bd/skills/atm-bd-lite/scripts/atm-bd-task-hook.py",
+                 repo / ".claude/skills/atm-bd-lite/scripts/atm-bd-task-hook.py",
+                 repo / ".codex/skills/atm-bd-lite/scripts/atm-bd-task-hook.py",
+                 repo / "plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-hook.py"):
+        if path.is_file():
+            return path
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
     import argparse
-    from atm_bd_types import Transition as TransitionType
 
-    parser = argparse.ArgumentParser(prog="atm-bd-task-close")
-    parser.add_argument("--phase-file", type=Path, required=True)
-    parser.add_argument("--hook", type=Path, required=True)
-    parser.add_argument("--transition", choices=[member.name.lower() for member in TransitionType], required=True)
+    parser = argparse.ArgumentParser(prog="hook_runner.py")
+    parser.add_argument("--role", choices=("dev", "fix", "qa"), required=True)
+    parser.add_argument("--phase", required=True)
     parser.add_argument("--vars", type=Path, required=True)
-    parser.add_argument("--observed", type=Path, required=True)
-    parser.add_argument("--cwd", type=Path, default=Path.cwd())
+    parser.add_argument("--result", type=Path, required=True)
     args = parser.parse_args(argv)
+    repo = Path.cwd()
+    phase_file = repo / ".atm-bd" / f"phase-{args.phase}.toml"
     from phase_profile import require_profile
 
-    profile = require_profile(args.phase_file, Profile.LITE)
+    profile = require_profile(phase_file, Profile.LITE)
     if isinstance(profile, Err):
         print(json.dumps({"kind": profile.error.kind.name.lower(), "message": profile.error.message,
                           "fix": profile.error.fix}), file=sys.stderr)
         return 3
-    try:
-        vars_data = json.loads(args.vars.read_text(encoding="utf-8"))
-        if not isinstance(vars_data, dict):
-            raise TypeError("close vars must be a JSON object")
-        raw_state = json.loads(args.observed.read_text(encoding="utf-8"))
-        close_vars = CloseVars()
-        transition = cast(Transition, getattr(TransitionType, args.transition.upper()))
-    except (OSError, ValueError, TypeError, AttributeError) as error:
-        print(json.dumps({"kind": "config_invalid", "message": str(error), "fix": "Repair the vars and observed JSON."}),
+    values = _dict(args.vars)
+    result_values = _dict(args.result)
+    if isinstance(values, Err) or isinstance(result_values, Err):
+        failure = values.error if isinstance(values, Err) else cast(Err, result_values).error
+        print(json.dumps({"kind": failure.kind.name.lower(), "message": failure.message, "fix": failure.fix}),
               file=sys.stderr)
         return 3
-    loaded = _load_hook(args.hook)
-    state = loaded.Observed(**raw_state)
-    outcome = run_transition(args.phase_file, transition, close_vars, state, args.hook, subprocess_executor(args.cwd))
+    transition = _transition(args.role, result_values.value)
+    if isinstance(transition, Err):
+        print(json.dumps({"kind": transition.error.kind.name.lower(), "message": transition.error.message,
+                          "fix": transition.error.fix}), file=sys.stderr)
+        return 3
+    hook_path = _lite_hook(repo)
+    if hook_path is None:
+        print(json.dumps({"kind": "not_found", "message": "lite transition hook is not installed",
+                          "fix": "Install the atm-bd-lite skill."}), file=sys.stderr)
+        return 3
+    outcome = run_transition(phase_file, transition.value, values.value, result_values.value,
+                             repo, hook_path)
     if isinstance(outcome, Err):
         print(json.dumps({"kind": outcome.error.kind.name.lower(), "message": outcome.error.message,
                           "fix": outcome.error.fix}), file=sys.stderr)

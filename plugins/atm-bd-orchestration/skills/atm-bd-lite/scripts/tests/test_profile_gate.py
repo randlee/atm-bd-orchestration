@@ -8,14 +8,15 @@ from typing import Any
 
 import pytest
 
-from atm_bd_types import CloseVars, ErrorKind, Transition
-from result import Err, Error, Ok, Result
+from atm_bd_types import ErrorKind, Profile, Transition
+from result import Err, Error, Ok
 
 ROOT = Path(__file__).parents[6]
 CORE = ROOT / "plugins/atm-bd-orchestration/core/scripts"
 sys.path.insert(0, str(CORE))
 import phase_profile
 import hook_runner
+import sc_render
 
 
 def unexpected_call(*_args: Any, **_kwargs: Any) -> Any:
@@ -27,15 +28,16 @@ def reject_profile(*_args: Any, **_kwargs: Any) -> Any:
 
 
 def test_template_render_refuses_full_profile_before_renderer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(phase_profile, "require_profile", reject_profile)
+    monkeypatch.setattr(sc_render, "require_profile", reject_profile)
     called = False
 
-    def renderer(_template: Path, _variables: dict[str, object]) -> Result[str]:
+    def renderer(_template: str | Path, _variables: Any) -> str:
         nonlocal called
         called = True
-        return Ok("rendered")
+        return "rendered"
 
-    outcome = hook_runner.render_lite_template(tmp_path / "phase.toml", tmp_path / "template.j2", {}, renderer)
+    monkeypatch.setattr(sc_render, "render", renderer)
+    outcome = sc_render.render_dispatch(tmp_path / "template.j2", {}, tmp_path / "phase.toml", Profile.LITE)
     assert isinstance(outcome, Err)
     assert outcome.error.kind is ErrorKind.PROFILE_MISMATCH
     assert not called
@@ -45,13 +47,13 @@ def test_hook_runner_profile_gate_precedes_hook_or_execution(monkeypatch: pytest
     monkeypatch.setattr(phase_profile, "require_profile", reject_profile)
     called = False
 
-    def executor(_argv: Any) -> Result[str]:
+    def executor(_argv: Any, **_kwargs: Any) -> Any:
         nonlocal called
         called = True
         return Ok("")
 
-    outcome = hook_runner.run_transition(tmp_path / "phase.toml", Transition.DEV_CLOSE, CloseVars(),
-                                        object(), tmp_path / "absent-hook.py", executor)
+    outcome = hook_runner.run_transition(tmp_path / "phase.toml", Transition.DEV_CLOSE, {}, {}, tmp_path,
+                                         tmp_path / "absent-hook.py", runner=executor)
     assert isinstance(outcome, Err)
     assert outcome.error.kind is ErrorKind.PROFILE_MISMATCH
     assert not called

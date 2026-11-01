@@ -3,7 +3,7 @@ name: lite-qa-task
 version: 1.0.0
 description: QA assignment for a lite-profile sprint.
 format: xml
-required_variables: [provider, task_id, sprint, commit, pr_number, pr_url, worktree_path]
+required_variables: [provider, provider.view, provider.comment, provider.checks, provider.stack_view, task_id, sprint, phase, commit, pr_number, pr_url, worktree_path]
 metadata:
   type: qa-task
   tags: [stage:qa, orchestration:beads, profile:lite]
@@ -16,5 +16,11 @@ metadata:
 <atm-task id="{{ task_id }}" sprint="{{ sprint }}" profile="lite">
   <description><![CDATA[Review the complete lite sprint at {{ commit }} and PR #{{ pr_number }} ({{ pr_url }}). Report concrete findings with reproduction evidence.]]></description>
   <worktree><![CDATA[{{ worktree_path }}]]></worktree>
-  <workflow><![CDATA[Start the task, inspect the complete diff against the stack base, run the required validation, and write a structured result. Close with atm-bd-task-close --role qa --vars <lead-vars> --result <result.json>.]]></workflow>
+  <provider-commands>
+    <view><![CDATA[{{ provider.view | replace("'{number}'", pr_number | string) | cdata_escape }}]]></view>
+    <comment><![CDATA[{{ provider.comment | replace("'{number}'", pr_number | string) | cdata_escape }}]]></comment>
+    <checks><![CDATA[{{ provider.checks | replace("'{number}'", pr_number | string) | replace("{head_sha}", commit | string) | cdata_escape }}]]></checks>
+    <stack-view><![CDATA[{{ provider.stack_view | replace("'{stack_bead}'", "<stack-bead>") | cdata_escape }}]]></stack-view>
+  </provider-commands>
+  <workflow><![CDATA[Start the task, inspect the complete diff against the stack base, run the required validation, and write a structured result. Close with .atm-bd/scripts/hook_runner.py --role qa --phase {{ phase }} --vars <lead-vars> --result <result.json>. The runner gathers current bead, task, PR and GitStackGate observations itself.]]></workflow>
 </atm-task>

@@ -31,7 +31,11 @@ def test_lite_assignment_templates_render_for_both_providers(
     path = TEMPLATES / name
     header = sc_render.render_dispatch
     variables: dict[str, Any] = {
-        "provider": {"name": provider}, "task_id": "atm-phase-lt.dev-1", "sprint": "lt-1",
+        "provider": {"name": provider, "view": "gh pr view '{number}'" if provider == "github" else "az repos pr show --id '{number}'",
+                     "comment": "gh pr comment '{number}'" if provider == "github" else "az repos pr update --id '{number}'",
+                     "checks": "gh pr checks '{number}'" if provider == "github" else "az repos pr policy list --id '{number}'",
+                     "stack_view": "gh stack view '{stack_bead}'" if provider == "github" else "az repos list"},
+        "task_id": "atm-phase-lt.dev-1", "sprint": "lt-1", "phase": "lt",
         "worktree_path": "/tmp/work", "branch": "feature/lite", "pr_target": "main",
         "test_command": "just test", "lint_command": "just lint", "finding": "qa finding",
         "commit": "a" * 40, "pr_number": "123", "pr_url": "https://example.invalid/pr/123",
