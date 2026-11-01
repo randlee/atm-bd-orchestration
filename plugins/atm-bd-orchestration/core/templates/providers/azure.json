@@ -18,20 +18,14 @@
       "--in-file",
       "{body_file}"
     ],
-    "body": "json_file",
+    "body": "file",
     "output": "json",
     "result": {
       "number": "pullRequestId",
       "url": "url",
       "base": "targetRefName"
     },
-    "comment": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/create",
-    "payload": {
-      "sourceRefName": "{head}",
-      "targetRefName": "{base}",
-      "title": "{title}",
-      "description": "{body_file}"
-    }
+    "comment": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/create"
   },
   "view": {
     "argv": [
@@ -101,20 +95,10 @@
       "--in-file",
       "{body_file}"
     ],
-    "body": "json_file",
+    "body": "file",
     "output": "json",
     "result": {},
-    "comment": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-threads/create",
-    "payload": {
-      "comments": [
-        {
-          "parentCommentId": 0,
-          "content": "{text}",
-          "commentType": 1
-        }
-      ],
-      "status": 1
-    }
+    "comment": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-threads/create"
   },
   "checks": {
     "argv": [

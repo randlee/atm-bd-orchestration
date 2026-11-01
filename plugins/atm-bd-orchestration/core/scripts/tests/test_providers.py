@@ -29,6 +29,23 @@ def test_provider_files_are_valid_and_reject_missing_ops_and_placeholders() -> N
         assert ProviderCommands.parse_json(json.dumps(document))[1] is not None
 
 
+def test_provider_contract_has_only_file_transport_and_no_payload_fields() -> None:
+    root = Path(__file__).resolve().parents[2] / "templates/providers"
+    for path in root.glob("*.json"):
+        document = json.loads(path.read_text())
+        for operation in document.values():
+            assert operation["body"] in ("none", "file")
+            assert "payload" not in operation
+
+    azure_path = root / "azure.json"
+    azure = json.loads(azure_path.read_text())
+    azure["comment"]["body"] = "json_file"
+    assert ProviderCommands.parse_json(json.dumps(azure))[1] is not None
+    azure["comment"]["body"] = "file"
+    azure["comment"]["payload"] = {"comments": []}
+    assert ProviderCommands.parse_json(json.dumps(azure))[1] is not None
+
+
 def test_github_commands_do_not_use_blocked_pr_polling_operations() -> None:
     path = Path(__file__).resolve().parents[2] / "templates/providers/github.json"
     data = json.loads(path.read_text())
@@ -61,10 +78,12 @@ def test_azure_requires_each_config_key() -> None:
         assert f"azure.{key}" in result.error.fix
 
 
-def test_azure_comment_uses_json_file_and_literal_text(tmp_path: Path) -> None:
+def test_azure_comment_builds_json_from_file_body_in_adapter(tmp_path: Path) -> None:
     result = load_provider({"provider": "azure", "azure": {"organization": "org", "project": "p", "repository": "r"}})
     assert isinstance(result, Ok)
     text = 'quotes " and newline\n; $(not a shell)'
+    source = tmp_path / "comment.md"
+    source.write_text(text)
     seen: list[list[str]] = []
 
     def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -75,13 +94,13 @@ def test_azure_comment_uses_json_file_and_literal_text(tmp_path: Path) -> None:
         return subprocess.CompletedProcess(argv, 0, "{}", "")
 
     with patch("providers.subprocess.run", side_effect=run):
-        executed = execute(result.value, PrOp.COMMENT, {"number": "12", "organization": "org", "project": "p", "repository": "r", "text": text}, cwd=tmp_path)
+        executed = execute(result.value, PrOp.COMMENT, {"number": "12", "organization": "org", "project": "p", "repository": "r", "body_file": str(source)}, cwd=tmp_path)
     assert isinstance(executed, Ok)
     assert seen[0][:3] == ["az", "devops", "invoke"]
     assert text not in seen[0]
 
 
-def test_azure_create_serializes_file_contents_in_json(tmp_path: Path) -> None:
+def test_azure_create_builds_json_from_file_body_in_adapter(tmp_path: Path) -> None:
     loaded = load_provider({"provider": "azure", "azure": {"organization": "org", "project": "p", "repository": "r"}})
     assert isinstance(loaded, Ok)
     source = tmp_path / "description.md"

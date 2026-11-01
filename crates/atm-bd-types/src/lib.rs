@@ -258,7 +258,6 @@ pub enum PrOp {
 pub enum BodyTransport {
     None,
     File,
-    JsonFile,
 }
 
 /// Format of a command's standard output.
@@ -311,8 +310,6 @@ pub struct ProviderOp {
     pub result: std::collections::BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub payload: Option<serde_json::Value>,
 }
 
 /// Complete provider command set, validated on deserialization.
@@ -338,6 +335,12 @@ impl<'de> Deserialize<'de> for ProviderCommands {
             let op = commands.get(&operation).ok_or_else(|| {
                 serde::de::Error::custom(format!("missing {operation:?} operation"))
             })?;
+            // Azure's invoke adapter constructs the create request body from these values.
+            let azure_invoke_create = operation == PrOp::Create
+                && op.body == BodyTransport::File
+                && op
+                    .argv
+                    .starts_with(&["az".into(), "devops".into(), "invoke".into()]);
             for arg in &op.argv {
                 let mut rest = arg.as_str();
                 while let Some(start) = rest.find('{') {
@@ -379,55 +382,11 @@ impl<'de> Deserialize<'de> for ProviderCommands {
                     )));
                 }
             }
-            if op.body == BodyTransport::JsonFile {
-                let payload = op.payload.as_ref().ok_or_else(|| {
-                    serde::de::Error::custom(format!("{operation:?} requires a JSON payload"))
-                })?;
-                let valid_payload = match operation {
-                    PrOp::Comment => {
-                        payload
-                            .pointer("/comments/0/content")
-                            .and_then(serde_json::Value::as_str)
-                            == Some("{text}")
-                    }
-                    PrOp::Create => [
-                        ("/sourceRefName", "{head}"),
-                        ("/targetRefName", "{base}"),
-                        ("/title", "{title}"),
-                        ("/description", "{body_file}"),
-                    ]
-                    .iter()
-                    .all(|(path, expected)| {
-                        payload.pointer(path).and_then(serde_json::Value::as_str) == Some(*expected)
-                    }),
-                    PrOp::View
-                    | PrOp::EditBase
-                    | PrOp::CommentView
-                    | PrOp::Checks
-                    | PrOp::LookupByHead
-                    | PrOp::StackLink
-                    | PrOp::StackView => false,
-                };
-                if !valid_payload {
-                    return Err(serde::de::Error::custom(format!(
-                        "{operation:?} JSON payload is missing required fields"
-                    )));
-                }
-            } else if op.payload.is_some() {
-                return Err(serde::de::Error::custom(format!(
-                    "{operation:?} unexpectedly defines a JSON payload"
-                )));
-            }
             for name in required {
                 let placeholder = format!("{{{name}}}");
-                let payload = op
-                    .payload
-                    .as_ref()
-                    .map(serde_json::Value::to_string)
-                    .unwrap_or_default();
-                if !op.argv.iter().any(|arg| arg.contains(&placeholder))
-                    && !payload.contains(&placeholder)
-                {
+                let supplied_by_adapter =
+                    azure_invoke_create && ["base", "head", "title"].contains(name);
+                if !supplied_by_adapter && !op.argv.iter().any(|arg| arg.contains(&placeholder)) {
                     return Err(serde::de::Error::custom(format!(
                         "{operation:?} lacks {placeholder}"
                     )));
@@ -443,7 +402,7 @@ impl<'de> Deserialize<'de> for ProviderCommands {
                     "Checks lacks {number} or {head_sha}",
                 ));
             }
-            if matches!(op.body, BodyTransport::File | BodyTransport::JsonFile)
+            if op.body == BodyTransport::File
                 && !op.argv.iter().any(|arg| arg.contains("{body_file}"))
             {
                 return Err(serde::de::Error::custom(format!(
@@ -558,10 +517,6 @@ impl ProviderOp {
     #[getter]
     fn result(&self) -> std::collections::BTreeMap<String, String> {
         self.result.clone()
-    }
-    #[getter]
-    fn payload_json(&self) -> Option<String> {
-        self.payload.as_ref().map(serde_json::Value::to_string)
     }
 }
 

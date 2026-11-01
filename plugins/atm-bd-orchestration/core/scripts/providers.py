@@ -12,7 +12,7 @@ from typing import TypeAlias
 from atm_bd_types import BodyTransport, Error, ErrorDetail, ErrorKind, OutputFormat, PrOp, PrRef, MergedPrRef, ProviderCommands
 from core_paths import core_templates_dir
 from result import Err, Ok, Result
-from sprint_index_common import is_json_object, is_json_value
+from sprint_index_common import is_json_object
 
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -62,11 +62,28 @@ def operation_name(op: PrOp) -> str:
         case PrOp.STACK_VIEW: return "stack_view"
 
 
-def uses_json_file(transport: BodyTransport) -> bool:
-    match transport:
-        case BodyTransport.NONE: return False
-        case BodyTransport.FILE: return False
-        case BodyTransport.JSON_FILE: return True
+def _azure_invoke_payload(op: PrOp, values: Mapping[str, str], body_text: str) -> dict[str, JsonValue] | None:
+    """Build Azure DevOps REST request bodies inside the provider adapter."""
+    match op:
+        case PrOp.COMMENT:
+            return {"comments": [{"parentCommentId": 0, "content": body_text, "commentType": 1}], "status": 1}
+        case PrOp.CREATE:
+            def branch_ref(name: str) -> str:
+                ref = values[name]
+                return ref if ref.startswith("refs/heads/") else f"refs/heads/{ref}"
+
+            return {
+                "sourceRefName": branch_ref("head"),
+                "targetRefName": branch_ref("base"),
+                "title": values["title"],
+                "description": body_text,
+            }
+        case _:
+            return None
+
+
+def _uses_azure_invoke_json_body(argv: list[str], op: PrOp) -> bool:
+    return argv[:3] == ["az", "devops", "invoke"] and op in (PrOp.CREATE, PrOp.COMMENT)
 
 
 def execute(commands: ProviderCommands, op: PrOp, values: Mapping[str, str], *, cwd: Path,
@@ -89,32 +106,18 @@ def execute(commands: ProviderCommands, op: PrOp, values: Mapping[str, str], *, 
                 substitutions["state"] = {"open": "active", "merged": "completed"}.get(substitutions["state"], substitutions["state"])
             elif substitutions["state"] == "merged":
                 substitutions["state"] = "closed"
-        if uses_json_file(command.body):
-            if command.payload_json is None:
-                return _problem(ErrorKind.CONFIG_MISSING, "JSON payload is missing", "Supply the provider payload.")
+        if command.body == BodyTransport.FILE and _uses_azure_invoke_json_body(command.argv, op):
             try:
-                payload: object = json.loads(command.payload_json)
-                if not is_json_object(payload):
-                    return _problem(ErrorKind.PROVIDER_INVALID, "JSON payload is not an object", "Repair the provider file.")
-                if op == PrOp.COMMENT:
-                    comments: object = payload.get("comments")
-                    if not is_json_value(comments) or not isinstance(comments, list) or not comments or not is_json_object(comments[0]):
-                        return _problem(ErrorKind.PROVIDER_INVALID, "JSON payload has no comment", "Repair the provider file.")
-                    comments[0]["content"] = substitutions["text"]
-                elif op == PrOp.CREATE:
-                    for field, name in (("sourceRefName", "head"), ("targetRefName", "base")):
-                        ref = substitutions[name]
-                        payload[field] = ref if ref.startswith("refs/heads/") else f"refs/heads/{ref}"
-                    payload["title"] = substitutions["title"]
-                    payload["description"] = Path(substitutions["body_file"]).read_text(encoding="utf-8")
-                else:
-                    return _problem(ErrorKind.PROVIDER_INVALID, "unsupported JSON body operation", "Repair the provider file.")
+                body_text = Path(substitutions["body_file"]).read_text(encoding="utf-8")
+                payload = _azure_invoke_payload(op, substitutions, body_text)
+                if payload is None:
+                    return _problem(ErrorKind.PROVIDER_INVALID, "unsupported Azure invoke body operation", "Repair the provider command configuration.")
                 body = Path(directory) / "body.json"
                 body.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
                 substitutions["body_file"] = str(body)
             except KeyError as exc:
                 return _problem(ErrorKind.CONFIG_MISSING, f"missing provider value {exc}", "Supply the required provider value.")
-            except (OSError, ValueError) as exc:
+            except OSError as exc:
                 return _problem(ErrorKind.IO_FAILED, str(exc), "Check temporary directory access and provider JSON.")
         try:
             argv = [argument.format_map(substitutions) for argument in command.argv]
