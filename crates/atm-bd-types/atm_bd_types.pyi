@@ -5,12 +5,32 @@ import builtins
 import enum
 import typing
 __all__ = [
+    "BodyTransport",
+    "CloseVars",
     "Error",
+    "ErrorDetail",
     "ErrorKind",
+    "OutputFormat",
+    "PrOp",
+    "PrRef",
     "Profile",
     "Provider",
+    "ProviderCommands",
+    "ProviderOp",
+    "StackGateResult",
     "Transition",
 ]
+
+@typing.final
+class CloseVars:
+    r"""
+    Shared close fields; lite omits both sanity-specific values.
+    """
+    @property
+    def sanity_bead(self) -> typing.Optional[builtins.str]: ...
+    @property
+    def max_sanity_rounds(self) -> typing.Optional[builtins.int]: ...
+    def __new__(cls, sanity_bead: typing.Optional[builtins.str] = None, max_sanity_rounds: typing.Optional[builtins.int] = None) -> CloseVars: ...
 
 @typing.final
 class Error:
@@ -23,7 +43,184 @@ class Error:
     def message(self) -> builtins.str: ...
     @property
     def fix(self) -> builtins.str: ...
-    def __new__(cls, kind: ErrorKind, message: builtins.str, fix: builtins.str) -> Error: ...
+    @property
+    def detail(self) -> typing.Optional[ErrorDetail]: ...
+    def __new__(cls, kind: ErrorKind, message: builtins.str, fix: builtins.str, detail: typing.Optional[ErrorDetail] = None) -> Error: ...
+
+class ErrorDetail:
+    r"""
+    Structured context retained for machine decisions and diagnostics.
+    """
+    @typing.final
+    class CommandFailed(ErrorDetail):
+        __match_args__ = ("argv", "code", "stderr",)
+        @property
+        def argv(self) -> builtins.list[builtins.str]: ...
+        @property
+        def code(self) -> builtins.int: ...
+        @property
+        def stderr(self) -> builtins.str: ...
+        def __new__(cls, argv: typing.Sequence[builtins.str], code: builtins.int, stderr: builtins.str) -> ErrorDetail.CommandFailed: ...
+
+    @typing.final
+    class Timeout(ErrorDetail):
+        __match_args__ = ("argv", "seconds",)
+        @property
+        def argv(self) -> builtins.list[builtins.str]: ...
+        @property
+        def seconds(self) -> builtins.int: ...
+        def __new__(cls, argv: typing.Sequence[builtins.str], seconds: builtins.int) -> ErrorDetail.Timeout: ...
+
+    @typing.final
+    class Rejected(ErrorDetail):
+        __match_args__ = ("argv", "status", "message",)
+        @property
+        def argv(self) -> builtins.list[builtins.str]: ...
+        @property
+        def status(self) -> builtins.int: ...
+        @property
+        def message(self) -> builtins.str: ...
+        def __new__(cls, argv: typing.Sequence[builtins.str], status: builtins.int, message: builtins.str) -> ErrorDetail.Rejected: ...
+
+    @typing.final
+    class Unreachable(ErrorDetail):
+        __match_args__ = ("argv", "message",)
+        @property
+        def argv(self) -> builtins.list[builtins.str]: ...
+        @property
+        def message(self) -> builtins.str: ...
+        def __new__(cls, argv: typing.Sequence[builtins.str], message: builtins.str) -> ErrorDetail.Unreachable: ...
+
+    @typing.final
+    class ParseFailed(ErrorDetail):
+        __match_args__ = ("source", "message",)
+        @property
+        def source(self) -> builtins.str: ...
+        @property
+        def message(self) -> builtins.str: ...
+        def __new__(cls, source: builtins.str, message: builtins.str) -> ErrorDetail.ParseFailed: ...
+
+    @typing.final
+    class NotFound(ErrorDetail):
+        __match_args__ = ("what",)
+        @property
+        def what(self) -> builtins.str: ...
+        def __new__(cls, what: builtins.str) -> ErrorDetail.NotFound: ...
+
+    @typing.final
+    class ConfigInvalid(ErrorDetail):
+        __match_args__ = ("key", "value",)
+        @property
+        def key(self) -> builtins.str: ...
+        @property
+        def value(self) -> builtins.str: ...
+        def __new__(cls, key: builtins.str, value: builtins.str) -> ErrorDetail.ConfigInvalid: ...
+
+    @typing.final
+    class LockHeld(ErrorDetail):
+        __match_args__ = ("snapshot_age_s",)
+        @property
+        def snapshot_age_s(self) -> typing.Optional[builtins.int]: ...
+        def __new__(cls, snapshot_age_s: typing.Optional[builtins.int]) -> ErrorDetail.LockHeld: ...
+
+    @typing.final
+    class IoFailed(ErrorDetail):
+        __match_args__ = ("path", "message",)
+        @property
+        def path(self) -> builtins.str: ...
+        @property
+        def message(self) -> builtins.str: ...
+        def __new__(cls, path: builtins.str, message: builtins.str) -> ErrorDetail.IoFailed: ...
+
+    ...
+
+@typing.final
+class PrRef:
+    r"""
+    A provider-independent pull request identity.
+    """
+    @property
+    def number(self) -> builtins.str: ...
+    @property
+    def url(self) -> builtins.str: ...
+    @property
+    def base(self) -> builtins.str: ...
+    def __new__(cls, number: builtins.str, url: builtins.str, base: builtins.str) -> PrRef: ...
+
+@typing.final
+class ProviderCommands:
+    r"""
+    Complete provider command set, validated on deserialization.
+    """
+    @staticmethod
+    def parse_json(raw: builtins.str) -> tuple[typing.Optional[ProviderCommands], typing.Optional[Error]]:
+        r"""
+        Parse and validate a complete provider command set without raising for malformed data.
+        """
+    def command(self, name: builtins.str) -> typing.Optional[ProviderOp]:
+        r"""
+        Return the named command using the serialized operation name.
+        """
+
+@typing.final
+class ProviderOp:
+    r"""
+    An argv-only provider command and its response-field mapping.
+    """
+    @property
+    def argv(self) -> builtins.list[builtins.str]: ...
+    @property
+    def body(self) -> BodyTransport: ...
+    @property
+    def output(self) -> OutputFormat: ...
+    @property
+    def result(self) -> builtins.dict[builtins.str, builtins.str]: ...
+
+class StackGateResult:
+    r"""
+    Result of comparing a pull request's base and pushed head to the stack.
+    """
+    @typing.final
+    class Stacked(StackGateResult):
+        __match_args__ = ()
+        def __new__(cls) -> StackGateResult.Stacked: ...
+
+    @typing.final
+    class NotStacked(StackGateResult):
+        __match_args__ = ("expected_base", "actual_base",)
+        @property
+        def expected_base(self) -> builtins.str: ...
+        @property
+        def actual_base(self) -> builtins.str: ...
+        def __new__(cls, expected_base: builtins.str, actual_base: builtins.str) -> StackGateResult.NotStacked: ...
+
+    @typing.final
+    class NotPushed(StackGateResult):
+        __match_args__ = ("branch", "head",)
+        @property
+        def branch(self) -> builtins.str: ...
+        @property
+        def head(self) -> builtins.str: ...
+        def __new__(cls, branch: builtins.str, head: builtins.str) -> StackGateResult.NotPushed: ...
+
+    @typing.final
+    class NotAncestor(StackGateResult):
+        __match_args__ = ("base_sha", "head_sha",)
+        @property
+        def base_sha(self) -> builtins.str: ...
+        @property
+        def head_sha(self) -> builtins.str: ...
+        def __new__(cls, base_sha: builtins.str, head_sha: builtins.str) -> StackGateResult.NotAncestor: ...
+
+    ...
+
+@typing.final
+class BodyTransport(enum.Enum):
+    r"""
+    How a command receives a body.
+    """
+    NONE = ...
+    FILE = ...
 
 @typing.final
 class ErrorKind(enum.Enum):
@@ -41,6 +238,29 @@ class ErrorKind(enum.Enum):
     IO_FAILED = ...
     PROFILE_MISMATCH = ...
     PROVIDER_INVALID = ...
+
+@typing.final
+class OutputFormat(enum.Enum):
+    r"""
+    Format of a command's standard output.
+    """
+    JSON = ...
+    TEXT = ...
+    EXIT_CODE = ...
+
+@typing.final
+class PrOp(enum.Enum):
+    r"""
+    Pull request operations supplied by a hosting provider.
+    """
+    CREATE = ...
+    VIEW = ...
+    EDIT_BASE = ...
+    COMMENT = ...
+    CHECKS = ...
+    LOOKUP_BY_HEAD = ...
+    STACK_LINK = ...
+    STACK_VIEW = ...
 
 @typing.final
 class Profile(enum.Enum):
