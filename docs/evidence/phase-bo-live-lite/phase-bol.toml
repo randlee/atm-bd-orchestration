@@ -1,0 +1,12 @@
+plan = "docs/plans/phase-bol.jsonl"
+root = "atm-phase-bol"
+integration_branch = "integrate/phase-bol"
+lead = "fenix"
+profile = "lite"
+
+[templates]
+dev = ".claude/skills/atm-bd-lite/templates/dev-template.xml.j2"
+fix = ".claude/skills/atm-bd-lite/templates/fix-assignment.xml.j2"
+qa = ".claude/skills/atm-bd-lite/templates/qa-template.xml.j2"
+plan_review = ".atm-bd/templates/plan-review-template.xml.j2"
+review = ".atm-bd/templates/review-template.xml.j2"

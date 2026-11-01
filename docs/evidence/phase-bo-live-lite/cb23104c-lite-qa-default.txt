@@ -1,0 +1,1 @@
+cb23104c:plugins/atm-bd-orchestration/core/scripts/sprint_index_common.py:52:    "qa": str(LITE_TEMPLATE_DIR / "qa-template-lite.xml.j2"),

@@ -1,0 +1,12 @@
+<atm-task id="{{ bead_prefix }}-d-4" sprint="d-4" profile="lite">
+  <description><![CDATA[Implement the assigned lite bead. Its description, design, acceptance criteria, and owned_paths are authoritative.]]></description>
+  <worktree><![CDATA[/tmp/bol-worktree]]></worktree>
+  <branch><![CDATA[sprint/d-4-otlp-sync-exporter]]></branch>
+  <pr-target><![CDATA[integrate/phase-d]]></pr-target>
+  <workflow>
+    <step><![CDATA[Run assignment gates and claim/start the bead. Read its full scope and stay within owned_paths.]]></step>
+    <step><![CDATA[Implement and validate with just test and just lint. Keep every test deterministic; do not use timing, sleeps, races, or event-loop ordering.]]></step>
+    <step><![CDATA[Push the branch and open/update its PR against the current stack top. Record the exact stack view and evidence.]]></step>
+    <step><![CDATA[Complete with .atm-bd/scripts/hook_runner.py --role dev --phase bol --vars <lead-vars> --result <result.json>. The installed runner gathers live bead, task, PR, and stack state before planning or running the transition.]]></step>
+  </workflow>
+</atm-task>

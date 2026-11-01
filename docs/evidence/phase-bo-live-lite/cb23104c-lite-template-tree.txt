@@ -1,0 +1,5 @@
+plugins/atm-bd-orchestration/skills/atm-bd-lite/templates/dev-complete.md.j2
+plugins/atm-bd-orchestration/skills/atm-bd-lite/templates/dev-template.xml.j2
+plugins/atm-bd-orchestration/skills/atm-bd-lite/templates/fix-assignment.xml.j2
+plugins/atm-bd-orchestration/skills/atm-bd-lite/templates/qa-complete.md.j2
+plugins/atm-bd-orchestration/skills/atm-bd-lite/templates/qa-template.xml.j2
