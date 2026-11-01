@@ -59,6 +59,8 @@ jobs:
         run: uv run --frozen --python '${{ steps.python.outputs.python-path }}' pytest -q
       - name: Repository Python type check
         run: uv run --frozen --python '${{ steps.python.outputs.python-path }}' --project apps/atm-bd-console pyright
+      - name: Repository contract tests
+        run: uv run --frozen --python '${{ steps.python.outputs.python-path }}' --project apps/atm-bd-console pytest -q tests
       - name: Release tooling tests (no publication)
         run: uv run --frozen --python '${{ steps.python.outputs.python-path }}' --project apps/atm-bd-console pytest -q .github/scripts/tests
       - name: Build distributions and check publisher compatibility

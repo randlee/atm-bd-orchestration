@@ -44,6 +44,13 @@ def test_types_release_uses_the_release_ref_and_repository_version():
         assert any("release-version.toml" in step.get("run", "") for step in jobs[name]["steps"])
 
 
+def test_ci_runs_repository_version_contract_tests():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/tests.yml").read_text())
+    steps = workflow["jobs"]["console-tests"]["steps"]
+    contract = next(step for step in steps if step.get("name") == "Repository contract tests")
+    assert "pytest -q tests" in contract["run"]
+
+
 @pytest.mark.parametrize(("status", "yanked", "expected", "publishes"), [
     ("404", "false", 0, True), ("200", "false", 0, False),
     ("200", "true", 1, False), ("503", "false", 1, False),
