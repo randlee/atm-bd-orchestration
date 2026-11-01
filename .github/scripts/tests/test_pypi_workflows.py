@@ -44,6 +44,30 @@ def test_types_release_uses_the_release_ref_and_repository_version():
         assert any("release-version.toml" in step.get("run", "") for step in jobs[name]["steps"])
 
 
+@pytest.mark.parametrize(("status", "yanked", "expected", "publishes"), [
+    ("404", "false", 0, True), ("200", "false", 0, False),
+    ("200", "true", 1, False), ("503", "false", 1, False),
+])
+def test_crate_publication_retries_only_confirmed_absence(tmp_path, status, yanked, expected, publishes):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/crate-release.yml").read_text())
+    script = next(step["run"] for step in workflow["jobs"]["crate"]["steps"] if step.get("name") == "Validate version and publish crate")
+    (tmp_path / "release-version.toml").write_text('[project]\nversion = "1.2.3"\n')
+    crate = tmp_path / "crates/atm-bd-types"
+    crate.mkdir(parents=True)
+    (crate / "Cargo.toml").write_text('[package]\nversion = "1.2.3"\n')
+    curl = tmp_path / "curl"
+    curl.write_text('#!/bin/sh\nprintf \'{"version":{"yanked":%s}}\' "$TEST_YANKED" > "$RUNNER_TEMP/crate.json"\nprintf %s "$TEST_STATUS"\n')
+    curl.chmod(0o755)
+    cargo = tmp_path / "cargo"
+    cargo.write_text('#!/bin/sh\nprintf %s "$*" > "$RUNNER_TEMP/published"\n')
+    cargo.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}", "RUNNER_TEMP": str(tmp_path),
+           "TEST_STATUS": status, "TEST_YANKED": yanked}
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False)
+    assert (result.returncode == 0) == (expected == 0), result.stderr
+    assert (tmp_path / "published").exists() is publishes
+
+
 def test_release_jobs_preserve_tagging_and_rehearsal_order():
     workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
     jobs = workflow["jobs"]
