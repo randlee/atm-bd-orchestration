@@ -131,3 +131,21 @@ jobs:
       - name: Package tests
         working-directory: plugins/atm-bd-orchestration
         run: python3 -m pytest -q -rs
+
+  rust-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p atm-bd-types --features python
+      - name: Generate stubs and build wheel
+        working-directory: crates/atm-bd-types
+        run: |
+          python -m pip install 'maturin>=1.9,<2'
+          cargo run --features python --bin stub_gen
+          maturin build --release --out dist
+          python -m pip install dist/*.whl
+          python -c 'from atm_bd_types import Error, ErrorKind, Profile; assert Error(ErrorKind.NOT_FOUND, "missing", "install").fix == "install"; assert Profile.FULL != Profile.LITE'
