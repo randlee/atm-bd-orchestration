@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.20.0] - Unreleased
+
+### Changed
+- Install shared orchestration scripts and templates once per repository for both profiles, with lock and overwrite support. (#642)
+- Resolve shared modules and templates consistently from installed, package, and bundled layouts; initialize phase templates at their new locations. (#642)
+- Extend installer, runtime, rendering, and pyright coverage to the new layout. (#642)
+- Split installer configuration, planning, ownership and backup, and execution into cohesive modules. (#650)
+- Route core script test imports through the shared core bootstrap. (#652)
+- Introduce shared orchestration types, profile gates, provider commands, lite group contracts and lockstep types publication. (#655)
+- Add lite/full profile-aware behavior to ATM console, cron, queues, sprint reports, DAG state generation, and bv-analyze. (#660)
+- Add GitHub and Azure provider selection for PR and stack commands in orchestration templates. (#661)
+- Carry provider configuration through dispatch and task-close handoffs. (#661)
+- Block mis-based or unpushed full-profile dev/fix closes with actionable errors. (#662)
+- Route stack linking and PR base edits through provider operations and preserve draft checks. (#662)
+- Use the ledger for stack tops and support replay of frozen layers. (#662)
+- Added live state collection and deterministic runner coverage, including reassigned task state. (#663)
+- Corrected lite assignment templates to use the runner interface and render QA provider operations. (#663)
+- Validated supplied CloseVars with typed errors and added a runner-level failed-gate ordering test. (#663)
+- Added recording subprocess and FakeStackGate helpers; regenerated the package manifest. (#663)
+
 ## [0.19.12] - 2026-10-29
 
 ### Fixed
