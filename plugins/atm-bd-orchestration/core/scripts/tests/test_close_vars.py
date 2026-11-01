@@ -7,10 +7,10 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from phase_fixtures import core_scripts
 
 SCRIPTS = Path(__file__).parents[1]
-sys.path.insert(0, str(SCRIPTS))
-sys.path.insert(0, str(SCRIPTS.parents[1] / "atm-beads" / "scripts"))
+sys.path.insert(0, str(core_scripts()))
 import close_fields  # noqa: E402
 from rendering import render  # noqa: E402
 

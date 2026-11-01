@@ -3,8 +3,9 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from phase_fixtures import core_scripts
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "atm-beads" / "scripts"))
+sys.path.insert(0, str(core_scripts()))
 import sc_render  # noqa: E402
 
 
