@@ -245,7 +245,7 @@ Check `.atm-bd/phase-<x>.toml` contains `profile = "lite"` and the lite template
 The agent implements the dev bead and runs the lite close runner with its supplied vars:
 
 ```bash
-atm-bd-task-close --role dev --vars <close-vars.json>
+.atm-bd/scripts/hook_runner.py --role dev --phase <x> --vars <close-vars.json> --result <result.json>
 ```
 
 The runner checks that the PR is based on the current stack top before it closes work and assigns QA. If the stack gate rejects the base, rebase and push onto the current top, then rerun the same close command. QA closes with `--role qa`; a failed review creates finding work. The lead lands completed work from the stack top. For a single queue tick, run `atm-bd cron --phase <x>`; use `atm-bd queues --phase <x> --all` to inspect the queues. The full-profile setup and dispatch flow in the following sections applies to full phases, not lite phases. See the installed `atm-bd-lite` skill for the close contract and error actions.
