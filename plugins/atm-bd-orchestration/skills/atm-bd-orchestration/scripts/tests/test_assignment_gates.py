@@ -1,4 +1,5 @@
 from __future__ import annotations
+from phase_fixtures import core_scripts
 
 from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
@@ -12,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 MODULE = Path(__file__).parents[1] / "assignment-gates.py"
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = core_scripts() / "tests/fixtures"
 SPEC = importlib.util.spec_from_file_location("assignment_gates", MODULE)
 assert SPEC is not None and SPEC.loader is not None
 assert SPEC and SPEC.loader

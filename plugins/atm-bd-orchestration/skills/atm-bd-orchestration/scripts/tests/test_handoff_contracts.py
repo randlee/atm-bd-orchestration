@@ -5,6 +5,7 @@ receiver side is the parser or the `## Inputs` contract the receiver publishes. 
 by this package (arch-qa, req-qa, ...) is checked against its agent file only when the host repository has one.
 """
 from __future__ import annotations
+from phase_fixtures import core_scripts
 
 import importlib.machinery
 import importlib.util
@@ -26,6 +27,12 @@ ROOT = Path(__file__).parents[2]
 AGENTS = ROOT.parents[1] / "agents"
 TEMPLATES = ROOT / "templates"
 EXAMPLES = ROOT / "examples"
+CORE_TEMPLATES = core_scripts().parent / "templates"
+
+def template_path(name):
+    candidate = CORE_TEMPLATES / name
+    return candidate if candidate.is_file() else TEMPLATES / name
+
 def jev_environment():
     return {key: os.environ[key] for key in ("PATH", "HOME") if key in os.environ}
 
@@ -38,7 +45,7 @@ class BoundedCommandTests(unittest.TestCase):
 
 
 def render(template: str, variables: Path) -> str:
-    result = rendering.render(TEMPLATES / template, variables)
+    result = rendering.render(template_path(template), variables)
     assert result.returncode == 0, result.stderr
     return result.stdout
 
@@ -88,7 +95,7 @@ def section_fence(agent: str, heading: str) -> str:
 
 
 def load_client():
-    spec = importlib.util.spec_from_file_location("jev_client", ROOT / "scripts" / "jev_client.py")
+    spec = importlib.util.spec_from_file_location("jev_client", core_scripts() / "jev_client.py")
     assert spec is not None and spec.loader is not None
     client = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(client)
@@ -215,7 +222,7 @@ class DevSanityHandoffTests(unittest.TestCase):
         def run(body: str) -> dict:
             path = Path(self.tmp.name) / "assignment.md"
             path.write_text(body)
-            proc = run_command([sys.executable, str(ROOT / "scripts/jev_client.py"), "--assignment", str(path)],
+            proc = run_command([sys.executable, str(core_scripts() / "jev_client.py"), "--assignment", str(path)],
                                   capture_output=True, text=True, env=env)
             self.assertEqual(proc.returncode, 2, proc.stderr)
             return json.loads(proc.stdout)["error"]
@@ -236,7 +243,7 @@ class ReviewerHandoffTests(unittest.TestCase):
         declared = inputs_json("ceremony-qa.md")
         checked = 0
         for template in ("qa-template.xml.j2", "plan-review-template.xml.j2"):
-            text = (TEMPLATES / template).read_text()
+            text = (template_path(template)).read_text()
             for mention in re.findall(r"`ceremony-qa` with (.*?)\.", text):
                 with self.subTest(template=template):
                     checked += 1
@@ -264,7 +271,7 @@ class ReviewerHandoffTests(unittest.TestCase):
         commands = set(required_match(re.search(r'choices=\(([^)]*)\)', script)).group(1).replace('"', "").replace(" ", "").split(","))
         seen = 0
         for template in ("qa-template.xml.j2", "plan-review-template.xml.j2"):
-            text = (TEMPLATES / template).read_text()
+            text = (template_path(template)).read_text()
             for command, rest in re.findall(r"fix-round-scope (\w+) ((?:--?[\w-]+|<[^>]*>|\{\{.*?\}\}|[\w./<>-]+| )*)", text):
                 with self.subTest(template=template, command=command):
                     seen += 1
@@ -301,7 +308,7 @@ class FencedJsonTests(unittest.TestCase):
     def test_every_machine_status_fence_renders_to_json_carrying_its_vars(self):
         hostile = 'x-d-4 "quoted" back\\\\slash\nnew line'
         rendered = 0
-        for template in sorted(TEMPLATES.glob("*.md.j2")):
+        for template in sorted([*TEMPLATES.glob("*.md.j2"), *CORE_TEMPLATES.glob("*.md.j2")]):
             if "## Machine Status (JSON)" not in template.read_text():
                 continue
             values = json.loads((EXAMPLES / (template.name.removesuffix(".md.j2") + "-vars.json")).read_text())
@@ -538,7 +545,7 @@ class PlanReviewHandoffTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "vars.json"
             path.write_text(json.dumps(missing))
-            proc = rendering.render(TEMPLATES / "plan-review-template.xml.j2", path)
+            proc = rendering.render(template_path("plan-review-template.xml.j2"), path)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("worktree_path", proc.stderr)
 
@@ -678,7 +685,7 @@ class BlockingFindingsHandoffTests(unittest.TestCase):
                                ("planted negative", {k: v for k, v in values.items() if k != "remedy"}, False)):
             with self.subTest(case=case):
                 path.write_text(json.dumps(sent))
-                proc = rendering.render(TEMPLATES / "workflow-issue-bead.json.j2", path)
+                proc = rendering.render(template_path("workflow-issue-bead.json.j2"), path)
                 self.assertEqual(proc.returncode == 0, ok, proc.stderr)
         rows = ws.root / "workflow.jsonl"
         path.write_text(json.dumps(values))

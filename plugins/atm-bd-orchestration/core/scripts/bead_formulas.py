@@ -13,20 +13,24 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 from subprocess import CompletedProcess
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 from operation_models import BeadRecord, bead_record_to_json as bead_record_to_json, is_bead_records  # noqa: E402
 
-PACKAGE_FORMULAS = Path(__file__).resolve().parents[1] / "formulas"
+PACKAGE_FORMULAS = (Path(__file__).resolve().parents[2] / "skills/atm-bd-orchestration/formulas"
+                    if Path(__file__).resolve().parents[1].name == "core"
+                    else Path(__file__).resolve().parents[2] / ".claude/skills/atm-bd-orchestration/formulas")
 OVERRIDE_DIR = Path(".atm-bd") / "formula"
 TEMPLATE_SUFFIX = ".formula.toml.j2"
 RELATIONS_SUFFIX = ".relations.json"
 def search_path(repo: Path | None) -> list[Path]:
     """Directories searched for formula files, highest precedence first."""
-    return ([Path(repo) / OVERRIDE_DIR] if repo is not None else []) + [PACKAGE_FORMULAS]
+    paths = [Path(repo) / OVERRIDE_DIR] if repo is not None else []
+    paths.append(PACKAGE_FORMULAS)
+    if Path(__file__).resolve().parents[1].name == ".atm-bd":
+        paths.append(Path(__file__).resolve().parents[2] / ".codex/skills/atm-bd-orchestration/formulas")
+    return paths
 
 
 def find(name: str, suffix: str, repo: Path | None) -> Path:

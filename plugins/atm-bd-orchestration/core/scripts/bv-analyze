@@ -7,8 +7,8 @@
 """Export live bead records, then analyze only that snapshot with BV robot commands.
 
 Usage (from the repository root):
-  .claude/skills/atm-bd-orchestration/scripts/bv-analyze --epic <root> [--modes ...] [--target <bead>]
-  .claude/skills/atm-bd-orchestration/scripts/bv-analyze --file <plan.jsonl> [--epic <root>] [--modes ...]
+  .atm-bd/scripts/bv-analyze --epic <root> [--modes ...] [--target <bead>]
+  .atm-bd/scripts/bv-analyze --file <plan.jsonl> [--epic <root>] [--modes ...]
 
 Read-only: never writes a bead, never opens the BV TUI, never falls back to an
 existing JSONL. Prints a receipt summary; outputs land in a fresh temp directory.
@@ -23,12 +23,10 @@ import os
 import re
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 from collections.abc import Sequence
 from typing import NotRequired, TypedDict
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 from operation_models import DependencyRecord, matches_typeddict  # noqa: E402
 
 

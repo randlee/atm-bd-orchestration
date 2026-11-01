@@ -23,7 +23,6 @@ import sys
 import time
 from typing import Literal, NotRequired, TypedDict
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 import repo_config
 from operation_models import matches_typeddict
 from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value, load_phase_config, string_list

@@ -88,7 +88,7 @@ SPRINT = Sprint(
 PHASE = Phase("atm-phase-bh", "phase:bh", "atm-bd-console", True, (SPRINT,), (STEP,),
               (("atm-bh-7.qa", NOT_FOUND),))
 PHASE_TEMPLATES = {
-    purpose: f".claude/skills/atm-bd-orchestration/templates/{filename}.xml.j2"
+    purpose: f"{'.atm-bd/templates' if purpose in {'qa', 'plan_review', 'review'} else '.claude/skills/atm-bd-orchestration/templates'}/{filename}.xml.j2"
     for purpose, filename in (
         ("dev", "dev-template"), ("fix", "fix-assignment"),
         ("sanity", "dev-sanity-template"), ("qa", "qa-template"),

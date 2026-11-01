@@ -3,21 +3,22 @@
     "release_scripts",
     "apps/atm-bd-console",
     "plugins/atm-bd-orchestration",
-    "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/bead-groups",
-    "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/bv-analyze",
+    "plugins/atm-bd-orchestration/core/scripts/bead-groups",
+    "plugins/atm-bd-orchestration/core/scripts/bv-analyze",
     "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/fix-round-scope",
     "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/sanity-close-vars",
     "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/sanity-merge",
     "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/sanity-run-history",
     "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/sanity-split",
     "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/sanity-stack-link",
-    "plugins/atm-bd-orchestration/skills/atm-beads/scripts/check-phase-artifact",
-    "plugins/atm-bd-orchestration/skills/atm-beads/scripts/phase-config",
-    "plugins/atm-bd-orchestration/skills/atm-beads/scripts/phase-index-path",
-    "plugins/atm-bd-orchestration/skills/atm-beads/scripts/resolve-role",
-    "plugins/atm-bd-orchestration/skills/atm-beads/scripts/validate-plan",
+    "plugins/atm-bd-orchestration/core/scripts/check-phase-artifact",
+    "plugins/atm-bd-orchestration/core/scripts/phase-config",
+    "plugins/atm-bd-orchestration/core/scripts/phase-index-path",
+    "plugins/atm-bd-orchestration/core/scripts/resolve-role",
+    "plugins/atm-bd-orchestration/core/scripts/validate-plan",
     "plugins/atm-bd-orchestration/skills/sprint-report/scripts/sprint-report",
-    "plugins/atm-bd-orchestration/skills/sprint-review/scripts/sprint-review"
+    "plugins/atm-bd-orchestration/skills/sprint-review/scripts/sprint-review",
+    ".github/scripts"
   ],
   "typeCheckingMode": "standard",
   "reportMatchNotExhaustive": "error",
@@ -25,11 +26,13 @@
   "venvPath": "apps/atm-bd-console",
   "venv": ".venv",
   "extraPaths": [
+    "plugins/atm-bd-orchestration/core/scripts",
     "apps/atm-bd-console/src",
     "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts",
     "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests",
     "plugins/atm-bd-orchestration/skills/atm-beads/scripts",
     "plugins/atm-bd-orchestration/skills/atm-beads/tests",
-    "plugins/atm-bd-orchestration/skills/sprint-report/scripts"
+    "plugins/atm-bd-orchestration/skills/sprint-report/scripts",
+    "plugins/atm-bd-orchestration/core/scripts/tests"
   ]
 }

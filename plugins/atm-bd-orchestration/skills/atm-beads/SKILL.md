@@ -78,15 +78,15 @@ Validation is mandatory before a plan is imported, before plan review and
 before the first dispatch. Run it from the repository root:
 
 ```bash
-.claude/skills/atm-beads/scripts/validate-plan --file <plan.jsonl> --phase <x> --index <plans_dir>/phase-<x>.jsonl   # before import
-.claude/skills/atm-beads/scripts/validate-plan --phase <x>   # live beads; plan file from origin/<integration_branch>
-.claude/skills/atm-beads/scripts/validate-plan --ci   # CI, offline: every tracked .atm-bd/phase-*.toml and its plan file parse
+.atm-bd/scripts/validate-plan --file <plan.jsonl> --phase <x> --index <plans_dir>/phase-<x>.jsonl   # before import
+.atm-bd/scripts/validate-plan --phase <x>   # live beads; plan file from origin/<integration_branch>
+.atm-bd/scripts/validate-plan --ci   # CI, offline: every tracked .atm-bd/phase-*.toml and its plan file parse
 ```
 
 What it checks is listed once, in the header of
-[`.claude/skills/atm-beads/scripts/validate-plan`](scripts/validate-plan). The bead models are pydantic,
-in `.claude/skills/atm-beads/scripts/bead_schema.py`; `schemas/*.schema.json` are exported from them
-(`.claude/skills/atm-beads/scripts/bead_schema.py export schemas`) and published. Exit 0 means valid, 5 lists
+[`.atm-bd/scripts/validate-plan`](scripts/validate-plan). The bead models are pydantic,
+in `.atm-bd/scripts/bead_schema.py`; `schemas/*.schema.json` are exported from them
+(`.atm-bd/scripts/bead_schema.py export schemas`) and published. Exit 0 means valid, 5 lists
 the problems, and 2 means it could not run (the reason is on stderr, including
 `bd doctor`'s own stderr). Report problems to the lead; never edit the script,
 the plan or the graph to make it pass.

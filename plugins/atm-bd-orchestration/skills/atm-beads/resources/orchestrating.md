@@ -10,7 +10,7 @@ one or two fast agents keep up with the important and minor ones.
 
 ## Before Dispatch
 
-1. `.claude/skills/atm-beads/scripts/validate-plan --phase <x>` exits 0
+1. `.atm-bd/scripts/validate-plan --phase <x>` exits 0
    (it runs `bd doctor` and the checks [`planning.md`](planning.md) "Checks"
    assigns to it), and the plan has passed plan review
    (`atm-bd-orchestration` "Plan Gate").

@@ -173,7 +173,7 @@ def test_type_aliases() -> None:
 
 @pytest.mark.parametrize("module", ["result.py", "types.py"])
 def test_d2_contract_modules_hold_no_logic(module: str) -> None:
-    text = (PACKAGE / module).read_text()
+    text = (Path(result.__file__) if module == "result.py" else PACKAGE / module).read_text()
     assert re.findall(r"\braise\b|subprocess|open\(|\bdef ", text) == []
     tree = ast.parse(text)
     assert not [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Raise))]

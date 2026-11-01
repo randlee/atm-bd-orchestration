@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 bead_schema = importlib.import_module("bead_schema")
 
 
@@ -27,7 +27,7 @@ def close(role):
             "max_sanity_rounds": 5}
 
 
-SCHEMA_CLI = Path(__file__).resolve().parents[1] / "scripts" / "bead_schema.py"
+SCHEMA_CLI = Path(__file__).resolve().parents[1] / "bead_schema.py"
 
 
 @pytest.mark.parametrize("missing_branch, bd_exit, expected_code", [

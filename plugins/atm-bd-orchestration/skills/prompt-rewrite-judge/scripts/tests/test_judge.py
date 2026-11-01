@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1]))
 import judge
 
-CLIENT = Path(__file__).resolve().parents[3] / "atm-bd-orchestration/scripts/jev_client.py"
+CLIENT = judge._CORE_SCRIPTS / "jev_client.py"
 
 
 def answer(choice, probs):

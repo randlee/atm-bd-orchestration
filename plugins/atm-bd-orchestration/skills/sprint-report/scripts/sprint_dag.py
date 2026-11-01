@@ -16,6 +16,23 @@ from string import Template
 import sys
 import xml.etree.ElementTree as ET
 
+import json as _core_json
+import sys as _core_sys
+from pathlib import Path as _CorePath
+_core = next((candidate for parent in _CorePath(__file__).resolve().parents
+              for candidate in (parent / ".atm-bd/scripts", parent / "plugins/atm-bd-orchestration/core/scripts")
+              if (candidate / "core_paths.py").is_file()), None)
+if _core is None:
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": "run atm-bd skill --dest <repository>"}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+_core_sys.path.insert(0, str(_core))
+import core_paths as _core_paths  # noqa: E402
+from result import Err as _CoreErr  # noqa: E402
+_core_resolved = _core_paths.core_scripts_dir(_CorePath(__file__))
+if isinstance(_core_resolved, _CoreErr):
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_resolved.error.fix}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+
 from sprint_index_common import IndexSprint, JsonValue, NormalizedIndex, is_json_object, is_object_list, run_json as _run_json, index_bead_pairs, validate_index
 from sprint_qa import choose_round, qa_icon, qa_verdict, findings_summary
 from phase_beads import phase_beads

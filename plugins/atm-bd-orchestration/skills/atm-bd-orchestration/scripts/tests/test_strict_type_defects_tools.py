@@ -1,5 +1,6 @@
 """Regressions for runtime defects exposed while making the tools strict."""
 
+from phase_fixtures import core_scripts
 import importlib.util
 import os
 from importlib.machinery import SourceFileLoader
@@ -10,7 +11,7 @@ import tempfile
 import unittest
 
 JUDGE_PATH = Path(__file__).parents[3] / "prompt-rewrite-judge/scripts/judge.py"
-BEAD_GROUPS_PATH = Path(__file__).parents[1] / "bead-groups"
+BEAD_GROUPS_PATH = core_scripts() / "bead-groups"
 INSTALLER_PATH = Path(__file__).parents[4] / "install.py"
 SPEC = importlib.util.spec_from_file_location("prompt_rewrite_judge", JUDGE_PATH)
 assert SPEC is not None and SPEC.loader is not None

@@ -23,11 +23,25 @@ import subprocess
 import time
 import tempfile
 import uuid
-import sys
 from collections.abc import Mapping, Sequence
 from typing import NotRequired, Protocol, TypeGuard, TypedDict, runtime_checkable
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'atm-beads' / 'scripts'))
+import json as _core_json
+import sys as _core_sys
+from pathlib import Path as _CorePath
+_core = next((candidate for parent in _CorePath(__file__).resolve().parents
+              for candidate in (parent / ".atm-bd/scripts", parent / "plugins/atm-bd-orchestration/core/scripts")
+              if (candidate / "core_paths.py").is_file()), None)
+if _core is None:
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": "run atm-bd skill --dest <repository>"}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+_core_sys.path.insert(0, str(_core))
+import core_paths as _core_paths  # noqa: E402
+from result import Err as _CoreErr  # noqa: E402
+_core_resolved = _core_paths.core_scripts_dir(_CorePath(__file__))
+if isinstance(_core_resolved, _CoreErr):
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_resolved.error.fix}}), file=_core_sys.stderr)
+    raise SystemExit(3)
 from operation_models import is_object, is_object_list, matches_typeddict
 
 SCHEMA_VERSION=1
@@ -493,8 +507,10 @@ def load_client(path: Path) -> JevClient:
   raise TypeError(f'JEV client {path} does not implement the client contract')
  return m
 
+_CORE_SCRIPTS = _core_resolved.value
+
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--client',type=Path,default=Path(__file__).resolve().parent / 'jev_client.py')
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--client',type=Path,default=_CORE_SCRIPTS / 'jev_client.py')
  sub=p.add_subparsers(dest='cmd',required=True)
  q=sub.add_parser('prepare');q.add_argument('--manifest',required=True,type=Path);q.add_argument('--repo',type=Path,default=Path('.'));q.add_argument('--out',required=True,type=Path)
  q=sub.add_parser('run');q.add_argument('packets',nargs='+',type=Path);q.add_argument('--phase',required=True);q.add_argument('--output-dir',type=Path,default=Path('.sc/qa-logs'));q.add_argument('--run-id');q.add_argument('--concurrency',type=int,default=2);q.add_argument('--attempt-role',choices=['initial','context_repair'],default='initial');q.add_argument('--minimum-probability',type=float,default=.8)

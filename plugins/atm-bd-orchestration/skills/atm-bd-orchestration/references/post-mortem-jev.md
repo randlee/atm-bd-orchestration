@@ -108,7 +108,7 @@ describes presence screening only, not an all-clear. Check the separate
 issue/quality dispositions and `investigation_required` before accepting a row. The script's summary
 counts evaluation attempts, not unique verified findings; reconcile the ledger
 separately. This runner uses POSIX file locking and the repository's existing
-`.claude/skills/atm-bd-orchestration/scripts/jev_client.py`; pass global `--client` to select its absolute path
+`.atm-bd/scripts/jev_client.py`; pass global `--client` to select its absolute path
 when invoking from another directory.
 
 ## Atomic question mapping (v2)

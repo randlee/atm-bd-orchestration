@@ -29,7 +29,17 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(HERE.parents[1] / "atm-beads" / "scripts"))
+_core = next((candidate for parent in Path(__file__).resolve().parents
+              for candidate in (parent / ".atm-bd/scripts", parent / "core/scripts")
+              if (candidate / "core_paths.py").is_file()), None)
+if _core is None:
+    raise RuntimeError("CORE.NOT_FOUND: run atm-bd skill --dest <repository>")
+sys.path.insert(0, str(_core))
+from core_paths import core_scripts_dir as _core_scripts_dir
+from result import Err as _CoreErr
+_core_result = _core_scripts_dir(Path(__file__))
+if isinstance(_core_result, _CoreErr):
+    raise RuntimeError(f"CORE.NOT_FOUND: {_core_result.error.fix}")
 import bd_cache  # noqa: E402
 import bead_schema  # noqa: E402
 import close_fields  # noqa: E402

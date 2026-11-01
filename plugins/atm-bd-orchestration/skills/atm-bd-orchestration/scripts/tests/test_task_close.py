@@ -196,7 +196,7 @@ def test_argument_errors_use_typed_json(argv):
 def test_every_role_required_field_is_validated_before_commands(world, role):
     original = example_values(role)
     original.update(primary_checkout=str(world.root), worktree_path=str(world.root))
-    contract = hook.header(hook.TEMPLATES / "task-close-vars.j2")
+    contract = hook.header(hook.template_path("task-close-vars.j2"))
     required = contract["required_variables_by_role"][role]
     results = contract.get("result_variables_by_role", {}).get(role, [])
     assert set(original) == set(required) | set(results)
@@ -405,7 +405,7 @@ def test_not_reproducible_assigns_runtime_top_without_rewriting_input(world):
         del world.values[field]
     result = world.run("fix", outcome="not_reproducible")
     assert "ok" in result, result
-    contract = hook.header(hook.TEMPLATES / "task-close-vars.j2")
+    contract = hook.header(hook.template_path("task-close-vars.j2"))
     results = set(contract["result_variables_by_role"]["fix"])
     assert json.loads(world.path.read_text()) == {name: value for name, value in world.values.items()
                                                  if name not in results and name not in DERIVED}
@@ -796,7 +796,7 @@ def test_not_reproducible_retry_uses_current_stack_top(world, boundary):
 
 
 def test_shared_contract_covers_all_role_templates_and_ids(world):
-    contract = hook.header(hook.TEMPLATES / "task-close-vars.j2")
+    contract = hook.header(hook.template_path("task-close-vars.j2"))
     declared = set(contract["required_variables"])
     assert declared == set(contract["derived_variables"]).union(
         *map(set, contract["required_variables_by_role"].values()),
@@ -805,14 +805,14 @@ def test_shared_contract_covers_all_role_templates_and_ids(world):
              "dev-sanity-complete.md.j2", "qa-template.xml.j2", "qa-complete.md.j2")
     for name in names:
         dispatch_only = {"beads_dir", "close_context"} if name == "dev-sanity-template.xml.j2" else set()
-        assert set(hook.header(hook.TEMPLATES / name)["required_variables"]) <= declared | dispatch_only, name
+        assert set(hook.header(hook.template_path(name))["required_variables"]) <= declared | dispatch_only, name
         values = {**world.values, "beads_dir": str(world.root / ".beads"),
                   "close_context": {**world.values, "phase_lead": "phase-lead"}}
-        body = hook.sc_render.render(hook.TEMPLATES / name, values)
+        body = hook.sc_render.render(hook.template_path(name), values)
         role_id = "sanity_task_id" if name.startswith("dev-sanity") else "qa_task_id" if name.startswith("qa-") else "dev_task_id"
         if name != "sanity-fail.xml.j2":
             assert world.values[role_id] in body
-    rebase = ET.fromstring(hook.sc_render.render(hook.TEMPLATES / "rebase-required.xml.j2", world.values))
+    rebase = ET.fromstring(hook.sc_render.render(hook.template_path("rebase-required.xml.j2"), world.values))
     assert rebase.attrib["bead"] == world.values["checked_bead"]
     description_node = rebase.find("description")
     assert description_node is not None and description_node.text is not None
@@ -839,7 +839,7 @@ def test_each_role_example_renders_every_shared_template(world, role):
         "qa": ("qa-complete.md.j2",),
     }[role]
     for name in names:
-        hook.sc_render.render(hook.TEMPLATES / name, values)
+        hook.sc_render.render(hook.template_path(name), values)
 
 
 @pytest.mark.parametrize("role", ["dev", "fix", "sanity", "qa"])
@@ -1057,7 +1057,7 @@ def test_close_from_documented_dispatch_and_result_files_derives_handoff(world, 
 
 @pytest.mark.parametrize("role", ["dev", "fix"])
 def test_fixer_fields_in_the_dispatch_file_are_refused_before_commands(world, role):
-    contract = hook.header(hook.TEMPLATES / "task-close-vars.j2")
+    contract = hook.header(hook.template_path("task-close-vars.j2"))
     example = example_values(role)
     example.update(primary_checkout=str(world.root), worktree_path=str(world.root))
     dispatch = {name: example[name] for name in contract["required_variables_by_role"][role]}
@@ -1069,7 +1069,7 @@ def test_fixer_fields_in_the_dispatch_file_are_refused_before_commands(world, ro
 
 
 def test_result_file_rejects_fields_that_are_not_its_role_fields(world):
-    contract = hook.header(hook.TEMPLATES / "task-close-vars.j2")
+    contract = hook.header(hook.template_path("task-close-vars.j2"))
     example = example_values("dev")
     example.update(primary_checkout=str(world.root), worktree_path=str(world.root))
     dispatch = {name: example[name] for name in contract["required_variables_by_role"]["dev"]}
@@ -1183,7 +1183,7 @@ def test_empty_discovered_pr_identity_is_refused_before_writes(world, number):
 
 @pytest.mark.parametrize("role", ["dev", "fix", "sanity", "qa"])
 def test_shared_render_uses_exact_role_fields_without_union_placeholders(world, monkeypatch, role):
-    contract = hook.header(hook.TEMPLATES / "task-close-vars.j2")
+    contract = hook.header(hook.template_path("task-close-vars.j2"))
     expected = set(contract["required_variables_by_role"][role]) | set(contract["result_variables_by_role"].get(role, []))
     assert set(contract["render_variables_by_role"][role]) == expected
     original = hook.sc_render.render
@@ -1288,9 +1288,9 @@ def test_sanity_close_context_subset_builds_the_same_sanity_close(world):
     subset_values, subset_stack = built(assignment["close_context"], "subset")
     full_values, full_stack = built(full, "full")
     assert subset_stack == full_stack
-    read = set(hook.header(hook.TEMPLATES / "task-close-vars.j2")["render_variables_by_role"]["sanity"]) | {"carry_forward"}
+    read = set(hook.header(hook.template_path("task-close-vars.j2"))["render_variables_by_role"]["sanity"]) | {"carry_forward"}
     for name in ("dev-sanity-complete.md.j2", "sanity-fail.xml.j2", "qa-template.xml.j2"):
-        header = hook.header(hook.TEMPLATES / name)
+        header = hook.header(hook.template_path(name))
         read |= set(header["required_variables"]) | set(header.get("defaults") or {})
     assert {name: subset_values.get(name) for name in read} == {name: full_values.get(name) for name in read}
     # The only differences are fields the sanity close never reads, which fall back to their defaults.

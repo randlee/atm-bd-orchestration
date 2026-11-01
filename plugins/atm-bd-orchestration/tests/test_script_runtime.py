@@ -17,7 +17,7 @@ from pathlib import Path
 import install
 
 PKG = Path(__file__).resolve().parents[1]
-SCRIPTS = sorted(p for p in PKG.glob("skills/*/scripts/*") if p.is_file() and p.read_bytes().startswith(b"#!")
+SCRIPTS = sorted(p for p in [*PKG.glob("skills/*/scripts/*"), *PKG.glob("core/scripts/*")] if p.is_file() and p.read_bytes().startswith(b"#!")
                  and not p.read_bytes().startswith(b"#!/bin/sh"))  # `bead-queues` is a sh wrapper over `atm-bd queues`
 EXECUTABLES = [*SCRIPTS, PKG / "install.py"]
 DOCUMENTS = sorted(p for p in PKG.rglob("*") if p.suffix in {".md", ".j2", ".yaml", ".json"}
@@ -45,7 +45,7 @@ def test_every_executable_script_starts_with_the_header_and_is_executable():
 
 
 def test_library_modules_carry_no_shebang():
-    for path in PKG.glob("skills/*/scripts/*.py"):
+    for path in [*PKG.glob("skills/*/scripts/*.py"), *PKG.glob("core/scripts/*.py")]:
         if path not in SCRIPTS:
             assert not path.read_text(encoding="utf-8").startswith("#!"), path
 

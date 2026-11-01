@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import sys
 from typing import Any, Mapping
 
 TIMEOUT_ENV = "ATM_BD_GATE_TIMEOUT_S"
@@ -24,7 +23,6 @@ def configured_timeout(root: Path | None = None) -> Any:
 
     An unusable configuration (including an invalid `gate_timeout_s`) raises ValueError naming the file.
     """
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
     import repo_config
     try:
         return repo_config.load(REPO_ROOT if root is None else root)[CONFIG_KEY]

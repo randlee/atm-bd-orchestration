@@ -50,11 +50,11 @@ goes back to the plan's author to supply, with the exact list of gaps.
 
 5. **Gate** the rendered plan. Write the plan file `<plans_dir>/phase-<x>.jsonl`
    and initialize `.atm-bd/phase-<x>.toml` with
-   `.claude/skills/atm-beads/scripts/phase-config init --phase <x> --lead <appointed-lead>`
+   `.atm-bd/scripts/phase-config init --phase <x> --lead <appointed-lead>`
    now (step 9 commits and pushes them), then run from the repository root:
 
    ```bash
-   .claude/skills/atm-beads/scripts/validate-plan --file <scratch>/plan.jsonl --phase <x> --index <plans_dir>/phase-<x>.jsonl
+   .atm-bd/scripts/validate-plan --file <scratch>/plan.jsonl --phase <x> --index <plans_dir>/phase-<x>.jsonl
    ```
 
    Exit 5 lists the problems (`SKILL.md`, Validation), and every one of
@@ -79,7 +79,7 @@ goes back to the plan's author to supply, with the exact list of gaps.
 
 8. **Record the source** on each imported sprint bead:
    `bd update <bead> --append-notes "imported from <doc path>@<git short sha>"`.
-   Then pour the groups: `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <x>`.
+   Then pour the groups: `.atm-bd/scripts/bead-groups --phase <x>`.
 9. **Wire the plan gate** right away, before any readiness check. Nothing
    is dispatched until this is done. Create the plan-review bead as in
    `atm-bd-orchestration` "Plan Gate", step 1:
@@ -87,8 +87,8 @@ goes back to the plan's author to supply, with the exact list of gaps.
    - one plan into a running phase: `<root>-plan-qa` is already closed, so
      create `<root>-plan-qa-<n>` (the next free number), blocking every new
      sprint container.
-   **Mandatory:** write the plan file `<plans_dir>/phase-<x>.jsonl` (one `{"sprint", "depends_on"?}` line per imported sprint) and the initialized phase file `.atm-bd/phase-<x>.toml` (`resources/planning.md` "Phase definition"), run `.claude/skills/sprint-review/scripts/sprint-review --root <root>` (it writes `<plans_dir>/phase-<x>/phase-<x>-dag.html` from the plan file in the working tree; the script never commits or pushes), then commit the plan file, the phase file and the DAG in the same commit as the plan, push it to the root's `integration_branch`, open a PR from the `integration_branch` to the repository trunk the phase lands on, carrying the plan file, the phase file and the DAG, before plan review, and run `.claude/skills/atm-beads/scripts/validate-plan --phase <x>`. When the plan changes, re-run `sprint-review` and commit the DAG with the plan file change, which updates the plan PR. Do not open a viewer unless `--view` is requested. The plan is never exported from Beads.
-10. **Verify** with `.claude/skills/atm-beads/scripts/validate-plan --phase
+   **Mandatory:** write the plan file `<plans_dir>/phase-<x>.jsonl` (one `{"sprint", "depends_on"?}` line per imported sprint) and the initialized phase file `.atm-bd/phase-<x>.toml` (`resources/planning.md` "Phase definition"), run `.claude/skills/sprint-review/scripts/sprint-review --root <root>` (it writes `<plans_dir>/phase-<x>/phase-<x>-dag.html` from the plan file in the working tree; the script never commits or pushes), then commit the plan file, the phase file and the DAG in the same commit as the plan, push it to the root's `integration_branch`, open a PR from the `integration_branch` to the repository trunk the phase lands on, carrying the plan file, the phase file and the DAG, before plan review, and run `.atm-bd/scripts/validate-plan --phase <x>`. When the plan changes, re-run `sprint-review` and commit the DAG with the plan file change, which updates the plan PR. Do not open a viewer unless `--view` is requested. The plan is never exported from Beads.
+10. **Verify** with `.atm-bd/scripts/validate-plan --phase
     <x>`, then check the graph:
     - `bd ready -l phase-<x> -n 0` lists the plan-review bead and no dev bead
       from this import;

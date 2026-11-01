@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from phase_fixtures import core_scripts, write_phase
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/sprint-report'
 loader = importlib.machinery.SourceFileLoader('sprint_report', str(SCRIPT))
@@ -71,19 +72,14 @@ class SprintReportTests(unittest.TestCase):
             self.assertEqual(index['root_bead_id'], '{{ bead_prefix }}-phase-x')
 
     def test_root_lookup_executes_phase_id_fallback_end_to_end(self):
-        skills = Path(__file__).resolve().parents[2]  # .claude/skills installed, skills/ in the package
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
             subprocess.run(['git', 'init', '-q'], cwd=repo, check=True)
-            helper_dir = repo / '.claude/skills/atm-beads/scripts'
-            helper_dir.mkdir(parents=True)
-            for name in ('phase-index-path', 'sprint_index_common.py', 'operation_models.py', 'repo_config.py'):
-                shutil.copy2(skills / 'atm-beads/scripts' / name, helper_dir / name)
+            helper_dir = repo / '.atm-bd/scripts'
+            shutil.copytree(core_scripts(), helper_dir, ignore=shutil.ignore_patterns('__pycache__'))
             config = repo / '.claude/project/atm-bd-orchestration.yaml'
             config.parent.mkdir(parents=True)
             config.write_text('plans_dir: docs/plans\n')
-            sys.path.insert(0, str(skills / 'atm-beads/tests'))
-            from phase_fixtures import write_phase
             write_phase(repo, 'x', '{{ bead_prefix }}', 'docs/plans')
             path = repo / 'docs/plans/phase-x.jsonl'
             path.parent.mkdir(parents=True)

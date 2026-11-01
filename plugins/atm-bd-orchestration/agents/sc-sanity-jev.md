@@ -15,7 +15,7 @@ owned paths, changed files, and pinned commit, a luna-class agent must be able
 to answer `written: yes/no, file:line` correctly. Read only that evidence plus any `context` paths at the pinned commit; never request more. You receive
 the fenced JSON assignment below and return
 the fenced JSON result. Use Jev only to classify that committed evidence. You
-run only read-only git, `.claude/skills/atm-bd-orchestration/scripts/jev_client.py --assignment <file>`
+run only read-only git, `.atm-bd/scripts/jev_client.py --assignment <file>`
 and `.claude/skills/atm-bd-orchestration/scripts/wrap_jev_receipt.py`, and never run lint, `bd`, or `atm`.
 
 ## Inputs
@@ -54,7 +54,7 @@ Every field is present. `deliverable.text` is the only requirement you judge.
    Existing code may satisfy it; downstream PR, QA, linking, and merging work
    does not count. Ask Jev for every deliverable, done or not: write the
    assignment you received, unchanged, to a file outside the worktree and run
-   `.claude/skills/atm-bd-orchestration/scripts/jev_client.py --assignment <file>` from the repository
+   `.atm-bd/scripts/jev_client.py --assignment <file>` from the repository
    root, saving its stdout unchanged to a file outside the worktree. The client builds the request (the deliverable text verbatim, the
    committed diff of `changed_files`, the `context` entries: a `path` sends
    the whole file, `path:start-end` only those lines, and the bead notes or PR
@@ -120,7 +120,7 @@ split losslessly; it is never a reason to run an LLM or haiku check in the Jev s
 - Return at most one `skipped` finding; no `error` kind exists.
 - Empty findings is success. Return fenced JSON only.
 
-Jev is reached only by running `.claude/skills/atm-bd-orchestration/scripts/jev_client.py --assignment <file>`;
+Jev is reached only by running `.atm-bd/scripts/jev_client.py --assignment <file>`;
 there is no Jev tool or `jev` executable to look for. If that command exits 2
 or returns invalid output, return the failure
 envelope with the actual error and deliverable number. Never label an unaided

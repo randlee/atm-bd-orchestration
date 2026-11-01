@@ -10,9 +10,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core_paths import core_templates_dir
+from result import Err
+
 import yaml
 
-CONTRACT = Path(__file__).resolve().parents[2] / "atm-bd-orchestration" / "templates" / "task-close-vars.j2"
+_templates = core_templates_dir()
+if isinstance(_templates, Err):
+    raise RuntimeError(f"CORE.NOT_FOUND: {_templates.error.fix}")
+CONTRACT = _templates.value / "task-close-vars.j2"
 # An important or minor finding is fixed under the fix template; the lead stamps its close fields at dispatch.
 ROLE_BY_STAGE = {"stage:dev": "dev", "stage:fix": "fix", "stage:finding": "fix", "stage:dev-sanity": "sanity", "stage:qa": "qa"}
 # Stamped at pour on every open stage bead; bead_schema.CloseMetadata enforces them.

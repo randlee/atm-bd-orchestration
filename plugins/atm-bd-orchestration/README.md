@@ -7,7 +7,7 @@ For a plain-language walkthrough, see
 
 | Skill / agent | What it is |
 | --- | --- |
-| `skills/atm-beads` | the phase plan as a beads graph: plan templates, `validate-plan`, the pydantic bead schemas, `resolve-role`, the plan contract, the sprint index scripts |
+| `skills/atm-beads` | the phase plan as a beads graph, with plan templates and shared validators in core |
 | `skills/atm-bd-orchestration` | dispatch, dev-sanity, QA and stack landing driven by `bd ready`: assignment gates, dispatch and close templates, the `quality-mgr` role sheet, sanity run history, the phase-end post-mortem (with JEV screening) |
 | `skills/sprint-report`, `skills/sprint-review` | sprint status tables and dependency DAGs from live beads; the sprint review command |
 | `skills/prompt-rewrite-judge` | rewrite prompt text with fresh subagents and have Jev judge each rewrite for dropped, changed or unclear requirements (`scripts/judge.py`) |
@@ -15,9 +15,9 @@ For a plain-language walkthrough, see
 | `agents/dev-sanity.md` | the single dev-sanity teammate: the whole dev-sanity role in one agent prompt |
 | `agents/sc-sanity-llm.md`, `agents/sc-sanity-jev.md` | the per-deliverable LLM and Jev (typesafe.ai) subagents dev-sanity spawns |
 | `agents/parallax.md` | optional work-orchestrator teammate: runs the lead's routine orchestration; the lead keeps `bv`, monitoring and rulings |
-| `skills/atm-bd-orchestration/scripts/jev_client.py` | the Jev transport |
+| `core/scripts/jev_client.py` | the Jev transport |
 
-The skills run repository-relative scripts (`.claude/skills/<skill>/scripts/...`)
+The skills run repository-relative profile scripts (`.claude/skills/<skill>/scripts/...`) and shared scripts (`.atm-bd/scripts/...`)
 and dispatch templates that ATM agents execute inside the consuming repository,
 so the package is installed **into a repository's `.claude/` (and optionally
 `.codex/`) directory**, not used from the plugin cache. Marketplace and plugin
@@ -43,7 +43,7 @@ Requirements in the consuming repository:
 - `gh` and `gh-stack` for lead-only stacked-PR work (not installer-verified).
 
 Jev sanity checks and post-mortem screening also need `TYPESAFE_API_KEY` in the
-agent's environment at run time; without it `.claude/skills/atm-bd-orchestration/scripts/jev_client.py --startup --phase <x>`
+agent's environment at run time; without it `.atm-bd/scripts/jev_client.py --startup --phase <x>`
 reports `SANITY.JEV_UNAVAILABLE` and dev-sanity records every JEV slot as
 unavailable (the LLM subagent still runs and selection takes its replies).
 Jev announcements use `--announce --phase <x>` and resolve the fallback lead
@@ -133,7 +133,7 @@ The variables are declared once, in `config/atm-bd-orchestration.yaml.j2`. The
 are optional. Install renders the template strictly with the sc-compose Python wheel into
 `<repo>/.claude/project/atm-bd-orchestration.yaml` and fails, naming every
 missing variable and the registry key that sets it. Skills read that file at run
-time (`skills/atm-beads/scripts/repo_config.py`).
+time (`core/scripts/repo_config.py`).
 
 | Variable | registry.yaml key | Example |
 | --- | --- | --- |
@@ -169,19 +169,20 @@ configuration, and `{{ repo_slug }}`, `{{ repo_name }}` (git origin)
 and `{{ workflow_issues_root }}` (`<bead_prefix>-workflow-issues`)
 derived from the repository. Every other file, including every `*.j2` dispatch
 template, is copied byte for byte. `sc-sanity-jev` and `post_mortem_jev.py` call
-the Jev transport at `.claude/skills/atm-bd-orchestration/scripts/jev_client.py`.
+the Jev transport at `.atm-bd/scripts/jev_client.py`.
 
 ### Phase settings
 
 Each tracked `.atm-bd/phase-<x>.toml` owns its nonempty `lead` and mandatory
 `[templates]` table: `dev`, `fix`, `sanity`, `qa`, `plan_review`,
 and `review`. Paths must name existing repository-relative files inside
-`.claude/skills/atm-bd-orchestration/templates/`. Runtime readers report missing
+`.claude/skills/atm-bd-orchestration/templates/` for profile templates or
+`.atm-bd/templates/` for shared templates. Runtime readers report missing
 settings and dangling paths; they never fall back to the generated YAML,
 registry roles, environment identity, or default templates.
 
 Before validating or pouring a new phase, run
-`.claude/skills/atm-beads/scripts/phase-config init --phase <x> --lead <appointed-lead>`.
+`.atm-bd/scripts/phase-config init --phase <x> --lead <appointed-lead>`.
 It needs the rendered `.claude/project/atm-bd-orchestration.yaml` first. It
 writes the lead, the six standard template paths and repository-derived
 plan/root/branch values, refusing to overwrite an existing phase. It does not

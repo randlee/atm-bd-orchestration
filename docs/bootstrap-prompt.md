@@ -60,7 +60,7 @@ Step 4: install (only after I approve)
 7. If a phase file already existed, this is an upgrade: follow the upgrade paragraph in "One-time repo setup". Ask me before the step 7 hook and crons for each active phase (see step 5 below). Run `.claude/skills/atm-bd-orchestration/scripts/close_fields_backfill.py --phase <x>` once for each active phase and show me the plan it prints; add `--apply --actor <identity>` only after I approve.
 
 Step 5: set up the first phase (only if I've given you a phase id and a lead)
-1. Run `.claude/skills/atm-beads/scripts/phase-config init --phase <x> --lead <member>`.
+1. Run `.atm-bd/scripts/phase-config init --phase <x> --lead <member>`.
 2. If I gave you a design document, follow steps 2 to 6 of "Starting a phase", in order: the integration branch, `bd doctor --json`, the plan written as `.claude/skills/atm-beads/resources/planning.md` says, `validate-plan` before import, then import, `bead-groups`, the plan-review bead, the commit and push, and `validate-plan --phase <x>` on the live beads. Never edit the plan or the script just to make validation pass.
 3. If I didn't give you a design, stop after `phase-config init` and tell me what the plan needs.
 4. Ask me before switching on the sanity close hook, the bd-cache cron and the `atm-bd cron --phase <x>` schedule. Run them exactly as step 7 of "Starting a phase" gives them (https://github.com/randlee/atm-bd-orchestration/blob/main/docs/getting-started.md#starting-a-phase). They change local ATM daemon state, or add a schedule, but commit nothing and dispatch nothing.

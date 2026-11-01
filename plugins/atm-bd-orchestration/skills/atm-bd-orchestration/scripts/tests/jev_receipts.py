@@ -1,11 +1,12 @@
 """Valid Jev receipts for sanity-jev test replies, written by the real client (never by hand)."""
+from phase_fixtures import core_scripts
 import importlib.util
 import json
 import os
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
-CLIENT = HERE.parents[1] / "jev_client.py"
+CLIENT = core_scripts() / "jev_client.py"
 KEY = "test-only-key"
 _spec = importlib.util.spec_from_file_location("jev_client_for_tests", CLIENT)
 assert _spec is not None and _spec.loader is not None

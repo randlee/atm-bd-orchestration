@@ -5,6 +5,7 @@ check its caller's contract, not a second implementation of that engine.
 No database, executable, port or process is needed.
 """
 from __future__ import annotations
+from phase_fixtures import core_scripts
 
 from contextlib import redirect_stdout
 from copy import deepcopy
@@ -20,7 +21,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
-loader = importlib.machinery.SourceFileLoader("bead_groups_plan", str(SCRIPTS / "bead-groups"))
+loader = importlib.machinery.SourceFileLoader("bead_groups_plan", str(core_scripts() / "bead-groups"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 assert spec is not None
 groups = importlib.util.module_from_spec(spec)

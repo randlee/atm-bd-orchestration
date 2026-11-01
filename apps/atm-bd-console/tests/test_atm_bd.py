@@ -580,7 +580,7 @@ def test_phase_keeps_legacy_qa_step_when_checked_bead_is_not_loaded() -> None:
 
 
 # D4/D5: step mapping and dispatch_spec.
-TEMPLATES = Path(__file__).resolve().parents[3] / "plugins/atm-bd-orchestration/skills/atm-bd-orchestration/templates"
+TEMPLATES = Path(__file__).resolve().parents[3] / "plugins/atm-bd-orchestration/core/templates"
 NOW = datetime(2026, 10, 15, 4, 0, tzinfo=UTC)
 DISPATCH_REPO = RepoConfig("atm", "dev-sanity", "quality-mgr", "/repo", "/worktrees", "just lint", ".claude/project/quality-policy.md",
                   ("req-qa", "arch-qa"), "docs/plans")
@@ -691,7 +691,7 @@ def test_dispatch_spec_vars_are_exact_and_render_strict(kind: str, pr: PullReque
         return
     assert isinstance(spec, Ok), spec
     template, values = expected(kind, pr)
-    assert spec.value.template == f".claude/skills/atm-bd-orchestration/templates/{template}"
+    assert spec.value.template == f".atm-bd/templates/{template}"
     assert dict(spec.value.vars) == values
     rendered = render(template, dict(spec.value.vars), tmp_path)
     assert rendered.returncode == 0, rendered.stderr
@@ -745,7 +745,7 @@ def test_a_missing_resolver_is_refused_with_the_install_fix(monkeypatch: pytest.
 
     monkeypatch.setattr(atm_bd_module, "load_skill", missing)
     result = _qa_spec(SPRINT_QA, DEV, PR)
-    assert _code(result) == "atm-beads/scripts/close_fields.py"
+    assert _code(result) == "close_fields.py"
 
 
 def test_dispatch_spec_uses_named_template_variable_keys(monkeypatch: pytest.MonkeyPatch) -> None:

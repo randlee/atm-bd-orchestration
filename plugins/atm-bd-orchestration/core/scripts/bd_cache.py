@@ -3,7 +3,9 @@
 # requires-python = ">=3.11,<3.12"
 # dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
 # ///
-"""Per-dolt-database bead cache and write journal (prototype; atm-bd-orchestration #557).
+"""Replaced by the arriving Rust library.
+
+Per-dolt-database bead cache and write journal (prototype; atm-bd-orchestration #557).
 
 One SQLite file per dolt database, `<repo>/.atm-bd/<dolt_database>.bd-cache.sqlite3`,
 holds the beads of every active phase as `bd` last reported them, plus a journal

@@ -1,5 +1,6 @@
 """Regression tests for concrete type defects found by the BN-2 lane."""
 
+from phase_fixtures import core_scripts
 import json
 import argparse
 import importlib.util
@@ -33,7 +34,7 @@ class ValidMacClient:
 
 class MalformedBeadTests(unittest.TestCase):
     def jev_module(self):
-        return load_module(SCRIPT.parent / "jev_client.py")
+        return load_module(core_scripts() / "jev_client.py")
 
     def merge_module(self):
         return load_module(SCRIPT.parent / "sanity-merge")

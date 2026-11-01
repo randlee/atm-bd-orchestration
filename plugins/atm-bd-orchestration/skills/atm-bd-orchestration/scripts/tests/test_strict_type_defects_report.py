@@ -1,5 +1,6 @@
 """Regression coverage for concrete post-mortem/report type defects."""
 
+from phase_fixtures import core_scripts
 import copy
 import json
 from pathlib import Path
@@ -16,7 +17,7 @@ import post_mortem_jev as jev
 from test_post_mortem_jev import response
 
 
-REAL_CLIENT = jev.load_client(SCRIPTS / "jev_client.py")
+REAL_CLIENT = jev.load_client(core_scripts() / "jev_client.py")
 
 
 class FakeClient:

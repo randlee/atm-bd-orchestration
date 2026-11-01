@@ -21,6 +21,7 @@ PHASE_KEYS = ("plan", "root", "integration_branch")
 TEMPLATE_PURPOSES = ("dev", "fix", "sanity", "qa", "plan_review", "review")
 RETIRED_TEMPLATE_PURPOSES = frozenset({"dev_fix"})
 TEMPLATE_DIRECTORY = Path(".claude/skills/atm-bd-orchestration/templates")
+CORE_TEMPLATE_DIRECTORY = Path(".atm-bd/templates")
 PLAN_KEYS = frozenset({"sprint", "depends_on"})
 PHASE_ID = re.compile(r"[a-z0-9]+")
 SPRINT_NAME = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
@@ -154,8 +155,9 @@ def _phase_templates(root: Path, raw: object) -> Result[Mapping[str, str]]:
         try:
             valid = (
                 not value.endswith("/") and not path.is_absolute()
-                and ".." not in path.parts and path.is_relative_to(TEMPLATE_DIRECTORY)
-                and (root / path).resolve().is_relative_to((root / TEMPLATE_DIRECTORY).resolve())
+                and ".." not in path.parts
+                and any(path.is_relative_to(base) and (root / path).resolve().is_relative_to((root / base).resolve())
+                        for base in (TEMPLATE_DIRECTORY, CORE_TEMPLATE_DIRECTORY))
                 and os.path.isfile(os.path.join(root, value))
             )
         except OSError as error:
@@ -471,8 +473,8 @@ def dispatch_spec(ctx: DispatchContext, templates: Mapping[str, str]) -> Result[
     return Ok(DispatchSpec(template, qa_vars))
 
 
-CLOSE_FIELDS_SCRIPT = "atm-beads/scripts/close_fields.py"
-CLOSE_VARS_CONTRACT = "atm-bd-orchestration/templates/task-close-vars.j2"
+CLOSE_FIELDS_SCRIPT = "close_fields.py"
+CLOSE_VARS_CONTRACT = "task-close-vars.j2"
 
 
 def qa_assignment(current: Step, repo_root: str) -> Result[Mapping[str, Any]]:
@@ -483,8 +485,8 @@ def qa_assignment(current: Step, repo_root: str) -> Result[Mapping[str, Any]]:
         module, _ = load_skill(repo_root, CLOSE_FIELDS_SCRIPT, CLOSE_VARS_CONTRACT)
     except RuntimeError as error:
         return Err(ConfigInvalid("config_invalid", CLOSE_FIELDS_SCRIPT, str(error),
-                                 "install atm-bd-orchestration with close_fields.py (#557) into the repository's "
-                                 ".claude/skills; QA is not assigned without the canonical resolver"))
+                                 "run atm-bd skill --dest <repo> to install .atm-bd/scripts/close_fields.py; "
+                                 "QA is not assigned without the canonical resolver"))
     try:
         return Ok(module.qa_assignment_vars(dict(current.qa_row), dict(current.checked_row), Path(repo_root)))
     except module.CloseFieldsError as error:

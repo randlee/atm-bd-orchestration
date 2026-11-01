@@ -6,7 +6,7 @@
 # pyright: strict
 """Judge prompt rewrites with Jev: per-requirement keep/drop plus clarity.
 
-judge.py --key key.json --original original.txt --out DIR [--client .claude/skills/atm-bd-orchestration/scripts/jev_client.py] CAND.txt...
+judge.py --key key.json --original original.txt --out DIR [--client .atm-bd/scripts/jev_client.py] CAND.txt...
 Writes DIR/<cand>.req.json and DIR/<cand>.json (Jev answers) and prints one row per
 candidate; each value is the choice and Jev's probability for it. A failed row carries the
 client's exit code, JSON error, unparsed stdout and stderr verbatim.
@@ -19,7 +19,22 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 from typing import Literal, Mapping, NotRequired, TypedDict
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
+import json as _core_json
+import sys as _core_sys
+from pathlib import Path as _CorePath
+_core = next((candidate for parent in _CorePath(__file__).resolve().parents
+              for candidate in (parent / ".atm-bd/scripts", parent / "plugins/atm-bd-orchestration/core/scripts")
+              if (candidate / "core_paths.py").is_file()), None)
+if _core is None:
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": "run atm-bd skill --dest <repository>"}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+_core_sys.path.insert(0, str(_core))
+import core_paths as _core_paths  # noqa: E402
+from result import Err as _CoreErr  # noqa: E402
+_core_resolved = _core_paths.core_scripts_dir(_CorePath(__file__))
+if isinstance(_core_resolved, _CoreErr):
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_resolved.error.fix}}), file=_core_sys.stderr)
+    raise SystemExit(3)
 from operation_models import matches_typeddict
 
 MODEL = "jev-1.13.0"
@@ -211,12 +226,14 @@ class Arguments(argparse.Namespace):
     cands: list[Path]
 
 
+_CORE_SCRIPTS = _core_resolved.value
+
 def main(argv: list[str] | None = None) -> int:
     a = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
     a.add_argument("--key", required=True, type=Path)
     a.add_argument("--original", required=True, type=Path)
     a.add_argument("--out", required=True, type=Path)
-    a.add_argument("--client", type=Path, default=Path(__file__).resolve().parents[2] / "atm-bd-orchestration/scripts/jev_client.py")
+    a.add_argument("--client", type=Path, default=_CORE_SCRIPTS / "jev_client.py")
     a.add_argument("cands", nargs="+", type=Path)
     o = a.parse_args(argv, namespace=Arguments())
     raw_key: object = json.loads(o.key.read_text())

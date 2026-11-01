@@ -13,7 +13,7 @@ from pathlib import Path
 from phase_fixtures import phase_data, phase_toml, run_subprocess, write_phase
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "validate-plan"
+SCRIPT = ROOT / "validate-plan"
 PLAN = [{"sprint": "t-1"}, {"sprint": "t-2", "depends_on": ["t-1"]}]
 TOML = phase_toml(phase_data())
 
@@ -262,10 +262,10 @@ class ValidatePlan(Repo):
 
     def test_published_schemas_are_exported_from_the_models(self):
         with tempfile.TemporaryDirectory() as d:
-            run_subprocess([sys.executable, str(ROOT / "scripts" / "bead_schema.py"), "export", d], check=True)
+            run_subprocess([sys.executable, str(ROOT / "bead_schema.py"), "export", d], check=True)
             for exported in sorted(Path(d).iterdir()):
                 with self.subTest(schema=exported.name):
-                    self.assertEqual((ROOT / "schemas" / exported.name).read_text(), exported.read_text(),
+                    self.assertEqual(((ROOT.parents[1] / ".claude/skills/atm-beads/schemas" if ROOT.parent.name == ".atm-bd" else ROOT.parents[1] / "skills/atm-beads/schemas") / exported.name).read_text(), exported.read_text(),
                                      "run: scripts/bead_schema.py export schemas")
 
 

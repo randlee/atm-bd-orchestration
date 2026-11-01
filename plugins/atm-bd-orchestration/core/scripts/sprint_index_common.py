@@ -36,13 +36,14 @@ GROUP_REF = "group"
 PHASE_DIR = Path(".atm-bd")
 PHASE_KEYS = ("plan", "root", "integration_branch")
 TEMPLATE_DIR = Path(".claude/skills/atm-bd-orchestration/templates")
+CORE_TEMPLATE_DIR = Path(".atm-bd/templates")
 DEFAULT_TEMPLATES = {
     "dev": str(TEMPLATE_DIR / "dev-template.xml.j2"),
     "fix": str(TEMPLATE_DIR / "fix-assignment.xml.j2"),
     "sanity": str(TEMPLATE_DIR / "dev-sanity-template.xml.j2"),
-    "qa": str(TEMPLATE_DIR / "qa-template.xml.j2"),
-    "plan_review": str(TEMPLATE_DIR / "plan-review-template.xml.j2"),
-    "review": str(TEMPLATE_DIR / "review-template.xml.j2"),
+    "qa": str(CORE_TEMPLATE_DIR / "qa-template.xml.j2"),
+    "plan_review": str(CORE_TEMPLATE_DIR / "plan-review-template.xml.j2"),
+    "review": str(CORE_TEMPLATE_DIR / "review-template.xml.j2"),
 }
 PLAN_KEYS = frozenset({"sprint", "depends_on"})
 
@@ -219,10 +220,11 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
             try:
                 relative = Path(value)
                 target = Path(repo) / relative
+                allowed = (TEMPLATE_DIR, CORE_TEMPLATE_DIR)
                 if (value.endswith("/") or relative.is_absolute() or ".." in relative.parts
-                        or not relative.is_relative_to(TEMPLATE_DIR)
-                        or not target.resolve().is_relative_to((Path(repo) / TEMPLATE_DIR).resolve())):
-                    problems.append(f"templates.{key}: {value!r} must be a repository-relative path inside {TEMPLATE_DIR}")
+                        or not any(relative.is_relative_to(base) and target.resolve().is_relative_to(
+                            (Path(repo) / base).resolve()) for base in allowed)):
+                    problems.append(f"templates.{key}: {value!r} must be a repository-relative path inside {allowed}")
                 elif not os.path.isfile(os.path.join(repo, value)):
                     problems.append(f"templates.{key}: {value!r} does not name an existing template file")
             except (OSError, ValueError, RuntimeError) as exc:

@@ -375,7 +375,7 @@ def test_generated_blocks_are_current():
 
 
 def test_bead_queues_delegates_to_the_atm_bd_subcommand():
-    source = (PKG / "skills/atm-bd-orchestration/scripts/bead-queues").read_text()
+    source = (PKG / "core/scripts/bead-queues").read_text()
     assert source.splitlines() == ["#!/bin/sh", 'exec atm-bd queues "$@"']
 
 
@@ -408,7 +408,7 @@ def test_no_repo_or_team_specific_strings_in_sources():
 
 
 def test_workflow_issue_bead_declares_parent():
-    text = (PKG / "skills/atm-bd-orchestration/templates/workflow-issue-bead.json.j2").read_text()
+    text = (PKG / "core/templates/workflow-issue-bead.json.j2").read_text()
     assert "  - parent\n" in text and "{{ parent | tojson }}" in text
 
 
@@ -742,7 +742,7 @@ def test_max_sanity_rounds_installer_rejects_invalid_values(tmp_path, value, sou
 
 @pytest.fixture
 def runtime_repo_config():
-    path = PKG / "skills/atm-beads/scripts/repo_config.py"
+    path = PKG / "core/scripts/repo_config.py"
     spec = importlib.util.spec_from_file_location("installer_test_repo_config", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -892,7 +892,9 @@ def test_fresh_install(tmp_path, capsys):
     # the install record: version and the sha256 of every file written
     record = lock(repo)
     assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.19.12"
-    expected = {f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]} | {install.CONFIG_OUT}
+    expected = ({f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]}
+                | {f".atm-bd/{rel.removeprefix('core/')}" for rel in artifacts["core"]}
+                | {install.CONFIG_OUT})
     assert set(record["files"]) == expected
     assert all(sha((repo / k).read_bytes()) == v for k, v in record["files"].items())
     # roles written, the rest of registry.yaml kept
@@ -911,12 +913,12 @@ def test_fresh_install(tmp_path, capsys):
     example = (dest / "skills/atm-bd-orchestration/examples/dev-sanity-template-vars.json").read_text()
     assert "https://github.com/owner/my-repo/pull/" in example and str(repo.resolve().parent / "my-repo-worktrees") in example
     assert '"parent": "myp-workflow-issues"' in (dest / "skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json").read_text()
-    assert (dest / "skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes() == \
-        (PKG / "skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes()
+    assert (repo / ".atm-bd/scripts/jev_client.py").read_bytes() == \
+        (PKG / "core/scripts/jev_client.py").read_bytes()
     assert not (repo / "scripts").exists()
-    assert (dest / "skills/atm-beads/scripts/validate-plan").stat().st_mode & 0o111
-    assert (dest / "skills/atm-bd-orchestration/templates/qa-template.xml.j2").read_bytes() == \
-        (PKG / "skills/atm-bd-orchestration/templates/qa-template.xml.j2").read_bytes()
+    assert (repo / ".atm-bd/scripts/validate-plan").stat().st_mode & 0o111
+    assert (repo / ".atm-bd/templates/qa-template.xml.j2").read_bytes() == \
+        (PKG / "core/templates/qa-template.xml.j2").read_bytes()
 
 
 @needs_sc_compose
@@ -1058,7 +1060,7 @@ def test_reinstall_updates_unmodified_files_and_rerenders(tmp_path, pkg_copy, ca
     unrelated = repo / ".claude/skills/atm-beads/notes-of-my-own.md"
     unrelated.write_text("not the package's\n")
     # a new package version changes a copied file and a rendered file
-    script = "skills/atm-beads/scripts/resolve-role"
+    script = "core/scripts/resolve-role"
     (pkg_copy / script).write_text((pkg_copy / script).read_text() + "# upgraded\n")
     (pkg_copy / "agents/dev-sanity.md").write_text(
         (pkg_copy / "agents/dev-sanity.md").read_text() + "\nupgraded for {{ dev_sanity_member }}\n")
@@ -1067,12 +1069,12 @@ def test_reinstall_updates_unmodified_files_and_rerenders(tmp_path, pkg_copy, ca
     reg.write_text(reg.read_text().replace("dev-sanity: my-sanity", "dev-sanity: quality-mgr"))
     rc, err = run(repo, pkg=pkg_copy, capsys=capsys)
     assert rc == 0, err
-    assert (repo / ".claude" / script).read_text().endswith("# upgraded\n")
-    assert (repo / ".claude" / script).stat().st_mode & 0o111
+    assert (repo / ".atm-bd/scripts/resolve-role").read_text().endswith("# upgraded\n")
+    assert (repo / ".atm-bd/scripts/resolve-role").stat().st_mode & 0o111
     role = (repo / ".claude/agents/dev-sanity.md").read_text()
     assert role.endswith("upgraded for quality-mgr\n") and "`my-sanity`" not in role
     assert yaml.safe_load((repo / install.CONFIG_OUT).read_text())["dev_sanity_member"] == "quality-mgr"
-    assert lock(repo)["files"][f".claude/{script}"] == sha((repo / ".claude" / script).read_bytes())
+    assert lock(repo)["files"][".atm-bd/scripts/resolve-role"] == sha((repo / ".atm-bd/scripts/resolve-role").read_bytes())
     assert unrelated.read_text() == "not the package's\n"
 
 
@@ -1083,7 +1085,7 @@ def test_reinstall_fails_naming_modified_files_and_changes_nothing(tmp_path, pkg
     edited = [".claude/skills/atm-beads/SKILL.md", install.CONFIG_OUT]
     for key in edited:
         (repo / key).write_text((repo / key).read_text() + "local edit\n")
-    script = "skills/atm-beads/scripts/resolve-role"
+    script = "core/scripts/resolve-role"
     (pkg_copy / script).write_text((pkg_copy / script).read_text() + "# upgraded\n")
     before = snapshot(repo)
     rc, err = run(repo, pkg=pkg_copy, capsys=capsys)
@@ -1097,7 +1099,7 @@ def test_reinstall_fails_naming_modified_files_and_changes_nothing(tmp_path, pkg
     for key in edited:
         assert (backup / key).read_bytes() == before[key]
         assert not (repo / key).read_text().endswith("local edit\n")
-    assert (repo / ".claude" / script).read_text().endswith("# upgraded\n")
+    assert (repo / ".atm-bd/scripts/resolve-role").read_text().endswith("# upgraded\n")
 
 
 @needs_sc_compose
@@ -1127,7 +1129,7 @@ def test_upgrade_removes_the_repo_root_jev_client_0_10_4_placed(tmp_path, capsys
     # 0.10.4 placed the Jev transport at <repo>/scripts/jev_client.py and recorded it in the lock
     repo = make_repo(tmp_path)
     assert run(repo, *QA)[0] == 0
-    old = (PKG / "skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes()
+    old = (PKG / "core/scripts/jev_client.py").read_bytes()
     (repo / "scripts").mkdir()
     (repo / "scripts/jev_client.py").write_bytes(old)
     record = lock(repo)
@@ -1136,14 +1138,14 @@ def test_upgrade_removes_the_repo_root_jev_client_0_10_4_placed(tmp_path, capsys
     rc, err = run(repo, capsys=capsys)
     assert rc == 0, err
     assert not (repo / "scripts").exists() and "scripts/jev_client.py" not in lock(repo)["files"]
-    assert (repo / ".claude/skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes() == old
+    assert (repo / ".atm-bd/scripts/jev_client.py").read_bytes() == old
 
 
 @needs_sc_compose
 def test_upgrade_refuses_a_modified_repo_root_jev_client_and_backs_it_up_with_overwrite(tmp_path, capsys):
     repo = make_repo(tmp_path)
     assert run(repo, *QA)[0] == 0
-    old = (PKG / "skills/atm-bd-orchestration/scripts/jev_client.py").read_bytes()
+    old = (PKG / "core/scripts/jev_client.py").read_bytes()
     (repo / "scripts").mkdir()
     (repo / "scripts/jev_client.py").write_bytes(b"edited\n")
     (repo / "scripts/other.sh").write_text("the repository's own script\n")
@@ -1188,6 +1190,7 @@ def test_migration_owns_shipped_and_legacy_bytes_and_fails_on_others(tmp_path, p
     (repo / install.LOCK_OUT).unlink()          # a 0.x install had no record
     old_script = b"#!/usr/bin/env python3\n# as 0.2.x shipped it\n"
     script = "skills/atm-beads/scripts/resolve-role"
+    (repo / ".claude" / script).parent.mkdir(parents=True, exist_ok=True)
     (repo / ".claude" / script).write_bytes(old_script)
     dropped = "skills/atm-beads/scripts/export-sprint-index"
     (repo / ".claude" / dropped).write_bytes(b"old dropped script\n")
@@ -1204,7 +1207,8 @@ def test_migration_owns_shipped_and_legacy_bytes_and_fails_on_others(tmp_path, p
     (repo / ".claude/skills/atm-beads/SKILL.md").unlink()
     rc, err = run(repo, pkg=pkg_copy, capsys=capsys)
     assert rc == 0, err
-    assert (repo / ".claude" / script).read_bytes() == (PKG / script).read_bytes()
+    assert not (repo / ".claude" / script).exists()
+    assert (repo / ".atm-bd/scripts/resolve-role").read_bytes() == (PKG / "core/scripts/resolve-role").read_bytes()
     assert not (repo / ".claude" / dropped).exists()
     assert lock(repo)["version"] == "0.19.12"
 
@@ -1252,8 +1256,8 @@ def test_real_upgrade_from_a_0_2_3_install(tmp_path, capsys):
         rc, err = run(repo, *QA, capsys=capsys)
     assert rc == 0, err
     files = lock(repo)["files"]
-    assert ".claude/skills/atm-beads/scripts/validate-plan" in files and "scripts/jev_client.py" not in files
-    assert ".claude/skills/atm-bd-orchestration/scripts/jev_client.py" in files and not (repo / "scripts/jev_client.py").exists()
+    assert ".atm-bd/scripts/validate-plan" in files and "scripts/jev_client.py" not in files
+    assert ".atm-bd/scripts/jev_client.py" in files and not (repo / "scripts/jev_client.py").exists()
     assert all(sha((repo / k).read_bytes()) == v for k, v in files.items())
 
 
@@ -1323,3 +1327,26 @@ def test_prepare_refuses_unsupported_installer_before_dependencies(tmp_path, mon
     assert "UNSUPPORTED_PYTHON: installer interpreter" in result["message"]
     assert "Python 3.11" in result["message"]
     assert not destination.exists()
+
+
+@needs_sc_compose
+def test_core_installed_once_for_both_targets_and_backed_up(tmp_path, capsys):
+    repo = make_repo(tmp_path)
+    assert run(repo, *QA)[0] == 0
+    assert run(repo, target=".codex")[0] == 0
+    artifacts = install.load_manifest_artifacts(PKG)["core"]
+    for rel in artifacts:
+        installed = repo / ".atm-bd" / rel.removeprefix("core/")
+        assert installed.is_file(), rel
+        assert lock(repo)["files"][installed.relative_to(repo).as_posix()] == sha(installed.read_bytes())
+        for target in (".claude", ".codex", ".agents"):
+            for duplicate in (repo / target).rglob(installed.name):
+                assert duplicate.read_bytes() != installed.read_bytes(), f"duplicate core artifact: {duplicate}"
+    edited = repo / ".atm-bd/scripts/resolve-role"
+    edited.write_text(edited.read_text() + "# edited\n")
+    rc, err = run(repo, capsys=capsys)
+    assert rc == 1 and ".atm-bd/scripts/resolve-role" in err
+    rc, err = run(repo, "--overwrite", capsys=capsys)
+    assert rc == 0, err
+    backups = list((repo / ".backup").glob("*/.atm-bd/scripts/resolve-role"))
+    assert len(backups) == 1 and backups[0].read_text().endswith("# edited\n")

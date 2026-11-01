@@ -34,7 +34,7 @@ class FindingGroupTests(unittest.TestCase):
                                                      "layer": 4, "requirements": ["REQ-1"], "adrs": ["NONE"]}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else container
         runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
-        formula = SCRIPTS.parent / "formulas/finding-group.formula.toml.j2"
+        formula = (SCRIPTS.parents[1] / (".claude/skills" if SCRIPTS.parent.name == ".atm-bd" else "skills")) / "atm-bd-orchestration/formulas/finding-group.formula.toml.j2"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             runner.repo = root
@@ -217,7 +217,7 @@ class SprintGroupReviewersTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             runner.repo = work
-            shutil.copyfile(SCRIPTS.parent / "formulas/sprint-group.formula.toml.j2", work / "formula.toml.j2")
+            shutil.copyfile((SCRIPTS.parents[1] / (".claude/skills" if SCRIPTS.parent.name == ".atm-bd" else "skills")) / "atm-bd-orchestration/formulas/sprint-group.formula.toml.j2", work / "formula.toml.j2")
             with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d"}):
                 target = runner.sprint_target("t-d-1")
             self.assertEqual(target["compose"]["reviewers_round1"], reviewers)

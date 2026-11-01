@@ -15,13 +15,13 @@ from pathlib import Path
 import pytest
 
 PKG = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PKG / "skills/atm-beads/scripts"))
+sys.path.insert(0, str(PKG / "core/scripts"))
 import sc_render  # noqa: E402
 
 CASES = sorted(
     (template, vars_file)
-    for template in PKG.glob("skills/*/templates/*.j2")
-    for vars_file in [template.parents[1] / "examples" / (template.name.removesuffix(".j2").rsplit(".", 1)[0] + "-vars.json")]
+    for template in [*PKG.glob("skills/*/templates/*.j2"), *PKG.glob("core/templates/*.j2")]
+    for vars_file in [(PKG / "skills/atm-bd-orchestration/examples" if template.parent.parent.name == "core" else template.parents[1] / "examples") / (template.name.removesuffix(".j2").rsplit(".", 1)[0] + "-vars.json")]
     if vars_file.is_file())
 
 

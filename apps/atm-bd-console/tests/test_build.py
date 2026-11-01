@@ -155,6 +155,7 @@ def test_checkout_display_identity_takes_precedence_over_embedded_identity(tmp_p
     checkout = tmp_path / "checkout"
     copied = checkout / "apps" / "atm-bd-console"
     copytree(CONSOLE, copied, ignore=ignore_patterns(".venv", "__pycache__", "_build_identity.py"))
+    copytree(CONSOLE.parents[1] / "plugins/atm-bd-orchestration/core", checkout / "plugins/atm-bd-orchestration/core", ignore=ignore_patterns("__pycache__"))
     (checkout / ".gitignore").write_text("__pycache__/\n")
     git(checkout, "init")
     git(checkout, "config", "user.email", "test@example.com")

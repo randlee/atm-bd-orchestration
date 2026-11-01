@@ -1,7 +1,7 @@
 """Run the skills' own test suites against an installed, rendered copy.
 
 The upstream suites resolve paths from the repository layout (`.claude/skills/...`,
-`.claude/skills/atm-bd-orchestration/scripts/jev_client.py`) and some scripts carry install-time values, so they run
+`.atm-bd/scripts/jev_client.py`) and some scripts carry install-time values, so they run
 inside a throwaway repository installed with a non-default bead prefix (`myp`).
 Needs `sc-compose`; skipped (and says so) without it.
 """
@@ -26,6 +26,7 @@ PKG = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.skipif(shutil.which("sc-compose") is None, reason="sc-compose not on PATH; skill suites not run")
 
 SUITES = (
+    ".atm-bd/scripts/tests",
     ".claude/skills/atm-bd-orchestration/scripts/tests",
     ".claude/skills/atm-beads/tests",
     ".claude/skills/sprint-report/tests",
@@ -76,7 +77,7 @@ def test_installed_suite_passes(installed, suite):
     scripts = skill_dir.parent if skill_dir.parent.name == "scripts" else skill_dir.parent / "scripts"
     env = {
         **os.environ,
-        "PYTHONPATH": os.pathsep.join([str(scripts), str(scripts.parent)]),
+        "PYTHONPATH": os.pathsep.join([str(installed / ".atm-bd/scripts"), str(installed / ".atm-bd/scripts/tests"), str(installed / ".claude/skills/atm-bd-orchestration/scripts/tests"), str(scripts), str(scripts.parent)]),
         "ATM_BD_CONSOLE_SRC": str(PKG.parents[1] / "apps" / "atm-bd-console" / "src"),
     }
     proc = run_command([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", suite],
@@ -101,7 +102,7 @@ def test_dev_bead_ids_take_the_installed_prefix(installed):
     plan = installed / "docs/plans/phase-x.jsonl"
     plan.parent.mkdir(parents=True, exist_ok=True)
     plan.write_text('{"sprint": "x-1"}\n{"sprint": "x-2", "depends_on": ["x-1"]}\n')
-    code = ("import json, sys; from pathlib import Path; sys.path.insert(0, '.claude/skills/atm-beads/scripts');"
+    code = ("import json, sys; from pathlib import Path; sys.path.insert(0, '.atm-bd/scripts');"
             "import sprint_index_common as c; print(json.dumps(c.load_phase_plan(Path(sys.argv[1]))))")
     out = run_command([sys.executable, "-c", code, str(plan)], cwd=installed, check=True, text=True).stdout
     index = json.loads(out)
@@ -115,7 +116,7 @@ def test_sprint_bead_template_renders_a_valid_sprint_bead(installed, example):
     """A strict render of the sprint-bead template is a valid SprintBead: a stage:sprint container with a numbered
     Deliverables list and its metadata (difficulty)."""
     skill = installed / ".claude/skills/atm-beads"
-    sys.path.insert(0, str(skill / "scripts"))
+    sys.path.insert(0, str(installed / ".atm-bd/scripts"))
     import sc_render
     bead = json.loads(sc_render.render(skill / "templates/sprint-bead.json.j2",
                                        json.loads((skill / "examples" / example).read_text())))

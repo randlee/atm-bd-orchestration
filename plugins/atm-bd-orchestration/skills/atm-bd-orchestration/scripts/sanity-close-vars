@@ -10,6 +10,28 @@ import argparse
 import json
 from pathlib import Path
 
+import json as _core_json
+import sys as _core_sys
+from pathlib import Path as _CorePath
+_core = next((candidate for parent in _CorePath(__file__).resolve().parents
+              for candidate in (parent / ".atm-bd/scripts", parent / "plugins/atm-bd-orchestration/core/scripts")
+              if (candidate / "core_paths.py").is_file()), None)
+if _core is None:
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": "run atm-bd skill --dest <repository>"}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+_core_sys.path.insert(0, str(_core))
+import core_paths as _core_paths  # noqa: E402
+from result import Err as _CoreErr  # noqa: E402
+_core_resolved = _core_paths.core_scripts_dir(_CorePath(__file__))
+if isinstance(_core_resolved, _CoreErr):
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_resolved.error.fix}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+_core_templates_result = _core_paths.core_templates_dir(_CorePath(__file__))
+if isinstance(_core_templates_result, _CoreErr):
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_templates_result.error.fix}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+CORE_TEMPLATES = _core_templates_result.value
+
 import yaml
 
 
@@ -20,7 +42,7 @@ def build(manifest, selected, stacked=None):
             raise ValueError(f"selected {key} does not match manifest")
     if selected.get("reviewer") != "sanity-selected" or selected.get("verdict") not in ("PASS", "FAIL", "CANNOT_RUN"):
         raise ValueError("a selected PASS, FAIL or CANNOT_RUN result is required")
-    template = Path(__file__).resolve().parents[1] / "templates/task-close-vars.j2"
+    template = CORE_TEMPLATES / "task-close-vars.j2"
     contract = yaml.safe_load(template.read_text().split("---", 2)[1])
     context = manifest.get("close_context")
     if not isinstance(context, dict) or not context:

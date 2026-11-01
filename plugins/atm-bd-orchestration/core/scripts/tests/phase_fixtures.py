@@ -6,6 +6,14 @@ import shutil
 import subprocess
 from pathlib import Path
 
+def core_scripts():
+    from core_paths import core_scripts_dir
+    from result import Ok
+    resolved = core_scripts_dir(Path(__file__))
+    assert isinstance(resolved, Ok), resolved
+    return resolved.value
+
+
 TEMPLATE_DIRECTORY = Path(".claude/skills/atm-bd-orchestration/templates")
 TEMPLATE_NAMES = {
     "dev": "dev-template.xml.j2",
@@ -31,7 +39,7 @@ def phase_data(phase="t", prefix="x", plans_dir="plans", lead="phase-lead"):
         "root": f"{prefix}-phase-{phase}",
         "integration_branch": f"integrate/phase-{phase}",
         "lead": lead,
-        "templates": {key: str(TEMPLATE_DIRECTORY / name) for key, name in TEMPLATE_NAMES.items()},
+        "templates": {key: str((Path(".atm-bd/templates") if key in {"qa", "plan_review", "review"} else TEMPLATE_DIRECTORY) / name) for key, name in TEMPLATE_NAMES.items()},
     }
 
 
@@ -44,9 +52,16 @@ def phase_toml(data):
 
 
 def install_templates(repo):
-    source = Path(__file__).resolve().parents[2] / "atm-bd-orchestration/templates"
-    target = Path(repo) / TEMPLATE_DIRECTORY
-    shutil.copytree(source, target, dirs_exist_ok=True)
+    scripts = Path(__file__).resolve().parents[1]
+    if scripts.parent.name == ".atm-bd":
+        profile_templates = scripts.parent.parent / TEMPLATE_DIRECTORY
+        core_templates = scripts.parent / "templates"
+    else:
+        package = scripts.parents[1]
+        profile_templates = package / "skills/atm-bd-orchestration/templates"
+        core_templates = package / "core/templates"
+    shutil.copytree(profile_templates, Path(repo) / TEMPLATE_DIRECTORY, dirs_exist_ok=True)
+    shutil.copytree(core_templates, Path(repo) / ".atm-bd/templates", dirs_exist_ok=True)
 
 
 def write_phase(repo, phase="t", prefix="x", plans_dir="plans", lead="phase-lead"):

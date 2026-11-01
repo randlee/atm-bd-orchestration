@@ -10,7 +10,7 @@ from pathlib import Path
 
 from phase_fixtures import TEMPLATE_DIRECTORY, TEMPLATE_NAMES, phase_data, phase_toml, run_subprocess, write_phase
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from sprint_index_common import load_phase_config, validate_phase_config
 

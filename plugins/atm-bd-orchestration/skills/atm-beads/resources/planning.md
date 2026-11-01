@@ -40,19 +40,19 @@ rather than reaching an agent:
    a failed bead silently.
 
 3. Write the plan file `<plans_dir>/phase-<x>.jsonl`. Create the phase file with
-   `.claude/skills/atm-beads/scripts/phase-config init --phase <x> --lead <appointed-lead>`
+   `.atm-bd/scripts/phase-config init --phase <x> --lead <appointed-lead>`
    before validation or pouring (see "Phase definition" below).
 4. Validate the rendered plan against it. This step is mandatory:
 
    ```bash
-   .claude/skills/atm-beads/scripts/validate-plan --file <scratch>/plan.jsonl \
+   .atm-bd/scripts/validate-plan --file <scratch>/plan.jsonl \
      --phase <x> --index <plans_dir>/phase-<x>.jsonl
    ```
 
    Exit 5 lists every problem. Fix them all and render again.
 5. `bd import --dry-run -i <scratch>/plan.jsonl`, then `bd import -i
    <scratch>/plan.jsonl`. Pour every sprint's group:
-   `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <x>`.
+   `.atm-bd/scripts/bead-groups --phase <x>`.
    Right away, create the plan-review bead
    (`atm-bd-orchestration` "Plan Gate", step 1). Run
    `.claude/skills/sprint-review/scripts/sprint-review --root <root>`, which
@@ -98,9 +98,9 @@ lead = "appointed-phase-lead"
 dev = ".claude/skills/atm-bd-orchestration/templates/dev-template.xml.j2"
 fix = ".claude/skills/atm-bd-orchestration/templates/fix-assignment.xml.j2"
 sanity = ".claude/skills/atm-bd-orchestration/templates/dev-sanity-template.xml.j2"
-qa = ".claude/skills/atm-bd-orchestration/templates/qa-template.xml.j2"
-plan_review = ".claude/skills/atm-bd-orchestration/templates/plan-review-template.xml.j2"
-review = ".claude/skills/atm-bd-orchestration/templates/review-template.xml.j2"
+qa = ".atm-bd/templates/qa-template.xml.j2"
+plan_review = ".atm-bd/templates/plan-review-template.xml.j2"
+review = ".atm-bd/templates/review-template.xml.j2"
 ```
 
 `phase-config init --phase <x> --lead <appointed-lead>` writes these six

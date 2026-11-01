@@ -38,6 +38,28 @@ import time
 import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import json as _core_json
+import sys as _core_sys
+from pathlib import Path as _CorePath
+_core = next((candidate for parent in _CorePath(__file__).resolve().parents
+              for candidate in (parent / ".atm-bd/scripts", parent / "plugins/atm-bd-orchestration/core/scripts")
+              if (candidate / "core_paths.py").is_file()), None)
+if _core is None:
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": "run atm-bd skill --dest <repository>"}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+_core_sys.path.insert(0, str(_core))
+import core_paths as _core_paths  # noqa: E402
+from result import Err as _CoreErr  # noqa: E402
+_core_resolved = _core_paths.core_scripts_dir(_CorePath(__file__))
+if isinstance(_core_resolved, _CoreErr):
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_resolved.error.fix}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+_core_templates_result = _core_paths.core_templates_dir(_CorePath(__file__))
+if isinstance(_core_templates_result, _CoreErr):
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_templates_result.error.fix}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+CORE_TEMPLATES = _core_templates_result.value
+
 import bd_cache  # noqa: E402
 
 TIMEOUT_MS = 2500
@@ -253,7 +275,7 @@ class Runtime:
                     # Reserve a bounded notification window after normal work expires.
                     self.deadline = max(self.deadline, min(self.clock() + 0.4, self.started + 2.3))
                     self.run(["atm", "task", "assign", self.lead(), "--task-id", entry["escalation_task"],
-                              "--template", str(TEMPLATES / "hook-close-escalation.xml.j2"), "--vars", str(path)])
+                              "--template", str(CORE_TEMPLATES / "hook-close-escalation.xml.j2"), "--vars", str(path)])
                 entry["notified"] = True
             except Failure as escalation:
                 entry["escalation_error"] = str(escalation)

@@ -1,5 +1,6 @@
 """Shared close-hook test world; importing it does not collect another test module."""
 from __future__ import annotations
+from phase_fixtures import core_scripts
 
 from contextlib import redirect_stderr, redirect_stdout
 import copy
@@ -17,7 +18,7 @@ SPEC.loader.exec_module(hook)
 EXAMPLES = SCRIPTS.parent / "examples"
 # Completion values the hook derives from git and the PR, so the lead file never carries them.
 DERIVED = ("commit", "generated_at", "pr_number", "pr_url", "rebased_onto")
-BD_SCHEMA = (SCRIPTS / "tests/fixtures/bd-1.3.1/bd-schema.json").read_text()
+BD_SCHEMA = (core_scripts() / "tests/fixtures/bd-1.3.1/bd-schema.json").read_text()
 
 
 def cache_call(argv):
@@ -72,7 +73,7 @@ class World:
         self.beads[self.values["checked_bead"]]["metadata"].update(
             pr_number=self.pr_number, pr_url=self.values["pr_url"])
         self.beads[self.values["sanity_bead"]]["metadata"]["dev_bead"] = self.values["checked_bead"]
-        self.beads["atm-phase-bj.stack"] = json.loads((SCRIPTS / "tests/fixtures/stack-bead.json").read_text())
+        self.beads["atm-phase-bj.stack"] = json.loads((core_scripts() / "tests/fixtures/stack-bead.json").read_text())
         self.tasks = {self.values[name]: [] for name in ("dev_task_id", "sanity_task_id", "qa_task_id")}
         self.tasks[self.values["dev_task_id"]].append(self.assignment(1))
         self.messages, self.calls, self.writes = [], [], []
@@ -99,7 +100,7 @@ class World:
             self.tasks[task].append(self.assignment(1))
         extra = []
         if role in ("dev", "fix"):
-            fields = hook.header(hook.TEMPLATES / "task-close-vars.j2")["result_variables_by_role"][role]
+            fields = hook.header(hook.template_path("task-close-vars.j2"))["result_variables_by_role"][role]
             self.result_path.write_text(json.dumps({name: self.values[name] for name in fields if name in self.values}))
             self.path.write_text(json.dumps({name: value for name, value in self.values.items()
                                              if name not in fields and name not in DERIVED}))

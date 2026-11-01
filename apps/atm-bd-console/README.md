@@ -143,9 +143,9 @@ lead = "solar"
 dev = ".claude/skills/atm-bd-orchestration/templates/dev-template.xml.j2"
 fix = ".claude/skills/atm-bd-orchestration/templates/fix-assignment.xml.j2"
 sanity = ".claude/skills/atm-bd-orchestration/templates/dev-sanity-template.xml.j2"
-qa = ".claude/skills/atm-bd-orchestration/templates/qa-template.xml.j2"
-plan_review = ".claude/skills/atm-bd-orchestration/templates/plan-review-template.xml.j2"
-review = ".claude/skills/atm-bd-orchestration/templates/review-template.xml.j2"
+qa = ".atm-bd/templates/qa-template.xml.j2"
+plan_review = ".atm-bd/templates/plan-review-template.xml.j2"
+review = ".atm-bd/templates/review-template.xml.j2"
 ```
 
 All six purposes are required. Each value must name an existing file under
@@ -159,7 +159,7 @@ the code repository. That checkout, or the repository root when it is absent,
 must be a git toplevel whose `origin` is a GitHub URL; this is checked even
 with `--github off`.
 
-`.claude/skills/atm-beads/scripts/phase-config init --phase <x> --lead <lead>`
+`.atm-bd/scripts/phase-config init --phase <x> --lead <lead>`
 creates the phase file with the six standard template paths. It needs the
 rendered YAML from `atm-bd skill` and refuses to overwrite an existing file. It
 does not create the plan JSONL or `.atm.toml`.

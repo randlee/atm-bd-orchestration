@@ -85,7 +85,7 @@ The plan file is the source of graph truth. Each line is
 `{"sprint": "<name>", "depends_on"?: [...]}`; the sprint container is
 `{{ bead_prefix }}-<sprint>` and its poured dev and sanity beads
 `<container>.group-dev` and `<container>.group-sanity`. Beads supply only live state and content.
-The phase's beads are read through the bd-cache (`atm-bd-orchestration/scripts/bd_cache.py`):
+The phase's beads are read through the bd-cache (`.atm-bd/scripts/bd_cache.py`):
 one incremental sync of the `phase-<p>` label, then local reads with pending journal writes
 replayed. A failed sync renders from the cached rows, and an unavailable cache reads
 `bd list -l phase-<p>` directly; both say so on stderr. The report never runs `bd list --all`.

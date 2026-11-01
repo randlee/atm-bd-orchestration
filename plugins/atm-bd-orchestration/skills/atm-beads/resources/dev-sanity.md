@@ -14,7 +14,7 @@ is the whole role and spawns the `sc-sanity-llm` and `sc-sanity-jev`
 subagents).
 
 The plan names no assignee; at dispatch the lead assigns the sanity check bead to that member:
-`.claude/skills/atm-beads/scripts/resolve-role dev-sanity`. If the team has no
+`.atm-bd/scripts/resolve-role dev-sanity`. If the team has no
 such member, lead adds one before the plan is imported.
 
 Here the member runs a normal-class model. Its checks run a fast-class model

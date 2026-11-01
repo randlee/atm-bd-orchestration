@@ -26,7 +26,27 @@ from datetime import datetime, timezone
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
+import json as _core_json
+import sys as _core_sys
+from pathlib import Path as _CorePath
+_core = next((candidate for parent in _CorePath(__file__).resolve().parents
+              for candidate in (parent / ".atm-bd/scripts", parent / "plugins/atm-bd-orchestration/core/scripts")
+              if (candidate / "core_paths.py").is_file()), None)
+if _core is None:
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": "run atm-bd skill --dest <repository>"}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+_core_sys.path.insert(0, str(_core))
+import core_paths as _core_paths  # noqa: E402
+from result import Err as _CoreErr  # noqa: E402
+_core_resolved = _core_paths.core_scripts_dir(_CorePath(__file__))
+if isinstance(_core_resolved, _CoreErr):
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_resolved.error.fix}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+_core_templates_result = _core_paths.core_templates_dir(_CorePath(__file__))
+if isinstance(_core_templates_result, _CoreErr):
+    print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_templates_result.error.fix}}), file=_core_sys.stderr)
+    raise SystemExit(3)
+CORE_TEMPLATES = _core_templates_result.value
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bd_cache
 import repo_config
@@ -35,6 +55,11 @@ from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_t
 from stack_top import select_stack_top
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
+
+def template_path(name):
+    candidate = CORE_TEMPLATES / name
+    return candidate if candidate.is_file() else TEMPLATES / name
+
 ROLES = ("dev", "fix", "sanity", "qa")
 COMMAND_TIMEOUT = import_timeout()
 ASSIGNMENT_EVENTS = frozenset(("assigned", "reassigned", "reopened"))
@@ -142,7 +167,7 @@ def read_vars(path):
 
 def merge_result(values, result, role):
     """Join the fixer's result file to the lead's dispatch vars; each field lives in exactly one of them."""
-    fields = set(header(TEMPLATES / "task-close-vars.j2")["result_variables_by_role"][role])
+    fields = set(header(CORE_TEMPLATES / "task-close-vars.j2")["result_variables_by_role"][role])
     unknown = result.keys() - fields
     if unknown:
         raise CloseError("VARS.UNKNOWN", ", ".join(sorted(unknown)), f"Remove fields that are not {role} result fields from --result.")
@@ -168,7 +193,7 @@ def validate_outcome(values, role, path):
 def validate_shared_vars(values, role):
     """Strictly render the shared dispatch contract before inspecting live state."""
     validate(values, role)
-    contract = header(TEMPLATES / "task-close-vars.j2")
+    contract = header(CORE_TEMPLATES / "task-close-vars.j2")
     fields = contract["render_variables_by_role"][role]
     if role == "fix" and values["outcome"] == "not_reproducible":
         fields = [name for name in fields if name not in ("branch", "stack_bead")]
@@ -302,7 +327,7 @@ def validate_command_json(argv, data):
 def validate(values, role):
     if role == "dev" and values.get("outcome") == "not_reproducible":
         raise CloseError("VARS.INVALID", "not_reproducible is a fix outcome", "Use the fix role for an unreproducible finding.")
-    contract = header(TEMPLATES / "task-close-vars.j2")
+    contract = header(CORE_TEMPLATES / "task-close-vars.j2")
     role_required = contract.get("required_variables_by_role")
     if not isinstance(role_required, dict) or role not in role_required:
         raise CloseError("VARS.INVALID", "task-close-vars must declare requirements by role", "Repair the role-specific required_variables mapping.")
@@ -674,12 +699,12 @@ class Hook:
 
     def render(self, template, values=None):
         try:
-            return sc_render.render(TEMPLATES / template, self.values if values is None else values)
+            return sc_render.render(template_path(template), self.values if values is None else values)
         except sc_render.RenderError as error:
             raise CloseError("VARS.INVALID", str(error), f"Supply vars compatible with {template}.") from error
 
     def send(self, recipient, template):
-        self.notify(recipient, "--template", str(TEMPLATES / template), "--vars", str(self.path))
+        self.notify(recipient, "--template", str(template_path(template)), "--vars", str(self.path))
 
     def notify(self, recipient, *args):
         """`atm send` to recipient. ATM refuses a self-addressed send, so a closer who is the recipient (a lead closing a task it took over) is not sent its own close."""
@@ -701,7 +726,7 @@ class Hook:
         rows = self.json(["atm", "hook", "list", "--phase", phase, "--json"], lead=True) if phase else []
         dispatch["sanity_close_mode"] = sanity_close_mode(rows, phase, self.config["dev_sanity_member"])
         self.render(template, dispatch)
-        size = len(json.dumps(dispatch).encode()) + len((TEMPLATES / template).read_bytes())
+        size = len(json.dumps(dispatch).encode()) + len((template_path(template)).read_bytes())
         if size > ATM_MAX_REQUEST_BYTES:
             largest = sorted(dispatch, key=lambda name: len(json.dumps(dispatch[name]).encode()), reverse=True)[:3]
             named = ", ".join(f"{name} ({len(json.dumps(dispatch[name]).encode())} bytes)" for name in largest)
@@ -720,10 +745,10 @@ class Hook:
                 with tempfile.TemporaryDirectory(prefix="sanity-dispatch-") as directory:
                     dispatch_path = Path(directory) / "completion-vars.json"
                     dispatch_path.write_text(json.dumps(dispatch))
-                    self.run(["atm", "task", "assign", member, "--task-id", bead, "--template", str(TEMPLATES / template),
+                    self.run(["atm", "task", "assign", member, "--task-id", bead, "--template", str(template_path(template)),
                               "--vars", str(dispatch_path)], lead=True)
             else:
-                self.run(["atm", "task", "assign", member, "--task-id", bead, "--template", str(TEMPLATES / template),
+                self.run(["atm", "task", "assign", member, "--task-id", bead, "--template", str(template_path(template)),
                           "--vars", str(path or self.path)], lead=True)
         self.assigned.append(bead)
 
@@ -732,7 +757,7 @@ class Hook:
         if not is_terminal(events):
             argv = ["atm", "task", "close", task, outcome]
             if template:
-                argv += ["--template", str(TEMPLATES / template), "--vars", str(self.path)]
+                argv += ["--template", str(template_path(template)), "--vars", str(self.path)]
             if reason:
                 argv.append(reason)
             self.run(argv, lead=lead)

@@ -1,3 +1,4 @@
+from phase_fixtures import core_scripts
 import importlib.machinery
 import importlib.util
 import json
@@ -25,7 +26,7 @@ def load_script(name, path):
 
 
 review = load_script('sprint_review', SKILLS / 'sprint-review/scripts/sprint-review')
-artifact_check = load_script('artifact_check', SKILLS / 'atm-beads/scripts/check-phase-artifact')
+artifact_check = load_script('artifact_check', core_scripts() / 'check-phase-artifact')
 
 
 class ViewTests(unittest.TestCase):

@@ -1,4 +1,6 @@
-"""ATM cron module for bd-cache: drain journaled writes, sync active phases, escalate (#557).
+"""Replaced by the arriving Rust library.
+
+ATM cron module for bd-cache: drain journaled writes, sync active phases, escalate (#557).
 
 Register once per repository (ADR-069), from the beads repository root:
 

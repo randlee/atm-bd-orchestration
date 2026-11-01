@@ -74,7 +74,6 @@ from pydantic import TypeAdapter
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
-sys.path.insert(0, str(SCRIPTS.parents[1] / "atm-beads" / "scripts"))
 import bead_formulas  # noqa: E402
 import repo_config  # noqa: E402
 import sprint_index_common  # noqa: E402

@@ -19,7 +19,7 @@ PKG = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PKG))
 import install  # noqa: E402
 
-CATEGORIES = ("skills", "agents")
+CATEGORIES = ("skills", "agents", "core")
 # Local, gitignored artifacts (npm ci, byte-compiled Python, sc-compose render logs, tool caches). The same as
 # skill_integrity.UNSHIPPED_DIRS/UNSHIPPED_SUFFIXES in apps/atm-bd-console, which a console test holds equal.
 UNSHIPPED_DIRS = frozenset({"node_modules", "__pycache__", ".sc-compose", ".pytest_cache", ".ruff_cache", ".venv"})

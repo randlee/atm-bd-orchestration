@@ -167,7 +167,7 @@ def test_quality_elapsed_requires_valid_ordered_timezone_aware_timestamps(starte
 
 def test_quality_fixture_from_real_bead_templates() -> None:
     def rendered(name: str) -> dict:
-        template = SKILL / f"templates/{name}.json.j2"
+        template = ROOT / f"plugins/atm-bd-orchestration/core/templates/{name}.json.j2"
         values = json.loads((SKILL / f"examples/{name}-vars.json").read_text())
         request = sc_compose.ComposeRequest(str(template.parent), sc_compose.ComposeMode.file(str(template)),
                                            vars_input=values, policy=sc_compose.ComposePolicy(strict_undeclared_variables=True))

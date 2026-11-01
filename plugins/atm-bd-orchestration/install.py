@@ -669,7 +669,7 @@ def derived_values(repo_root: Path, config: Config) -> dict[str, str]:
 
 def _sc_compose(template_text: str, variables: JsonObject, *, suffix: str) -> Tuple[Optional[str], str]:
     """(rendered text, "") or (None, the sc-compose error), rendered strictly by the sc-compose wheel."""
-    sys.path.insert(0, str(PKG_DIR / "skills/atm-beads/scripts"))
+    sys.path.insert(0, str(PKG_DIR / "core/scripts"))
     try:
         import sc_render
     except ImportError as exc:
@@ -842,7 +842,7 @@ def desired_files(pkg_dir: Path, target_prefix: str, *, codex: bool, render_valu
     render_value = load_registry(pkg_dir).get("render", [])
     renders = set(_string_list(render_value, f"{pkg_dir / 'registry.yaml'}: render"))
     artifacts = load_manifest_artifacts(pkg_dir)
-    cats = ("skills",) if codex else ("skills", "agents")
+    cats = ("skills", "core") if codex else ("skills", "agents", "core")
     out: dict[str, tuple[bytes, bool, str]] = {}
     for cat in cats:
         for rel in artifacts.get(cat, []):
@@ -852,7 +852,8 @@ def desired_files(pkg_dir: Path, target_prefix: str, *, codex: bool, render_valu
             data = src.read_bytes()
             if rel in renders:
                 data = render_text(data.decode("utf-8"), render_values).encode("utf-8")
-            out[target_prefix + rel] = (data, bool(src.stat().st_mode & stat.S_IXUSR), rel)
+            key = ".atm-bd/" + rel.removeprefix("core/") if cat == "core" else target_prefix + rel
+            out[key] = (data, bool(src.stat().st_mode & stat.S_IXUSR), rel)
     out[CONFIG_OUT] = (config_bytes, False, CONFIG_TEMPLATE)
     return out
 

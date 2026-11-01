@@ -71,7 +71,7 @@ uv tool install --force atm-bd --with "sc-compose==$(sc-compose --version | awk 
 
 Keep `atm-bd` current with `uv tool upgrade atm-bd`, and run the reinstall above again after you upgrade `sc-compose`.
 
-Jev, the reviewer service behind half of each sanity check and the phase-end post-mortem, needs `TYPESAFE_API_KEY` in the environment of the dev-sanity and quality-mgr agents. Without it the Jev half of every sanity check is unavailable, and the phase-end review cannot complete: its check refuses a post-mortem whose Jev status is `unavailable`. Once the repo is installed, check the key with `.claude/skills/atm-bd-orchestration/scripts/jev_client.py --startup`.
+Jev, the reviewer service behind half of each sanity check and the phase-end post-mortem, needs `TYPESAFE_API_KEY` in the environment of the dev-sanity and quality-mgr agents. Without it the Jev half of every sanity check is unavailable, and the phase-end review cannot complete: its check refuses a post-mortem whose Jev status is `unavailable`. Once the repo is installed, check the key with `.atm-bd/scripts/jev_client.py --startup`.
 
 ## One-time repo setup
 
@@ -125,7 +125,7 @@ Then:
 
 - [ ] Run `atm-bd skill` from the repo root.
 
-Upgrading a repo from 0.18.x to 0.19.x: rerun `atm-bd skill`, add the `.gitignore` lines above, and for each active phase do step 7 of "Starting a phase" (the hook and the crons). Then run `.claude/skills/atm-bd-orchestration/scripts/close_fields_backfill.py --phase <x> --apply --actor <your identity>` once for each active phase, so its open beads pass validation. Without `--apply` it only reports what it would change. `--actor` defaults to `ATM_IDENTITY` and is required with `--apply`. `--apply` only queues the writes; the bd-cache cron applies them on its next tick, or apply them at once with `.claude/skills/atm-bd-orchestration/scripts/bd_cache.py drain`.
+Upgrading a repo from 0.18.x to 0.19.x: rerun `atm-bd skill`, add the `.gitignore` lines above, and for each active phase do step 7 of "Starting a phase" (the hook and the crons). Then run `.claude/skills/atm-bd-orchestration/scripts/close_fields_backfill.py --phase <x> --apply --actor <your identity>` once for each active phase, so its open beads pass validation. Without `--apply` it only reports what it would change. `--actor` defaults to `ATM_IDENTITY` and is required with `--apply`. `--apply` only queues the writes; the bd-cache cron applies them on its next tick, or apply them at once with `.atm-bd/scripts/bd_cache.py drain`.
 
 The installer does these things:
 
@@ -176,7 +176,7 @@ Give each long-running agent a startup block in `.atm.toml`, so it reads its rol
 
 ```toml
 [startup.<lead>]
-all = ["Your role is lead under atm-bd-orchestration: read .claude/skills/atm-bd-orchestration/SKILL.md (Lead Role and Loop) and .claude/skills/atm-beads/SKILL.md now (again after every compaction); on each Loop pass run .claude/skills/atm-bd-orchestration/scripts/bead-queues --phase <x> and act on every row",
+all = ["Your role is lead under atm-bd-orchestration: read .claude/skills/atm-bd-orchestration/SKILL.md (Lead Role and Loop) and .claude/skills/atm-beads/SKILL.md now (again after every compaction); on each Loop pass run .atm-bd/scripts/bead-queues --phase <x> and act on every row",
        "Use native atm send or atm ack for messages to team-members",
        "Use native atm read to read messages from team-members" ]
 
@@ -202,26 +202,26 @@ A phase starts from a design and ends when its plan has passed review and its be
 
 Two files are easy to mix up. The **sprint index**, `<plans_dir>/phase-<x>.jsonl`, is committed: one line per sprint, with what it depends on. The **bead file**, `<scratch>/plan.jsonl`, holds the rendered beads you import; keep it outside the repo and never commit it. Everything else about a sprint lives in its beads.
 
-1. **Create the phase file.** `.claude/skills/atm-beads/scripts/phase-config init --phase <x> --lead <member>` writes `.atm-bd/phase-<x>.toml`. It never overwrites an existing file. Check the paths and the integration branch it wrote.
+1. **Create the phase file.** `.atm-bd/scripts/phase-config init --phase <x> --lead <member>` writes `.atm-bd/phase-<x>.toml`. It never overwrites an existing file. Check the paths and the integration branch it wrote.
 2. **Create the integration branch** (the phase file's `integration_branch`) from your base branch and push it.
 3. **Check beads.** Run `bd doctor --json`. Any check with `"status": "error"` stops the plan.
 4. **Write the plan.**
    - Render the phase root (`plan-root.json.j2`), the stack bead (`stack-bead.json.j2`) and one sprint bead per sprint (`sprint-bead.json.j2`) from `.claude/skills/atm-beads/templates/`, each with `sc-compose render --strict`, into `<scratch>/plan.jsonl`. Example vars are in `.claude/skills/atm-beads/examples/`, and `.claude/skills/atm-beads/resources/planning.md` has the exact commands.
    - Write the sprint index `<plans_dir>/phase-<x>.jsonl`.
-5. **Validate it before import.** `.claude/skills/atm-beads/scripts/validate-plan --file <scratch>/plan.jsonl --phase <x> --index <plans_dir>/phase-<x>.jsonl` must pass. Never edit the plan or the script just to make it pass.
+5. **Validate it before import.** `.atm-bd/scripts/validate-plan --file <scratch>/plan.jsonl --phase <x> --index <plans_dir>/phase-<x>.jsonl` must pass. Never edit the plan or the script just to make it pass.
 6. **Import and pour.**
    - `bd import --dry-run -i <scratch>/plan.jsonl`, then `bd import -i <scratch>/plan.jsonl`.
-   - `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <x>` creates the dev, sanity and QA beads for each sprint.
+   - `.atm-bd/scripts/bead-groups --phase <x>` creates the dev, sanity and QA beads for each sprint.
    - Right away, create the plan-review bead and make every sprint wait on it: the commands are step 1 of "Plan Gate" in `.claude/skills/atm-bd-orchestration/SKILL.md`.
    - Then commit the sprint index and the phase file, and push them to the integration branch.
    - `.claude/skills/sprint-review/scripts/sprint-review --root <root>` draws the phase diagram locally.
-   - `.claude/skills/atm-beads/scripts/validate-plan --phase <x>` checks the live beads. It reads the sprint index from the pushed integration branch, so it needs the push.
+   - `.atm-bd/scripts/validate-plan --phase <x>` checks the live beads. It reads the sprint index from the pushed integration branch, so it needs the push.
 7. **Switch on the hook and the crons.** Run these from the repo root before dev work starts.
    - Register the sanity close hook, with `<prefix>` your bead id prefix and the `dev_sanity_member` from `.claude/project/atm-bd-orchestration.yaml`:
      `atm hook register task.close --phase <x> --cwd . --module .claude/skills/atm-bd-orchestration/scripts/sanity_task_close_hook.py --custom '{"task_prefix":"<prefix>-<x>-","sanity_agents":["<dev_sanity_member>"]}'`
    - Once the hook is registered, dev-sanity must close through it (the daemon close flow). In 0.19.2 the dev's close sets this on the sanity assignment (`sanity_close_mode`) by itself. With 0.19.1 the assignment still says `legacy`, so the lead tells the dev-sanity member once, by `atm send`, that the hook is on for phase `<x>` and to use the daemon flow (`.claude/agents/dev-sanity.md`, "Close first, then stack handoff").
    - Start the bd-cache cron, with the team from `.atm.toml`. It runs for the whole repo, and stops itself when no phase is active, so at each phase start check `atm cron list` and start it again when it isn't listed:
-     `atm cron start bd-cache --phase <x> --cron "*/30 * * * * *" --until-hook --module .claude/skills/atm-bd-orchestration/scripts/bd_cache_cron.py --cwd . --custom '{"team":"<team>"}'`
+     `atm cron start bd-cache --phase <x> --cron "*/30 * * * * *" --until-hook --module .atm-bd/scripts/bd_cache_cron.py --cwd . --custom '{"team":"<team>"}'`
    - Schedule `atm-bd cron --phase <x>` every 15 minutes while the phase runs. Each run is one console tick, so it dispatches ready QA work just as the console does. While a console is running, a cron run reports `lock_held` and does nothing. The plugin README's "Phase cron" section has crontab and Hermes examples.
    - The hook and the bd-cache cron change local ATM daemon state only; they commit nothing and dispatch nothing.
 8. **Review the plan.** Quality-mgr reviews it, for up to three rounds. No dev work starts until it passes.
@@ -234,7 +234,7 @@ To bring in a plan you already wrote in markdown, ask Claude to follow `.claude/
 
 ## Who sends which work
 
-- **The lead** sends plan review, dev and fix work by hand, with `atm task assign` and the phase file's templates. For each dev or fix bead, it also writes the close vars file the dev will need: `.claude/skills/atm-bd-orchestration/scripts/close-vars.py <bead> --out <path>`.
+- **The lead** sends plan review, dev and fix work by hand, with `atm task assign` and the phase file's templates. For each dev or fix bead, it also writes the close vars file the dev will need: `.atm-bd/scripts/close-vars.py <bead> --out <path>`.
 - **The dev's close sends sanity.** The dev finishes by running `.claude/skills/atm-bd-orchestration/scripts/atm-task-close.py` with that close vars file. It closes the dev bead and task and assigns sanity to the dev-sanity member. Without the close vars file, sanity is never assigned.
 - **The console** (and the `atm-bd cron` tick) sends QA once sanity passes. It never sends sanity work.
 
