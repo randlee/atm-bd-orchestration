@@ -381,12 +381,29 @@ impl<'de> Deserialize<'de> for ProviderCommands {
                     serde::de::Error::custom(format!("{operation:?} requires a JSON payload"))
                 })?;
                 let valid_payload = match operation {
-                    PrOp::Comment => payload.pointer("/comments/0/content").and_then(serde_json::Value::as_str) == Some("{text}"),
-                    PrOp::Create => [("/sourceRefName", "{head}"), ("/targetRefName", "{base}"),
-                        ("/title", "{title}"), ("/description", "{body_file}")].iter().all(|(path, expected)|
-                            payload.pointer(path).and_then(serde_json::Value::as_str) == Some(*expected)),
-                    PrOp::View | PrOp::EditBase | PrOp::CommentView | PrOp::Checks | PrOp::LookupByHead |
-                    PrOp::StackLink | PrOp::StackView => false,
+                    PrOp::Comment => {
+                        payload
+                            .pointer("/comments/0/content")
+                            .and_then(serde_json::Value::as_str)
+                            == Some("{text}")
+                    }
+                    PrOp::Create => [
+                        ("/sourceRefName", "{head}"),
+                        ("/targetRefName", "{base}"),
+                        ("/title", "{title}"),
+                        ("/description", "{body_file}"),
+                    ]
+                    .iter()
+                    .all(|(path, expected)| {
+                        payload.pointer(path).and_then(serde_json::Value::as_str) == Some(*expected)
+                    }),
+                    PrOp::View
+                    | PrOp::EditBase
+                    | PrOp::CommentView
+                    | PrOp::Checks
+                    | PrOp::LookupByHead
+                    | PrOp::StackLink
+                    | PrOp::StackView => false,
                 };
                 if !valid_payload {
                     return Err(serde::de::Error::custom(format!(
@@ -400,8 +417,14 @@ impl<'de> Deserialize<'de> for ProviderCommands {
             }
             for name in required {
                 let placeholder = format!("{{{name}}}");
-                let payload = op.payload.as_ref().map(serde_json::Value::to_string).unwrap_or_default();
-                if !op.argv.iter().any(|arg| arg.contains(&placeholder)) && !payload.contains(&placeholder) {
+                let payload = op
+                    .payload
+                    .as_ref()
+                    .map(serde_json::Value::to_string)
+                    .unwrap_or_default();
+                if !op.argv.iter().any(|arg| arg.contains(&placeholder))
+                    && !payload.contains(&placeholder)
+                {
                     return Err(serde::de::Error::custom(format!(
                         "{operation:?} lacks {placeholder}"
                     )));

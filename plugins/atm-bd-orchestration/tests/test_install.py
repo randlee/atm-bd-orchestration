@@ -417,7 +417,7 @@ def test_workflow_issue_bead_declares_parent():
 def test_config_template_declares_exactly_the_spec_variables_and_sanity_default():
     assert install.config_variables(PKG) == SPEC_VARIABLES
     front = yaml.safe_load((PKG / install.CONFIG_TEMPLATE).read_text().split("---\n")[1])
-    assert front["defaults"] == {"max_sanity_rounds": 5, "gate_timeout_s": 180}
+    assert front["defaults"] == {"max_sanity_rounds": 5, "gate_timeout_s": 180, "provider": "github"}
     assert set(install.ROLE_KEYS) | install.LIST_VARIABLES <= set(SPEC_VARIABLES)
 
 
@@ -884,7 +884,8 @@ def test_fresh_install(tmp_path, capsys):
         assert not install.PLACEHOLDER_RE.search((dest / rel).read_text(errors="ignore")), rel
     # the config file: every declared variable, from registry.yaml and --set
     config = yaml.safe_load((repo / install.CONFIG_OUT).read_text())
-    assert list(config) == [*SPEC_VARIABLES, "max_sanity_rounds", "gate_timeout_s"]
+    assert list(config) == [*SPEC_VARIABLES, "max_sanity_rounds", "gate_timeout_s", "provider"]
+    assert config["provider"] == "github"
     assert config["gate_timeout_s"] == 180
     assert config["max_sanity_rounds"] == 5
     assert config["qa_member"] == "quality-mgr" and config["team_lead_member"] == "my-lead" and "lead" not in config

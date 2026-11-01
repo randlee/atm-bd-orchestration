@@ -32,7 +32,8 @@ def test_the_header_is_pep_723_metadata_pinning_the_manifest_sc_compose_range():
     assert metadata["requires-python"] == ">=3.11,<3.12"
     floor, ceiling = install.sc_compose_range()
     assert f"sc-compose>={floor},<{ceiling}" in metadata["dependencies"]
-    assert {dep.split(">")[0].split("=")[0] for dep in metadata["dependencies"]} == {"pydantic", "pyyaml", "sc-compose"}
+    assert "atm-bd-types>=0.1.1,<1" in metadata["dependencies"]
+    assert {dep.split(">")[0].split("=")[0] for dep in metadata["dependencies"]} == {"pydantic", "pyyaml", "sc-compose", "atm-bd-types"}
 
 
 def test_every_executable_script_starts_with_the_header_and_is_executable():
