@@ -38,7 +38,12 @@ def _load_hook(path: Path) -> HookModule:
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load lite hook from {path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(spec.name, None)
+        raise
     return cast(HookModule, module)
 
 
@@ -84,6 +89,27 @@ def _value(values: Mapping[str, object], *names: str) -> str | None:
         if isinstance(found, str) and found.strip():
             return found
     return None
+
+
+def close_vars_from_mapping(values: Mapping[str, object]) -> Result[CloseVars]:
+    """Validate the optional typed close fields carried alongside lite runner inputs."""
+    sanity_bead = values.get("sanity_bead")
+    max_sanity_rounds = values.get("max_sanity_rounds")
+    if sanity_bead is not None and not isinstance(sanity_bead, str):
+        return Err(Error(ErrorKind.CONFIG_INVALID, "sanity_bead must be a string or null",
+                         "Correct sanity_bead in the supplied close vars and retry."))
+    if max_sanity_rounds is not None and (
+        isinstance(max_sanity_rounds, bool)
+        or not isinstance(max_sanity_rounds, int)
+        or not 0 <= max_sanity_rounds <= 0xFFFF_FFFF
+    ):
+        return Err(Error(ErrorKind.CONFIG_INVALID, "max_sanity_rounds must be a u32 or null",
+                         "Correct max_sanity_rounds in the supplied close vars and retry."))
+    try:
+        return Ok(CloseVars(sanity_bead, max_sanity_rounds))
+    except (TypeError, ValueError) as failure:
+        return Err(Error(ErrorKind.CONFIG_INVALID, f"invalid close vars: {failure}",
+                         "Correct the supplied close vars and retry."))
 
 
 def collect_observed(
@@ -235,14 +261,16 @@ def run_transition(
     profile = require_profile(phase_file, Profile.LITE)
     if isinstance(profile, Err):
         return profile
-    close_vars = CloseVars()
+    close_vars = close_vars_from_mapping(values)
+    if isinstance(close_vars, Err):
+        return close_vars
     hook = _load_hook(hook_path)
     while True:
         observed = collect_observed(values, result_values, transition, repo, hook_path, runner=runner,
                                    pr_finder=pr_finder, gate_factory=gate_factory)
         if isinstance(observed, Err):
             return observed
-        planned = hook.plan(transition, close_vars, observed.value)
+        planned = hook.plan(transition, close_vars.value, observed.value)
         if hasattr(planned, "error"):
             return Err(cast(Any, planned).error)
         commands = cast(Any, planned).value
