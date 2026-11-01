@@ -105,6 +105,16 @@ def test_isolated_runner_uses_fake_logger_factory(isolate_console_logger):
     assert isolate_console_logger == [(CONFIG.repo_root,)]
 
 
+def test_tick_surfaces_profile_mismatch_before_orchestration(monkeypatch, tmp_path):
+    phase = tmp_path / ".atm-bd/phase-bh.toml"
+    phase.parent.mkdir()
+    phase.write_text('profile = "lite"\n')
+    monkeypatch.setattr(runner.atm_bd, "repo_config", lambda _root: Ok(REPO_CONFIG))
+    monkeypatch.setattr(runner.beads_source, "open_rows", lambda *_args, **_kwargs: pytest.fail("beads were read"))
+    result = runner.step(replace(CONFIG, repo_root=str(tmp_path)), STATE, False, fake_store(Store()))
+    assert any(error.kind == ErrorKind.PROFILE_MISMATCH and error.fix for error in result[0].errors)
+
+
 @pytest.fixture
 def github_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """A runner fixture with no live sources and observable writes/logging."""

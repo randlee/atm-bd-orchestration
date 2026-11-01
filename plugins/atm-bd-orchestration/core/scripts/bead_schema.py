@@ -231,6 +231,18 @@ class QaBead(TaskBead):
     metadata: QaMetadata
 
 
+class SprintGroup(BaseModel):
+    dev: DevBead
+    sanity: SanityBead
+    qa: QaBead
+
+
+class FindingGroup(BaseModel):
+    fix: FixBead
+    sanity: SanityBead
+    qa: QaBead
+
+
 class LiteSprintGroup(BaseModel):
     """The single schema's lite sprint group."""
     dev: DevBead
@@ -316,6 +328,7 @@ def problems(bead: JsonObject, model: type[Bead]) -> list[str]:
 
 def validate_phase(beads: list[JsonObject], profile: Profile = Profile.FULL) -> list[str]:
     found: list[str] = []
+    groups: dict[str, list[str]] = {}
     for bead in beads:
         raw_labels = bead.get("labels")
         labels = raw_labels if is_object_list(raw_labels) else []
@@ -324,6 +337,12 @@ def validate_phase(beads: list[JsonObject], profile: Profile = Profile.FULL) -> 
         bead_id = str(bead.get("id", "?"))
         metadata = bead.get("metadata")
         stamp = metadata.get("profile") if is_object_mapping(metadata) else None
+        role_labels = {"stage:dev": "dev", "stage:fix": "fix", "stage:dev-sanity": "sanity", "stage:qa": "qa"}
+        roles = [role for label, role in role_labels.items() if label in labels]
+        if len(roles) == 1:
+            qa_id = metadata.get("qa_bead") if is_object_mapping(metadata) else None
+            group_id = qa_id.removesuffix("-qa") if isinstance(qa_id, str) and qa_id.endswith("-qa") else bead_id.removesuffix(f"-{roles[0]}")
+            groups.setdefault(group_id, []).append(roles[0])
         if stamp is None and any(stage in labels for stage in ("stage:dev", "stage:fix", "stage:dev-sanity", "stage:qa")):
             stamp = "full"  # Historical stage beads predate profile stamps.
         match profile:
@@ -349,6 +368,18 @@ def validate_phase(beads: list[JsonObject], profile: Profile = Profile.FULL) -> 
         else:
             found.extend(problem.replace(f"{bead_id}: metadata.", f"{bead_id}: ", 1)
                          for problem in problems(bead, model))
+    match profile:
+        case Profile.FULL:
+            shapes = (set(SprintGroup.model_fields), set(FindingGroup.model_fields))
+            profile_name = "full"
+        case Profile.LITE:
+            shapes = (set(LiteSprintGroup.model_fields), set(LiteFindingGroup.model_fields))
+            profile_name = "lite"
+    for group_id, roles in groups.items():
+        if len(set(roles)) != len(roles):
+            found.append(f"{group_id}: duplicate role in group: {', '.join(roles)}")
+        if not any(set(roles) <= shape for shape in shapes):
+            found.append(f"{group_id}: roles {', '.join(roles)} do not match a {profile_name} group shape")
     return found
 
 

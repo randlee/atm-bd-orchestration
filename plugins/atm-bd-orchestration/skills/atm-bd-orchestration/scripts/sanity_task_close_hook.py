@@ -61,6 +61,8 @@ if isinstance(_core_templates_result, _CoreErr):
 CORE_TEMPLATES = _core_templates_result.value
 
 import bd_cache  # noqa: E402
+from atm_bd_types import Profile  # noqa: E402
+from phase_profile import require_profile  # noqa: E402
 
 TIMEOUT_MS = 2500
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
@@ -445,6 +447,9 @@ def hook(envelope, runner=subprocess.run, clock=time.monotonic, spawn: Callable[
     if isinstance(members, list) and runtime.identity not in members:
         return {"result": "pass-through"}
     try:
+        profile = require_profile(runtime.root / ".atm-bd" / f"phase-{envelope['phase']}.toml", Profile.FULL)
+        if isinstance(profile, _CoreErr):
+            raise Failure("PROFILE.MISMATCH", f"{profile.error.message}; {profile.error.fix}")
         sanity = runtime.bead(runtime.task)
         if "stage:dev-sanity" not in sanity.get("labels", []):
             return {"result": "pass-through"}

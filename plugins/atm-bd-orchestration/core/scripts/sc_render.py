@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import sc_compose
+from atm_bd_types import Error, ErrorKind, Profile
+from phase_profile import require_profile
+from result import Err, Ok, Result
 
 RenderError = sc_compose.ScComposeError
 
@@ -59,3 +62,15 @@ def render(template: str | Path, variables: Mapping[str, Any]) -> str:
 def error_text(exc: BaseException) -> str:
     """The sc-compose diagnostic (`ERR_...: ... | location=...`) of a `RenderError`."""
     return str(exc.args[0]) if exc.args else str(exc)
+
+
+def render_dispatch(template: str | Path, variables: Mapping[str, Any], phase_file: Path,
+                    expected: Profile) -> Result[str]:
+    """Gate a dispatch on its phase profile before reading or rendering its template."""
+    profile = require_profile(phase_file, expected)
+    if isinstance(profile, Err):
+        return profile
+    try:
+        return Ok(render(template, variables))
+    except (RenderError, OSError) as exc:
+        return Err(Error(ErrorKind.PARSE_FAILED, error_text(exc), "Repair the dispatch template or its variables."))

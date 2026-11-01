@@ -49,6 +49,17 @@ PKG = Path(__file__).resolve().parents[1]
 FIXED_NOW = datetime(2026, 10, 15, tzinfo=UTC)
 
 
+@pytest.mark.parametrize("command", ["console", "cron"])
+def test_lite_phase_is_rejected_at_full_entry(command, monkeypatch, tmp_path, capsys):
+    phase = tmp_path / ".atm-bd/phase-bh.toml"
+    phase.parent.mkdir()
+    phase.write_text('profile = "lite"\n')
+    monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
+    assert cli.main([command, "--phase", "bh"]) == 3
+    text = capsys.readouterr().out
+    assert "profile_mismatch" in text and "phase profile" in text
+
+
 @pytest.fixture
 def cli_runtime(monkeypatch, tmp_path):
     config = replace(CONFIG, repo_root=str(tmp_path), state_dir=str(tmp_path / ".atm-bd/atm-bd" / PHASE_FILE.root_id))

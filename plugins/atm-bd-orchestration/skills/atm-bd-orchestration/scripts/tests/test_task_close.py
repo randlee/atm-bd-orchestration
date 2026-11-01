@@ -207,6 +207,14 @@ def test_every_role_required_field_is_validated_before_commands(world, role):
     assert world.calls == []
 
 
+def test_full_hook_refuses_lite_dispatch_before_writes(world):
+    (world.root / ".atm-bd/phase-bj.toml").write_text('lead = "phase-lead"\nprofile = "lite"\n')
+    result = world.run()
+    assert result["err"]["code"] == "PROFILE.MISMATCH"
+    assert "profile" in result["err"]["message"]
+    assert world.writes == []
+
+
 def test_not_reproducible_missing_pr_identity_is_fix_only(world):
     for field in ("branch", "commit", "pr_number"):
         world.values.pop(field, None)

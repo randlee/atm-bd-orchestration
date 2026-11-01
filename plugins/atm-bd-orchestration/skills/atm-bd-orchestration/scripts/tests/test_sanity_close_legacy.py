@@ -86,6 +86,15 @@ def world(tmp_path, monkeypatch):
     return World(tmp_path, monkeypatch)
 
 
+def test_lite_phase_refuses_full_sanity_hook_before_bead_reads(world):
+    (world.root / ".atm-bd/phase-test.toml").write_text('lead = "test-lead"\nprofile = "lite"\n')
+    world.request["request"]["dry_run"] = True
+    result = world.invoke()
+    detail = json.loads(result["message"])
+    assert result["result"] == "refused" and detail["code"] == "PROFILE.MISMATCH"
+    assert "profile" in detail["detail"] and world.commands == []
+
+
 def test_pass_closes_bead_then_returns_unhooked_dev_and_sanity_closes(world):
     result = world.invoke()
     assert world.beads[world.task]["status"] == "closed"

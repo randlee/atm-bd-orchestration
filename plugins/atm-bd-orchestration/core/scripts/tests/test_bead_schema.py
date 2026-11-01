@@ -196,3 +196,37 @@ def test_profiles_reject_mixed_beads():
     lite = {"id": "x.group-dev", "labels": ["stage:dev"], "metadata": {"profile": "lite"}}
     assert any("sanity bead is forbidden" in issue for issue in bead_schema.validate_phase([sanity], Profile.LITE))
     assert any("lite bead in a full phase" in issue for issue in bead_schema.validate_phase([lite], Profile.FULL))
+
+
+def test_group_shapes_allow_partial_groups_and_reject_duplicate_or_forbidden_roles():
+    from atm_bd_types import Profile
+
+    def member(role, profile="full", group="atm-bi-7.group"):
+        stage = "dev-sanity" if role == "sanity" else role
+        checked = f"{group}-{'fix' if 'finding' in group else 'dev'}"
+        metadata = {**FAMILY, **close(role), "qa_bead": f"{group}-qa", "checked_bead": checked, "profile": profile}
+        if profile == "lite":
+            metadata.pop("sanity_bead")
+            metadata.pop("max_sanity_rounds")
+        if role == "qa":
+            metadata.update(round=1, reviewers_round1=["req-qa"])
+        if role == "fix":
+            metadata.update(finding_ref="qa1-f1", severity="blocking", reviewer="qa", found_at_commit="abc1234")
+        if role == "sanity":
+            metadata["dev_bead"] = checked
+        return {"id": f"{group}-{role}", "status": "closed", "labels": [f"stage:{stage}"], "metadata": metadata,
+                "dependencies": [{"type": "blocks", "depends_on_id": checked}] if role == "sanity" else []}
+
+    full = [member(role) for role in ("dev", "sanity", "qa")]
+    lite = [member(role, "lite") for role in ("dev", "qa")]
+    finding = [member(role, "lite", "atm-bi-7.finding") for role in ("fix", "qa")]
+    full_finding = [member(role, "full", "atm-bi-7.finding") for role in ("fix", "sanity", "qa")]
+    assert bead_schema.validate_phase(full, Profile.FULL) == []
+    assert bead_schema.validate_phase(full[:1], Profile.FULL) == []
+    assert bead_schema.validate_phase(lite, Profile.LITE) == []
+    assert bead_schema.validate_phase(finding, Profile.LITE) == []
+    assert bead_schema.validate_phase(full_finding, Profile.FULL) == []
+    duplicate = copy.deepcopy(full[0])
+    duplicate["id"] = "other-dev"
+    assert any("duplicate role" in issue for issue in bead_schema.validate_phase(full + [duplicate], Profile.FULL))
+    assert any("group shape" in issue for issue in bead_schema.validate_phase(lite + [member("sanity", "lite")], Profile.LITE))

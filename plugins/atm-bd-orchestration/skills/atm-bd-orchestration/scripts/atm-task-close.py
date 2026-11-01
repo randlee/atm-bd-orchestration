@@ -393,6 +393,11 @@ class Hook:
         config = read_config(self.root, role, values.get("verdict", ""))
         self.config = config
         self.lead = read_toml_setting(self.root / ".atm-bd" / f"phase-{values['phase']}.toml", ("lead",))
+        from atm_bd_types import Profile
+        from phase_profile import require_profile
+        profile = require_profile(self.root / ".atm-bd" / f"phase-{values['phase']}.toml", Profile.FULL)
+        if isinstance(profile, _CoreErr):
+            raise CloseError("PROFILE.MISMATCH", profile.error.message, profile.error.fix)
         team = read_toml_setting(self.root / ".atm.toml", ("atm", "default_team"))
         self.env = dict(os.environ)
         self.lead_env = {**self.env, "ATM_IDENTITY": self.lead, "ATM_TEAM": team}
@@ -702,6 +707,15 @@ class Hook:
         self.pr_base = str(metadata.get("pr_base") or "")
 
     def render(self, template, values=None):
+        if template in ("dev-sanity-template.xml.j2", "qa-template.xml.j2"):
+            from atm_bd_types import ErrorKind, Profile
+            dispatch_values = self.values if values is None else values
+            phase_file = self.root / ".atm-bd" / f"phase-{dispatch_values['phase']}.toml"
+            rendered = sc_render.render_dispatch(template_path(template), dispatch_values, phase_file, Profile.FULL)
+            if isinstance(rendered, _CoreErr):
+                code = "VARS.INVALID" if rendered.error.kind == ErrorKind.PARSE_FAILED else "PROFILE.MISMATCH"
+                raise CloseError(code, rendered.error.message, rendered.error.fix)
+            return rendered.value
         try:
             return sc_render.render(template_path(template), self.values if values is None else values)
         except sc_render.RenderError as error:

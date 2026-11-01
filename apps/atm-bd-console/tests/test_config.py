@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from atm_bd_types import ErrorDetail
+from atm_bd_types import ErrorDetail, ErrorKind
 from result import CommandFailed, Err, Ok, Timeout
 
 from atm_bd_console.command import Output
@@ -24,6 +24,15 @@ def test_repo_root_resolves_the_current_directory(monkeypatch, tmp_path) -> None
     nested.mkdir()
     monkeypatch.chdir(nested)
     assert repo_root() == nested.resolve()
+
+
+def test_lite_phase_is_rejected_before_console_config_or_cron_startup(tmp_path) -> None:
+    phase = tmp_path / ".atm-bd/phase-bh.toml"
+    phase.parent.mkdir()
+    phase.write_text('profile = "lite"\n')
+    result = load_config(tmp_path, "bh")
+    assert isinstance(result, Err) and result.error.kind == ErrorKind.PROFILE_MISMATCH
+    assert result.error.fix
 
 
 def test_defaults_file_and_flags_have_documented_precedence(tmp_path) -> None:

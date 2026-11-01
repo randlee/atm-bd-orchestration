@@ -108,6 +108,14 @@ def load_config(
     file must supply the lead and all assignment template paths.
     """
     root = Path(repo_root)
+    # Gate both console startup and cron before loading orchestration settings.
+    from atm_bd_types import Profile
+    from phase_profile import require_profile
+    phase_path = root / ".atm-bd" / f"phase-{phase}.toml"
+    if phase_path.is_file():
+        profile = require_profile(phase_path, Profile.FULL)
+        if isinstance(profile, Err):
+            return profile
     team = _team(root)
     if isinstance(team, Err):
         return team

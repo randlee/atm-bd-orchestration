@@ -9,6 +9,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from atm_bd_types import Profile
+from phase_profile import require_profile
 from result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result
 
 from .enums import SprintState
@@ -183,6 +185,9 @@ def phase_file(repo_root: str, x: str) -> Result[PhaseFile]:
         raw = tomllib.loads(text.value)
     except tomllib.TOMLDecodeError as error:
         return Err(ParseFailed("parse_failed", str(path), str(error), f"repair the TOML in {path}"))
+    profile = require_profile(path, Profile.FULL)
+    if isinstance(profile, Err):
+        return profile
     lead = raw.get("lead")
     if not isinstance(lead, str) or not lead.strip():
         return Err(ConfigInvalid("config_invalid", "lead", repr(lead), f"set lead in {path} to a nonempty ATM identity"))
