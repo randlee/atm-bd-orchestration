@@ -73,7 +73,7 @@ def test_console_rejects_lite_phase_before_dispatch(monkeypatch, tmp_path, capsy
     assert "skills/atm-bd-lite/SKILL.md" in text
 
 
-def test_lite_cron_dispatches_only_phase_to_lite_tick(monkeypatch, tmp_path, capfd):
+def test_lite_cron_forwards_every_accepted_cron_argument(monkeypatch, tmp_path, capfd):
     phase = tmp_path / ".atm-bd/phase-lt.toml"
     phase.parent.mkdir()
     shutil.copyfile(Path(__file__).parent / "fixtures/lite-phase/phase.toml", phase)
@@ -84,8 +84,15 @@ def test_lite_cron_dispatches_only_phase_to_lite_tick(monkeypatch, tmp_path, cap
     tick = scripts / "lite_cron.py"
     tick.write_text("import json,sys\nprint(json.dumps(sys.argv[1:]))\n")
     monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
-    assert cli.main(["cron", "--phase", "lt", "--github", "off"]) == 0
-    assert capfd.readouterr().out.strip() == '["--phase", "lt"]'
+    args = [
+        "cron", "--phase", "lt", "--md-table", "--github", "rest", "--interval", "300",
+        "--github-poll-interval", "120", "--github-quota-threshold", "25", "--dry-run", "--no-fetch",
+    ]
+    assert cli.main(args) == 0
+    assert json.loads(capfd.readouterr().out) == [
+        "--phase", "lt", "--github", "rest", "--interval", "300", "--github-poll-interval", "120",
+        "--github-quota-threshold", "25", "--md-table", "--dry-run", "--no-fetch",
+    ]
 
 
 @pytest.fixture

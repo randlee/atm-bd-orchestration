@@ -11,9 +11,10 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from atm_bd_types import Profile
 from result import Ok
 
-from atm_bd_console import queues
+from atm_bd_console import atm_bd, beads_source, queues
 from atm_bd_console.command import Output
 
 FIXTURES = Path(__file__).parent / "fixtures" / "lite-phase"
@@ -54,6 +55,43 @@ def test_lite_queue_report_has_only_profile_columns(monkeypatch: pytest.MonkeyPa
     rendered = queues.render(report, False)
     assert "needs_sanity" not in rendered and "sanity" not in rendered
     assert "lt-1.group-dev" in rendered and "lt-1.group-qa" in rendered
+
+
+def test_console_model_builds_lite_phase_from_shared_bead_fixture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    phase_dir = tmp_path / ".atm-bd"
+    phase_dir.mkdir()
+    shutil.copyfile(FIXTURES / "phase.toml", phase_dir / "phase-lt.toml")
+    plan = tmp_path / "docs/plans/phase-lt.jsonl"
+    plan.parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "plan.jsonl", plan)
+    shutil.copytree(FIXTURES / "templates", tmp_path / ".claude/skills/atm-bd-lite/templates")
+
+    phase_file = atm_bd.phase_file(str(tmp_path), "lt", expected_profile=None)
+    assert isinstance(phase_file, Ok)
+    rows: list[dict[str, Any]] = json.loads((FIXTURES / "beads.json").read_text())
+    fixture_json = json.dumps([{**row, "created_at": "2026-10-31T00:00:00+00:00"} for row in rows])
+
+    def read_fixture(argv: list[str], _fix: str, *, cwd: str | None = None) -> Ok[Output]:
+        assert cwd is None
+        assert argv == ["bd", "list", "-l", "phase-lt", "-n", "0", "--json"]
+        return Ok(Output(0, fixture_json))
+
+    monkeypatch.setattr(beads_source.command, "run", read_fixture)
+    bead_rows = beads_source.open_rows("phase-lt")
+    assert isinstance(bead_rows, Ok)
+    beads = bead_rows.value.beads
+    root = next(bead for bead in beads if bead.id == phase_file.value.root_id)
+
+    modeled = atm_bd.phase(phase_file.value, root, beads, beads, ())
+    assert isinstance(modeled, Ok)
+    assert modeled.value.profile is Profile.LITE
+    assert [sprint.id for sprint in modeled.value.sprints] == ["atm-lt-1", "atm-lt-2"]
+    assert [step.bead_id for step in modeled.value.steps] == [
+        "atm-lt-1.group-dev", "atm-lt-1.group-qa", "atm-lt-2.group-dev", "atm-lt-2.group-qa",
+    ]
+    assert all(step.kind in ("dev", "qa") for step in modeled.value.steps)
 
 
 def test_lite_report_index_and_dag_use_qa_groups() -> None:

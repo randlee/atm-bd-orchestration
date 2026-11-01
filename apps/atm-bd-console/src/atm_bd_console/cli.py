@@ -54,7 +54,7 @@ def _notification_startup_error(config: Config) -> Error | None:
     return None
 
 
-def _lite_cron(repo_root, phase: str) -> int:
+def _lite_cron(repo_root, args: argparse.Namespace) -> int:
     formulas = profile_formulas_dir("lite", repo_root)
     if isinstance(formulas, Err):
         print(f"atm-bd cron: {error_message(error_data(formulas.error))}", file=sys.stderr)
@@ -63,7 +63,20 @@ def _lite_cron(repo_root, phase: str) -> int:
     if not script.is_file():
         print(f"atm-bd cron: not_found: lite cron tick is not installed at {script}", file=sys.stderr)
         return 3
-    result = command_source.run([sys.executable, str(script), "--phase", phase],
+    argv = [sys.executable, str(script), "--phase", args.phase]
+    for name, option in (
+        ("github", "--github"),
+        ("interval", "--interval"),
+        ("github_poll_interval", "--github-poll-interval"),
+        ("github_quota_threshold", "--github-quota-threshold"),
+    ):
+        value = getattr(args, name)
+        if value is not None:
+            argv.extend((option, str(value)))
+    for name, option in (("md_table", "--md-table"), ("dry_run", "--dry-run"), ("no_fetch", "--no-fetch")):
+        if getattr(args, name):
+            argv.append(option)
+    result = command_source.run(argv,
                                 "repair the lite phase cron tick and retry", cwd=repo_root)
     if isinstance(result, Err):
         detail = result.error.detail
@@ -128,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{invocation}: {error_message(error_data(profile.error))}")
             return 3
         if args.command == "cron" and profile.value is Profile.LITE:
-            return _lite_cron(repo_root, args.phase)
+            return _lite_cron(repo_root, args)
         if profile.value is Profile.LITE:
             mismatch = config_source.load_config(repo_root, args.phase, expected_profile=Profile.FULL)
             if isinstance(mismatch, Err):
