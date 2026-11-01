@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import json
 import os
 import tempfile
@@ -39,8 +41,8 @@ def _run(argv: list[str], as_: str, stdin: str | None = None, timeout_s: int | N
         argv, f"rerun `{command_line}` as ATM_IDENTITY={as_} and read its stderr, or pass a larger timeout",
         timeout_s=timeout_s, stdin=stdin, env={**os.environ, "ATM_IDENTITY": as_, **({"ATM_TEAM": team} if team is not None else {})},
     )
-    if isinstance(result, Err) and isinstance(result.error, CommandFailed) and result.error.code == command.MISSING_PROGRAM_CODE:
-        return Err(Unreachable("unreachable", tuple(argv), result.error.stderr, f"install the atm CLI and put it on PATH, then rerun `{command_line}`"))
+    if isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed) and result.error.detail.code == command.MISSING_PROGRAM_CODE:
+        return Err(Unreachable("unreachable", tuple(argv), result.error.detail.stderr, f"install the atm CLI and put it on PATH, then rerun `{command_line}`"))
     if isinstance(result, Err):
         return result
     return Ok(result.value.stdout)

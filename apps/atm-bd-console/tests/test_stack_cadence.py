@@ -6,6 +6,8 @@ clock, a fake command boundary and a real on-disk state store. Nothing sleeps.
 
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import json
 import re
 from dataclasses import replace
@@ -56,8 +58,8 @@ def test_stack_on_another_base_is_refused_as_misconfigured(monkeypatch) -> None:
 
     result = github_source.stack_membership("graphql", "/code", REPO, 7, TRUNK)
 
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert (result.error.key, result.error.value) == ("console.stack.trunk", repr("main"))
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert (result.error.detail.key, result.error.detail.value) == ("console.stack.trunk", repr("main"))
 
 
 # --- item 3: quota gate --------------------------------------------------------------------------------------
@@ -75,7 +77,7 @@ def test_stack_read_obeys_the_quota_threshold(monkeypatch) -> None:
 
     result = github_source.stack_membership("graphql", "/code", REPO, 7, TRUNK, budget)
 
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
     assert calls == [QUOTA_ARGV], "the stack endpoint must not be called below the quota threshold"
     assert budget.status.paused is True
 

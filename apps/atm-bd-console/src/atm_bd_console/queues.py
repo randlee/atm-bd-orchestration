@@ -1,6 +1,10 @@
 """Read-only phase queue report, backed by bounded bead and ATM reads."""
 from __future__ import annotations
 
+from result import error_data, kind_name
+
+from atm_bd_types import ErrorDetail
+
 import json
 import sys
 import tomllib
@@ -51,12 +55,12 @@ class QueueFailure(Exception):
 
 def _command_error(result: Err) -> str:
     error = result.error
-    if isinstance(error, CommandFailed):
-        detail = (error.stderr.splitlines()[-1] if error.stderr.splitlines() else f"exit {error.code}")
-        return f"{' '.join(error.argv)}: {detail}: {error.fix}"
-    if isinstance(error, Timeout):
-        return f"{' '.join(error.argv)}: timed out after {error.seconds}s: {error.fix}"
-    return f"{error.kind}: {error}: inspect the command output and repair the source"
+    if isinstance(error.detail, ErrorDetail.CommandFailed):
+        detail = (error.detail.stderr.splitlines()[-1] if error.detail.stderr.splitlines() else f"exit {error.detail.code}")
+        return f"{' '.join(error.detail.argv)}: {detail}: {error.fix}"
+    if isinstance(error.detail, ErrorDetail.Timeout):
+        return f"{' '.join(error.detail.argv)}: timed out after {error.detail.seconds}s: {error.fix}"
+    return f"{kind_name(error.kind)}: {error}: inspect the command output and repair the source"
 
 
 def run_json(argv: list[str], *, cwd: str | Path, runner=command.run) -> Any:
@@ -117,10 +121,10 @@ def _resolve(args, repo_root: Path) -> tuple[str, str | None, Path, str | None]:
     if args.phase:
         result = atm_bd.phase_file(str(repo_root), args.phase)
         if isinstance(result, Err):
-            raise QueueFailure(f"atm-bd queues --phase {args.phase}: {error_message(asdict(result.error))}")
+            raise QueueFailure(f"atm-bd queues --phase {args.phase}: {error_message(error_data(result.error))}")
         code_repo = config.code_repository(repo_root, result.value.code_checkout)
         if isinstance(code_repo, Err):
-            raise QueueFailure(f"atm-bd queues --phase {args.phase}: {error_message(asdict(code_repo.error))}")
+            raise QueueFailure(f"atm-bd queues --phase {args.phase}: {error_message(error_data(code_repo.error))}")
         phase_path = repo_root / ".atm-bd" / f"phase-{args.phase}.toml"
         try:
             integration_branch = tomllib.loads(phase_path.read_text(encoding="utf-8")).get("integration_branch")
@@ -298,7 +302,7 @@ def _stack_view(trunk: str, candidates: list[str], paths: dict[str, str], runner
             continue
         result = runner(["gh", "stack", "view", "--json"], "run `gh stack view --json` in a worktree of the phase stack", cwd=worktree)
         if isinstance(result, Err):
-            reasons.append(f"{branch} ({worktree}): {error_message(asdict(result.error))}")
+            reasons.append(f"{branch} ({worktree}): {error_message(error_data(result.error))}")
             continue
         try:
             view = json.loads(result.value.stdout)

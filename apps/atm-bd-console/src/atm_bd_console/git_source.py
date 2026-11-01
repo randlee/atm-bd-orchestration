@@ -1,6 +1,10 @@
 """Git reads for the console; every command result is converted at this boundary."""
 from __future__ import annotations
 
+from result import with_fix
+
+from atm_bd_types import ErrorDetail
+
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,13 +24,13 @@ def _run(repo: str | Path, *args: str, timeout_s: int = command.DEFAULT_TIMEOUT_
          ok_codes: tuple[int, ...] = (0,)) -> Result[command.Output]:
     argv = ("git", *args)
     result = command.run(argv, FIX, cwd=repo, timeout_s=timeout_s, ok_codes=ok_codes)
-    if isinstance(result, Err) and isinstance(result.error, Timeout):
-        fix = (f"git or the remote is slow or the host is loaded; the call waited {result.error.seconds}s; "
+    if isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.Timeout):
+        fix = (f"git or the remote is slow or the host is loaded; the call waited {result.error.detail.seconds}s; "
                f"run `git -C {repo} {' '.join(args)}` by hand to see how long it takes")
-        return Err(replace(result.error, fix=fix))
-    if isinstance(result, Err) and isinstance(result.error, CommandFailed):
-        fix = f"`git {' '.join(args)}` exited {result.error.code}; repair what its stderr reports in {repo}, then rerun it by hand"
-        return Err(replace(result.error, fix=fix))
+        return Err(with_fix(result.error, fix))
+    if isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed):
+        fix = f"`git {' '.join(args)}` exited {result.error.detail.code}; repair what its stderr reports in {repo}, then rerun it by hand"
+        return Err(with_fix(result.error, fix))
     return result
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import shutil
 import subprocess
 from pathlib import Path
@@ -60,8 +62,8 @@ def test_notification_sender_only_uses_repo_yaml_not_environment_or_console_toml
     for invalid in ("notify", "@tool", "notify@", "notify@tool@other", "bad name@tool", "42"):
         path.write_text(f"tool_identity: '{invalid}'\n")
         result = load_config(tmp_path, "bh")
-        assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-        assert result.error.key == "tool_identity"
+        assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+        assert result.error.detail.key == "tool_identity"
 
 
 def test_invalid_repository_yaml_is_a_typed_configuration_error(tmp_path) -> None:
@@ -69,8 +71,8 @@ def test_invalid_repository_yaml_is_a_typed_configuration_error(tmp_path) -> Non
     path = tmp_path / ".claude/project/atm-bd-orchestration.yaml"
     path.write_text("tool_identity: [\n")
     result = load_config(tmp_path, "bh")
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert result.error.key == str(path)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert result.error.detail.key == str(path)
 
 
 def test_github_budget_configuration_and_validation(tmp_path) -> None:
@@ -155,8 +157,8 @@ def test_non_github_origin_is_a_named_configuration_error(tmp_path, monkeypatch)
 
     monkeypatch.setattr("atm_bd_console.config.command.run", fake_run)
     result = load_config(tmp_path, "bh")
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert result.error.key == "code_checkout.origin"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert result.error.detail.key == "code_checkout.origin"
     assert "GitHub repository URL" in result.error.fix
     assert calls == [("git", "rev-parse", "--show-toplevel"), ("git", "remote", "get-url", "origin")]
 
@@ -185,8 +187,8 @@ def test_invalid_github_and_short_interval_name_key_value_and_fix(tmp_path) -> N
         (tmp_path / ".atm-bd").mkdir(exist_ok=True)
         (tmp_path / ".atm-bd" / "console.toml").write_text(text)
         result = load_config(tmp_path, "bh")
-        assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-        assert result.error.key == key and result.error.value == value and allowed in result.error.fix
+        assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+        assert result.error.detail.key == key and result.error.detail.value == value and allowed in result.error.fix
 
 
 def test_malformed_console_toml_is_config_invalid_naming_the_file(tmp_path) -> None:
@@ -195,8 +197,8 @@ def test_malformed_console_toml_is_config_invalid_naming_the_file(tmp_path) -> N
     path = tmp_path / ".atm-bd" / "console.toml"
     path.write_text("[console\ngithub = ")
     result = load_config(tmp_path, "bh")
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert result.error.key == str(path) and result.error.value
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert result.error.detail.key == str(path) and result.error.detail.value
     assert "graphql, rest, or off" in result.error.fix and "at least 10" in result.error.fix
 
 
@@ -205,22 +207,22 @@ def test_undecodable_console_toml_is_a_typed_io_error(tmp_path) -> None:
     (tmp_path / ".atm-bd").mkdir(exist_ok=True)
     (tmp_path / ".atm-bd" / "console.toml").write_bytes(b"\xff\xfe not utf-8")
     result = load_config(tmp_path, "bh")
-    assert isinstance(result, Err) and isinstance(result.error, IoFailed)
-    assert result.error.path == str(tmp_path / ".atm-bd" / "console.toml")
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.IoFailed)
+    assert result.error.detail.path == str(tmp_path / ".atm-bd" / "console.toml")
 
 
 def test_missing_atm_toml_is_a_typed_io_error_naming_the_file(tmp_path) -> None:
     result = load_config(tmp_path, "bh")
-    assert isinstance(result, Err) and isinstance(result.error, IoFailed)
-    assert result.error.path == str(tmp_path / ".atm.toml")
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.IoFailed)
+    assert result.error.detail.path == str(tmp_path / ".atm.toml")
     assert "restore the repository .atm.toml" in result.error.fix
 
 
 def test_malformed_atm_toml_is_config_invalid_naming_the_file(tmp_path) -> None:
     (tmp_path / ".atm.toml").write_text("[atm\ndefault_team = ")
     result = load_config(tmp_path, "bh")
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert result.error.key == str(tmp_path / ".atm.toml") and result.error.value
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert result.error.detail.key == str(tmp_path / ".atm.toml") and result.error.detail.value
     assert "correct the repository .atm.toml syntax" in result.error.fix
 
 
@@ -236,8 +238,8 @@ def test_malformed_atm_toml_is_config_invalid_naming_the_file(tmp_path) -> None:
 def test_absent_empty_or_non_string_default_team_is_config_invalid(tmp_path, text, value) -> None:
     (tmp_path / ".atm.toml").write_text(text)
     result = load_config(tmp_path, "bh")
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert result.error.key == "atm.default_team" and result.error.value == value
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert result.error.detail.key == "atm.default_team" and result.error.detail.value == value
     assert "set atm.default_team in .atm.toml to a nonempty team name" in result.error.fix
 
 
@@ -261,8 +263,8 @@ def test_stack_membership_config_is_parsed_and_validated(tmp_path) -> None:
     ):
         path.write_text(body)
         invalid = load_config(tmp_path, "bh")
-        assert isinstance(invalid, Err) and isinstance(invalid.error, ConfigInvalid), body
-        assert invalid.error.key == key
+        assert isinstance(invalid, Err) and isinstance(invalid.error.detail, ErrorDetail.ConfigInvalid), body
+        assert invalid.error.detail.key == key
 
 
 def test_stack_membership_defaults_to_unconfigured(tmp_path) -> None:

@@ -1,6 +1,10 @@
 """The interactive console: one Textual app over an injected step function."""
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
+from result import argv_of, error_data, kind_name
+
 import json
 import os
 import sys
@@ -85,10 +89,10 @@ def startup_error_applies(error: Error, snapshot: Snapshot) -> bool:
     """Whether the startup error still has a row of its own. A failed `atm members` at startup is the same read every live
     tick repeats: that tick shows the same failure itself or has cleared it, so the startup row would be a duplicate or
     stale. A stopped tick does not read members, so the startup failure stays unless the tick already lists it."""
-    argv = getattr(error, "argv", None)
+    argv = argv_of(error)
     if argv is None:
         return True
-    if any(getattr(other, "argv", None) == argv for other in snapshot.errors):
+    if any(argv_of(other) == argv for other in snapshot.errors):
         return False
     return snapshot.stopped is not None
 
@@ -296,10 +300,10 @@ def _quality_header(widths: tuple[int, ...]) -> Text:
 
 
 def _lock_message(error: Error) -> str:
-    if error.kind == "lock_held":
-        age = "no snapshot" if error.snapshot_age_s is None else f"snapshot age {error.snapshot_age_s}s"
+    if isinstance(error.detail, ErrorDetail.LockHeld):
+        age = "no snapshot" if error.detail.snapshot_age_s is None else f"snapshot age {error.detail.snapshot_age_s}s"
         return f"atm-bd console: lock held by a running console ({age}); {error.fix}"
-    return f"atm-bd console: {error.kind}: {getattr(error, 'path', '')}: {getattr(error, 'message', '')}; {error.fix}"
+    return f"atm-bd console: {kind_name(error.kind)}: {error.message}; {error.fix}"
 
 
 class GraphText(Static):
@@ -607,7 +611,7 @@ class ConsoleApp(App[int]):
     def _log_render_error(self, error: Error) -> None:
         logger = create_console_logger(self.config.repo_root)
         if isinstance(logger, Ok):
-            logger.value.event("error", level="error", source="status.mmdflux", message=error_message(asdict(error)), error=asdict(error))
+            logger.value.event("error", level="error", source="status.mmdflux", message=error_message(error_data(error)), error=error_data(error))
             logger.value.flush()
 
     def _show_tick_error(self, error: Error) -> None:
@@ -622,7 +626,7 @@ class ConsoleApp(App[int]):
                 Text(f"unavailable - {error_text(error)}", style="dim"))
         logger = create_console_logger(self.config.repo_root)
         if isinstance(logger, Ok):
-            logger.value.event("error", level="error", message=error_message(asdict(error)), error=asdict(error))
+            logger.value.event("error", level="error", message=error_message(error_data(error)), error=error_data(error))
             logger.value.flush()
         self.refresh_views()
 
@@ -762,7 +766,7 @@ class ConsoleApp(App[int]):
             header.no_wrap = True
             header.overflow = "ellipsis"
             if self.status_error is not None:
-                header.append(f"  {self.status_error.kind}: {self.status_error.fix}", style="red")
+                header.append(f"  {kind_name(self.status_error.kind)}: {self.status_error.fix}", style="red")
             indicator = self.health.indicator(snapshot.generated_at)
             if indicator:
                 header.append(f"  {indicator}", style="yellow")

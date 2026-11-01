@@ -5,7 +5,8 @@ import re
 from dataclasses import fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, get_args, get_origin, get_type_hints
+from typing import Any, Literal, get_args, get_origin, get_type_hints
+from atm_bd_types import Error, ErrorDetail
 
 import pytest
 import result
@@ -98,7 +99,7 @@ ERROR_NAMES = ("CommandFailed", "Timeout", "Rejected", "Unreachable", "ParseFail
                "LockHeld", "IoFailed")
 
 
-def _class(name: str) -> type:
+def _class(name: str) -> Any:
     return getattr(result, name, None) or getattr(types, name)
 
 
@@ -116,10 +117,10 @@ def test_every_contract_class_is_listed() -> None:
         name for module in (result, types) for name, value in vars(module).items()
         if isinstance(value, type) and is_dataclass(value) and value.__module__ == module.__name__
     }
-    assert declared == set(FIELDS)
+    assert declared == set(FIELDS) - set(ERROR_NAMES)
 
 
-@pytest.mark.parametrize("name", sorted(FIELDS))
+@pytest.mark.parametrize("name", sorted(set(FIELDS) - set(ERROR_NAMES)))
 def test_contract_class_is_frozen_with_design_fields(name: str) -> None:
     cls = _class(name)
     assert is_dataclass(cls)
@@ -163,7 +164,11 @@ def test_type_aliases() -> None:
     assert get_args(types.Presence) == LITERALS[("Member", "presence")]
     assert get_args(types.StepKind) == LITERALS[("Step", "kind")]
     assert get_args(types.AgentStatus) == LITERALS[("AgentView", "status")]
-    assert get_args(result.Error) == tuple(_class(name) for name in ERROR_NAMES)
+    assert result.Error is Error
+    for name in ERROR_NAMES:
+        detail = getattr(ErrorDetail, name)
+        expected = tuple(FIELDS[name].split())[1:-1]
+        assert detail.__match_args__ == expected
     generic_getitem = "__class_getitem__"
     assert get_args(result.Result) == (getattr(result.Ok, generic_getitem)(result.T), result.Err)
     assert get_args(types.SpecFn) == ([types.DispatchContext], result.Result[types.DispatchSpec])
@@ -175,6 +180,8 @@ def test_type_aliases() -> None:
 @pytest.mark.parametrize("module", ["result.py", "types.py"])
 def test_d2_contract_modules_hold_no_logic(module: str) -> None:
     text = (Path(result.__file__) if module == "result.py" else PACKAGE / module).read_text()
-    assert re.findall(r"\braise\b|subprocess|open\(|\bdef ", text) == []
+    forbidden = r"\braise\b|subprocess|open\(" if module == "result.py" else r"\braise\b|subprocess|open\(|\bdef "
+    assert re.findall(forbidden, text) == []
     tree = ast.parse(text)
-    assert not [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Raise))]
+    forbidden_nodes = (ast.Raise,) if module == "result.py" else (ast.FunctionDef, ast.AsyncFunctionDef, ast.Raise)
+    assert not [node for node in ast.walk(tree) if isinstance(node, forbidden_nodes)]

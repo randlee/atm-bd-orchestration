@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from result import argv_of, with_argv, with_fix
+
+from atm_bd_types import ErrorDetail
+
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -54,18 +58,18 @@ def _fallback(snapshot: Snapshot) -> str:
 
 def _runner_error(error: Error) -> Error:
     # command.run reports a missing program as code 127; the status line names the install instead.
-    if isinstance(error, CommandFailed) and error.code == command.MISSING_PROGRAM_CODE:
+    if isinstance(error.detail, ErrorDetail.CommandFailed) and error.detail.code == command.MISSING_PROGRAM_CODE:
         return NotFound("not_found", "mmdflux", _VERSION_FIX)
     return error
 
 
 def _render_fix(error: Error, mermaid: str) -> Error:
     """The fix for THIS failure of the render: a parse error is a defect to report, a timeout is a loaded host."""
-    if isinstance(error, CommandFailed):
+    if isinstance(error.detail, ErrorDetail.CommandFailed):
         head = "; ".join(mermaid.splitlines()[:_MERMAID_LINES])
-        return replace(error, fix=f"mmdflux rejected the generated Mermaid: report it as a defect with the first {_MERMAID_LINES} lines: {head}")
-    if isinstance(error, Timeout):
-        return replace(error, fix=f"the host is loaded: mmdflux was waited for {error.seconds}s; it is retried next tick")
+        return with_fix(error, f"mmdflux rejected the generated Mermaid: report it as a defect with the first {_MERMAID_LINES} lines: {head}")
+    if isinstance(error.detail, ErrorDetail.Timeout):
+        return with_fix(error, f"the host is loaded: mmdflux was waited for {error.detail.seconds}s; it is retried next tick")
     return error
 
 
@@ -107,9 +111,9 @@ def _short_argv(argv: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _reason(error: Error) -> str:
-    argv = getattr(error, "argv", None)
+    argv = argv_of(error)
     if argv and argv[0] == "bd" and _short_argv(tuple(argv)) != tuple(argv):
-        return error_text(replace(error, argv=_short_argv(tuple(argv))))  # type: ignore[type-var]
+        return error_text(with_argv(error, _short_argv(tuple(argv))))
     return error_text(error)
 
 

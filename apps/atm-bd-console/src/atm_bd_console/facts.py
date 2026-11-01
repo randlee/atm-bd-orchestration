@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from result import kind_name
+
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -174,7 +176,7 @@ def sprint_facts(snapshot: Snapshot) -> tuple[SprintFacts, ...]:
             problems.append(f"unknown sprint state {sprint.raw_status!r} for {sprint.id}")
         if not available:
             cause = "off" if snapshot.gh.mode == "off" else "truncated" if snapshot.gh.truncated else (
-                snapshot.gh.error.kind if snapshot.gh.error else "unavailable"
+                kind_name(snapshot.gh.error.kind) if snapshot.gh.error else "unavailable"
             )
             problems.append(f"GitHub data {cause}")
         elif selected is not None:

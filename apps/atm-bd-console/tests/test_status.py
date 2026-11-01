@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail, ErrorKind
+
 import subprocess
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -50,9 +52,9 @@ def test_old_mmdflux_returns_typed_fix_without_rendering(fake_bin) -> None:
     rendered, error = status_text(snapshot())
 
     assert rendered == (FIXTURES / "render" / "status-fallback.txt").read_text().rstrip("\n")
-    assert isinstance(error, ConfigInvalid)
-    assert error.key == "mmdflux_version"
-    assert error.value == "mmdflux 2.6.0"
+    assert error is not None and isinstance(error.detail, ErrorDetail.ConfigInvalid)
+    assert error.detail.key == "mmdflux_version"
+    assert error.detail.value == "mmdflux 2.6.0"
     assert error.fix == "install or upgrade mmdflux >=2.6.1"
     assert fake_bin.argv() == [("mmdflux", "--version")]
 
@@ -62,8 +64,8 @@ def test_unversioned_mmdflux_returns_typed_fix_without_rendering(fake_bin) -> No
 
     _, error = status_text(snapshot())
 
-    assert isinstance(error, ConfigInvalid)
-    assert error.key == "mmdflux_version"
+    assert error is not None and isinstance(error.detail, ErrorDetail.ConfigInvalid)
+    assert error.detail.key == "mmdflux_version"
     assert error.fix == "install or upgrade mmdflux >=2.6.1"
     assert fake_bin.argv() == [("mmdflux", "--version")]
 
@@ -71,7 +73,7 @@ def test_unversioned_mmdflux_returns_typed_fix_without_rendering(fake_bin) -> No
 def test_missing_binary_uses_dependency_depth_fallback(monkeypatch) -> None:
     monkeypatch.setenv("PATH", "")
     rendered, error = status_text(snapshot())
-    assert isinstance(error, NotFound)
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound)
     assert rendered == (FIXTURES / "render" / "status-fallback.txt").read_text().rstrip("\n")
 
 
@@ -85,9 +87,9 @@ def test_render_failure_is_the_runners_command_failed(fake_bin) -> None:
     rendered, error = status_text(snapshot())
 
     assert rendered == (FIXTURES / "render" / "status-fallback.txt").read_text().rstrip("\n")
-    assert isinstance(error, CommandFailed)
-    assert (error.kind, error.code, error.stderr) == ("command_failed", 4, "bad diagram")
-    assert error.argv == ("mmdflux", "--format", "text")
+    assert error is not None and isinstance(error.detail, ErrorDetail.CommandFailed)
+    assert (error.kind, error.detail.code, error.detail.stderr) == (ErrorKind.COMMAND_FAILED, 4, "bad diagram")
+    assert tuple(error.detail.argv) == ("mmdflux", "--format", "text")
 
 
 def test_fallback_is_one_row_per_sprint_in_dependency_depth_order(monkeypatch) -> None:
@@ -102,7 +104,7 @@ def test_fallback_is_one_row_per_sprint_in_dependency_depth_order(monkeypatch) -
     value = replace(snapshot(), sprints=sprints)
     monkeypatch.setenv("PATH", "")
     rendered, error = status_text(value)
-    assert isinstance(error, NotFound)
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound)
     # Depth 0 first (bh-1 before bh-4 by declared order), then depth 1, then depth 2.
     assert rendered == "\U000f05e0 bh-1\n\U000f040d bh-4  dev: unassigned\n\U000f051f bh-2  dev: ·fenix\n\U000f137c bh-3  ← bh-2"
 
@@ -123,7 +125,7 @@ def test_fallback_renders_every_sprint_state() -> None:
 def test_nonzero_and_timeout_return_error_and_fallback(monkeypatch) -> None:
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, "", "bad"))
     rendered, error = status_text(snapshot())
-    assert isinstance(error, CommandFailed) and error.code == 1
+    assert error is not None and isinstance(error.detail, ErrorDetail.CommandFailed) and error.detail.code == 1
     assert rendered.startswith("\U000f05e0 bh-1")
 
     def timed_out(*args, **kwargs):
@@ -131,7 +133,7 @@ def test_nonzero_and_timeout_return_error_and_fallback(monkeypatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", timed_out)
     rendered, error = status_text(snapshot())
-    assert isinstance(error, Timeout) and error.seconds == 20
+    assert error is not None and isinstance(error.detail, ErrorDetail.Timeout) and error.detail.seconds == 20
     assert rendered.startswith("\U000f05e0 bh-1")
 
 
@@ -169,7 +171,7 @@ def test_good_then_failing_render_keeps_first_diagram_with_stale_marker_and_reas
 
     assert text.startswith("DIAGRAM\n")
     assert "stale 4m" in text and PARSE_STDERR in text and "exit 1" in text
-    assert isinstance(error, CommandFailed) and error.stderr == PARSE_STDERR
+    assert error is not None and isinstance(error.detail, ErrorDetail.CommandFailed) and error.detail.stderr == PARSE_STDERR
 
 
 def test_empty_sprints_do_not_run_mmdflux_and_the_reason_is_the_beads_error() -> None:
@@ -187,7 +189,7 @@ def test_empty_sprints_do_not_run_mmdflux_and_the_reason_is_the_beads_error() ->
 
 def test_empty_sprints_without_a_read_error_say_there_is_no_phase_data() -> None:
     _, error = status_text(replace(snapshot(), sprints=(), mermaid="graph TD", errors=()), FakeMmdflux())
-    assert isinstance(error, NotFound) and error.what == "phase data"
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound) and error.detail.what == "phase data"
 
 
 def test_empty_after_good_keeps_the_last_diagram_without_calling_mmdflux() -> None:
@@ -209,8 +211,8 @@ def test_mmdflux_failure_keeps_argv_code_stderr_logs_it_and_has_its_own_fix() ->
 
     _, error = pane_show(pane, fake, snapshot())
 
-    assert isinstance(error, CommandFailed)
-    assert (error.argv, error.code, error.stderr) == (("mmdflux", "--format", "text"), 1, PARSE_STDERR)
+    assert error is not None and isinstance(error.detail, ErrorDetail.CommandFailed)
+    assert (tuple(error.detail.argv), error.detail.code, error.detail.stderr) == (("mmdflux", "--format", "text"), 1, PARSE_STDERR)
     assert "report it as a defect" in error.fix and "graph TD" in error.fix
     assert "correct the Mermaid source" not in error.fix
     assert logged == [error]
@@ -219,7 +221,7 @@ def test_mmdflux_failure_keeps_argv_code_stderr_logs_it_and_has_its_own_fix() ->
 def test_timeout_fix_names_the_loaded_host_and_the_wait() -> None:
     fake = FakeMmdflux(Err(Timeout("timeout", ("mmdflux", "--format", "text"), 20, "")))
     _, error = status_text(snapshot(), fake)
-    assert isinstance(error, Timeout) and "host is loaded" in error.fix and "20s" in error.fix
+    assert error is not None and isinstance(error.detail, ErrorDetail.Timeout) and "host is loaded" in error.fix and "20s" in error.fix
 
 
 def test_first_tick_failure_is_a_labelled_fallback_never_empty() -> None:
@@ -247,8 +249,8 @@ def test_stale_reason_prints_a_many_id_bd_argv_as_a_count_and_the_error_keeps_th
     text, error = pane_show(pane, FakeMmdflux(), replace(snapshot(), sprints=(), errors=(beads,)), NOW + timedelta(minutes=2))
 
     assert "bd show (28 ids) timed out after 20s" in text and "atm-bk-0" not in text
-    assert isinstance(error, Timeout)
-    assert error is beads and error.argv == ("bd", "show", *ids)
+    assert error is not None and isinstance(error.detail, ErrorDetail.Timeout)
+    assert error is beads and tuple(error.detail.argv) == ("bd", "show", *ids)
 
 
 def test_dag_reason_uses_the_shared_error_text_not_the_backticked_log_format() -> None:

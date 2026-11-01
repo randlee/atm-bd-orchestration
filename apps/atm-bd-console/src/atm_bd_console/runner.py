@@ -1,6 +1,10 @@
 """Impure tick boundary; scheduling and decisions remain in :mod:`model`."""
 from __future__ import annotations
 
+from result import error_data, kind_name
+
+from atm_bd_types import ErrorDetail
+
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -79,7 +83,7 @@ def _run_actions(config: Config, actions: tuple[Action, ...], store: _ActionStor
                 errors.append(result.error)
                 held = store.append_action(ActionLine(now, "hold", action.to, bead, result.error.fix))
                 if isinstance(held, Err): errors.append(held.error)
-                reported.append(replace(action, outcome=f"failed {result.error.kind}"))
+                reported.append(replace(action, outcome=f"failed {kind_name(result.error.kind)}"))
             else:
                 reported.append(replace(action, outcome="sent"))
         if isinstance(result, Err):
@@ -88,8 +92,8 @@ def _run_actions(config: Config, actions: tuple[Action, ...], store: _ActionStor
             "action", effect=action.kind, recipient=action.to, task_ids=list(action.bead_ids),
             outcome=reported[-1].outcome,
             level="error" if isinstance(result, Err) else "info",
-            message=error_message(asdict(result.error)) if isinstance(result, Err) else None,
-            error=asdict(result.error) if isinstance(result, Err) else None,
+            message=error_message(error_data(result.error)) if isinstance(result, Err) else None,
+            error=error_data(result.error) if isinstance(result, Err) else None,
         )
     return tuple(reported), tuple(errors)
 
@@ -247,7 +251,7 @@ def _stopped_tick(config: Config, state: State, now: datetime, store: StateStore
                                         stack_prs=stack_prs))
         if isinstance(saved, Err):
             cache_errors = (saved.error,)
-            logger.event("error", source="prs.write", error=asdict(saved.error))
+            logger.event("error", source="prs.write", error=error_data(saved.error))
     merges = tuple(Ok(merge) for merge in cached_merges.value.merges.values()) if isinstance(cached_merges, Ok) else ()
     sent = tuple(
         Action(line.at, line.kind if line.kind in ("assign", "send", "batch") else "send", line.to or "—",
@@ -268,7 +272,7 @@ def _stopped_tick(config: Config, state: State, now: datetime, store: StateStore
     snapshot = replace(snapshot, sent=sent)
     next_state = state if config.dry_run else next_state
     written = store.write_state(next_state)
-    history_errors = () if isinstance(history, Ok) or isinstance(history.error, NotFound) else (history.error,)
+    history_errors = () if isinstance(history, Ok) or isinstance(history.error.detail, ErrorDetail.NotFound) else (history.error,)
     errors = (*snapshot.errors, *history_errors, *closed_errors, *store.load_errors, *cache_errors, *((written.error,) if isinstance(written, Err) else ()))
     sanity = logger.result("sanity.ledger", ledger_source.sanity_runs(config.repo_root, config.phase))
     for error in errors:
@@ -418,7 +422,7 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
         else:
             refresh_errors.append(refreshed_prs.error)
         logger.event("github_read", forced=force_github, outcome="paused" if gh.paused else "failed" if isinstance(refreshed_prs, Err) else "ok",
-                     error=asdict(refreshed_prs.error) if isinstance(refreshed_prs, Err) else None)
+                     error=error_data(refreshed_prs.error) if isinstance(refreshed_prs, Err) else None)
     merges = dict(saved_merges.value.merges) if isinstance(saved_merges, Ok) else {}
     merge_results = []
     # A pair whose PR is closed or merged is not a merge candidate; a pair with no PR yet is still
@@ -442,8 +446,8 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
                 merge_results.append(Ok(merges[branch]))
                 continue
             checked = remotes if isinstance(remotes, Err) else git_source.merge(code_root, branch, target)
-            ref_missing = checked.error if isinstance(checked, Err) and isinstance(checked.error, NotFound) and (
-                checked.error.what in (f"origin/{branch}", f"origin/{target}")) else None
+            ref_missing = checked.error.detail if isinstance(checked, Err) and isinstance(checked.error.detail, ErrorDetail.NotFound) and (
+                checked.error.detail.what in (f"origin/{branch}", f"origin/{target}")) else None
             if not isinstance(remotes, Err) and ref_missing is None:
                 checked = logger.result("git.merge", checked, branch=branch, target=target)
                 merge_results.append(checked)

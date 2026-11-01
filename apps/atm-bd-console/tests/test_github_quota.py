@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorKind, ErrorDetail
+
 import copy
 import json
 from datetime import UTC, datetime, timedelta
@@ -225,7 +227,7 @@ def test_invalid_quota_fails_closed(monkeypatch):
     monkeypatch.setattr(github_source.command, "run", lambda argv, *_args, **_kwargs:
                         calls.append(argv) or Ok(Output(0, '{}')))
     result, _ = open_prs("graphql", "/repo", (), budget())
-    assert isinstance(result, Err) and result.error.kind == "parse_failed"
+    assert isinstance(result, Err) and result.error.kind == ErrorKind.PARSE_FAILED
     assert calls == [QUOTA_ARGV]
 
 
@@ -233,8 +235,8 @@ def test_quota_command_failure_identifies_the_failed_command(monkeypatch):
     monkeypatch.setattr(github_source.command, "run", lambda argv, *_args, **_kwargs:
                         Err(CommandFailed("command_failed", argv, 1, "quota unavailable", "retry")))
     result, _ = open_prs("graphql", "/repo", (), budget())
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
-    assert result.error.argv == QUOTA_ARGV
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
+    assert tuple(result.error.detail.argv) == QUOTA_ARGV
 
 
 def test_repeated_pagination_cursor_is_a_typed_failure(monkeypatch):
@@ -243,4 +245,4 @@ def test_repeated_pagination_cursor_is_a_typed_failure(monkeypatch):
     monkeypatch.setattr(github_source.command, "run", lambda argv, *_args, **_kwargs: Ok(Output(0, json.dumps(
         quota(4000) if argv == QUOTA_ARGV else page))))
     result, _ = open_prs("graphql", "/repo", (), budget())
-    assert isinstance(result, Err) and result.error.kind == "parse_failed"
+    assert isinstance(result, Err) and result.error.kind == ErrorKind.PARSE_FAILED

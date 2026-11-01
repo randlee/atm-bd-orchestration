@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorKind
+
 import re
 from typing import cast
 
@@ -86,7 +88,7 @@ def test_native_typed_errors_are_exposed_as_console_errors(tmp_path, monkeypatch
         result = logger.event("action") if operation == "event" else logger.flush()
 
     assert isinstance(result, Err)
-    assert result.error.kind == "io_failed"
+    assert result.error.kind == ErrorKind.IO_FAILED
     assert rejected.error.code in result.error.message
 
 

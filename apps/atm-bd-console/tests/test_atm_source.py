@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import json
 import subprocess
 from datetime import UTC, datetime
@@ -85,8 +87,8 @@ def test_task_closed_rejects_a_malformed_history(fake_bin, monkeypatch, body: st
 
     result = atm_source.task_closed("t", "atm-dev", "trinity")
 
-    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
-    assert result.error.source == "atm task events"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ParseFailed)
+    assert result.error.detail.source == "atm task events"
 
 
 def test_tasks_rejects_a_complete_state_as_unknown(fake_bin, monkeypatch) -> None:
@@ -97,8 +99,8 @@ def test_tasks_rejects_a_complete_state_as_unknown(fake_bin, monkeypatch) -> Non
 
     result = atm_source.tasks("atm-dev", "trinity")
 
-    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
-    assert result.error.source == "atm task list"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ParseFailed)
+    assert result.error.detail.source == "atm task list"
 
 
 @pytest.mark.parametrize(
@@ -116,8 +118,8 @@ def test_naive_null_and_non_list_timestamps_are_rejected_not_read_as_local(fake_
 
     result = atm_source.members("atm-dev", "trinity") if command == "members" else atm_source.tasks("atm-dev", "trinity")
 
-    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
-    assert result.error.source == source
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ParseFailed)
+    assert result.error.detail.source == source
 
 
 def test_err_fixes_name_the_command_to_run(fake_bin, monkeypatch) -> None:
@@ -163,19 +165,19 @@ def test_send_and_assign_use_exact_argv_stdin_and_temporary_vars_file(fake_bin, 
 def test_command_failures_invalid_json_and_timeouts_are_typed_without_raising(fake_bin, monkeypatch) -> None:
     fake_bin.make("atm", 'printf "permission denied" >&2\nexit 7\n')
     failed = atm_source.members("atm-dev", "trinity")
-    assert isinstance(failed, Err) and isinstance(failed.error, CommandFailed)
-    assert failed.error.code == 7 and failed.error.stderr == "permission denied"
+    assert isinstance(failed, Err) and isinstance(failed.error.detail, ErrorDetail.CommandFailed)
+    assert failed.error.detail.code == 7 and failed.error.detail.stderr == "permission denied"
 
     fake_bin.make("atm", 'printf "not json"\n')
     invalid = atm_source.members("atm-dev", "trinity")
-    assert isinstance(invalid, Err) and isinstance(invalid.error, ParseFailed)
+    assert isinstance(invalid, Err) and isinstance(invalid.error.detail, ErrorDetail.ParseFailed)
 
     def timeout(argv, **_kwargs):
         raise subprocess.TimeoutExpired(argv, 1)
 
     monkeypatch.setattr(subprocess, "run", timeout)
     timed_out = atm_source._run(["atm", "wait"], "trinity", timeout_s=1)
-    assert isinstance(timed_out, Err) and isinstance(timed_out.error, Timeout)
+    assert isinstance(timed_out, Err) and isinstance(timed_out.error.detail, ErrorDetail.Timeout)
 
 
 def test_missing_atm_binary_is_a_typed_error(tmp_path, monkeypatch) -> None:
@@ -183,8 +185,8 @@ def test_missing_atm_binary_is_a_typed_error(tmp_path, monkeypatch) -> None:
 
     result = atm_source.members("atm-dev", "trinity")
 
-    assert isinstance(result, Err) and isinstance(result.error, Unreachable)
-    assert result.error.argv == ("atm", "members", "--team", "atm-dev", "--json")
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.Unreachable)
+    assert tuple(result.error.detail.argv) == ("atm", "members", "--team", "atm-dev", "--json")
     assert result.error.fix == "install the atm CLI and put it on PATH, then rerun `atm members --team atm-dev --json`"
 
 
@@ -194,8 +196,8 @@ def test_decode_error_is_the_runners_command_failed_without_exit_code(monkeypatc
 
     result = atm_source._run(["atm", "members", "--json"], "trinity")
 
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
-    assert result.error.code == -1
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
+    assert result.error.detail.code == -1
 
 
 def test_child_runs_as_the_configured_identity(fake_bin) -> None:
@@ -209,7 +211,7 @@ def test_assign_with_non_serializable_vars_returns_error_and_removes_tempfile(tm
 
     result = atm_source.assign("aria", "atm-bh-3.group-dev", DispatchSpec("dev.md.j2", {"bad": object()}), "trinity", "atm-dev")
 
-    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ParseFailed)
     assert result.error.fix == "use JSON-serializable template variables"
     assert list(tmp_path.iterdir()) == []
 
@@ -228,9 +230,9 @@ def test_public_operations_accept_an_injected_timeout(monkeypatch) -> None:
         atm_source.assign("aria", "atm-bh-3.group-dev", spec, "trinity", "atm-dev", timeout_s=1),
     )
 
-    assert all(isinstance(result, Err) and isinstance(result.error, Timeout) for result in results)
-    assert all(result.error.seconds == 1 for result in results
-               if isinstance(result, Err) and isinstance(result.error, Timeout))
+    assert all(isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.Timeout) for result in results)
+    assert all(result.error.detail.seconds == 1 for result in results
+               if isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.Timeout))
 
 
 @pytest.mark.parametrize(
@@ -259,8 +261,8 @@ def test_bare_list_members_payload_is_rejected_with_the_members_list_message(fak
 
     result = atm_source.members("atm-dev", "trinity")
 
-    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
-    assert result.error.message == "atm members must contain a members list"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ParseFailed)
+    assert result.error.detail.message == "atm members must contain a members list"
 
 
 def test_every_atm_call_runs_as_the_lead_without_a_shell_identity(fake_bin, monkeypatch, tmp_path) -> None:
@@ -290,7 +292,7 @@ def test_command_failed_fix_names_the_identity_the_console_ran_as(fake_bin) -> N
 
     result = atm_source.members("atm-dev", "trinity")
 
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
     assert result.error.fix == (
         "rerun `atm members --team atm-dev --json` as ATM_IDENTITY=trinity and read its stderr, or pass a larger timeout"
     )

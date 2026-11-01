@@ -1,6 +1,8 @@
 """beads_source against a fake bd that answers `bd show <ids> --json` from one JSON file per bead."""
 from __future__ import annotations
 
+from atm_bd_types import ErrorKind, ErrorDetail
+
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -102,9 +104,9 @@ def test_known_parents_are_not_shown(fake_bin, beads: Path) -> None:
 def test_missing_parent_is_command_failed(fake_bin, beads: Path) -> None:
     fake_bin.make("bd", SHOW)
     result = beads_source.ancestors((leaf("atm-bh-9.group-dev", "atm-bh-9"),))
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
-    assert result.error.argv == ("bd", "show", "atm-bh-9", "--json")
-    assert result.error.code == 1 and "no issue found: atm-bh-9" in result.error.stderr
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
+    assert tuple(result.error.detail.argv) == ("bd", "show", "atm-bh-9", "--json")
+    assert result.error.detail.code == 1 and "no issue found: atm-bh-9" in result.error.detail.stderr
 
 
 @pytest.mark.parametrize("reply", ["not json", '[{"title": "no id", "status": "open"}]', '{"id": "x"}'],
@@ -112,16 +114,16 @@ def test_missing_parent_is_command_failed(fake_bin, beads: Path) -> None:
 def test_unparseable_reply_is_parse_failed(fake_bin, reply: str) -> None:
     fake_bin.make("bd", f"printf '%s' '{reply}'\n")
     result = beads_source.ancestors((leaf("atm-bh-4.group-dev", "atm-bh-4"),))
-    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
-    assert result.error.kind == "parse_failed"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ParseFailed)
+    assert result.error.kind == ErrorKind.PARSE_FAILED
 
 
 def test_timeout_fix_names_the_wait_and_the_action(monkeypatch: pytest.MonkeyPatch) -> None:
     argv = ["bd", "list", "-l", "phase-bh", "-n", "0", "--json"]
     monkeypatch.setattr(beads_source.command, "run", lambda *_a, **_k: Err(Timeout("timeout", tuple(argv), 20, "stub")))
     result = beads_source._raw(argv)
-    assert isinstance(result, Err) and isinstance(result.error, Timeout)
-    assert result.error.argv == tuple(argv) and result.error.seconds == 20
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.Timeout)
+    assert tuple(result.error.detail.argv) == tuple(argv) and result.error.detail.seconds == 20
     assert "waited 20s" in result.error.fix and "host is loaded" in result.error.fix
     assert "bd list -l phase-bh -n 0 --json" in result.error.fix and "inspect bd output" not in result.error.fix
 
@@ -131,8 +133,8 @@ def test_command_failed_fix_names_exit_code_and_keeps_stderr(monkeypatch: pytest
     failed = CommandFailed("command_failed", tuple(argv), 3, "dolt down", "stub")
     monkeypatch.setattr(beads_source.command, "run", lambda *_a, **_k: Err(failed))
     result = beads_source._raw(argv)
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
-    assert result.error.code == 3 and result.error.stderr == "dolt down"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
+    assert result.error.detail.code == 3 and result.error.detail.stderr == "dolt down"
     assert "exited 3" in result.error.fix and "Dolt" in result.error.fix
 
 
@@ -171,5 +173,5 @@ def test_a_bd_failure_that_is_not_not_found_is_still_an_error(fake_bin, beads: P
     fake_bin.make("bd", SHOW_132)
     monkeypatch.setenv("FAKE_BD_DOWN", "1")
     failed = beads_source.show_tasks(("atm-bh-6",))
-    assert isinstance(failed, Err) and isinstance(failed.error, CommandFailed)
-    assert "connection refused" in failed.error.stderr
+    assert isinstance(failed, Err) and isinstance(failed.error.detail, ErrorDetail.CommandFailed)
+    assert "connection refused" in failed.error.detail.stderr

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from result import kind_name
+
 import re
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -191,7 +193,7 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
     github_problems = ()
     if not inputs.gh.paused and (inputs.gh.mode == "off" or inputs.gh.ok is not True or inputs.gh.truncated):
         cause = "off" if inputs.gh.mode == "off" else "truncated" if inputs.gh.truncated else (
-            inputs.gh.error.kind if inputs.gh.error else "unavailable"
+            kind_name(inputs.gh.error.kind) if inputs.gh.error else "unavailable"
         )
         github_problems = (Problem("github_unavailable", None, inputs.lead, f"GitHub data {cause}", now),)
     snapshot = replace(snapshot, problems=(*problems, *github_problems))
@@ -527,7 +529,7 @@ def _problems(
     if isinstance(inputs.stack_prs, Err):
         problems.append(Problem(
             "stack_membership:unavailable", None, inputs.lead,
-            f"hosted stack membership is unreadable ({inputs.stack_prs.error.kind}): no top PR is named and no "
+            f"hosted stack membership is unreadable ({kind_name(inputs.stack_prs.error.kind)}): no top PR is named and no "
             f"top-dependent advice is sent until the stack read succeeds; check console.stack trunk/number in "
             f"console.toml and GitHub access",
             now,

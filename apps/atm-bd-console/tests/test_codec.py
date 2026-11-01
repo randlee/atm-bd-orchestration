@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
@@ -117,8 +119,8 @@ def test_legacy_ci_rejects_malformed_failed_checks(checks: object) -> None:
     prs_file["prs"][0].update(ci="failure", failed_checks=checks)
     decoded = from_json(types.PrsFile, json.dumps(prs_file))
     assert isinstance(decoded, Err)
-    assert isinstance(decoded.error, ParseFailed)
-    assert decoded.error.source.startswith("$.prs[0].failed_checks")
+    assert isinstance(decoded.error.detail, ErrorDetail.ParseFailed)
+    assert decoded.error.detail.source.startswith("$.prs[0].failed_checks")
 
 
 def test_legacy_bead_step_and_qa_strings_decode_to_enums() -> None:
@@ -144,21 +146,21 @@ def test_config_round_trip_and_literal_rejection() -> None:
     assert decoded == Ok(value)
     invalid = from_json(Config, to_json(value).replace('"rest"', '"wrong"'))
     assert isinstance(invalid, Err)
-    assert isinstance(invalid.error, ParseFailed)
-    assert invalid.error.source == "$.github"
-    assert invalid.error.message.startswith("$.github: expected one of")
+    assert isinstance(invalid.error.detail, ErrorDetail.ParseFailed)
+    assert invalid.error.detail.source == "$.github"
+    assert invalid.error.detail.message.startswith("$.github: expected one of")
 
 
 def test_nested_literal_rejection_names_the_full_path() -> None:
     text = to_json(SNAPSHOT).replace('"mode":"graphql"', '"mode":"soap"', 1)
     invalid = from_json(Snapshot, text)
     assert isinstance(invalid, Err)
-    assert isinstance(invalid.error, ParseFailed)
-    assert invalid.error.source == "$.gh.mode"
+    assert isinstance(invalid.error.detail, ErrorDetail.ParseFailed)
+    assert invalid.error.detail.source == "$.gh.mode"
     invalid = from_json(Snapshot, to_json(SNAPSHOT).replace('"kind":"sprint_qa"', '"kind":"qa"'))
     assert isinstance(invalid, Err)
-    assert isinstance(invalid.error, ParseFailed)
-    assert invalid.error.source == "$.agents[0].rows[0].kind"
+    assert isinstance(invalid.error.detail, ErrorDetail.ParseFailed)
+    assert invalid.error.detail.source == "$.agents[0].rows[0].kind"
 
 
 def _contract_classes() -> set[type]:
@@ -169,8 +171,12 @@ def _contract_classes() -> set[type]:
 
 
 def test_samples_cover_every_contract_type_populated() -> None:
-    assert {type(sample) for sample in SAMPLES} | {Ok, Err} == _contract_classes()
+    assert {type(sample) for sample in SAMPLES if not isinstance(sample, Error)} | {Ok, Err} == _contract_classes()
+    assert {type(sample.detail) for sample in SAMPLES if isinstance(sample, Error)} == {getattr(ErrorDetail, name) for name in ("CommandFailed", "Timeout", "Rejected", "Unreachable", "ParseFailed", "NotFound", "ConfigInvalid", "LockHeld", "IoFailed")}
     for sample in SAMPLES:
+        if isinstance(sample, Error):
+            assert sample.detail is not None and sample.fix
+            continue
         for field in fields(sample):
             value = getattr(sample, field.name)
             assert value is not None or field.name in OPTIONAL_ADDITIONS, (
@@ -290,15 +296,15 @@ def test_tick_context_missing_contract_fields_report_paths() -> None:
         value.pop(field)
         decoded = from_json(cls, json.dumps(value))
         assert isinstance(decoded, Err)
-        assert isinstance(decoded.error, ParseFailed)
-        assert decoded.error.source == path
+        assert isinstance(decoded.error.detail, ErrorDetail.ParseFailed)
+        assert decoded.error.detail.source == path
 
 
 def test_missing_field_and_datetime_errors_are_results() -> None:
     missing = from_json(Config, '{"phase":"bh"}')
     assert isinstance(missing, Err)
-    assert isinstance(missing.error, ParseFailed)
-    assert "lead" in missing.error.message
+    assert isinstance(missing.error.detail, ErrorDetail.ParseFailed)
+    assert "lead" in missing.error.detail.message
     invalid = from_json(datetime, '"2026-10-14T10:00:00"')
     assert isinstance(invalid, Err)
 
@@ -313,8 +319,8 @@ def test_missing_field_and_datetime_errors_are_results() -> None:
 def test_datetime_decoder_rejects_noncanonical_format(text: str) -> None:
     invalid = from_json(datetime, text)
     assert isinstance(invalid, Err)
-    assert isinstance(invalid.error, ParseFailed)
-    assert invalid.error.source == "$"
+    assert isinstance(invalid.error.detail, ErrorDetail.ParseFailed)
+    assert invalid.error.detail.source == "$"
 
 
 def test_datetime_encoder_documents_precision_and_rejects_naive_values() -> None:
@@ -357,8 +363,6 @@ def test_each_error_kind_round_trips_inside_result() -> None:
 
 
 def test_error_kind_decoder_map_matches_error_union() -> None:
-    expected = {
-        get_args(get_type_hints(error_type)["kind"])[0]: error_type
-        for error_type in get_args(result.Error)
-    }
+    expected = {get_args(get_type_hints(factory)["kind"])[0]: factory for factory in (
+        CommandFailed, Timeout, Rejected, Unreachable, ParseFailed, NotFound, ConfigInvalid, LockHeld, IoFailed)}
     assert _ERRORS == expected

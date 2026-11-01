@@ -79,7 +79,7 @@ pub enum ErrorKind {
     pyo3_stub_gen::derive::gen_stub_pyclass_complex_enum
 )]
 #[cfg_attr(feature = "python", pyclass(module = "atm_bd_types", from_py_object))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ErrorDetail {
     CommandFailed {
         argv: Vec<String>,
@@ -123,9 +123,9 @@ pub enum ErrorDetail {
 #[cfg_attr(feature = "python", pyo3_stub_gen::derive::gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python",
-    pyclass(module = "atm_bd_types", frozen, eq, from_py_object)
+    pyclass(module = "atm_bd_types", frozen, eq, hash, from_py_object)
 )]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Error {
     pub kind: ErrorKind,
     pub message: String,
@@ -137,6 +137,9 @@ pub struct Error {
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl Error {
+    fn __str__(&self) -> String {
+        self.message.clone()
+    }
     #[getter]
     fn kind(&self) -> ErrorKind {
         self.kind
@@ -185,6 +188,8 @@ fn atm_bd_types(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CloseVars>()?;
     m.add_class::<ProviderCommands>()?;
     m.add_class::<PrRef>()?;
+    m.add_class::<MergedPrRef>()?;
+    m.add_class::<Evidence>()?;
     Ok(())
 }
 
@@ -234,6 +239,7 @@ pub enum PrOp {
     View,
     EditBase,
     Comment,
+    CommentView,
     Checks,
     LookupByHead,
     StackLink,
@@ -323,6 +329,7 @@ impl<'de> Deserialize<'de> for ProviderCommands {
             (PrOp::View, &["number"][..]),
             (PrOp::EditBase, &["number", "base"][..]),
             (PrOp::Comment, &["number", "body_file"][..]),
+            (PrOp::CommentView, &["number"][..]),
             (PrOp::Checks, &["number"][..]),
             (PrOp::LookupByHead, &["head"][..]),
             (PrOp::StackLink, &[][..]),
@@ -352,6 +359,8 @@ impl<'de> Deserialize<'de> for ProviderCommands {
                         "project",
                         "repository",
                         "stack_bead",
+                        "state",
+                        "thread",
                     ]
                     .contains(&name)
                     {
@@ -428,6 +437,7 @@ pub struct PrRef {
     pub number: String,
     pub url: String,
     pub base: String,
+    pub head_sha: String,
 }
 
 #[cfg(feature = "python")]
@@ -435,8 +445,13 @@ pub struct PrRef {
 #[pymethods]
 impl PrRef {
     #[new]
-    fn new(number: String, url: String, base: String) -> Self {
-        Self { number, url, base }
+    fn new(number: String, url: String, base: String, head_sha: String) -> Self {
+        Self {
+            number,
+            url,
+            base,
+            head_sha,
+        }
     }
 }
 
@@ -506,5 +521,76 @@ impl ProviderOp {
     #[getter]
     fn payload_json(&self) -> Option<String> {
         self.payload.as_ref().map(serde_json::Value::to_string)
+    }
+}
+
+/// A merged pull request and the commit used for ancestry checks.
+#[cfg_attr(feature = "python", pyo3_stub_gen::derive::gen_stub_pyclass)]
+#[cfg_attr(
+    feature = "python",
+    pyclass(module = "atm_bd_types", get_all, from_py_object)
+)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergedPrRef {
+    pub number: String,
+    pub url: String,
+    pub base: String,
+    pub merged_at: String,
+    pub merge_commit: String,
+}
+
+#[cfg(feature = "python")]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+#[pymethods]
+impl MergedPrRef {
+    #[new]
+    fn new(
+        number: String,
+        url: String,
+        base: String,
+        merged_at: String,
+        merge_commit: String,
+    ) -> Self {
+        Self {
+            number,
+            url,
+            base,
+            merged_at,
+            merge_commit,
+        }
+    }
+}
+
+/// Provider evidence and its attribution.
+#[cfg_attr(feature = "python", pyo3_stub_gen::derive::gen_stub_pyclass)]
+#[cfg_attr(
+    feature = "python",
+    pyclass(module = "atm_bd_types", get_all, from_py_object)
+)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Evidence {
+    pub body: String,
+    pub url: Option<String>,
+    pub author: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[cfg(feature = "python")]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+#[pymethods]
+impl Evidence {
+    #[new]
+    fn new(
+        body: String,
+        url: Option<String>,
+        author: Option<String>,
+        updated_at: Option<String>,
+    ) -> Self {
+        Self {
+            body,
+            url,
+            author,
+            updated_at,
+        }
     }
 }

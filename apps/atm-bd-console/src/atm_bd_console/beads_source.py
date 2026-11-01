@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from result import with_fix
+
+from atm_bd_types import ErrorDetail
+
 import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -38,14 +42,14 @@ def _raw(argv: list[str], *, cwd: str | None = None) -> Result[list[dict[str, An
     completed = command.run(argv, f"run `{line}` by hand and repair what it reports", cwd=cwd)
     if isinstance(completed, Err):
         error = completed.error
-        if isinstance(error, Timeout):
-            fix = (f"bd or Dolt is slow or the host is loaded; the call waited {error.seconds}s; "
+        if isinstance(error.detail, ErrorDetail.Timeout):
+            fix = (f"bd or Dolt is slow or the host is loaded; the call waited {error.detail.seconds}s; "
                    f"check the host load, then run `{line}` by hand to see how long it takes")
-            return Err(replace(error, fix=fix))
-        if isinstance(error, CommandFailed):
-            fix = (f"`{line}` exited {error.code}; read its stderr above and repair that "
+            return Err(with_fix(error, fix))
+        if isinstance(error.detail, ErrorDetail.CommandFailed):
+            fix = (f"`{line}` exited {error.detail.code}; read its stderr above and repair that "
                    f"(is bd installed and the Dolt server up?), then run it by hand to confirm")
-            return Err(replace(error, fix=fix))
+            return Err(with_fix(error, fix))
         return completed
     try:
         raw = json.loads(completed.value.stdout)
@@ -79,7 +83,7 @@ def show_tasks(ids: tuple[str, ...]) -> Result[tuple[Bead, ...]]:
     """The beads of open ATM task ids. A task need not be a bead: bd returns the beads it has and names the
     others on stderr, and exits 1 when no id is a bead, which is no beads, not a failed read (#590)."""
     found = show(ids)
-    if isinstance(found, Err) and isinstance(found.error, CommandFailed) and _only_not_found(found.error.stderr, ids):
+    if isinstance(found, Err) and isinstance(found.error.detail, ErrorDetail.CommandFailed) and _only_not_found(found.error.detail.stderr, ids):
         return Ok(())
     return found
 

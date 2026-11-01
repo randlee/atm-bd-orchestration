@@ -1,6 +1,8 @@
 """Held values and the Sanity and Quality tabs: last good rows survive a failed read, and nothing is blank."""
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -86,7 +88,7 @@ def test_sanity_ledger_failures_are_typed_errors(monkeypatch) -> None:
 
     monkeypatch.setattr(ledger_source, "read_ledger", malformed)
     result = ledger_source.sanity_runs("/repo", "bj")
-    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ParseFailed)
 
 
 def _text(app: ConsoleApp, selector: str) -> str:

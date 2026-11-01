@@ -1,6 +1,10 @@
 """Resolve bundled and released atm-bd-orchestration installer data."""
 from __future__ import annotations
 
+from result import kind_name
+
+from atm_bd_types import ErrorDetail
+
 import io
 import json
 import re
@@ -129,8 +133,8 @@ def _run_git(args: list[str], *, timeout_s: int = command.DEFAULT_TIMEOUT_S) -> 
     result = command.run(["git", *args], f"check access to {REPOSITORY} and retry", timeout_s=timeout_s)
     if isinstance(result, Err):
         error = result.error
-        detail = getattr(error, "stderr", "") or (
-            f"timed out after {error.seconds}s" if isinstance(error, Timeout) else error.kind
+        detail = (error.detail.stderr if isinstance(error.detail, ErrorDetail.CommandFailed) else "") or (
+            f"timed out after {error.detail.seconds}s" if isinstance(error.detail, ErrorDetail.Timeout) else kind_name(error.kind)
         )
         raise RepositoryError(f"{REPOSITORY}: git {' '.join(args)} failed: {detail}")
     return result.value.stdout

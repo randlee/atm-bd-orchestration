@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from result import error_data, kind_name
+
+from atm_bd_types import ErrorDetail
+
 from typing import TYPE_CHECKING
 
 from result import Error, Timeout
@@ -48,12 +52,12 @@ def _fit(line: Text, width: int) -> Text:
 
 def tick_error(error: Error, width: int) -> tuple[Text, Text]:
     """Render a tick error as single-line, width-fitted dashboard and header text."""
-    message = " ".join(getattr(error, "message", error.kind).split())
+    message = " ".join(str(error_data(error).get("message", kind_name(error.kind))).split())
     dashboard = Text("\n").join((
         _fit(Text("== Errors (1)", style="red"), width),
-        _fit(Text(f" {error.kind}: {message}", style="red"), width),
+        _fit(Text(f" {kind_name(error.kind)}: {message}", style="red"), width),
     ))
-    header = _fit(Text(f"{error.kind}: {error.fix}", style="red"), width)
+    header = _fit(Text(f"{kind_name(error.kind)}: {error.fix}", style="red"), width)
     return dashboard, header
 
 
@@ -157,7 +161,7 @@ def beads_error(snapshot: Snapshot, health: PollHealth | None = None) -> Error |
 def _beads_error(snapshot: Snapshot, health: PollHealth | None = None) -> tuple[str, str]:
     error = beads_error(snapshot, health)
     if error is not None:
-        return error.kind, _error_text(error)
+        return kind_name(error.kind), _error_text(error)
     return "unavailable", "unavailable: retry the phase read"
 
 
@@ -262,7 +266,7 @@ def github_quotas(gh: GhStatus, now) -> str:
 
 
 def _seconds(error: Error | None) -> str:
-    return f" {error.seconds}s" if isinstance(error, Timeout) else ""
+    return f" {error.detail.seconds}s" if error is not None and isinstance(error.detail, ErrorDetail.Timeout) else ""
 
 
 def status_bar(snapshot: Snapshot, width: int, health: PollHealth | None = None) -> Text:
@@ -274,7 +278,7 @@ def status_bar(snapshot: Snapshot, width: int, health: PollHealth | None = None)
         if gh.paused:
             segment = github_pause(gh, compact=width < 100)
         elif gh.error is not None or gh.ok is False:
-            kind = gh.error.kind if gh.error is not None else "unavailable"
+            kind = kind_name(gh.error.kind) if gh.error is not None else "unavailable"
             segment = f"gh: {gh.mode} {STATUS_FAIL} {kind}{_seconds(gh.error)} failed {read_at}"
         elif gh.at is None:
             segment = f"gh: {gh.mode} not read yet"
@@ -286,7 +290,7 @@ def status_bar(snapshot: Snapshot, width: int, health: PollHealth | None = None)
     metrics = snapshot.metrics
     if snapshot.phase_data is None:
         error = beads_error(snapshot, health)
-        progress = f"beads ⛔ {error.kind if error is not None else 'unavailable'}{_seconds(error)}"
+        progress = f"beads ⛔ {kind_name(error.kind) if error is not None else 'unavailable'}{_seconds(error)}"
     else:
         filled = min(9, max(0, round(metrics.pct * 9 / 100)))
         progress = f"{metrics.done}/{metrics.total} [{'█' * filled}{'░' * (9 - filled)}] {metrics.pct}%"
@@ -296,7 +300,7 @@ def status_bar(snapshot: Snapshot, width: int, health: PollHealth | None = None)
         if gh.paused:
             short_status = "paused: rate limited" if gh.rate_limited else "paused"
         elif gh.error is not None or gh.ok is False:
-            short_status = f"{STATUS_FAIL} {gh.error.kind if gh.error is not None else 'unavailable'}{_seconds(gh.error)}"
+            short_status = f"{STATUS_FAIL} {kind_name(gh.error.kind) if gh.error is not None else 'unavailable'}{_seconds(gh.error)}"
         elif gh.at is None:
             short_status = f"{gh.mode} not read yet"
         else:

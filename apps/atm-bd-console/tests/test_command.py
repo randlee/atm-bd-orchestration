@@ -1,6 +1,8 @@
 """command.run: the one runner git_source, github_source and beads_source share."""
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import ast
 import os
 import subprocess
@@ -27,8 +29,8 @@ def test_failure_carries_stripped_stderr_and_the_callers_fix(fake_bin) -> None:
 def test_failure_without_stderr_carries_stdout(fake_bin) -> None:
     fake_bin.make("tool", 'printf "{\\"message\\": \\"Not Found\\"}\\n"\nexit 1\n')
     result = command.run(("tool",), "fix it")
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
-    assert result.error.stderr == '{"message": "Not Found"}'
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
+    assert result.error.detail.stderr == '{"message": "Not Found"}'
 
 
 def test_ok_codes_accept_a_nonzero_exit(fake_bin) -> None:
@@ -45,16 +47,16 @@ def test_a_signal_kill_says_interrupted_by_the_signal_not_the_callers_fix(monkey
     done = subprocess.CompletedProcess(("tool",), -2, stdout="", stderr="")
     monkeypatch.setattr(command.subprocess, "run", lambda *_args, **_kwargs: done)
     result = command.run(("tool",), "check GitHub connectivity and retry")
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
-    assert result.error.code == -2
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
+    assert result.error.detail.code == -2
     assert "interrupted by signal SIGINT" in result.error.fix
     assert "connectivity" not in result.error.fix
 
 
 def test_missing_program_is_command_failed_127(fake_bin) -> None:
     result = command.run(("no-such-tool",), "install it")
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
-    assert (result.error.code, result.error.fix) == (127, "install it")
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
+    assert (result.error.detail.code, result.error.fix) == (127, "install it")
 
 
 def test_stdin_and_env_reach_the_program(fake_bin, monkeypatch, tmp_path) -> None:

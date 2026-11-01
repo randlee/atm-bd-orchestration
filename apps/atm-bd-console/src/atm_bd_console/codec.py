@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import re
 from collections.abc import Mapping
 from dataclasses import MISSING, fields, is_dataclass
@@ -10,6 +11,7 @@ from types import UnionType
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from result import (
+    CommandFailed, ConfigInvalid, IoFailed, LockHeld, NotFound, Rejected, Timeout, Unreachable, error_data,
     Err,
     Error,
     Ok,
@@ -19,10 +21,10 @@ from result import (
 
 from .types import Snapshot
 
-_ERROR_TYPES = get_args(Error)
-_ERRORS: dict[str, type[Any]] = {
-    get_args(get_type_hints(error_type)["kind"])[0]: error_type
-    for error_type in _ERROR_TYPES
+_ERRORS = {
+    "command_failed": CommandFailed, "timeout": Timeout, "rejected": Rejected,
+    "unreachable": Unreachable, "parse_failed": ParseFailed, "not_found": NotFound,
+    "config_invalid": ConfigInvalid, "lock_held": LockHeld, "io_failed": IoFailed,
 }
 
 
@@ -39,6 +41,8 @@ def _encode(obj: Any) -> Any:
         return {"ok": _encode(obj.value)}
     if isinstance(obj, Err):
         return {"err": _encode(obj.error)}
+    if isinstance(obj, Error):
+        return _encode(error_data(obj))
     if isinstance(obj, datetime):
         if obj.tzinfo is None:
             raise ValueError("naive datetime")
@@ -111,6 +115,8 @@ def _decode(cls: Any, value: Any, path: str) -> Any:
             return cls(value)
         except (ValueError, TypeError):
             raise _DecodeError(path, f"unknown {cls.__name__} value {value!r}") from None
+    if cls is Error:
+        return _decode_error(value, path)
     if cls is datetime:
         if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value) is None:
             raise _DecodeError(path, "expected UTC datetime YYYY-MM-DDTHH:MM:SSZ")
@@ -190,8 +196,6 @@ def _decode_union(options: tuple[Any, ...], value: Any, path: str) -> Any:
     if value is None and type(None) in options:
         return None
     present = tuple(option for option in options if option is not type(None))
-    if present and all(option in _ERROR_TYPES for option in present):
-        return _decode_error(value, path)
     failures: list[_DecodeError] = []
     for option in present:
         try:
@@ -213,7 +217,17 @@ def _decode_error(value: Any, path: str) -> Error:
     error_type = _ERRORS.get(value["kind"])
     if error_type is None:
         raise _DecodeError(f"{path}.kind", f"unknown error kind {value['kind']!r}")
-    return _decode(error_type, value, path)
+    signature = inspect.signature(error_type)
+    hints = get_type_hints(error_type)
+    unknown = sorted(set(value) - set(signature.parameters))
+    if unknown:
+        raise _DecodeError(f"{path}.{unknown[0]}", f"unknown field (unknown: {', '.join(unknown)})")
+    decoded = {}
+    for name in signature.parameters:
+        if name not in value:
+            raise _DecodeError(f"{path}.{name}", "missing field")
+        decoded[name] = _decode(hints[name], value[name], f"{path}.{name}")
+    return error_type(**decoded)
 
 
 def snapshot_stale(snapshot: Snapshot, now: datetime) -> bool:

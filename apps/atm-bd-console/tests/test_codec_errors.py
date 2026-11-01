@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -13,10 +15,10 @@ from atm_bd_console.types import Config, GhStatus, Inputs, RepoConfig, Sprint
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 
 
-def _parse_failed(result: Any) -> ParseFailed:
+def _parse_failed(result: Any) -> ErrorDetail.ParseFailed:
     assert isinstance(result, Err), result
-    assert isinstance(result.error, ParseFailed), result.error
-    return result.error
+    assert isinstance(result.error.detail, ErrorDetail.ParseFailed), result.error
+    return result.error.detail
 
 
 def _config() -> Config:

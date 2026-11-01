@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from result import error_data
+
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 
@@ -111,7 +113,7 @@ def test_failed_merge_overwrites_cached_clean_and_recovery_resumes(runtime, repo
     cached = store.load_merges().value.merges["clean"]
     assert cached.state == MergeState.ERROR and cached.messages
     assert any(action == "hold" and "unavailable" in fields["reason"] for action, fields in events)
-    assert any(fields.get("source") == "git.merge" and fields.get("error") == asdict(snapshot.errors[0]) for _, fields in events)
+    assert any(fields.get("source") == "git.merge" and fields.get("error") == error_data(snapshot.errors[0]) for _, fields in events)
     monkeypatch.setattr(git_source, "_run", original_run)
     assert git_source.fetch(repo) == Ok(None)
 

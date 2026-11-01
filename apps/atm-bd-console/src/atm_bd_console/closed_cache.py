@@ -1,6 +1,8 @@
 """In-memory cache of closed beads for one console process; a closed bead never changes."""
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import os
 import tempfile
 import threading
@@ -74,7 +76,7 @@ class ClosedBeads:
         if isinstance(decoded, Err):
             error = decoded.error
             fix = f"delete {path}; the closed-bead cache starts empty and is rewritten"
-            cache.pending_errors.append(replace(error, source=f"{path}:{error.source}", fix=fix) if isinstance(error, ParseFailed) else error)
+            cache.pending_errors.append(ParseFailed("parse_failed", f"{path}:{error.detail.source}", error.detail.message, fix) if isinstance(error.detail, ErrorDetail.ParseFailed) else error)
             return cache
         value = decoded.value
         cache._beads = {b.id: b for b in value.beads if b.status == SprintState.CLOSED}

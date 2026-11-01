@@ -1,6 +1,8 @@
 """I/O adapter for the run ledger and QA/finding rows consumed by the tabs."""
 from __future__ import annotations
 
+from result import kind_name
+
 import json
 from typing import Any
 
@@ -15,7 +17,7 @@ class LedgerUnavailable(RuntimeError):
     """The ledger could not be located; carries the typed error of the command that failed."""
 
     def __init__(self, error: Error) -> None:
-        super().__init__(error.kind)
+        super().__init__(kind_name(error.kind))
         self.error = error
 
 

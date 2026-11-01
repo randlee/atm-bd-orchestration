@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from result import kind_name
+
+from error_fixture_helpers import replace_error
+
+from atm_bd_types import ErrorKind, ErrorDetail
+
 import json
 import os
 import select
@@ -258,7 +264,7 @@ def test_show_returns_failure_for_missing_phase(monkeypatch, capsys, stopped) ->
     output = capsys.readouterr().out
     assert f"beads unavailable: {error_text(TIMEOUT)}" in output
     if stopped is None:
-        assert f"beads ⛔ {TIMEOUT.kind}" in output
+        assert f"beads ⛔ {kind_name(TIMEOUT.kind)}" in output
 
 
 def test_show_reads_snapshot_only(monkeypatch, capsys) -> None:
@@ -320,12 +326,12 @@ def test_version_and_non_headless_dispatch(monkeypatch, capsys) -> None:
 @pytest.mark.parametrize(
     ("sender", "team", "response", "error_type"),
     [
-        ("atm-bd", "tool", "printf \"team 'tool' was not found\" >&2; exit 3", NotFound),
-        ("atm-bd", "tool", "printf '{\"members\": []}'", NotFound),
+        ("atm-bd", "tool", "printf \"team 'tool' was not found\" >&2; exit 3", ErrorDetail.NotFound),
+        ("atm-bd", "tool", "printf '{\"members\": []}'", ErrorDetail.NotFound),
         ("atm-bd", "tool", "printf '{\"members\": [{\"name\": \"atm-bd\"}]}'", None),
-        ("robot", "ops", "printf '{\"members\": []}'", NotFound),
+        ("robot", "ops", "printf '{\"members\": []}'", ErrorDetail.NotFound),
         ("robot", "ops", "printf '{\"members\": [{\"name\": \"robot\"}]}'", None),
-        ("atm-bd", "tool", "printf 'daemon unavailable' >&2; exit 7", CommandFailed),
+        ("atm-bd", "tool", "printf 'daemon unavailable' >&2; exit 7", ErrorDetail.CommandFailed),
     ],
     ids=["team-absent", "member-absent", "default-present", "custom-absent", "custom-present", "lookup-failed"],
 )
@@ -344,18 +350,18 @@ def test_console_checks_sender_at_startup(cli_runtime, fake_bin, monkeypatch, se
     if error_type is None:
         assert error is None
     else:
-        assert isinstance(error, error_type)
+        assert error is not None and isinstance(error.detail, error_type)
         assert f"{sender}@{team}" in error.fix
         assert f"atm teams add-member {team} {sender} --agent-type tool --model none" in error.fix
-        if isinstance(error, CommandFailed):
-            assert error.stderr == "daemon unavailable"
+        if isinstance(error.detail, ErrorDetail.CommandFailed):
+            assert error.detail.stderr == "daemon unavailable"
             assert "could not verify" in error.fix
 
 
 def test_startup_error_is_in_dashboard_before_first_refresh(monkeypatch):
     monkeypatch.setattr(cli.atm_source, "members", lambda *_: Ok(()))
     error = cli._notification_startup_error(CONFIG)
-    assert isinstance(error, NotFound)
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound)
     sprints = SimpleNamespace(highlighted=None, clear_options=lambda: None, add_options=lambda _options: None)
     dummy = SimpleNamespace(
         is_running=True, startup_error=error, query_one=lambda *_: sprints, health=PollHealth(),
@@ -488,7 +494,7 @@ def test_headless_stopped_snapshot_and_errors(monkeypatch, capsys) -> None:
     assert cli.main(["cron", "--phase", "bh"]) == 0
     assert '"kind": "error"' in capsys.readouterr().out
     for stopped in ("idle", "closed"):
-        logging_error = replace(IO_FAILED, path="logs", fix="inspect the console log directory")
+        logging_error = replace_error(IO_FAILED, path="logs", fix="inspect the console log directory")
         failed_snapshot = replace(SNAPSHOT, stopped=stopped, errors=(logging_error,))
         monkeypatch.setattr(cli.runner, "step", lambda *_, value=failed_snapshot: StepResult(value, INITIAL_STATE))
         assert cli.main(["cron", "--phase", "bh"]) == 0
@@ -634,7 +640,7 @@ def test_headless_runs_after_the_holder_is_killed(cli_runtime, monkeypatch, caps
 
     def step(config, state, force, store):
         locked = acquire_lock(config.repo_root, PHASE_FILE.root_id)
-        assert isinstance(locked, Err) and isinstance(locked.error, LockHeld)
+        assert isinstance(locked, Err) and isinstance(locked.error.detail, ErrorDetail.LockHeld)
         calls.append((config.repo_root, state, force, store.directory))
         return StepResult(replace(SNAPSHOT, root_closed=False, stopped=None, errors=(), sent=()), state)
 
@@ -645,7 +651,7 @@ def test_headless_runs_after_the_holder_is_killed(cli_runtime, monkeypatch, caps
         assert ready, f"lock holder did not signal readiness within {HANG_GUARD_S} seconds"
         assert child.stdout.readline().strip() == "ready", "lock holder exited before signaling readiness"
         locked = acquire_lock(cli_runtime.repo_root, PHASE_FILE.root_id)
-        assert isinstance(locked, Err) and isinstance(locked.error, LockHeld)
+        assert isinstance(locked, Err) and isinstance(locked.error.detail, ErrorDetail.LockHeld)
         child.kill()
         child.wait(timeout=HANG_GUARD_S)
         assert child.returncode is not None and child.returncode < 0
@@ -685,14 +691,14 @@ def test_headless_io_failures_keep_path_message_and_fix(cli_runtime, monkeypatch
         assert isinstance(failed, Err)
         snapshot = replace(SNAPSHOT, root_closed=False, stopped=None, errors=(failed.error,), sent=())
         monkeypatch.setattr(cli.runner, "step", lambda *_: StepResult(snapshot, INITIAL_STATE))
-    assert isinstance(failed, Err) and isinstance(failed.error, IoFailed)
+    assert isinstance(failed, Err) and isinstance(failed.error.detail, ErrorDetail.IoFailed)
 
     assert cli.main(["cron", "--phase", "bh"]) == 0
     output = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     errors = [line for line in output if line["kind"] == "error"]
     assert errors == [{
         "at": "2026-10-15T00:00:00Z", "kind": "error",
-        "text": f"atm-bd cron: io_failed: {failed.error.path}: {failed.error.message}: {failed.error.fix}",
+        "text": f"atm-bd cron: io_failed: {failed.error.detail.path}: {failed.error.detail.message}: {failed.error.fix}",
     }]
 
 
@@ -787,7 +793,7 @@ def test_corrupt_state_is_reported_and_persisted_for_a_closed_phase(monkeypatch,
     monkeypatch.setattr(cli.atm_bd, "repo_config", lambda *_: Ok(REPO_CONFIG))
     monkeypatch.setattr(cli.shutil, "which", lambda _: "/fixture/bin")
     monkeypatch.setattr(runner.beads_source, "show", lambda *_: Ok((root,)))
-    logging_error = replace(IO_FAILED, path="logs", fix="inspect the console log directory")
+    logging_error = replace_error(IO_FAILED, path="logs", fix="inspect the console log directory")
     monkeypatch.setattr(runner, "create_console_logger", lambda *_: Err(logging_error))
     directory = tmp_path / ".atm-bd/atm-bd" / PHASE_FILE.root_id
     directory.mkdir(parents=True)
@@ -802,7 +808,7 @@ def test_corrupt_state_is_reported_and_persisted_for_a_closed_phase(monkeypatch,
     assert logging_error.fix in errors[1]["text"]
     persisted = load_snapshot(tmp_path, PHASE_FILE.root_id)
     assert isinstance(persisted, Ok) and persisted.value.stopped == "closed"
-    assert len(persisted.value.errors) == 2 and persisted.value.errors[0].kind == "parse_failed"
+    assert len(persisted.value.errors) == 2 and persisted.value.errors[0].kind == ErrorKind.PARSE_FAILED
     assert persisted.value.errors[1] == logging_error
     assert len(list(directory.glob("state.json.corrupt-*"))) == 1
 

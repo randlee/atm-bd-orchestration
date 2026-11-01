@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from result import kind_name
+
+from atm_bd_types import ErrorDetail
+
 import os
 import time
 from dataclasses import dataclass, replace
@@ -360,7 +364,7 @@ def test_error_details_preserve_variant_fields() -> None:
     )
     for error, detail in cases:
         rendered = _error_text(error)
-        assert rendered == f"{error.kind}: {detail}; {error.fix}"
+        assert rendered == f"{kind_name(error.kind)}: {detail}; {error.fix}"
 
 
 @dataclass(frozen=True)
@@ -526,8 +530,9 @@ def test_the_beads_headline_names_the_failing_phase_read_not_an_unrelated_first_
     health = PollHealth()
     snapshot = health.apply(_failed_phase(errors=(unrelated, TIMEOUT)), {"beads.open": TIMEOUT})
     assert f"beads unavailable: {error_text(TIMEOUT)}" in dashboard(snapshot, 300, 40, health).plain
-    assert f"beads ⛔ timeout {TIMEOUT.seconds}s" in status_bar(snapshot, 300, health).plain
-    assert f"beads ⛔ timeout {TIMEOUT.seconds}s" in status_bar(snapshot, 100, health).plain
+    assert isinstance(TIMEOUT.detail, ErrorDetail.Timeout)
+    assert f"beads ⛔ timeout {TIMEOUT.detail.seconds}s" in status_bar(snapshot, 300, health).plain
+    assert f"beads ⛔ timeout {TIMEOUT.detail.seconds}s" in status_bar(snapshot, 100, health).plain
 
 
 def test_unknown_agents_have_their_own_glyph_not_idle() -> None:

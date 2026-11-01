@@ -18,6 +18,8 @@ D5: dispatch_spec fills the production templates exactly; each spec renders with
 """
 from __future__ import annotations
 
+from atm_bd_types import Error, ErrorDetail
+
 import json
 import shutil
 import subprocess
@@ -92,7 +94,7 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
-def _err(result: object) -> object:
+def _err(result: object) -> Error:
     assert isinstance(result, Err), result
     assert result.error.fix, result.error
     return result.error
@@ -115,8 +117,8 @@ def test_phase_file_rejects_invalid_code_checkout(repo: Path, value: str) -> Non
     toml = repo / TOML
     toml.write_text(toml.read_text().replace("[templates]", f"code_checkout = {value}\n\n[templates]"))
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, ConfigInvalid)
-    assert error.key == "code_checkout"
+    assert error is not None and isinstance(error.detail, ErrorDetail.ConfigInvalid)
+    assert error.detail.key == "code_checkout"
 
 
 def test_phase_file_root_comes_from_the_toml_and_sprints_from_the_plan(repo: Path) -> None:
@@ -139,29 +141,29 @@ def test_phase_file_plan_path_is_the_toml_plan_key(repo: Path) -> None:
 
 def test_missing_phase_file_is_not_found(tmp_path: Path) -> None:
     error = _err(phase_file(str(tmp_path), "bh"))
-    assert isinstance(error, NotFound)
-    assert error.what == str(tmp_path / TOML)
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound)
+    assert error.detail.what == str(tmp_path / TOML)
 
 
 def test_invalid_phase_id_is_config_invalid() -> None:
     error = _err(phase_file(str(REPO), "../bh"))
-    assert isinstance(error, ConfigInvalid)
-    assert (error.key, error.value) == ("phase", "../bh")
+    assert error is not None and isinstance(error.detail, ErrorDetail.ConfigInvalid)
+    assert (error.detail.key, error.detail.value) == ("phase", "../bh")
 
 
 def test_malformed_toml_is_parse_failed(repo: Path) -> None:
     (repo / TOML).write_text("plan = \n")
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, ParseFailed)
-    assert error.source == str(repo / TOML)
+    assert error is not None and isinstance(error.detail, ErrorDetail.ParseFailed)
+    assert error.detail.source == str(repo / TOML)
 
 
 def test_unreadable_phase_file_is_io_failed(repo: Path) -> None:
     (repo / TOML).unlink()
     (repo / TOML).mkdir()
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, IoFailed)
-    assert error.path == str(repo / TOML)
+    assert error is not None and isinstance(error.detail, ErrorDetail.IoFailed)
+    assert error.detail.path == str(repo / TOML)
 
 
 @pytest.mark.parametrize("key", ["plan", "root", "integration_branch"])
@@ -169,39 +171,39 @@ def test_each_missing_phase_key_is_not_found_naming_it(repo: Path, key: str) -> 
     toml = repo / TOML
     toml.write_text("".join(line + "\n" for line in toml.read_text().splitlines() if not line.startswith(f"{key} = ")))
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, NotFound)
-    assert error.what == f"{repo / TOML}: key {key}"
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound)
+    assert error.detail.what == f"{repo / TOML}: key {key}"
 
 
 def test_empty_phase_key_is_config_invalid(repo: Path) -> None:
     toml = repo / TOML
     toml.write_text(toml.read_text().replace('"integrate/phase-bh"', '""'))
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, ConfigInvalid)
-    assert error.key == "integration_branch"
+    assert error is not None and isinstance(error.detail, ErrorDetail.ConfigInvalid)
+    assert error.detail.key == "integration_branch"
 
 
 def test_root_of_another_phase_is_config_invalid(repo: Path) -> None:
     toml = repo / TOML
     toml.write_text(toml.read_text().replace('"atm-phase-bh"', '"atm-phase-bg"'))
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, ConfigInvalid)
-    assert (error.key, error.value) == ("root", "atm-phase-bg")
+    assert error is not None and isinstance(error.detail, ErrorDetail.ConfigInvalid)
+    assert (error.detail.key, error.detail.value) == ("root", "atm-phase-bg")
 
 
 def test_missing_plan_file_is_not_found_naming_it(repo: Path) -> None:
     (repo / PLAN).unlink()
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, NotFound)
-    assert error.what == str(repo / PLAN)
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound)
+    assert error.detail.what == str(repo / PLAN)
 
 
 def test_unreadable_plan_file_is_io_failed(repo: Path) -> None:
     (repo / PLAN).unlink()
     (repo / PLAN).mkdir()
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, IoFailed)
-    assert error.path == str(repo / PLAN)
+    assert error is not None and isinstance(error.detail, ErrorDetail.IoFailed)
+    assert error.detail.path == str(repo / PLAN)
 
 
 @pytest.mark.parametrize(
@@ -220,9 +222,9 @@ def test_unreadable_plan_file_is_io_failed(repo: Path) -> None:
 def test_bad_plan_rows_are_parse_failed(repo: Path, plan: str, source_suffix: str, message: str) -> None:
     (repo / PLAN).write_text(plan)
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, ParseFailed)
-    assert error.source == f"{repo / PLAN}{source_suffix}"
-    assert message in error.message
+    assert error is not None and isinstance(error.detail, ErrorDetail.ParseFailed)
+    assert error.detail.source == f"{repo / PLAN}{source_suffix}"
+    assert message in error.detail.message
 
 
 def test_repo_config_on_the_real_file_is_ok_and_primary_checkout_is_repo_root() -> None:
@@ -246,8 +248,8 @@ def test_repo_config_without_qa_member_is_not_found_naming_it(repo: Path) -> Non
     config.write_text("".join(line + "\n" for line in config.read_text().splitlines()
                               if not line.startswith("qa_member:")))
     error = _err(repo_config(str(repo)))
-    assert isinstance(error, NotFound)
-    assert error.what == f"{config}: key qa_member"
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound)
+    assert error.detail.what == f"{config}: key qa_member"
 
 
 def test_repo_config_reads_a_block_reviewer_list(repo: Path) -> None:
@@ -264,14 +266,14 @@ def test_repo_config_reviewers_not_a_list_is_config_invalid(repo: Path) -> None:
     lines = [line for line in config.read_text().splitlines() if not line.startswith("reviewers_round1:")]
     config.write_text("\n".join([*lines, 'reviewers_round1: "req-qa"']) + "\n")
     error = _err(repo_config(str(repo)))
-    assert isinstance(error, ConfigInvalid)
-    assert error.key == "reviewers_round1"
+    assert error is not None and isinstance(error.detail, ErrorDetail.ConfigInvalid)
+    assert error.detail.key == "reviewers_round1"
 
 
 def test_repo_config_missing_file_is_not_found(tmp_path: Path) -> None:
     error = _err(repo_config(str(tmp_path)))
-    assert isinstance(error, NotFound)
-    assert error.what == str(tmp_path / CONFIG)
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound)
+    assert error.detail.what == str(tmp_path / CONFIG)
 
 
 # D3: phase() over recorded bd output.
@@ -308,9 +310,9 @@ def _ok(result: Result[T]) -> T:
     return result.value
 
 
-def _not_found(error: Error) -> NotFound:
-    assert isinstance(error, NotFound), error
-    return error
+def _not_found(error: Error) -> ErrorDetail.NotFound:
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound), error
+    return error.detail
 
 
 def _read(fake_bin) -> tuple[tuple[Bead, ...], tuple[Bead, ...], tuple[Bead, ...]]:
@@ -413,8 +415,8 @@ def test_planted_missing_sprint_is_reported_not_dropped(fake_bin) -> None:
     assert [sprint.id for sprint in result.sprints] == [f"atm-bh-{n}" for n in range(1, 11) if n != 5]
     assert [bead_id for bead_id, _ in result.step_errors] == [gone]
     error = result.step_errors[0][1]
-    assert isinstance(error, NotFound)
-    assert error.what == f"sprint bead {gone} listed in the plan"
+    assert error is not None and isinstance(error.detail, ErrorDetail.NotFound)
+    assert error.detail.what == f"sprint bead {gone} listed in the plan"
     assert "closed_show_ids" in error.fix
 
 
@@ -448,15 +450,15 @@ def test_unusable_root_is_err(fake_bin) -> None:
     open_beads, ready, shown = _read(fake_bin)
     file = _ok(PLAN_FILE)
     missing = phase(file, None, open_beads, ready, shown)
-    assert isinstance(missing, Err) and isinstance(missing.error, NotFound)
+    assert isinstance(missing, Err) and isinstance(missing.error.detail, ErrorDetail.NotFound)
     assert _not_found(missing.error).what == "atm-phase-bh (no root bead)"
     wrong = phase(file, next(b for b in open_beads if b.id == "atm-bh-4"), open_beads, ready, shown)
-    assert isinstance(wrong, Err) and isinstance(wrong.error, NotFound)
+    assert isinstance(wrong, Err) and isinstance(wrong.error.detail, ErrorDetail.NotFound)
     assert _not_found(wrong.error).what == "atm-phase-bh (root bead atm-bh-4)"
     unlabelled = replace(_root(open_beads), labels=("scope:epic",))
     mislabelled = phase(file, unlabelled, open_beads, ready, shown)
-    assert isinstance(mislabelled, Err) and isinstance(mislabelled.error, ConfigInvalid)
-    assert mislabelled.error.key == "atm-phase-bh.labels"
+    assert isinstance(mislabelled, Err) and isinstance(mislabelled.error.detail, ErrorDetail.ConfigInvalid)
+    assert mislabelled.error.detail.key == "atm-phase-bh.labels"
     for result in (missing, wrong, mislabelled):
         assert result.error.fix
 
@@ -532,7 +534,7 @@ def test_step_sanity_and_qa_keys_and_err_not_found() -> None:
     fixed = _ok(step(fix_qa, {fix.id: fix}))
     assert (fixed.carry_forward, fixed.qa_round) == ("atm-bh-4.f1", 2)
     no_checked = step(_bead("atm-bh-4.group-sanity", "atm-bh-4", ("stage:dev-sanity",)), {})
-    assert isinstance(no_checked, Err) and isinstance(no_checked.error, NotFound) and "atm-bh-4.group-sanity.metadata.dev_bead" in _not_found(no_checked.error).what
+    assert isinstance(no_checked, Err) and isinstance(no_checked.error.detail, ErrorDetail.NotFound) and "atm-bh-4.group-sanity.metadata.dev_bead" in _not_found(no_checked.error).what
     no_round = step(_bead("atm-bh-4.group-qa", "atm-bh-4", ("stage:qa",), {"checked_bead": "x", "sprint_bead": "atm-bh-4"}), {})
     assert isinstance(no_round, Err) and "metadata.round" in _not_found(no_round.error).what
     no_sprint = step(_bead("atm-bh-4.group-qa", "atm-bh-4", ("stage:qa",), {"checked_bead": "x", "round": 1}), {})
@@ -705,8 +707,8 @@ def _qa_spec(qa: Bead, checked: Bead, pr: PullRequest | None = None) -> Result[D
 
 
 def _code(result: Result[DispatchSpec]) -> str:
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid), result
-    return result.error.key
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid), result
+    return result.error.detail.key
 
 
 def test_qa_layer_is_the_qa_beads_not_the_sprint_plans() -> None:
@@ -872,8 +874,8 @@ def test_unsupported_kind_is_config_invalid_not_a_missing_value(kind: str) -> No
     from dataclasses import replace
 
     result = dispatch_spec(context(replace(mapped(SANITY), kind=kind), PR), PHASE_TEMPLATES)
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert (result.error.key, result.error.value) == ("atm-bh-5.group-sanity.kind", kind)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert (result.error.detail.key, result.error.detail.value) == ("atm-bh-5.group-sanity.kind", kind)
 
 
 def test_group_suffix_names_only_poured_group_beads() -> None:
@@ -888,8 +890,8 @@ def test_phase_file_template_oserror_is_io_failed_with_path_and_message(repo: Pa
 
     monkeypatch.setattr(Path, "resolve", deny)
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, IoFailed)
-    assert error.path.startswith(str(repo)) and "Permission denied" in error.message
+    assert error is not None and isinstance(error.detail, ErrorDetail.IoFailed)
+    assert error.detail.path.startswith(str(repo)) and "Permission denied" in error.detail.message
 
 
 @pytest.mark.parametrize("raised", [RuntimeError("symlink loop"), ValueError("embedded null byte")])
@@ -901,8 +903,8 @@ def test_phase_file_template_invalid_value_stays_config_invalid(
 
     monkeypatch.setattr(Path, "resolve", bad)
     error = _err(phase_file(str(repo), "bh"))
-    assert isinstance(error, ConfigInvalid)
-    assert error.key.startswith("templates.")
+    assert error is not None and isinstance(error.detail, ErrorDetail.ConfigInvalid)
+    assert error.detail.key.startswith("templates.")
 
 
 def test_phase_file_valid_templates_are_ok(repo: Path) -> None:

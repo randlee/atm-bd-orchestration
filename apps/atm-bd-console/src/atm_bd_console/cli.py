@@ -1,6 +1,12 @@
 """Command line launch modes for the ATM BD console."""
 from __future__ import annotations
 
+from result import with_fix
+
+from result import error_data, kind_name
+
+from atm_bd_types import ErrorDetail
+
 import argparse
 import json
 import shutil
@@ -33,9 +39,9 @@ def _cadence(args: argparse.Namespace) -> int | None:
 
 
 def _error_text(error: Error) -> str:
-    if isinstance(error, IoFailed):
-        return f"{error.kind}: {error.path}: {error.message}: {error.fix}"
-    return f"{error.kind}: {error.fix}"
+    if isinstance(error.detail, ErrorDetail.IoFailed):
+        return f"{kind_name(error.kind)}: {error.detail.path}: {error.detail.message}: {error.fix}"
+    return f"{kind_name(error.kind)}: {error.fix}"
 
 
 def _notification_startup_error(config: Config) -> Error | None:
@@ -43,9 +49,9 @@ def _notification_startup_error(config: Config) -> Error | None:
     fix = f"run atm teams add-member {team} {sender} --agent-type tool --model none to provision {config.notification_sender}"
     members = atm_source.members(team, sender)
     if isinstance(members, Err):
-        if isinstance(members.error, CommandFailed) and f"team '{team}' was not found" in members.error.stderr:
+        if isinstance(members.error.detail, ErrorDetail.CommandFailed) and f"team '{team}' was not found" in members.error.detail.stderr:
             return NotFound("not_found", config.notification_sender, fix)
-        return replace(members.error, fix=f"could not verify {config.notification_sender}; {fix}; {members.error.fix}")
+        return with_fix(members.error, f"could not verify {config.notification_sender}; {fix}; {members.error.fix}")
     if not any(member.name == sender for member in members.value):
         return NotFound("not_found", config.notification_sender, fix)
     return None
@@ -106,9 +112,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     md_table = getattr(args, "md_table", False)
     loaded = config_source.load_config(repo_root, args.phase, github=args.github, interval_s=_cadence(args), github_poll_interval_s=args.github_poll_interval, github_quota_threshold=args.github_quota_threshold, dry_run=getattr(args, "dry_run", False) or args.command == "snapshot" or md_table, no_fetch=args.no_fetch)
-    if isinstance(loaded, Err): print(f"{invocation}: {error_message(asdict(loaded.error))}"); return 3
+    if isinstance(loaded, Err): print(f"{invocation}: {error_message(error_data(loaded.error))}"); return 3
     check = atm_bd.repo_config(loaded.value.repo_root)
-    if isinstance(check, Err): print(f"{invocation}: {error_message(asdict(check.error))}"); return 3
+    if isinstance(check, Err): print(f"{invocation}: {error_message(error_data(check.error))}"); return 3
     for command in ("bd", "atm", "git"):
         if shutil.which(command) is None:
             print(f"{invocation}: not_found: install {command} and retry")

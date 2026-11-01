@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorKind
+
+from error_fixture_helpers import replace_error
+
 import asyncio
 import os
 import threading
@@ -597,7 +601,7 @@ def test_run_takes_the_lock_and_returns_the_app_code(tmp_path, monkeypatch) -> N
             # While the app runs, a second console cannot take the lock.
             locked = acquire_lock(config.repo_root, "bh")
             assert isinstance(locked, Err)
-            assert locked.error.kind == "lock_held"
+            assert locked.error.kind == ErrorKind.LOCK_HELD
             return 0
 
     monkeypatch.setattr(console, "ConsoleApp", Recorder)
@@ -778,7 +782,7 @@ def test_startup_atm_members_error_is_not_repeated_by_the_tick_that_reads_the_sa
     from atm_bd_console.app import startup_error_applies
 
     startup = CommandFailed("command_failed", ("atm", "members", "--team", "t", "--json"), 1, "daemon down", "could not verify the sender; start the daemon")
-    tick_error = replace(startup, fix="start the daemon")
+    tick_error = replace_error(startup, fix="start the daemon")
     sender_missing = NotFound("not_found", "atm-bd@tool", "run atm teams add-member")
     live = RUNNING
     stopped = replace(RUNNING, stopped="closed")

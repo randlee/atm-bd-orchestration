@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -33,8 +35,8 @@ def test_invalid_phase_setting_fails_launch_before_effects(phase_repo, monkeypat
         stream.write('\nlead: "repository-lead"\n')
     expected = key if key == "lead" else f"templates.{key}"
     loaded = config.load_config(phase_repo, "bh")
-    assert isinstance(loaded, Err) and isinstance(loaded.error, ConfigInvalid)
-    assert loaded.error.key == expected
+    assert isinstance(loaded, Err) and isinstance(loaded.error.detail, ErrorDetail.ConfigInvalid)
+    assert loaded.error.detail.key == expected
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError("invalid phase settings must fail before runtime effects")
@@ -69,8 +71,8 @@ def test_template_paths_must_name_existing_installed_files(phase_repo, tmp_path,
     }
     set_setting(phase_repo, purpose, paths[damage])
     result = atm_bd.phase_file(str(phase_repo), "bh")
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert result.error.key == f"templates.{purpose}"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert result.error.detail.key == f"templates.{purpose}"
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError("invalid template paths must fail before runtime effects")
@@ -88,16 +90,16 @@ def test_unrecognized_template_purposes_are_rejected(phase_repo, purpose):
     with (phase_repo / ".atm-bd/phase-bh.toml").open("a") as stream:
         stream.write(f'{purpose} = "{PHASE_TEMPLATES["qa"]}"\n')
     result = atm_bd.phase_file(str(phase_repo), "bh")
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert result.error.key == f"templates.{purpose}"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert result.error.detail.key == f"templates.{purpose}"
 
 
 def test_missing_templates_table_names_first_required_purpose(phase_repo):
     path = phase_repo / ".atm-bd/phase-bh.toml"
     path.write_text(path.read_text().split("[templates]")[0])
     result = atm_bd.phase_file(str(phase_repo), "bh")
-    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert result.error.key == "templates.dev"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ConfigInvalid)
+    assert result.error.detail.key == "templates.dev"
 
 
 def test_retired_dev_fix_template_purpose_is_optional(phase_repo):
@@ -214,5 +216,5 @@ esac
     assert isinstance(acquired, Ok)
     with acquired.value as store:
         invalid, _ = runner.step(loaded.value, INITIAL_STATE, False, store)
-    assert any(isinstance(error, ConfigInvalid) and error.key == "lead" for error in invalid.errors)
+    assert any(isinstance(error.detail, ErrorDetail.ConfigInvalid) and error.detail.key == "lead" for error in invalid.errors)
     assert fake_bin.argv() == before

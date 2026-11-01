@@ -1,6 +1,8 @@
 """Build identity visible to operators and bug reports."""
 from __future__ import annotations
 
+from result import error_data
+
 from dataclasses import asdict
 from importlib import import_module
 from pathlib import Path
@@ -71,6 +73,6 @@ def _log_failed_read(root: Path, source: str, error: Error) -> None:
     if isinstance(logger, Err):
         return
     logger.value.event(
-        "error", level="error", message=f"build identity git {source} failed: {error_message(asdict(error))}",
-        source=f"build_identity.{source}", error=asdict(error),
+        "error", level="error", message=f"build identity git {source} failed: {error_message(error_data(error))}",
+        source=f"build_identity.{source}", error=error_data(error),
     )

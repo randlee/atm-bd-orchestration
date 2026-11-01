@@ -1,6 +1,8 @@
 """Single-call GitHub pull-request source."""
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import json
 import re
 from dataclasses import replace
@@ -256,7 +258,7 @@ THROTTLED = ("GitHub polling paused until reset", "GitHub quota below threshold"
 
 def throttled(error) -> bool:
     """True when the quota gate refused the call before it was made (no GitHub request was sent)."""
-    return isinstance(error, CommandFailed) and error.stderr in THROTTLED
+    return isinstance(error.detail, ErrorDetail.CommandFailed) and error.detail.stderr in THROTTLED
 
 
 def open_prs(mode: Literal["graphql", "rest", "off"], code_root: str | Path | None,
@@ -288,8 +290,8 @@ def _open_prs(mode, code_root, branch_groups, budget, github_repo, heads=(), num
     completed = run(argv, "check GitHub connectivity and retry", cwd=code_root, timeout_s=REQUEST_TIMEOUT_S)
     if isinstance(completed, Err):
         failure = completed.error
-        if isinstance(failure, CommandFailed):
-            return _error(mode, failure.argv, failure.code, failure.stderr)
+        if isinstance(failure.detail, ErrorDetail.CommandFailed):
+            return _error(mode, tuple(failure.detail.argv), failure.detail.code, failure.detail.stderr)
         return completed, _status(mode, False, failure)
     try:
         body = json.loads(completed.value.stdout)

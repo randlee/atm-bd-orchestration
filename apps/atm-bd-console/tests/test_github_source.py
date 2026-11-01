@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorKind, ErrorDetail
+
 import copy
 import json
 from pathlib import Path
@@ -231,20 +233,20 @@ def test_rest_truncation_and_off_make_only_the_allowed_calls(fake_bin, monkeypat
 
 
 @pytest.mark.parametrize(("stderr", "kind", "http"), [
-    ("gh: Bad credentials (HTTP 401)", Rejected, 401),
-    ("gh: Resource not accessible by integration (HTTP 403)", Rejected, 403),
-    ("gh: Bad Gateway (HTTP 502)", Rejected, 502),
-    ("gh: Not Found (HTTP 404)", CommandFailed, None),
-    ("unknown flag: --5", CommandFailed, None),
-    ("error connecting to api.github.com", Unreachable, None),
+    ("gh: Bad credentials (HTTP 401)", ErrorDetail.Rejected, 401),
+    ("gh: Resource not accessible by integration (HTTP 403)", ErrorDetail.Rejected, 403),
+    ("gh: Bad Gateway (HTTP 502)", ErrorDetail.Rejected, 502),
+    ("gh: Not Found (HTTP 404)", ErrorDetail.CommandFailed, None),
+    ("unknown flag: --5", ErrorDetail.CommandFailed, None),
+    ("error connecting to api.github.com", ErrorDetail.Unreachable, None),
 ])
 def test_gh_errors_are_typed(fake_bin, monkeypatch, stderr, kind, http) -> None:
     fake_gh(fake_bin, monkeypatch, {}, exit_code=1, stderr=stderr)
     result, status = open_prs("graphql")
-    assert isinstance(result, Err) and isinstance(result.error, kind) and status.ok is False and status.error == result.error
+    assert isinstance(result, Err) and isinstance(result.error.detail, kind) and status.ok is False and status.error == result.error
     if http is not None:
-        assert isinstance(result.error, Rejected)
-        assert result.error.status == http
+        assert isinstance(result.error.detail, ErrorDetail.Rejected)
+        assert result.error.detail.status == http
 
 
 def test_rest_failure_is_typed(fake_bin, monkeypatch) -> None:
@@ -275,8 +277,8 @@ def test_unparseable_body_is_parse_failed_and_never_raises(fake_bin, monkeypatch
     if body == "not json":
         monkeypatch.setenv("FAKE_BODY", body)
     result, status = open_prs(mode)
-    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
-    assert result.error.kind == "parse_failed" and result.error.source == f"github {mode} response"
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.ParseFailed)
+    assert result.error.kind == ErrorKind.PARSE_FAILED and result.error.detail.source == f"github {mode} response"
     assert (status.ok, status.error) == (False, result.error)
 
 
@@ -294,7 +296,7 @@ def test_gh_reported_timeout_carries_the_request_timeout(fake_bin, monkeypatch) 
     fake_gh(fake_bin, monkeypatch, {}, exit_code=1, stderr="gh: request timed out")
     monkeypatch.setattr(github_source, "REQUEST_TIMEOUT_S", 7)
     result, status = open_prs("graphql")
-    assert isinstance(result, Err) and isinstance(result.error, Timeout) and result.error.seconds == 7
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.Timeout) and result.error.detail.seconds == 7
     assert (status.ok, status.error) == (False, result.error)
 
 
@@ -309,8 +311,8 @@ def test_no_repository_slug_is_hard_coded(fake_bin, monkeypatch, tmp_path) -> No
     assert "repository(owner: $owner, name: $name)" in github_source.GRAPHQL
     fake_bin.make("gh", 'printf "%s" "$PWD" >&2\nexit 1\n')
     result, _ = open_prs("rest", tmp_path)
-    assert isinstance(result, Err) and isinstance(result.error, CommandFailed)
-    assert result.error.stderr == str(tmp_path)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.CommandFailed)
+    assert result.error.detail.stderr == str(tmp_path)
 
 
 def test_rest_and_check_runs_use_code_checkout_and_explicit_repo(monkeypatch, tmp_path):

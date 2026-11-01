@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import errno
 import gc
 import os
@@ -80,10 +82,10 @@ def test_read_only_state_directory_returns_io_failed_naming_the_path(tmp_path: P
             appended = store.append_action(action)
         finally:
             directory.chmod(0o700)
-    assert isinstance(written, Err) and isinstance(written.error, IoFailed)
-    assert written.error.path == str(directory / "snapshot.json")
-    assert isinstance(appended, Err) and isinstance(appended.error, IoFailed)
-    assert appended.error.path == str(directory / "actions.jsonl")
+    assert isinstance(written, Err) and isinstance(written.error.detail, ErrorDetail.IoFailed)
+    assert written.error.detail.path == str(directory / "snapshot.json")
+    assert isinstance(appended, Err) and isinstance(appended.error.detail, ErrorDetail.IoFailed)
+    assert appended.error.detail.path == str(directory / "actions.jsonl")
 
 
 def test_lock_held_reports_a_non_negative_snapshot_age_once_a_snapshot_exists(tmp_path: Path) -> None:
@@ -92,8 +94,8 @@ def test_lock_held_reports_a_non_negative_snapshot_age_once_a_snapshot_exists(tm
     with first.value as store:
         assert store.write_snapshot(fixture("snapshot-running.json", Snapshot)) == Ok(None)
         second = acquire_lock(tmp_path, "atm-bh")
-    assert isinstance(second, Err) and isinstance(second.error, LockHeld)
-    assert isinstance(second.error.snapshot_age_s, int) and second.error.snapshot_age_s >= 0
+    assert isinstance(second, Err) and isinstance(second.error.detail, ErrorDetail.LockHeld)
+    assert isinstance(second.error.detail.snapshot_age_s, int) and second.error.detail.snapshot_age_s >= 0
 
 
 def test_failed_write_leaves_the_previous_snapshot_intact(tmp_path: Path, monkeypatch) -> None:
@@ -109,13 +111,13 @@ def test_failed_write_leaves_the_previous_snapshot_intact(tmp_path: Path, monkey
 
         monkeypatch.setattr(state.os, "replace", fail)
         result = store.write_snapshot(newer)
-    assert isinstance(result, Err) and isinstance(result.error, IoFailed)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.IoFailed)
     assert load_snapshot(tmp_path, "atm-bh") == Ok(previous)
 
 
 def test_missing_data_and_live_process_lock_are_typed(tmp_path: Path) -> None:
     missing = load_snapshot(tmp_path, "atm-bh")
-    assert isinstance(missing, Err) and isinstance(missing.error, NotFound)
+    assert isinstance(missing, Err) and isinstance(missing.error.detail, ErrorDetail.NotFound)
     code = "from atm_bd_console.state import acquire_lock; import sys; held = acquire_lock(sys.argv[1], 'atm-bh'); print(type(held).__name__, flush=True); sys.stdin.read()"
     child = subprocess.Popen([sys.executable, "-c", code, str(tmp_path)], text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     try:
@@ -125,7 +127,7 @@ def test_missing_data_and_live_process_lock_are_typed(tmp_path: Path) -> None:
             raise AssertionError(f"readiness stage: child printed no lock result within {READY_DEADLINE_S}s")
         assert child.stdout.readline().strip() == "Ok"
         held = acquire_lock(tmp_path, "atm-bh")
-        assert isinstance(held, Err) and isinstance(held.error, LockHeld) and held.error.snapshot_age_s is None
+        assert isinstance(held, Err) and isinstance(held.error.detail, ErrorDetail.LockHeld) and held.error.detail.snapshot_age_s is None
     finally:
         if child.stdin is not None:
             child.stdin.close()  # EOF ends the child's stdin read, so it exits and releases its lock
@@ -152,7 +154,7 @@ def test_failed_write_removes_its_temporary_file(tmp_path: Path, monkeypatch) ->
         monkeypatch.setattr(state.os, "replace", fail)
         result = store.write_snapshot(fixture("snapshot-running.json", Snapshot))
         leftovers = list(store.directory.glob(".snapshot.json.*"))
-    assert isinstance(result, Err) and isinstance(result.error, IoFailed)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.IoFailed)
     assert leftovers == []
 
 
@@ -161,8 +163,8 @@ def test_undecodable_snapshot_is_a_typed_error_not_an_exception(tmp_path: Path) 
     directory.mkdir(parents=True)
     (directory / "snapshot.json").write_bytes(b"\xff\xfe not utf-8")
     result = load_snapshot(tmp_path, "atm-bh")
-    assert isinstance(result, Err) and isinstance(result.error, IoFailed)
-    assert result.error.path == str(directory / "snapshot.json")
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.IoFailed)
+    assert result.error.detail.path == str(directory / "snapshot.json")
 
 
 def test_lock_held_with_an_undecodable_snapshot_reports_unknown_age(tmp_path: Path) -> None:
@@ -171,8 +173,8 @@ def test_lock_held_with_an_undecodable_snapshot_reports_unknown_age(tmp_path: Pa
     with first.value:
         (first.value.directory / "snapshot.json").write_bytes(b"\xff\xfe not utf-8")
         second = acquire_lock(tmp_path, "atm-bh")
-    assert isinstance(second, Err) and isinstance(second.error, LockHeld)
-    assert second.error.snapshot_age_s is None
+    assert isinstance(second, Err) and isinstance(second.error.detail, ErrorDetail.LockHeld)
+    assert second.error.detail.snapshot_age_s is None
 
 
 def test_flock_failure_closes_the_lock_handle(tmp_path: Path, monkeypatch) -> None:
@@ -184,7 +186,7 @@ def test_flock_failure_closes_the_lock_handle(tmp_path: Path, monkeypatch) -> No
         warnings.simplefilter("always")
         result = acquire_lock(tmp_path, "atm-bh")
         gc.collect()
-    assert isinstance(result, Err) and isinstance(result.error, IoFailed)
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.IoFailed)
     assert not [warning for warning in caught if issubclass(warning.category, ResourceWarning)]
 
 
@@ -213,7 +215,7 @@ def test_failed_runtime_load_preserves_bytes_before_reset(tmp_path, name, loader
         path.write_bytes(payload)
         loaded = getattr(store, loader)()
         assert isinstance(loaded, Err)
-        assert isinstance(loaded.error, (ParseFailed, IoFailed))
+        assert isinstance(loaded.error.detail, (ErrorDetail.ParseFailed, ErrorDetail.IoFailed))
         assert str(path) in str(loaded.error)
         backups = list(store.directory.glob(f"{name}.corrupt-*"))
         assert len(backups) == 1 and backups[0].read_bytes() == payload
@@ -230,7 +232,7 @@ def test_absent_runtime_files_are_not_corruption(tmp_path, loader):
     assert isinstance(acquired, Ok)
     with acquired.value as store:
         loaded = getattr(store, loader)()
-        assert isinstance(loaded, Err) and isinstance(loaded.error, NotFound)
+        assert isinstance(loaded, Err) and isinstance(loaded.error.detail, ErrorDetail.NotFound)
         assert store.load_errors == []
         assert list(store.directory.glob("*.corrupt-*")) == []
 
@@ -252,7 +254,7 @@ def test_failed_preservation_blocks_later_writes(tmp_path, name, loader, writer,
             loaded = getattr(store, loader)()
         finally:
             store.directory.chmod(0o700)
-        assert isinstance(loaded, Err) and isinstance(loaded.error, IoFailed)
+        assert isinstance(loaded, Err) and isinstance(loaded.error.detail, ErrorDetail.IoFailed)
         assert "writes are blocked" in loaded.error.fix
         assert len(store.load_errors) == 2
         assert getattr(store, writer)(value) == loaded
@@ -272,9 +274,9 @@ def test_existing_non_file_runtime_path_is_not_absent(tmp_path, kind):
         else:
             path.symlink_to(store.directory / "missing-target")
         loaded = load_state(tmp_path, "atm-bh")
-        assert isinstance(loaded, Err) and isinstance(loaded.error, IoFailed)
+        assert isinstance(loaded, Err) and isinstance(loaded.error.detail, ErrorDetail.IoFailed)
         recovered = store.load_state()
-        assert isinstance(recovered, Err) and isinstance(recovered.error, IoFailed)
+        assert isinstance(recovered, Err) and isinstance(recovered.error.detail, ErrorDetail.IoFailed)
         assert len(list(store.directory.glob("state.json.corrupt-*"))) == 1
         assert store.write_state(INITIAL_STATE) == Ok(None)
 
@@ -287,7 +289,7 @@ def test_action_history_errors_are_replaced_by_each_read_not_added_to(tmp_path):
         path.write_text("{bad\n", encoding="utf-8")
         for _ in range(3):  # one stopped tick per read
             assert isinstance(store.load_actions(), Ok)
-        parse_errors = [error for error in store.load_errors if isinstance(error, ParseFailed)]
+        parse_errors = [error.detail for error in store.load_errors if isinstance(error.detail, ErrorDetail.ParseFailed)]
         assert len(parse_errors) == len(store.load_errors)
         assert [error.source for error in parse_errors] == [f"{path}:1"]
         path.write_text("", encoding="utf-8")

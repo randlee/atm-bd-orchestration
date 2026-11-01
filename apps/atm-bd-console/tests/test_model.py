@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from result import kind_name
+
+from atm_bd_types import ErrorDetail
+
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -572,7 +576,7 @@ def test_task_read_error_never_causes_duplicate_assignment() -> None:
                   worktrees=Ok((Worktree("/worktrees/atm-bh-1", "sprint/bh-1", "sha"),)))
     snapshot, actions, _ = tick(base, STATE, NOW, render)
     assert actions == ()
-    assert any(isinstance(error, NotFound) and error.what == "tasks" for error in snapshot.errors)
+    assert any(isinstance(error.detail, ErrorDetail.NotFound) and error.detail.what == "tasks" for error in snapshot.errors)
 
 
 def test_rejected_step_is_not_dispatched_even_if_source_retains_it() -> None:
@@ -740,13 +744,13 @@ def test_merge_probe_error_holds_with_problem_then_recovers(error) -> None:
     snapshot, actions, state = tick(supplied, STATE, NOW, render)
     assert error in snapshot.errors
     assert not any(action.kind == "assign" for action in actions)
-    assert error.kind in snapshot.sections[0].rows[0].reason
+    assert kind_name(error.kind) in snapshot.sections[0].rows[0].reason
     assert error.fix in snapshot.problems[0].text
-    if isinstance(error, NotFound):
-        assert error.what in snapshot.problems[0].text
-    elif isinstance(error, CommandFailed):
-        assert error.stderr in snapshot.problems[0].text
-    elif isinstance(error, Timeout):
+    if isinstance(error.detail, ErrorDetail.NotFound):
+        assert error.detail.what in snapshot.problems[0].text
+    elif isinstance(error.detail, ErrorDetail.CommandFailed):
+        assert error.detail.stderr in snapshot.problems[0].text
+    elif isinstance(error.detail, ErrorDetail.Timeout):
         assert "timed out after 30s" in snapshot.problems[0].text
     verified = replace(supplied, merges=(Ok(Merge("topic", "base", MergeState.CLEAN, (), (), NOW)),))
     recovered, actions, _ = tick(verified, state, NOW, lambda context: Ok(DispatchSpec("qa", {})))

@@ -1,6 +1,8 @@
 """One file-only sc-observability logger for each console process."""
 from __future__ import annotations
 
+from result import error_data
+
 from collections.abc import Mapping
 from dataclasses import asdict
 from functools import cache
@@ -109,7 +111,7 @@ class TickLog:
             return
         self.mark_reported(error)
         self.event(
-            "error", source=source, level="error", message=error_message(asdict(error)), error=asdict(error),
+            "error", source=source, level="error", message=error_message(error_data(error)), error=error_data(error),
         )
 
     def event(
@@ -142,8 +144,8 @@ class TickLog:
         self.event(
             "read", source=source, outcome="failed" if isinstance(result, Err) else "ok",
             level="error" if isinstance(result, Err) else "info",
-            message=error_message(asdict(result.error)) if isinstance(result, Err) else None,
-            error=asdict(result.error) if isinstance(result, Err) else None, **fields,
+            message=error_message(error_data(result.error)) if isinstance(result, Err) else None,
+            error=error_data(result.error) if isinstance(result, Err) else None, **fields,
         )
         return result
 

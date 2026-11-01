@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 import os
 import subprocess
 from pathlib import Path
@@ -52,7 +54,7 @@ def test_each_snapshot_shape_has_its_distinguishing_field() -> None:
     assert (off.gh.mode, off.gh.ok, off.gh.at, off.top_ci) == ("off", None, None, None)
     err = _load("snapshot-gh-err.json", Snapshot)
     assert (err.gh.mode, err.gh.ok) == ("graphql", False)
-    assert isinstance(err.gh.error, Rejected) and err.gh.error in err.errors
+    assert err.gh.error is not None and isinstance(err.gh.error.detail, ErrorDetail.Rejected) and err.gh.error in err.errors
     shapes = [running, closed, idle, off, err]
     assert len({to_json(shape) for shape in shapes}) == len(shapes)
     assert running != off

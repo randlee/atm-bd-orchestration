@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 from dataclasses import fields, replace
 from datetime import UTC, datetime
 from functools import partial
@@ -221,8 +223,8 @@ def test_spec_error_is_reported_without_assignment() -> None:
 def test_missing_sprint_is_an_error_not_a_silent_drop() -> None:
     outcome = run(step(sprint="missing", sprint_bead="missing"))
     assert outcome.actions == ()
-    assert isinstance(outcome.errors[0], NotFound)
-    assert "sprint" in outcome.errors[0].what
+    assert isinstance(outcome.errors[0].detail, ErrorDetail.NotFound)
+    assert "sprint" in outcome.errors[0].detail.what
 
 
 def _context() -> DispatchContext:

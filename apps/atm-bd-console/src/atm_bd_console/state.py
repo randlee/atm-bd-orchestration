@@ -1,6 +1,10 @@
 """Crash-safe, inspectable runtime files for one console phase."""
 from __future__ import annotations
 
+from result import with_fix
+
+from atm_bd_types import ErrorDetail
+
 import fcntl
 import os
 import tempfile
@@ -52,7 +56,7 @@ class StateStore:
             decoded = from_json(ActionLine, line)
             if isinstance(decoded, Err):
                 self._history_errors.append(ParseFailed(
-                    "parse_failed", f"{path}:{number}", getattr(decoded.error, "message", decoded.error.kind),
+                    "parse_failed", f"{path}:{number}", decoded.error.message,
                     "repair the action history JSON"))
                 continue
             actions.append(decoded.value)
@@ -64,7 +68,7 @@ class StateStore:
             return self._blocked_writes[name]
         path = self.directory / name
         loaded = _read(path, cls)
-        if isinstance(loaded, Ok) or isinstance(loaded.error, NotFound):
+        if isinstance(loaded, Ok) or isinstance(loaded.error.detail, ErrorDetail.NotFound):
             return loaded
         backup = path.with_name(f"{name}.corrupt-{datetime.now(UTC):%Y%m%dT%H%M%S}-{uuid4().hex}")
         try:
@@ -75,7 +79,7 @@ class StateStore:
             self._blocked_writes[name] = blocked
             self.load_errors.append(blocked.error)
             return blocked
-        recovered = Err(replace(loaded.error, fix=f"inspect preserved file {backup}; runtime data was reset"))
+        recovered = Err(with_fix(loaded.error, f"inspect preserved file {backup}; runtime data was reset"))
         self.load_errors.append(recovered.error)
         return recovered
 
@@ -196,8 +200,8 @@ def _discard(path: str) -> None:
 def _read(path: Path, cls: type[Any]) -> Result[Any]:
     try:
         decoded = from_json(cls, path.read_text(encoding="utf-8"))
-        if isinstance(decoded, Err) and isinstance(decoded.error, ParseFailed):
-            return Err(replace(decoded.error, source=f"{path}:{decoded.error.source}"))
+        if isinstance(decoded, Err) and isinstance(decoded.error.detail, ErrorDetail.ParseFailed):
+            return Err(ParseFailed("parse_failed", f"{path}:{decoded.error.detail.source}", decoded.error.detail.message, decoded.error.fix))
         return decoded
     except FileNotFoundError:
         if not path.is_symlink():

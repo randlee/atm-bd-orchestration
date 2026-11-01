@@ -1,6 +1,8 @@
 """Closed beads never change: the runner and the Quality loader read each one once per console process."""
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 from dataclasses import replace
 
 import pytest
@@ -245,11 +247,11 @@ def test_failed_read_persists_nothing(fake, tmp_path):
 def test_corrupt_file_is_a_typed_error_and_the_console_starts_cold(fake, tmp_path, content):
     (tmp_path / "closed.json").write_text(content, encoding="utf-8")
     cache = ClosedBeads.load(tmp_path)
-    assert len(cache.pending_errors) == 1 and isinstance(cache.pending_errors[0], ParseFailed)
-    assert str(tmp_path / "closed.json") in cache.pending_errors[0].source
+    assert len(cache.pending_errors) == 1 and isinstance(cache.pending_errors[0].detail, ErrorDetail.ParseFailed)
+    assert str(tmp_path / "closed.json") in cache.pending_errors[0].detail.source
     snapshot, _ = tick(cache)
     assert cache.pending_errors == [] and cache.pending_errors is not None
-    assert any(isinstance(error, ParseFailed) for error in snapshot.errors)
+    assert any(isinstance(error.detail, ErrorDetail.ParseFailed) for error in snapshot.errors)
     assert fake.closed_reads() == [SPRINT_IDS]  # cold read
     assert ClosedBeads.load(tmp_path).missing_beads(SPRINT_IDS) == ()  # the next save replaced the corrupt file
 
@@ -257,13 +259,13 @@ def test_corrupt_file_is_a_typed_error_and_the_console_starts_cold(fake, tmp_pat
 def test_unreadable_file_is_a_typed_io_error(tmp_path):
     (tmp_path / "closed.json").mkdir()
     cache = ClosedBeads.load(tmp_path)
-    assert len(cache.pending_errors) == 1 and isinstance(cache.pending_errors[0], IoFailed)
+    assert len(cache.pending_errors) == 1 and isinstance(cache.pending_errors[0].detail, ErrorDetail.IoFailed)
 
 
 def test_write_failure_is_a_typed_error_and_retried(fake, tmp_path):
     cache = ClosedBeads(tmp_path / "missing")
     snapshot, _ = tick(cache)
-    assert any(isinstance(error, IoFailed) for error in snapshot.errors)
+    assert any(isinstance(error.detail, ErrorDetail.IoFailed) for error in snapshot.errors)
     assert cache.missing_beads(SPRINT_IDS) == ()  # the in-memory cache still works
     (tmp_path / "missing").mkdir()
     assert cache.save() == Ok(None)

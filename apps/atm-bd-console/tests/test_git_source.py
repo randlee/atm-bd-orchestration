@@ -1,6 +1,8 @@
 """git_source against a real temporary repository with a bare origin (real git, no fake)."""
 from __future__ import annotations
 
+from atm_bd_types import ErrorDetail
+
 from pathlib import Path
 from typing import TypeVar
 
@@ -102,8 +104,8 @@ def test_conflicting_branch_lists_the_conflicted_files_and_messages(repo: Path) 
 @pytest.mark.parametrize(("branch", "target", "missing"), [("nope", "main", "origin/nope"), ("clean", "gone", "origin/gone")])
 def test_missing_branch_is_an_error(repo: Path, branch: str, target: str, missing: str) -> None:
     result = git_source.merge(repo, branch, target)
-    assert isinstance(result, Err) and isinstance(result.error, NotFound)
-    assert result.error.what == missing
+    assert isinstance(result, Err) and isinstance(result.error.detail, ErrorDetail.NotFound)
+    assert result.error.detail.what == missing
 
 
 def test_bare_repository_record_without_head_is_skipped(repo: Path, tmp_path: Path) -> None:
