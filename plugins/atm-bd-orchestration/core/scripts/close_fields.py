@@ -67,7 +67,8 @@ def close_vars(row: dict, repo: Path) -> tuple[str, dict, list[str]]:
     """(role, vars, fields the closing agent still supplies) for one bead; refuses a bead missing a poured field."""
     role = role_of(row)
     metadata = row.get("metadata") or {}
-    missing = [name for name in POURED if metadata.get(name) in (None, "", [])]
+    optional = set(contract().get("optional_variables_by_profile", {}).get(metadata.get("profile", "full"), []))
+    missing = [name for name in POURED if name not in optional and metadata.get(name) in (None, "", [])]
     if missing:
         raise CloseFieldsError("CLOSE_VARS.NOT_POURED", f"{row['id']}: metadata lacks {', '.join(missing)}",
                                f"The pour or backfill did not stamp {row['id']}: ask the phase lead to run "
@@ -76,12 +77,14 @@ def close_vars(row: dict, repo: Path) -> tuple[str, dict, list[str]]:
         raise CloseFieldsError("CLOSE_VARS.ROLE_MISMATCH", f"{row['id']}: metadata.role {metadata['role']!r} but its stage is {role}",
                                f"Correct metadata.role on {row['id']} to {role!r}.")
     worktree = Path(metadata["worktree"])
-    available = {**{name: metadata[name] for name in POURED if name not in ("role", "worktree")},
-                 "task_id": row["id"], "dev_task_id": metadata["checked_bead"], "sanity_task_id": metadata["sanity_bead"],
+    available = {**{name: metadata[name] for name in POURED if name not in ("role", "worktree") and name in metadata},
+                 "task_id": row["id"], "dev_task_id": metadata["checked_bead"],
                  "qa_task_id": metadata["qa_bead"], "primary_checkout": str(repo),
                  "worktree_path": str(worktree if worktree.is_absolute() else (repo / worktree).resolve())}
+    if "sanity_bead" in metadata:
+        available["sanity_task_id"] = metadata["sanity_bead"]
     terms = contract()
-    required = terms["required_variables_by_role"][role]
+    required = [name for name in terms["required_variables_by_role"][role] if name not in optional]
     values = {name: available[name] for name in required if name in available}
     remaining = [name for name in required if name not in values]
     return role, values, remaining

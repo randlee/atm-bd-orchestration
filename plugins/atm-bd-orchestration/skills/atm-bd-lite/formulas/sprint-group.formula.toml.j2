@@ -1,0 +1,89 @@
+---
+name: sprint-group
+version: 4.3.0
+description: Beads formula for the dev, sanity and QA tasks of one sprint, attached under its sprint container. bead-groups supplies every variable.
+format: toml
+required_variables:
+  - parent
+  - ref
+  - phase
+  - sprint
+  - stack
+  - layer
+  - difficulty
+  - branch
+  - worktree
+  - pr_target
+  - priority
+  - edge_option
+  - stack_bead
+  - checked_title
+  - phase_feature
+  - lint_command
+  - policy_path
+  - max_sanity_rounds
+  - reviewers_round1
+---
+formula = "sprint-group"
+description = "Sprint {{{ sprint }}}: dev, sanity and QA under sprint container {{{ parent }}}."
+version = 4
+type = "workflow"
+
+[[steps]]
+id = "dev"
+title = "{{{ sprint }}}: dev"
+description = "Dev work for sprint {{{ sprint }}}. The deliverables and acceptance criteria are on the sprint container {{{ parent }}}."
+type = "task"
+priority = {{{ priority }}}
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:dev"]
+
+[steps.metadata]
+profile = "lite"
+role = "dev"
+phase = "{{{ phase }}}"
+sprint = "{{{ sprint }}}"
+stack = "{{{ stack }}}"
+layer = {{{ layer }}}
+difficulty = "{{{ difficulty }}}"
+branch = "{{{ branch }}}"
+worktree = "{{{ worktree }}}"
+pr_target = "{{{ pr_target }}}"
+sprint_bead = "{{{ parent }}}"
+checked_bead = "{{{ parent }}}.{{{ ref }}}-dev"
+stack_bead = "{{{ stack_bead }}}"
+base = "{{{ pr_target }}}"
+checked_title = "{{{ checked_title }}}"
+qa_bead = "{{{ parent }}}.{{{ ref }}}-qa"
+phase_feature = "{{{ phase_feature }}}"
+lint_command = "{{{ lint_command }}}"
+policy_path = "{{{ policy_path }}}"
+[[steps]]
+id = "qa"
+title = "{{{ sprint }}}: QA round 1"
+description = "QA round 1 of {{{ parent }}}.{{{ ref }}}-dev (sprint {{{ sprint }}}), after its checked task closes."
+type = "task"
+priority = {{{ priority }}}
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:qa"]
+needs = ["dev"]
+
+[steps.metadata]
+profile = "lite"
+role = "qa"
+phase = "{{{ phase }}}"
+sprint = "{{{ sprint }}}"
+stack = "{{{ stack }}}"
+round = 1
+difficulty = "{{{ difficulty }}}"
+branch = "{{{ branch }}}"
+worktree = "{{{ worktree }}}"
+pr_target = "{{{ pr_target }}}"
+checked_bead = "{{{ parent }}}.{{{ ref }}}-dev"
+sprint_bead = "{{{ parent }}}"
+stack_bead = "{{{ stack_bead }}}"
+base = "{{{ pr_target }}}"
+checked_title = "{{{ checked_title }}}"
+qa_bead = "{{{ parent }}}.{{{ ref }}}-qa"
+phase_feature = "{{{ phase_feature }}}"
+lint_command = "{{{ lint_command }}}"
+policy_path = "{{{ policy_path }}}"
+reviewers_round1 = [{% for r in reviewers_round1 %}"{{{ r }}}"{% if not loop.last %}, {% endif %}{% endfor %}]

@@ -1,20 +1,16 @@
 """Read-only phase queue report, backed by bounded bead and ATM reads."""
 from __future__ import annotations
 
-from result import error_data, kind_name
-
-from atm_bd_types import ErrorDetail
-
 import json
 import sys
 import tomllib
 from collections import Counter
-from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from result import CommandFailed, Err, Timeout
+from atm_bd_types import ErrorDetail
+from result import Err, error_data, kind_name
 
 from . import atm_bd, command, config
 from .log import error_message

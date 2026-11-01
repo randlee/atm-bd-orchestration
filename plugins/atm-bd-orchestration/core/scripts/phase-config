@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11,<3.12"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types>=0.1.1,<1"]
 # ///
 # pyright: strict
 """Create a new phase's explicit settings before validating or pouring its plan."""
@@ -10,10 +10,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import repo_config
-from sprint_index_common import DEFAULT_TEMPLATES, phase_config_path, validate_phase_config
+from sprint_index_common import DEFAULT_TEMPLATES, LITE_TEMPLATES, phase_config_path, validate_phase_config
 
 
 class InitConfig(TypedDict):
@@ -22,6 +22,7 @@ class InitConfig(TypedDict):
     integration_branch: str
     lead: str
     templates: dict[str, str]
+    profile: NotRequired[str]
 
 
 def main(argv: list[str]) -> int:
@@ -30,6 +31,7 @@ def main(argv: list[str]) -> int:
     create = commands.add_parser("init", help="write new phase settings; never overwrite an existing phase")
     create.add_argument("--phase", required=True)
     create.add_argument("--lead", required=True, help="the appointed lead for this phase")
+    create.add_argument("--profile", choices=("full", "lite"))
     args = parser.parse_args(argv)
     repo = repo_config.repo_root()
     path = phase_config_path(repo, args.phase)
@@ -41,8 +43,10 @@ def main(argv: list[str]) -> int:
         "root": f"{config['bead_prefix']}-phase-{args.phase}",
         "integration_branch": config["integration_branch_pattern"].format(phase=args.phase),
         "lead": args.lead,
-        "templates": dict(DEFAULT_TEMPLATES),
+        "templates": dict(LITE_TEMPLATES if args.profile == "lite" else DEFAULT_TEMPLATES),
     }
+    if args.profile is not None:
+        data["profile"] = args.profile
     validate_phase_config(repo, args.phase, data)
     scalars = "".join(f"{key} = {json.dumps(value, ensure_ascii=False)}\n"
                       for key, value in data.items() if key != "templates")

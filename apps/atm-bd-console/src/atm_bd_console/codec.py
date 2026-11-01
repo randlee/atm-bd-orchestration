@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import inspect
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import MISSING, fields, is_dataclass
@@ -11,12 +11,20 @@ from types import UnionType
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from result import (
-    CommandFailed, ConfigInvalid, IoFailed, LockHeld, NotFound, Rejected, Timeout, Unreachable, error_data,
+    CommandFailed,
+    ConfigInvalid,
     Err,
     Error,
+    IoFailed,
+    LockHeld,
+    NotFound,
     Ok,
     ParseFailed,
+    Rejected,
     Result,
+    Timeout,
+    Unreachable,
+    error_data,
 )
 
 from .types import Snapshot

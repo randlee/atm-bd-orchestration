@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11,<3.12"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types>=0.1.1,<1"]
 # ///
 """Read-only, injectable pre-claim gates for dev, sanity, and QA work, and the read-only stack-top lookup.
 
@@ -39,6 +39,7 @@ if isinstance(_core_resolved, _CoreErr):
     print(_core_json.dumps({"err": {"code": "CORE.NOT_FOUND", "fix": _core_resolved.error.fix}}), file=_core_sys.stderr)
     raise SystemExit(3)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pr_lookup import find_merged_pr
 from command_timeout import DEFAULT_COMMAND_TIMEOUT, RAISE_FIX, TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
 from stack_top import select_stack_top, stack_bead_id
 
@@ -133,11 +134,11 @@ def descends(runner: Runner, lower: str, base: str, git: list[str] | None = None
     result = invoke(runner, ["git", *(git or []), "merge-base", "--is-ancestor", f"origin/{lower}", f"origin/{base}"], capture_output=True, text=True)
     if result.returncode > 1:
         if invoke(runner, ["git", *(git or []), "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{lower}"], capture_output=True, text=True).returncode:
-            closed = run_json(runner, "gh", "api", f"repos/{{owner}}/{{repo}}/pulls?state=closed&head={{owner}}:{lower}&per_page=100")
-            for pr in (row for row in closed if row.get("merged_at")):
-                if invoke(runner, ["git", *(git or []), "merge-base", "--is-ancestor", str(pr.get("merge_commit_sha")), f"origin/{base}"],
-                          capture_output=True, text=True).returncode == 0:
-                    return True
+            merged = find_merged_pr(lower, PRIMARY, runner=runner, accept=lambda pr: invoke(
+                runner, ["git", *(git or []), "merge-base", "--is-ancestor", pr.merge_commit, f"origin/{base}"],
+                capture_output=True, text=True).returncode == 0)
+            if not isinstance(merged, _CoreErr):
+                return True
         raise RuntimeError(result.stderr.strip() or "git merge-base failed")
     return result.returncode == 0
 

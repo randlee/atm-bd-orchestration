@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from result import error_data
-
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
 from contract_samples import BEAD, CONFIG, PHASE, PHASE_FILE, REPO_CONFIG
-from result import CommandFailed, Err, Ok, Timeout
+from result import CommandFailed, Err, Ok, Timeout, error_data
 from test_git_source import commit, git, ok
 
 from atm_bd_console import git_source, runner

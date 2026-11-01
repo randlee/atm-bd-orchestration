@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import json
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from atm_bd_types import ErrorDetail
 from contract_samples import BEAD, MERGE, PHASE_TEMPLATES, REMOTE_REF, SPRINT, WORKTREE
-from result import ConfigInvalid, Err, Ok
+from result import Err, Ok
 
 from atm_bd_console import atm_bd, cli, config, runner
 from atm_bd_console.enums import MergeState, SprintState

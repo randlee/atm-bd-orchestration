@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from result import CommandFailed, Err, NotFound, Ok, ParseFailed
+from atm_bd_types import ErrorDetail
+from result import CommandFailed, Err, NotFound, Ok
 
 from atm_bd_console.codec import from_json, to_json
 from atm_bd_console.types import Config, GhStatus, Inputs, RepoConfig, Sprint

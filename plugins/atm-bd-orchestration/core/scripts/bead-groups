@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11,<3.12"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types>=0.1.1,<1"]
 # ///
 # pyright: strict
 """Attach the bead groups of sprints and blocking findings, with their relations (diagram 07).
@@ -60,6 +60,8 @@ Exit: 0 succeeded (validate: nothing missing or wrong), 5 validate found
 problems, 2 a target was refused or failed, 3 usage.
 """
 from __future__ import annotations
+
+from atm_bd_types import Profile
 
 import argparse
 import json
@@ -332,7 +334,7 @@ class Attachment(TypedDict):
 
 class Schema(Protocol):
     def load_phase(self, phase: str) -> list[JsonObject]: ...
-    def validate_phase(self, beads: list[JsonObject]) -> list[str]: ...
+    def validate_phase(self, beads: list[JsonObject], profile: Profile = Profile.FULL) -> list[str]: ...
 
 
 class ReportError(TypedDict):
@@ -399,7 +401,7 @@ def split_ids(values: list[str]) -> list[str]:
     return [v for value in values for v in value.split(",") if v]
 
 
-def schema_issues(bead_schema: Schema, phase: str, prospective: list[JsonObject]) -> list[str]:
+def schema_issues(bead_schema: Schema, phase: str, prospective: list[JsonObject], profile: str = "full") -> list[str]:
     """Schema problems of the phase's live beads plus the prospective pour. Closed beads are history:
     validate-plan skips them too, so a phase whose closed beads predate the models still pours (#578)."""
     current: list[JsonObject] = []
@@ -412,7 +414,8 @@ def schema_issues(bead_schema: Schema, phase: str, prospective: list[JsonObject]
         if not matches_typeddict(raw_bead, BeadRow):
             raise ValueError("phase beads contain a malformed bead record")
         current.append(payload)
-    return bead_schema.validate_phase([*current, *prospective])
+    return (bead_schema.validate_phase([*current, *prospective], Profile.LITE) if profile == "lite"
+            else bead_schema.validate_phase([*current, *prospective]))
 
 
 class Run:
@@ -424,15 +427,20 @@ class Run:
         self.sidecars: dict[str, Sidecar] = {}
         self.features: dict[str, JsonObject] = {}
 
-    def sidecar(self, formula: str) -> Sidecar:
-        if formula not in self.sidecars:
-            path = bead_formulas.relations(formula, self.repo)
+    def profile(self, phase: str | None) -> str:
+        return sprint_index_common.load_phase_config(self.repo, phase).get("profile", "full") if phase else "full"
+
+    def sidecar(self, formula: str, phase: str | None = None) -> Sidecar:
+        profile = self.profile(phase)
+        cache_key = f"{profile}:{formula}"
+        if cache_key not in self.sidecars:
+            path = bead_formulas.relations(formula, self.repo, profile)
             decoded = json.loads(path.read_text())
             if not matches_typeddict(decoded, Sidecar):
                 raise ValueError(f"{path}: malformed sidecar")
             parsed = decoded
-            self.sidecars[formula] = parsed
-        return self.sidecars[formula]
+            self.sidecars[cache_key] = parsed
+        return self.sidecars[cache_key]
 
     def plan(self, phase: str) -> dict[str, PlanEntry]:
         """sprint name -> (container id, initial sanity id, predecessor sprint names), from the phase's plan file."""
@@ -448,7 +456,7 @@ class Run:
             if problems:
                 raise TargetError("BEAD_GROUPS_PLAN_INVALID", "; ".join(problems))
             prefix = sprint_index_common.bead_prefix(config["root"], self.repo)
-            ref = self.sidecar("sprint-group")["ref"]
+            ref = self.sidecar("sprint-group", phase)["ref"]
             self.plans[phase] = {r["sprint"]: (f"{prefix}-{r['sprint']}",
                                                 attach_id(f"{prefix}-{r['sprint']}", ref, "sanity"),
                                                 r["depends_on"])
@@ -500,9 +508,9 @@ class Run:
         missing = [k for k in SPRINT_KEYS if meta.get(k) in (None, "")]
         if missing:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{bead} lacks {', '.join(missing)}")
-        sidecar = self.sidecar("sprint-group")
-        option = self.option_for(sidecar)
         phase = metadata_string(meta, "phase", bead)
+        sidecar = self.sidecar("sprint-group", phase)
+        option = self.option_for(sidecar)
         sprint = metadata_string(meta, "sprint", bead)
         stack_name = metadata_string(meta, "stack", bead)
         difficulty = metadata_string(meta, "difficulty", bead)
@@ -555,7 +563,7 @@ class Run:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{sprint} lacks {', '.join(missing)}")
         _, filed_by_bead = self.show_typed(filed_by)
         qa_closed = filed_by_bead.get("status") == "closed"
-        sidecar = self.sidecar("finding-group")
+        sidecar = self.sidecar("finding-group", phase)
         option = self.option_for(sidecar)
         import bead_schema
         stack_id = stack_bead_id(sprint_index_common.load_phase_config(self.repo, phase)['root'])
@@ -636,12 +644,15 @@ class Run:
         return out
 
     def steps(self, target: Target) -> list[str]:
-        names = ("dev", "sanity", "qa") if target["kind"] == "sprint" else ("fix", "sanity", "qa")
+        first = "dev" if target["kind"] == "sprint" else "fix"
+        if self.profile(compose_string(target["compose"], "phase")) == "lite":
+            return [first, "qa"]
+        names = (first, "sanity", "qa")
         return list(names[:1] if target["option"] == "A" else names)
 
     def pour(self, target: Target, *, preview: bool) -> Attachment:
         formula = target["formula"]
-        template = bead_formulas.template(formula, self.repo).resolve()
+        template = bead_formulas.template(formula, self.repo, self.profile(compose_string(target["compose"], "phase"))).resolve()
         try:
             template = template.relative_to(self.repo.resolve())
         except ValueError as exc:
@@ -709,7 +720,7 @@ class Run:
     def relations(self, target: Target, *, preview: bool) -> tuple[list[Relation], list[str]]:
         """The attach `relations` from the formula's relations file, and (validate only) a problem for each one
         whose bead does not exist yet; the preview leaves those out, the attach refuses them."""
-        sidecar = self.sidecar(target["formula"])
+        sidecar = self.sidecar(target["formula"], compose_string(target["compose"], "phase"))
         scope: dict[str, object] = {"vars": Strict({**target["compose"], **{k: v for k, v in target["vars"].items() if not isinstance(v, list)}})}
         rules: list[RelationRule] = [*sidecar["options"][target["option"]].get("relations", []), *sidecar.get("relations", [])]
         relations: list[Relation] = []
@@ -777,7 +788,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--phase", action="append", default=[])
     parser.add_argument("--findings", action="append", default=[], type=Path)
     parser.add_argument("--option")
-    parser.add_argument("--validate", action="store_true")
+    parser.add_argument("--validate", "--dry-run", dest="validate", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if not (args.sprint or args.phase or args.findings):
@@ -844,7 +855,7 @@ def main(argv: list[str]) -> int:
             for phase in sorted({compose_string(target["compose"], "phase") for _, target, _ in previews}):
                 prospective = [node for _, target, attachment in previews if compose_string(target["compose"], "phase") == phase
                                for node in run.prospective(attachment)]
-                issues = schema_issues(bead_schema, phase, prospective)
+                issues = schema_issues(bead_schema, phase, prospective, run.profile(phase))
                 if issues:
                     next(entry for entry, target, _ in previews if compose_string(target["compose"], "phase") == phase)["problems"] += issues
                     result["schema_problems"] = True

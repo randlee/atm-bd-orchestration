@@ -1,8 +1,6 @@
 """Single-call GitHub pull-request source."""
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import json
 import re
 from dataclasses import replace
@@ -10,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from atm_bd_types import ErrorDetail
 from result import CommandFailed, ConfigInvalid, Err, Ok, ParseFailed, Rejected, Result, Timeout, Unreachable
 
 from . import command

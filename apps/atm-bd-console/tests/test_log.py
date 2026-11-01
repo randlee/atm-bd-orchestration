@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorKind
-
 import re
 from typing import cast
 
 import pytest
+from atm_bd_types import ErrorKind
 from result import Err, Ok
 from sc_observability import Err as ObservabilityErr
 from sc_observability import Logger, LoggerConfig, create_logger

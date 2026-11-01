@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorKind
-
-from error_fixture_helpers import replace_error
-
 import asyncio
 import os
 import threading
@@ -15,9 +11,11 @@ from types import SimpleNamespace
 from typing import Self, cast
 
 import pytest
+from atm_bd_types import ErrorKind
 from conftest import HANG_GUARD_S, FakeStep, run_scenario, settle
 from contract_fixtures import RUNNING
 from contract_samples import CONFIG, SNAPSHOT, STATE, TIMEOUT
+from error_fixture_helpers import replace_error
 from result import Err, Ok
 from rich.cells import cell_len
 from sc_observability import Level

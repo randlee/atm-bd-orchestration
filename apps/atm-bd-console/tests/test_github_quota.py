@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorKind, ErrorDetail
-
 import copy
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 import pytest
+from atm_bd_types import ErrorDetail, ErrorKind
 from result import CommandFailed, Err, Ok
 from test_github_source import RECORDED_REST, TEST_REPO, graphql
 

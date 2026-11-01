@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11,<3.12"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types>=0.1.1,<1"]
 # ///
 # pyright: strict
 # DO NOT EDIT WITHOUT EXPLICIT USER APPROVAL.
@@ -15,6 +15,8 @@ Exit 0 valid, 5 problems, 2 could not run.
 """
 
 from __future__ import annotations
+
+from atm_bd_types import Profile
 
 import json
 import re
@@ -136,17 +138,22 @@ class CloseFields(BaseModel):
     base: NonEmpty
     checked_bead: NonEmpty
     checked_title: NonEmpty
-    sanity_bead: str = ""
+    sanity_bead: str | None = None
     qa_bead: NonEmpty
     phase_feature: NonEmpty
     lint_command: NonEmpty
     policy_path: NonEmpty
-    max_sanity_rounds: int = Field(ge=1)
+    max_sanity_rounds: int | None = Field(default=None, ge=1)
+    profile: Literal["full", "lite"] = "full"
 
     @model_validator(mode="after")
     def names_its_sanity_bead(self) -> CloseFields:
-        if not self.sanity_bead and not (self.model_extra or {}).get("quick_fix"):
+        if self.profile == "full" and not self.sanity_bead and not (self.model_extra or {}).get("quick_fix"):
             raise ValueError("sanity_bead is empty; only a quick-fix QA bead has no sanity bead")
+        if self.profile == "full" and self.max_sanity_rounds is None:
+            raise ValueError("max_sanity_rounds is required for a full profile")
+        if self.profile == "lite" and (self.sanity_bead is not None or self.max_sanity_rounds is not None):
+            raise ValueError("lite profile must leave sanity fields undefined")
         return self
 
 
@@ -224,6 +231,18 @@ class QaBead(TaskBead):
     metadata: QaMetadata
 
 
+class LiteSprintGroup(BaseModel):
+    """The single schema's lite sprint group."""
+    dev: DevBead
+    qa: QaBead
+
+
+class LiteFindingGroup(BaseModel):
+    """The single schema's lite finding group."""
+    fix: FixBead
+    qa: QaBead
+
+
 class RootMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
     integration_branch: NonEmpty
@@ -256,7 +275,7 @@ class LayerRecord(BaseModel):
     pr: int
     head: NonEmpty
     base: NonEmpty
-    linked: bool
+    linked: bool | None = None
 
 
 class StackMetadata(BaseModel):
@@ -295,7 +314,7 @@ def problems(bead: JsonObject, model: type[Bead]) -> list[str]:
     return []
 
 
-def validate_phase(beads: list[JsonObject]) -> list[str]:
+def validate_phase(beads: list[JsonObject], profile: Profile = Profile.FULL) -> list[str]:
     found: list[str] = []
     for bead in beads:
         raw_labels = bead.get("labels")
@@ -303,6 +322,16 @@ def validate_phase(beads: list[JsonObject]) -> list[str]:
         if "anchor" in labels:
             continue
         bead_id = str(bead.get("id", "?"))
+        metadata = bead.get("metadata")
+        stamp = metadata.get("profile") if is_object_mapping(metadata) else None
+        if stamp is None and any(stage in labels for stage in ("stage:dev", "stage:fix", "stage:dev-sanity", "stage:qa")):
+            stamp = "full"  # Historical stage beads predate profile stamps.
+        if profile == Profile.LITE and "stage:dev-sanity" in labels:
+            found.append(f"{bead_id}: sanity bead is forbidden in a lite phase")
+        if profile == Profile.FULL and stamp == "lite":
+            found.append(f"{bead_id}: lite bead in a full phase")
+        if profile == Profile.LITE and stamp == "full":
+            found.append(f"{bead_id}: full bead in a lite phase")
         if re.fullmatch(r".+-phase-[a-z0-9]+", bead_id):
             model = RootBead
         elif bead.get("issue_type") == "gate":

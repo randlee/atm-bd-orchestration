@@ -33,7 +33,7 @@ class FindingGroupTests(unittest.TestCase):
         container = {"status": "open", "title": "d-1: the work", "metadata": {"phase": "d", "sprint": "d-1", "stack": "stack", "difficulty": "normal",
                                                      "layer": 4, "requirements": ["REQ-1"], "adrs": ["NONE"]}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else container
-        runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
+        runner.sidecar = lambda _, phase=None: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
         formula = (SCRIPTS.parents[1] / (".claude/skills" if SCRIPTS.parent.name == ".atm-bd" else "skills")) / "atm-bd-orchestration/formulas/finding-group.formula.toml.j2"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -79,7 +79,7 @@ class FoundOnLayerGuardTests(unittest.TestCase):
         container = {"status": "open", "title": "d-1: the work", "metadata": {"phase": "d", "sprint": "d-1", "stack": "stack", "difficulty": "normal",
                                                      "requirements": ["REQ-1"], "adrs": ["NONE"]}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else container
-        runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
+        runner.sidecar = lambda _, phase=None: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
         row = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "qa", "title": "issue", "remedy": "fix"}
         if layer is not None:
             row["found_on_layer"] = layer
@@ -125,7 +125,7 @@ class PhaseEndFindingTests(unittest.TestCase):
         stack = {"id": "t-phase-d.stack", "metadata": {"trunk": "integrate/phase-d", "stack_number": None, "layers": []}}
         epic = {"status": "open", "title": "phase-d: feature", "metadata": {"integration_branch": "integrate/phase-d", "phase": "d", "plan_scope": "epic"}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else epic
-        runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
+        runner.sidecar = lambda _, phase=None: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
         row = {"ref": "pe-f1", "severity": "blocking", "reviewer": "review", "title": "issue", "remedy": "fix",
                "requirements": ["REQ-1"], "adrs": ["NONE"], **extra}
         with tempfile.TemporaryDirectory() as directory:
@@ -213,7 +213,7 @@ class SprintGroupReviewersTests(unittest.TestCase):
         root = {"id": "t-phase-d", "title": "phase d"}
         runner.show = lambda bead: root if bead == "t-phase-d" else container
         runner.plan = lambda _: {"d-1": ("t-d-1", "t-d-1.group-sanity", [])}
-        runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "group"}
+        runner.sidecar = lambda _, phase=None: {"default_option": "C", "options": {"C": {}}, "ref": "group"}
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             runner.repo = work

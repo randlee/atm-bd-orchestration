@@ -6,10 +6,10 @@ from dataclasses import fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, get_args, get_origin, get_type_hints
-from atm_bd_types import Error, ErrorDetail
 
 import pytest
 import result
+from atm_bd_types import Error, ErrorDetail
 
 from atm_bd_console import types
 from atm_bd_console.enums import QaState, SprintState

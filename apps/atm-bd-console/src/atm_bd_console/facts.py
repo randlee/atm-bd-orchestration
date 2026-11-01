@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from result import kind_name
-
 from dataclasses import dataclass
 from datetime import datetime
+
+from result import kind_name
 
 from .agent_roles import agent_group
 from .dispatch import sprint_of

@@ -1,14 +1,13 @@
 """beads_source against a fake bd that answers `bd show <ids> --json` from one JSON file per bead."""
 from __future__ import annotations
 
-from atm_bd_types import ErrorKind, ErrorDetail
-
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from result import CommandFailed, Err, Ok, ParseFailed, Timeout
+from atm_bd_types import ErrorDetail, ErrorKind
+from result import CommandFailed, Err, Ok, Timeout
 
 from atm_bd_console import beads_source
 from atm_bd_console.enums import SprintState

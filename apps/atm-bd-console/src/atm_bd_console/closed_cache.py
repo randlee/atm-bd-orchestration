@@ -1,16 +1,15 @@
 """In-memory cache of closed beads for one console process; a closed bead never changes."""
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import os
 import tempfile
 import threading
 from collections.abc import Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from atm_bd_types import ErrorDetail
 from result import Err, Error, IoFailed, Ok, ParseFailed, Result
 
 from .codec import from_json, to_json

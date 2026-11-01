@@ -209,12 +209,13 @@ class World:
                 output = "git@github.com:example/repo.git"
             else:
                 assert argv[1] in ("status", "fetch", "merge-base"), argv
-        elif argv[:2] == ["gh", "api"]:
+        elif argv[:2] in (["gh", "api"], ["gh", "pr"]):
             if self.github_failure == "raise":
                 raise OSError("GitHub unavailable")
             if self.github_failure:
                 return subprocess.CompletedProcess(argv, 1, "", "HTTP 429")
-            output = [{"number": self.values.get("pr_number", self.pr_number), "head": {"sha": self.values.get("commit", self.head)}, "base": {"ref": "deliberately-different"}}]
+            number = self.values.get("pr_number", self.pr_number)
+            output = [{"number": number, "headRefOid": self.values.get("commit", self.head), "baseRefName": "deliberately-different", "url": f"https://github.com/example/repo/pull/{number}"}]
         else:
             raise AssertionError(argv)
         if write and argv[0] == "bd":

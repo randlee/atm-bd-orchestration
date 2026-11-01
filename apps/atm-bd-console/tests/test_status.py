@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail, ErrorKind
-
 import subprocess
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from result import CommandFailed, ConfigInvalid, Err, NotFound, Ok, Timeout
+from atm_bd_types import ErrorDetail, ErrorKind
+from result import CommandFailed, Err, Ok, Timeout
 
 from atm_bd_console.codec import from_json
 from atm_bd_console.command import Output

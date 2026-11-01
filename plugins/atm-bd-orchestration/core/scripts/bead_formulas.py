@@ -16,6 +16,9 @@ import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
 
+from core_paths import profile_formulas_dir
+from result import Err
+
 from operation_models import BeadRecord, bead_record_to_json as bead_record_to_json, is_bead_records  # noqa: E402
 
 PACKAGE_FORMULAS = (Path(__file__).resolve().parents[2] / "skills/atm-bd-orchestration/formulas"
@@ -24,30 +27,36 @@ PACKAGE_FORMULAS = (Path(__file__).resolve().parents[2] / "skills/atm-bd-orchest
 OVERRIDE_DIR = Path(".atm-bd") / "formula"
 TEMPLATE_SUFFIX = ".formula.toml.j2"
 RELATIONS_SUFFIX = ".relations.json"
-def search_path(repo: Path | None) -> list[Path]:
+def search_path(repo: Path | None, profile: str = "full") -> list[Path]:
     """Directories searched for formula files, highest precedence first."""
     paths = [Path(repo) / OVERRIDE_DIR] if repo is not None else []
+    if profile == "lite":
+        resolved = profile_formulas_dir("lite", repo)
+        if isinstance(resolved, Err):
+            return paths
+        paths.append(resolved.value)
+        return paths
     paths.append(PACKAGE_FORMULAS)
     if Path(__file__).resolve().parents[1].name == ".atm-bd":
         paths.append(Path(__file__).resolve().parents[2] / ".codex/skills/atm-bd-orchestration/formulas")
     return paths
 
 
-def find(name: str, suffix: str, repo: Path | None) -> Path:
+def find(name: str, suffix: str, repo: Path | None, profile: str = "full") -> Path:
     """The first `<name><suffix>` on the search path; FileNotFoundError when none exists."""
-    for directory in search_path(repo):
+    for directory in search_path(repo, profile):
         candidate = directory / f"{name}{suffix}"
         if candidate.is_file():
             return candidate
-    raise FileNotFoundError(f"no {name}{suffix} in {[str(d) for d in search_path(repo)]}")
+    raise FileNotFoundError(f"no {name}{suffix} in {[str(d) for d in search_path(repo, profile)]}")
 
 
-def template(name: str, repo: Path | None) -> Path:
-    return find(name, TEMPLATE_SUFFIX, repo)
+def template(name: str, repo: Path | None, profile: str = "full") -> Path:
+    return find(name, TEMPLATE_SUFFIX, repo, profile)
 
 
-def relations(name: str, repo: Path | None) -> Path:
-    return find(name, RELATIONS_SUFFIX, repo)
+def relations(name: str, repo: Path | None, profile: str = "full") -> Path:
+    return find(name, RELATIONS_SUFFIX, repo, profile)
 
 
 def attach_id(parent: str, ref: str, step: str) -> str:

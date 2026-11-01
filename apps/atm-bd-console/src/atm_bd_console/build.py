@@ -1,13 +1,10 @@
 """Build identity visible to operators and bug reports."""
 from __future__ import annotations
 
-from result import error_data
-
-from dataclasses import asdict
 from importlib import import_module
 from pathlib import Path
 
-from result import Err, Error
+from result import Err, Error, error_data
 
 from . import __version__, git_source
 from .log import create_console_logger, error_message

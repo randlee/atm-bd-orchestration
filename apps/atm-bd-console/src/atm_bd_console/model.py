@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from result import kind_name
-
 import re
 from dataclasses import replace
 from datetime import datetime, timedelta
 
-from result import Err, Error, Ok, Result
+from result import Err, Error, Ok, Result, kind_name
 from rich.cells import cell_len
 
 from .agent_roles import agent_group

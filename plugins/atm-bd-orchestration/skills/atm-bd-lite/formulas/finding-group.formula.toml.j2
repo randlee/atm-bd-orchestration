@@ -1,0 +1,112 @@
+---
+name: finding-group
+version: 6.2.0
+description: Beads formula for the fix, sanity and QA tasks of one blocking finding, attached under its sprint container. bead-groups supplies every variable.
+format: toml
+required_variables:
+  - parent
+  - ref
+  - finding_ref
+  - round
+  - severity
+  - reviewer
+  - finding_title
+  - remedy
+  - filed_by
+  - found_at_commit
+  - requirements
+  - adrs
+  - phase
+  - sprint
+  - stack
+  - difficulty
+  - branch
+  - worktree
+  - pr_target
+  - priority
+  - edge_option
+  - stack_bead
+  - checked_title
+  - phase_feature
+  - lint_command
+  - policy_path
+  - max_sanity_rounds
+defaults:
+  found_on_layer: ""
+  has_found_on_layer: false
+---
+formula = "finding-group"
+description = "Fix of blocking finding {{{ finding_ref }}}, round {{{ round }}}, in sprint {{{ sprint }}}."
+version = 6
+type = "workflow"
+
+[[steps]]
+id = "fix"
+title = "{{{ sprint }}}: fix {{{ finding_ref }}}: {{{ finding_title }}}"
+description = "Fix blocking finding {{{ finding_ref }}} (round {{{ round }}}), filed by {{{ reviewer }}} in {{{ filed_by }}}.\n\nRemedy: {{{ remedy }}}\n\nCommit the fix on the sprint's stack, then close this bead. The filing reviewer's verification follows.\n\n## Deliverables\n1. {{{ remedy }}}"
+type = "task"
+priority = {{{ priority }}}
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:fix"]
+
+[steps.metadata]
+profile = "lite"
+role = "fix"
+phase = "{{{ phase }}}"
+sprint = "{{{ sprint }}}"
+stack = "{{{ stack }}}"
+round = {{{ round }}}
+difficulty = "{{{ difficulty }}}"
+branch = "{{{ branch }}}"
+worktree = "{{{ worktree }}}"
+pr_target = "{{{ pr_target }}}"
+sprint_bead = "{{{ parent }}}"
+finding_ref = "{{{ finding_ref }}}"
+severity = "{{{ severity }}}"
+reviewer = "{{{ reviewer }}}"
+remedy = "{{{ remedy }}}"
+filed_by = "{{{ filed_by }}}"
+found_at_commit = "{{{ found_at_commit }}}"
+{% if has_found_on_layer %}found_on_layer = {{{ found_on_layer | tojson }}}
+{% endif %}
+requirements = [{% for r in requirements %}"{{{ r }}}"{% if not loop.last %}, {% endif %}{% endfor %}]
+adrs = [{% for r in adrs %}"{{{ r }}}"{% if not loop.last %}, {% endif %}{% endfor %}]
+checked_bead = "{{{ parent }}}.{{{ ref }}}-fix"
+stack_bead = "{{{ stack_bead }}}"
+base = "{{{ pr_target }}}"
+checked_title = "{{{ checked_title }}}"
+qa_bead = "{{{ parent }}}.{{{ ref }}}-qa"
+phase_feature = "{{{ phase_feature }}}"
+lint_command = "{{{ lint_command }}}"
+policy_path = "{{{ policy_path }}}"
+[[steps]]
+id = "qa"
+title = "{{{ sprint }}}: verify the fix of {{{ finding_ref }}}"
+description = "Fix verification of {{{ parent }}}.{{{ ref }}}-fix for finding {{{ finding_ref }}}, by its filing reviewer {{{ reviewer }}} only, after its checked task closes."
+type = "task"
+priority = {{{ priority }}}
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:qa"]
+needs = ["fix"]
+
+[steps.metadata]
+profile = "lite"
+role = "qa"
+phase = "{{{ phase }}}"
+sprint = "{{{ sprint }}}"
+stack = "{{{ stack }}}"
+round = {{{ round }}}
+difficulty = "{{{ difficulty }}}"
+branch = "{{{ branch }}}"
+worktree = "{{{ worktree }}}"
+pr_target = "{{{ pr_target }}}"
+checked_bead = "{{{ parent }}}.{{{ ref }}}-fix"
+finding_ref = "{{{ finding_ref }}}"
+reviewer = "{{{ reviewer }}}"
+reviewers_round1 = ["{{{ reviewer }}}"]
+sprint_bead = "{{{ parent }}}"
+stack_bead = "{{{ stack_bead }}}"
+base = "{{{ pr_target }}}"
+checked_title = "{{{ checked_title }}}"
+qa_bead = "{{{ parent }}}.{{{ ref }}}-qa"
+phase_feature = "{{{ phase_feature }}}"
+lint_command = "{{{ lint_command }}}"
+policy_path = "{{{ policy_path }}}"

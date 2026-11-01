@@ -2,28 +2,36 @@
   "create": {
     "argv": [
       "az",
-      "repos",
-      "pr",
-      "create",
-      "--target-branch",
-      "{base}",
-      "--source-branch",
-      "{head}",
-      "--title",
-      "{title}",
-      "--description",
-      "@{body_file}",
-      "--output",
-      "json"
+      "devops",
+      "invoke",
+      "--area",
+      "git",
+      "--resource",
+      "pullRequests",
+      "--route-parameters",
+      "project={project}",
+      "repositoryId={repository}",
+      "--org",
+      "https://dev.azure.com/{organization}",
+      "--http-method",
+      "POST",
+      "--in-file",
+      "{body_file}"
     ],
-    "body": "file",
+    "body": "json_file",
     "output": "json",
     "result": {
       "number": "pullRequestId",
       "url": "url",
       "base": "targetRefName"
     },
-    "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr#az-repos-pr-create"
+    "comment": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/create",
+    "payload": {
+      "sourceRefName": "{head}",
+      "targetRefName": "{base}",
+      "title": "{title}",
+      "description": "{body_file}"
+    }
   },
   "view": {
     "argv": [
@@ -34,14 +42,22 @@
       "--id",
       "{number}",
       "--output",
-      "json"
+      "json",
+      "--organization",
+      "https://dev.azure.com/{organization}"
     ],
     "body": "none",
     "output": "json",
     "result": {
       "number": "pullRequestId",
       "url": "url",
-      "base": "targetRefName"
+      "base": "targetRefName",
+      "merged_at": "closedDate",
+      "merge_commit": "lastMergeCommit.commitId",
+      "body": "description",
+      "head_sha": "lastMergeSourceCommit.commitId",
+      "author": "createdBy.uniqueName",
+      "updated_at": "creationDate"
     },
     "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr#az-repos-pr-show"
   },
@@ -56,7 +72,9 @@
       "--target-branch",
       "{base}",
       "--output",
-      "none"
+      "none",
+      "--organization",
+      "https://dev.azure.com/{organization}"
     ],
     "body": "none",
     "output": "exit_code",
@@ -108,7 +126,9 @@
       "--id",
       "{number}",
       "--output",
-      "json"
+      "json",
+      "--organization",
+      "https://dev.azure.com/{organization}"
     ],
     "body": "none",
     "output": "json",
@@ -124,14 +144,28 @@
       "--source-branch",
       "{head}",
       "--output",
-      "json"
+      "json",
+      "--status",
+      "{state}",
+      "--organization",
+      "https://dev.azure.com/{organization}",
+      "--project",
+      "{project}",
+      "--repository",
+      "{repository}"
     ],
     "body": "none",
     "output": "json",
     "result": {
       "number": "pullRequestId",
       "url": "url",
-      "base": "targetRefName"
+      "base": "targetRefName",
+      "merged_at": "closedDate",
+      "merge_commit": "lastMergeCommit.commitId",
+      "body": "description",
+      "head_sha": "lastMergeSourceCommit.commitId",
+      "author": "createdBy.uniqueName",
+      "updated_at": "creationDate"
     },
     "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr#az-repos-pr-list"
   },
@@ -153,5 +187,34 @@
     "output": "json",
     "result": {},
     "comment": "https://github.com/steveyegge/beads"
+  },
+  "comment_view": {
+    "argv": [
+      "az",
+      "devops",
+      "invoke",
+      "--area",
+      "git",
+      "--resource",
+      "pullRequestThreads",
+      "--route-parameters",
+      "project={project}",
+      "repositoryId={repository}",
+      "pullRequestId={number}",
+      "threadId={thread}",
+      "--org",
+      "https://dev.azure.com/{organization}",
+      "--http-method",
+      "GET"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {
+      "body": "comments.0.content",
+      "url": "url",
+      "author": "comments.0.author.uniqueName",
+      "updated_at": "lastUpdatedDate"
+    },
+    "comment": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-threads/get"
   }
 }

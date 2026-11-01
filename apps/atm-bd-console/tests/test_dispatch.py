@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 from dataclasses import fields, replace
 from datetime import UTC, datetime
 from functools import partial
 
+from atm_bd_types import ErrorDetail
 from contract_samples import PHASE_TEMPLATES
 from result import Err, NotFound, Ok
 

@@ -714,10 +714,13 @@ class JevClientTests(unittest.TestCase):
         def run(argv, **kwargs):
             if argv[0] == "git":
                 return real(argv, **kwargs)
-            key = argv[2]
+            key = f"repos/{argv[5]}/pulls/{argv[3]}" if argv[:3] == ["gh", "pr", "view"] else argv[2]
             if key in failing:
                 return MagicMock(returncode=1, stdout="", stderr="not found")
-            return MagicMock(returncode=0, stdout=json.dumps(answers[key]), stderr="")
+            answer = answers[key]
+            if argv[:3] == ["gh", "pr", "view"] and isinstance(answer, dict):
+                answer = {**answer, "url": answer.get("html_url"), "updatedAt": answer.get("updated_at"), "author": answer.get("user")}
+            return MagicMock(returncode=0, stdout=json.dumps(answer), stderr="")
         return patch.object(client.subprocess, "run", side_effect=run)
 
     def test_evidence_only_deliverable_sends_bead_notes_and_pr_text_with_their_source(self):
@@ -725,8 +728,8 @@ class JevClientTests(unittest.TestCase):
                       "commit": "c" * 40, "base_sha": "b" * 40, "changed_files": [], "context": [], "external_evidence": self.REFS}
         with self.fetched() as run:
             (request,) = client.assignment_requests(assignment)
-        self.assertEqual([c.args[0][:2] for c in run.call_args_list], [["gh", "api"], ["gh", "api"]])
-        self.assertTrue(all(c.kwargs["cwd"] == "/nonexistent" for c in run.call_args_list))
+        self.assertEqual([c.args[0][:2] for c in run.call_args_list], [["gh", "pr"], ["gh", "api"]])
+        self.assertTrue(all(str(c.kwargs["cwd"]) == "/nonexistent" for c in run.call_args_list))
         client.validate_request(request)
         self.assertEqual(request["state"]["evidence"], "")
         self.assertEqual(request["state"]["external_evidence"], [

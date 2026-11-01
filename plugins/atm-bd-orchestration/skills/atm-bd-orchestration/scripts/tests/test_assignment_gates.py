@@ -329,25 +329,25 @@ class AssignmentGateTests(unittest.TestCase):
     def test_a_lower_bound_whose_branch_is_gone_holds_only_when_its_pr_merged(self):
         gone = {("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (128, ""),
                 ("git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/planned"): (1, "")}
-        merged = ("gh", "api", "repos/{owner}/{repo}/pulls?state=closed&head={owner}:planned&per_page=100")
+        merged = ("gh", "pr", "list", "--head", "planned", "--state", "merged", "--json", "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author", "--limit", "100")
         in_base = ("git", "merge-base", "--is-ancestor", "m1", "origin/target")
-        listed = {**gone, merged: (0, dumped([{"merged_at": "2026-01-01T00:00:00Z", "merge_commit_sha": "old"},
-                                              {"merged_at": "2026-01-02T00:00:00Z", "merge_commit_sha": "m1"}])),
+        listed = {**gone, merged: (0, dumped([{"number": 1, "url": "u1", "baseRefName": "main", "mergedAt": "2026-01-01T00:00:00Z", "mergeCommit": {"oid": "old"}},
+                                              {"number": 2, "url": "u2", "baseRefName": "main", "mergedAt": "2026-01-02T00:00:00Z", "mergeCommit": {"oid": "m1"}}])),
                   ("git", "merge-base", "--is-ancestor", "old", "origin/target"): (1, "")}
         runner = FakeRunner({**listed, in_base: (0, "")})
         self.assertTrue(gates.descends(runner, "planned", "target"))
-        self.assertFalse([argv for _, argv in runner.calls if argv[:3] == ("gh", "pr", "list")])
+        self.assertIn(merged, [argv for _, argv in runner.calls])
         for responses in ({**listed, in_base: (1, "")}, {**gone, merged: (0, "[]")}):
             with self.subTest(responses=responses):
                 with self.assertRaises(RuntimeError):
                     gates.descends(FakeRunner(responses), "planned", "target")
 
     def test_a_closed_unmerged_pr_of_a_gone_lower_bound_is_ignored(self):
-        merged = ("gh", "api", "repos/{owner}/{repo}/pulls?state=closed&head={owner}:planned&per_page=100")
+        merged = ("gh", "pr", "list", "--head", "planned", "--state", "merged", "--json", "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author", "--limit", "100")
         runner = FakeRunner({
             ("git", "merge-base", "--is-ancestor", "origin/planned", "origin/target"): (128, ""),
             ("git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/planned"): (1, ""),
-            merged: (0, dumped([{"merged_at": None, "merge_commit_sha": "closed-unmerged"}])),
+            merged: (0, dumped([{"number": 1, "url": "u", "baseRefName": "main", "mergedAt": None, "mergeCommit": {"oid": "closed-unmerged"}}])),
             ("git", "merge-base", "--is-ancestor", "closed-unmerged", "origin/target"): (0, ""),
         })
         with self.assertRaises(RuntimeError):

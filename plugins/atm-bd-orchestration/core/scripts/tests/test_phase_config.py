@@ -174,6 +174,19 @@ class PhaseConfigTests(unittest.TestCase):
         self.assertIn("already exists", result.stderr)
         self.assertEqual(path.read_bytes(), original)
 
+    def test_lite_init_uses_fixture_templates_and_names_profile(self):
+        self.configure_repo()
+        lite = self.repo / ".claude/skills/atm-bd-lite/templates"
+        lite.mkdir(parents=True)
+        for name in ("dev-template.xml.j2", "fix-assignment.xml.j2", "qa-template-lite.xml.j2"):
+            (lite / name).write_text("fixture")
+        result = self.init("--phase", "lite", "--lead", "lead", "--profile", "lite")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = load_phase_config(self.repo, "lite")
+        self.assertEqual(data.get("profile"), "lite")
+        self.assertNotIn("sanity", data["templates"])
+        self.assertEqual(data["templates"]["dev"], str(lite.relative_to(self.repo) / "dev-template.xml.j2"))
+
     def test_legacy_dev_fix_is_ignored_even_if_its_file_is_missing(self):
         data = copy.deepcopy(self.data)
         data["templates"]["dev_fix"] = "deleted-dev-fix.xml.j2"

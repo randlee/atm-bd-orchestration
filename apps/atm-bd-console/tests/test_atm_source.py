@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import json
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from result import CommandFailed, Err, Ok, ParseFailed, Timeout, Unreachable
+from atm_bd_types import ErrorDetail
+from result import Err, Ok
 
 from atm_bd_console import atm_source
 from atm_bd_console.types import DispatchSpec

@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import os
 import subprocess
 from pathlib import Path
 from typing import TypeVar, cast, get_args, get_type_hints
 
 import pytest
+from atm_bd_types import ErrorDetail
 from conftest import SYSTEM_PATH, FakeBin
 from contract_fixtures import SNAPSHOTS, fixtures
-from result import Ok, Rejected
+from result import Ok
 
 from atm_bd_console.codec import from_json, to_json
 from atm_bd_console.enums import CiState, MergeState

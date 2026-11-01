@@ -91,6 +91,7 @@ priority = {{{ priority }}}
 labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:fix"]
 
 [steps.metadata]
+profile = "full"
 role = "fix"
 phase = "{{{ phase }}}"
 sprint = "{{{ sprint }}}"
@@ -133,6 +134,7 @@ labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:dev-sanity"]
 {% if edge_option == "C" %}needs = ["fix"]
 {% endif %}
 [steps.metadata]
+profile = "full"
 role = "sanity"
 phase = "{{{ phase }}}"
 sprint = "{{{ sprint }}}"
@@ -164,6 +166,7 @@ labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:qa"]
 needs = ["sanity"]
 
 [steps.metadata]
+profile = "full"
 role = "qa"
 phase = "{{{ phase }}}"
 sprint = "{{{ sprint }}}"

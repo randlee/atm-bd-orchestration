@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from result import kind_name
-
-from atm_bd_types import ErrorDetail
-
 import os
 import time
 from dataclasses import dataclass, replace
@@ -12,6 +8,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 import pytest
+from atm_bd_types import ErrorDetail
 from contract_fixtures import RUNNING
 from contract_samples import STEP, TIMEOUT
 from result import (
@@ -26,6 +23,7 @@ from result import (
     Rejected,
     Timeout,
     Unreachable,
+    kind_name,
 )
 from rich.cells import cell_len
 

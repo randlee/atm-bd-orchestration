@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
@@ -11,6 +9,7 @@ from typing import cast, get_args, get_type_hints
 
 import pytest
 import result
+from atm_bd_types import ErrorDetail
 from contract_samples import (
     BEAD,
     CONFIG,

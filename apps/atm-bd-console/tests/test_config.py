@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
-from result import CommandFailed, ConfigInvalid, Err, IoFailed, Ok, Timeout
+from atm_bd_types import ErrorDetail
+from result import CommandFailed, Err, Ok, Timeout
 
 from atm_bd_console.command import Output
 from atm_bd_console.config import load_config, repo_root

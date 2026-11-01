@@ -1,14 +1,13 @@
 """git_source against a real temporary repository with a bare origin (real git, no fake)."""
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 from pathlib import Path
 from typing import TypeVar
 
 import pytest
+from atm_bd_types import ErrorDetail
 from process_helpers import run_process
-from result import Err, NotFound, Ok, Result
+from result import Err, Ok, Result
 
 from atm_bd_console import git_source
 from atm_bd_console.enums import MergeState

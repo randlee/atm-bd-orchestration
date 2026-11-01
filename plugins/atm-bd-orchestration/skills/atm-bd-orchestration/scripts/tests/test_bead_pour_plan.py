@@ -149,6 +149,42 @@ class PourPlanTests(unittest.TestCase):
                     if option == "B":
                         self.assertIn({"from": "step:sanity", "to": "step:dev", "type": "validates"}, relations)
 
+    def test_lite_dry_run_previews_dev_qa_and_predecessor_dev(self):
+        dependent = self.fixture.sprint(number=2, predecessors=("x-1",))
+        lite = core_scripts().parents[1] / "skills/atm-bd-lite/formulas"
+        template = self.fixture.root / "lite.toml.j2"
+        template.write_text((lite / "sprint-group.formula.toml.j2").read_text())
+        sidecar = lite / "sprint-group.relations.json"
+        self.fixture.rows[f"{self.sprint}.group-dev"] = {"id": f"{self.sprint}.group-dev", "status": "open"}
+        self.runner.profile = lambda _phase: "lite"
+        requests = []
+        ids = {step: f"{dependent}.group-{step}" for step in ("dev", "qa")}
+
+        def preview(argv, **_kwargs):
+            request = json.loads(Path(argv[argv.index("--request") + 1]).read_text())
+            requests.append(request)
+            source = template.read_text().replace("{{{", "{{").replace("}}}", "}}")
+            render_template = self.fixture.root / "render-lite.toml.j2"
+            render_template.write_text(source)
+            steps = tomllib.loads(sc_render.render(render_template, request["compose_variables"]))["steps"]
+            self.assertEqual([step["id"] for step in steps], ["dev", "qa"])
+            self.assertTrue(all(step["metadata"]["profile"] == "lite" for step in steps))
+            self.assertTrue(all("sanity_bead" not in step["metadata"] for step in steps))
+            return self.fixture.receipt({"ids": ids, "nodes": [{"id": value, "action": "existing"} for value in ids.values()], "edges": []})
+
+        with (patch.object(groups, "Run", return_value=self.runner),
+              patch.object(groups.repo_config, "repo_root", return_value=self.fixture.root),
+              patch.object(groups.bead_formulas, "template", return_value=template),
+              patch.object(groups.bead_formulas, "relations", return_value=sidecar),
+              patch.object(groups.subprocess, "run", side_effect=preview),
+              patch.object(groups, "schema_issues", return_value=[]),
+              redirect_stdout(io.StringIO()) as output):
+            code = groups.main(["--json", "--dry-run", "--sprint", dependent])
+        self.assertEqual(code, 0, output.getvalue())
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0]["operation"], "preview_attach")
+        self.assertIn({"from": "step:dev", "to": f"bead:{self.sprint}.group-dev", "type": "blocks"}, requests[0]["relations"])
+
     def test_flat_finding_formula_and_layer_cut(self):
         self.fixture.rows["t-phase-x.stack"]["metadata"]["layers"] = [
             {"branch": "fix/x-previous", "pr": 1, "head": "a" * 40, "base": "b" * 40, "linked": True}]

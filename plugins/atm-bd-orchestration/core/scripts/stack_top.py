@@ -4,7 +4,20 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeAlias, TypeGuard
+from typing import NotRequired, TypeAlias, TypeGuard, TypedDict
+
+class StackLayer(TypedDict):
+    branch: str
+    pr: int
+    base: str
+    head: str
+    linked: NotRequired[bool]
+
+
+class StackMetadata(TypedDict):
+    layers: list[StackLayer]
+    stack_number: int | None
+
 
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 JsonObject: TypeAlias = dict[str, JsonValue]

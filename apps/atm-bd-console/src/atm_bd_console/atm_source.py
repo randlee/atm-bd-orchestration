@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import json
 import os
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from result import CommandFailed, Err, IoFailed, Ok, ParseFailed, Result, Unreachable
+from atm_bd_types import ErrorDetail
+from result import Err, IoFailed, Ok, ParseFailed, Result, Unreachable
 
 from . import command
 from .enums import SprintState

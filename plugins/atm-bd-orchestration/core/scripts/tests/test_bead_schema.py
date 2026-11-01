@@ -97,7 +97,7 @@ def test_stack_layers_have_all_fields_and_preserve_order():
     second = {**layer, "branch": "second", "pr": 2}
     stack = {"trunk": "main", "stack_number": None, "layers": [layer, second]}
     assert bead_schema.StackMetadata.model_validate(stack).layers[-1].branch == "second"
-    for key in layer:
+    for key in ("branch", "pr", "head", "base"):
         incomplete = copy.deepcopy(stack)
         del incomplete["layers"][0][key]
         with pytest.raises(ValidationError):
@@ -187,3 +187,12 @@ def test_quick_fix_qa_alone_may_omit_sanity_bead_and_dispatched_findings_carry_c
     assert any("stack_bead" in problem for problem in bead_schema.validate_phase([finding]))
     finding["metadata"].update({**FAMILY, **close("fix")})
     assert bead_schema.validate_phase([finding]) == []
+
+
+def test_profiles_reject_mixed_beads():
+    from atm_bd_types import Profile
+
+    sanity = {"id": "x.group-sanity", "labels": ["stage:dev-sanity"], "metadata": {"profile": "lite"}}
+    lite = {"id": "x.group-dev", "labels": ["stage:dev"], "metadata": {"profile": "lite"}}
+    assert any("sanity bead is forbidden" in issue for issue in bead_schema.validate_phase([sanity], Profile.LITE))
+    assert any("lite bead in a full phase" in issue for issue in bead_schema.validate_phase([lite], Profile.FULL))

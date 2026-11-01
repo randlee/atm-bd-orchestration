@@ -1,0 +1,105 @@
+# pyright: strict
+"""Provider commands validate and pass bodies as files without a shell."""
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+from unittest.mock import patch
+
+from atm_bd_types import ErrorKind, MergedPrRef, PrOp, ProviderCommands
+from providers import execute, load_provider
+from result import Err, Ok
+
+
+def test_provider_files_are_valid_and_reject_missing_ops_and_placeholders() -> None:
+    root = Path(__file__).resolve().parents[2] / "templates/providers"
+    for path in root.glob("*.json"):
+        document = json.loads(path.read_text())
+        commands, error = ProviderCommands.parse_json(json.dumps(document))
+        assert commands is not None and error is None
+        missing = dict(document)
+        del missing["view"]
+        assert ProviderCommands.parse_json(json.dumps(missing))[1] is not None
+        document["create"]["argv"] = ["no-placeholders"]
+        assert ProviderCommands.parse_json(json.dumps(document))[1] is not None
+
+
+def test_azure_requires_each_config_key() -> None:
+    for key in ("organization", "project", "repository"):
+        values = {"organization": "org", "project": "project", "repository": "repo"}
+        del values[key]
+        result = load_provider({"provider": "azure", "azure": values})
+        assert isinstance(result, Err)
+        assert result.error.kind == ErrorKind.CONFIG_MISSING
+        assert f"azure.{key}" in result.error.fix
+
+
+def test_azure_comment_uses_json_file_and_literal_text(tmp_path: Path) -> None:
+    result = load_provider({"provider": "azure", "azure": {"organization": "org", "project": "p", "repository": "r"}})
+    assert isinstance(result, Ok)
+    text = 'quotes " and newline\n; $(not a shell)'
+    seen: list[list[str]] = []
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(argv)
+        payload = json.loads(Path(argv[argv.index("--in-file") + 1]).read_text())
+        assert payload["comments"][0]["content"] == text
+        assert kwargs["cwd"] == tmp_path
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    with patch("providers.subprocess.run", side_effect=run):
+        executed = execute(result.value, PrOp.COMMENT, {"number": "12", "organization": "org", "project": "p", "repository": "r", "text": text}, cwd=tmp_path)
+    assert isinstance(executed, Ok)
+    assert seen[0][:3] == ["az", "devops", "invoke"]
+    assert text not in seen[0]
+
+
+def test_azure_create_serializes_file_contents_in_json(tmp_path: Path) -> None:
+    loaded = load_provider({"provider": "azure", "azure": {"organization": "org", "project": "p", "repository": "r"}})
+    assert isinstance(loaded, Ok)
+    source = tmp_path / "description.md"
+    source.write_text('A "quoted" body\nsecond line')
+    seen: list[list[str]] = []
+
+    def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(argv)
+        payload = json.loads(Path(argv[argv.index("--in-file") + 1]).read_text())
+        assert payload == {"sourceRefName": "refs/heads/feature", "targetRefName": "refs/heads/main",
+                           "title": "Title", "description": source.read_text()}
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    result = execute(loaded.value, PrOp.CREATE, {"organization": "org", "project": "p", "repository": "r",
+                     "head": "feature", "base": "main", "title": "Title", "body_file": str(source)},
+                     cwd=tmp_path, runner=run)
+    assert isinstance(result, Ok)
+    assert source.read_text() not in seen[0]
+
+
+def test_render_provider_context_and_unknown_operation(tmp_path: Path) -> None:
+    import sc_render
+    import pytest
+
+    template = tmp_path / "dispatch.md.j2"
+    template.write_text('---\nname: dispatch\nformat: text\nrequired_variables:\n  - provider.create\n---\n{{ provider.create }}\n')
+    rendered = sc_render.render(template, {})
+    assert "gh pr create" in rendered and "{base}" in rendered
+    template.write_text('---\nname: dispatch\nformat: text\nrequired_variables:\n  - provider.not_an_op\n---\n{{ provider.not_an_op }}\n')
+    with pytest.raises(sc_render.RenderError):
+        sc_render.render(template, {})
+
+
+def test_merged_lookup_checks_each_candidate(tmp_path: Path) -> None:
+    loaded = load_provider({})
+    assert isinstance(loaded, Ok)
+    rows = [{"number": n, "url": f"https://example.test/{n}", "baseRefName": "main",
+             "mergedAt": "2026-01-01", "mergeCommit": {"oid": sha}}
+            for n, sha in ((1, "old"), (2, "wanted"))]
+
+    def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 0, json.dumps(rows), "")
+
+    result = execute(loaded.value, PrOp.LOOKUP_BY_HEAD, {"head": "branch", "state": "merged"},
+                     cwd=tmp_path, runner=run, accept_merged=lambda pr: pr.merge_commit == "wanted")
+    assert isinstance(result, Ok) and isinstance(result.value, MergedPrRef)
+    assert result.value.number == "2" and result.value.merge_commit == "wanted"

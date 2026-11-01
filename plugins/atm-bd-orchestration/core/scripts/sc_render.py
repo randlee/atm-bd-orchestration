@@ -28,8 +28,23 @@ def render(template: str | Path, variables: Mapping[str, Any]) -> str:
     `RenderError`; `error_text(exc)` is its message.
     """
     path = Path(template).resolve()
+    render_variables = dict(variables)
+    # Existing templates need no provider config. A provider-using template declares
+    # the provider variable in its front matter, so strict render still rejects typos.
+    if "provider." in path.read_text(encoding="utf-8") and "provider" not in render_variables:
+        import repo_config
+        from providers import render_context
+        from result import Err
+        try:
+            config = repo_config.load()
+        except repo_config.ConfigNotFound:
+            config = {"provider": "github"}
+        provider = render_context(config)
+        if isinstance(provider, Err):
+            raise sc_compose.ScRenderError(provider.error.message)
+        render_variables["provider"] = provider.value
     request = sc_compose.ComposeRequest(
-        str(path.parent), sc_compose.ComposeMode.file(str(path)), vars_input=dict(variables),
+        str(path.parent), sc_compose.ComposeMode.file(str(path)), vars_input=render_variables,
         policy=sc_compose.ComposePolicy(strict_undeclared_variables=True))
     text = sc_compose.compose_file(request).rendered_text
     if path.name.removesuffix(".j2").endswith(".json"):

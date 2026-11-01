@@ -1,15 +1,12 @@
 """One file-only sc-observability logger for each console process."""
 from __future__ import annotations
 
-from result import error_data
-
 from collections.abc import Mapping
-from dataclasses import asdict
 from functools import cache
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
-from result import Err, Error, IoFailed, Ok, Result
+from result import Err, Error, IoFailed, Ok, Result, error_data
 from sc_observability import Err as ObservabilityErr
 from sc_observability import Level, LogEvent, Logger, LoggerConfig, LogQuery, create_logger
 

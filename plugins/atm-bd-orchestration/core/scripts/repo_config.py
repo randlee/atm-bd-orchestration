@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11,<3.12"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types>=0.1.1,<1"]
 # ///
 # pyright: strict
 """The repository's atm-bd-orchestration configuration, read at run time.
@@ -152,6 +152,7 @@ def load(repo: Path | None = None) -> RepoConfig:
         raise ConfigError(f"{path}: expected a mapping at the top level")
     if "lead" in data:
         raise ConfigError(f"{path}: lead belongs in .atm-bd/phase-<x>.toml; set each phase's lead and re-run the installer to remove the repository lead")
+    data.setdefault("provider", "github")
     rounds = data.setdefault("max_sanity_rounds", 5)
     if isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1:
         raise ConfigError(f"{path}: max_sanity_rounds must be a positive integer")

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import errno
 import gc
 import os
@@ -15,7 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from result import Err, IoFailed, LockHeld, NotFound, Ok, ParseFailed
+from atm_bd_types import ErrorDetail
+from result import Err, Ok
 
 from atm_bd_console import state
 from atm_bd_console.codec import from_json

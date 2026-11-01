@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from atm_bd_types import ErrorKind, ErrorDetail
-
 import copy
 import json
 from pathlib import Path
 
 import pytest
-from result import CommandFailed, Err, Ok, ParseFailed, Rejected, Timeout, Unreachable
+from atm_bd_types import ErrorDetail, ErrorKind
+from result import Err, Ok, Rejected, Timeout
 
 from atm_bd_console import github_source
 from atm_bd_console.command import Output

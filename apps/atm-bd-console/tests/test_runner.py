@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-from result import error_data
-from error_fixture_helpers import replace_error
-
-from atm_bd_types import ErrorKind, ErrorDetail
-
 import os
 import sys
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any, Self, cast
 
 import pytest
+from atm_bd_types import ErrorDetail, ErrorKind
 from contract_samples import (
     ACTION,
     BEAD,
@@ -32,7 +28,8 @@ from contract_samples import (
     STATE,
     TIMEOUT,
 )
-from result import CommandFailed, ConfigInvalid, Err, IoFailed, NotFound, Ok, ParseFailed
+from error_fixture_helpers import replace_error
+from result import CommandFailed, ConfigInvalid, Err, NotFound, Ok, error_data
 
 from atm_bd_console import atm_bd, log, runner
 from atm_bd_console.beads_source import open_rows

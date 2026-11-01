@@ -1,12 +1,10 @@
 """I/O adapter for the run ledger and QA/finding rows consumed by the tabs."""
 from __future__ import annotations
 
-from result import kind_name
-
 import json
 from typing import Any
 
-from result import Err, Error, IoFailed, Ok, ParseFailed, Result
+from result import Err, Error, IoFailed, Ok, ParseFailed, Result, kind_name
 
 from . import beads_source, command, runs
 from .closed_cache import ClosedBeads

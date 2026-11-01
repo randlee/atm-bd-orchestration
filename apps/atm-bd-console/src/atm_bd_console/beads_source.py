@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from result import with_fix
-
-from atm_bd_types import ErrorDetail
-
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from result import CommandFailed, Err, Ok, ParseFailed, Result, Timeout
+from atm_bd_types import ErrorDetail
+from result import Err, Ok, ParseFailed, Result, with_fix
 
 from . import command
 from .atm_source import sprint_state_of

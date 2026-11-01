@@ -1,13 +1,12 @@
 """command.run: the one runner git_source, github_source and beads_source share."""
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import ast
 import os
 import subprocess
 from pathlib import Path
 
+from atm_bd_types import ErrorDetail
 from result import CommandFailed, Err, Ok, Timeout
 
 from atm_bd_console import command

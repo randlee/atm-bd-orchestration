@@ -1,16 +1,13 @@
 """Impure tick boundary; scheduling and decisions remain in :mod:`model`."""
 from __future__ import annotations
 
-from result import error_data, kind_name
-
-from atm_bd_types import ErrorDetail
-
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Literal, Protocol
 
-from result import Err, Error, NotFound, Ok, Result
+from atm_bd_types import ErrorDetail
+from result import Err, Error, NotFound, Ok, Result, error_data, kind_name
 from sc_observability import Level
 
 from . import atm_bd, atm_source, beads_source, git_source, github_source, ledger_source, model

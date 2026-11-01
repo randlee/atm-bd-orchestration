@@ -1,10 +1,151 @@
 {
-  "create": {"argv": ["gh", "pr", "create", "--base", "{base}", "--head", "{head}", "--title", "{title}", "--body-file", "{body_file}"], "body": "file", "output": "text", "result": {"url": "stdout"}},
-  "view": {"argv": ["gh", "pr", "view", "{number}", "--json", "number,url,baseRefName"], "body": "none", "output": "json", "result": {"number": "number", "url": "url", "base": "baseRefName"}},
-  "edit_base": {"argv": ["gh", "pr", "edit", "{number}", "--base", "{base}"], "body": "none", "output": "exit_code", "result": {}},
-  "comment": {"argv": ["gh", "pr", "comment", "{number}", "--body-file", "{body_file}"], "body": "file", "output": "exit_code", "result": {}},
-  "checks": {"argv": ["gh", "pr", "checks", "{number}", "--json", "name,state"], "body": "none", "output": "json", "result": {}},
-  "lookup_by_head": {"argv": ["gh", "pr", "view", "{head}", "--json", "number,url,baseRefName"], "body": "none", "output": "json", "result": {"number": "number", "url": "url", "base": "baseRefName"}},
-  "stack_link": {"argv": ["gh", "stack", "link", "{number}"], "body": "none", "output": "exit_code", "result": {}},
-  "stack_view": {"argv": ["gh", "stack", "view", "--json"], "body": "none", "output": "json", "result": {}}
+  "create": {
+    "argv": [
+      "gh",
+      "pr",
+      "create",
+      "--base",
+      "{base}",
+      "--head",
+      "{head}",
+      "--title",
+      "{title}",
+      "--body-file",
+      "{body_file}"
+    ],
+    "body": "file",
+    "output": "text",
+    "result": {
+      "url": "stdout"
+    }
+  },
+  "view": {
+    "argv": [
+      "gh",
+      "pr",
+      "view",
+      "{number}",
+      "--repo",
+      "{repository}",
+      "--json",
+      "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {
+      "number": "number",
+      "url": "url",
+      "base": "baseRefName",
+      "merged_at": "mergedAt",
+      "merge_commit": "mergeCommit.oid",
+      "body": "body",
+      "head_sha": "headRefOid",
+      "author": "author.login",
+      "updated_at": "updatedAt"
+    }
+  },
+  "edit_base": {
+    "argv": [
+      "gh",
+      "pr",
+      "edit",
+      "{number}",
+      "--base",
+      "{base}"
+    ],
+    "body": "none",
+    "output": "exit_code",
+    "result": {}
+  },
+  "comment": {
+    "argv": [
+      "gh",
+      "pr",
+      "comment",
+      "{number}",
+      "--body-file",
+      "{body_file}"
+    ],
+    "body": "file",
+    "output": "exit_code",
+    "result": {}
+  },
+  "checks": {
+    "argv": [
+      "gh",
+      "pr",
+      "checks",
+      "{number}",
+      "--json",
+      "name,state"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {}
+  },
+  "lookup_by_head": {
+    "argv": [
+      "gh",
+      "pr",
+      "list",
+      "--head",
+      "{head}",
+      "--state",
+      "{state}",
+      "--json",
+      "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author",
+      "--limit",
+      "100"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {
+      "number": "number",
+      "url": "url",
+      "base": "baseRefName",
+      "merged_at": "mergedAt",
+      "merge_commit": "mergeCommit.oid",
+      "body": "body",
+      "head_sha": "headRefOid",
+      "author": "author.login",
+      "updated_at": "updatedAt"
+    }
+  },
+  "stack_link": {
+    "argv": [
+      "gh",
+      "stack",
+      "link",
+      "{number}"
+    ],
+    "body": "none",
+    "output": "exit_code",
+    "result": {}
+  },
+  "stack_view": {
+    "argv": [
+      "gh",
+      "stack",
+      "view",
+      "--json"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {}
+  },
+  "comment_view": {
+    "argv": [
+      "gh",
+      "api",
+      "repos/{repository}/issues/comments/{number}"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {
+      "body": "body",
+      "url": "html_url",
+      "author": "user.login",
+      "updated_at": "updated_at"
+    }
+  }
 }

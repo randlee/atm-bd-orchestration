@@ -3,7 +3,17 @@
 from __future__ import annotations
 
 from atm_bd_types import Error, ErrorDetail
-from result import CommandFailed, ConfigInvalid, IoFailed, LockHeld, NotFound, ParseFailed, Rejected, Timeout, Unreachable
+from result import (
+    CommandFailed,
+    ConfigInvalid,
+    IoFailed,
+    LockHeld,
+    NotFound,
+    ParseFailed,
+    Rejected,
+    Timeout,
+    Unreachable,
+)
 
 
 def replace_error(error: Error, *, fix: str | None = None, path: str | None = None,

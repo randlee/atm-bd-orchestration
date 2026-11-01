@@ -1,22 +1,19 @@
 """The interactive console: one Textual app over an injected step function."""
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
-from result import argv_of, error_data, kind_name
-
 import json
 import os
 import sys
 import threading
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import UTC, datetime, tzinfo
 from pathlib import Path
 from typing import ClassVar, Protocol
 
+from atm_bd_types import ErrorDetail
 from markdown_it.token import Token
-from result import Err, Error, IoFailed, Ok, Result
+from result import Err, Error, IoFailed, Ok, Result, argv_of, error_data, kind_name
 from rich.cells import cell_len
 from rich.text import Text
 from sc_observability import Level

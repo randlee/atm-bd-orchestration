@@ -51,6 +51,11 @@ required_variables:
   - validation_md # owner: dev-complete.md.j2
   - verdict # owner: qa-complete.md.j2
   - worktree_path # owner: dev-sanity-template.xml.j2
+optional_variables_by_profile:
+  lite:
+    - sanity_bead
+    - sanity_task_id
+    - max_sanity_rounds
 required_variables_by_role:
   dev:
     - base

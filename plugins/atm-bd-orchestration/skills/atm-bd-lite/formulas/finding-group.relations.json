@@ -1,0 +1,47 @@
+{
+  "formula": "finding-group",
+  "description": "Lite profile group relations",
+  "ref": "{vars[finding_ref]}-r{vars[round]}",
+  "default_option": "C",
+  "defaults": {},
+  "options": {
+    "A": {
+      "description": "Lite: QA validates the checked task and depends on it.",
+      "relations": [
+        {
+          "from": "step:qa",
+          "to": "step:fix",
+          "type": "validates"
+        }
+      ]
+    },
+    "B": {
+      "description": "Lite: QA validates the checked task and depends on it.",
+      "relations": [
+        {
+          "from": "step:qa",
+          "to": "step:fix",
+          "type": "validates"
+        }
+      ]
+    },
+    "C": {
+      "description": "Lite: QA validates the checked task and depends on it.",
+      "relations": [
+        {
+          "from": "step:qa",
+          "to": "step:fix",
+          "type": "validates"
+        }
+      ]
+    }
+  },
+  "relations": [
+    {
+      "description": "the fix bead was found while working the QA bead that filed it",
+      "from": "step:fix",
+      "to": "bead:{vars[filed_by]}",
+      "type": "discovered-from"
+    }
+  ]
+}

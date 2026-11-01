@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from result import kind_name
-
-from atm_bd_types import ErrorDetail
-
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from result import CommandFailed, Err, NotFound, Ok, Timeout
+from atm_bd_types import ErrorDetail
+from result import CommandFailed, Err, NotFound, Ok, Timeout, kind_name
 from rich.cells import cell_len
 
 from atm_bd_console.agent_roles import agent_group

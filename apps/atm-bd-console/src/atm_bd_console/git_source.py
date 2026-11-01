@@ -1,15 +1,11 @@
 """Git reads for the console; every command result is converted at this boundary."""
 from __future__ import annotations
 
-from result import with_fix
-
-from atm_bd_types import ErrorDetail
-
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from result import CommandFailed, Err, NotFound, Ok, Result, Timeout
+from atm_bd_types import ErrorDetail
+from result import Err, NotFound, Ok, Result, with_fix
 
 from . import command
 from .enums import MergeState

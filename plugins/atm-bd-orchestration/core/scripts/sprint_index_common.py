@@ -45,6 +45,14 @@ DEFAULT_TEMPLATES = {
     "plan_review": str(CORE_TEMPLATE_DIR / "plan-review-template.xml.j2"),
     "review": str(CORE_TEMPLATE_DIR / "review-template.xml.j2"),
 }
+LITE_TEMPLATE_DIR = Path(".claude/skills/atm-bd-lite/templates")
+LITE_TEMPLATES = {
+    "dev": str(LITE_TEMPLATE_DIR / "dev-template.xml.j2"),
+    "fix": str(LITE_TEMPLATE_DIR / "fix-assignment.xml.j2"),
+    "qa": str(LITE_TEMPLATE_DIR / "qa-template-lite.xml.j2"),
+    "plan_review": str(CORE_TEMPLATE_DIR / "plan-review-template.xml.j2"),
+    "review": str(CORE_TEMPLATE_DIR / "review-template.xml.j2"),
+}
 PLAN_KEYS = frozenset({"sprint", "depends_on"})
 
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
@@ -59,7 +67,7 @@ class PlanRow(TypedDict):
 class PhaseTemplates(TypedDict):
     dev: str
     fix: str
-    sanity: str
+    sanity: NotRequired[str]
     qa: str
     plan_review: str
     review: str
@@ -73,6 +81,7 @@ class PhaseConfig(TypedDict):
     lead: str
     templates: PhaseTemplates
     code_checkout: NotRequired[str]
+    profile: NotRequired[str]
 
 
 class IndexSprint(TypedDict):
@@ -180,7 +189,11 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
         value = data.get(key)
         if not isinstance(value, str) or not value.strip():
             problems.append(f"{key}: required nonempty string")
-    unknown = set(data) - set(PHASE_KEYS) - {"lead", "templates", "code_checkout"}
+    profile = data.get("profile", "full")
+    if profile not in ("full", "lite"):
+        problems.append("profile: expected 'full' or 'lite'")
+    defaults = LITE_TEMPLATES if profile == "lite" else DEFAULT_TEMPLATES
+    unknown = set(data) - set(PHASE_KEYS) - {"lead", "templates", "code_checkout", "profile"}
     if unknown:
         problems.append(f"unknown key(s): {', '.join(sorted(unknown))}")
     code_checkout = data.get("code_checkout")
@@ -195,10 +208,10 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
         problems.append("lead: required nonempty string")
     templates = data.get("templates")
     if templates is None:
-        problems.append("templates: required table with keys " + ", ".join(DEFAULT_TEMPLATES))
+        problems.append("templates: required table with keys " + ", ".join(defaults))
     if templates is not None:
         if not is_object_mapping(templates):
-            problems.append("templates: expected a table with keys " + ", ".join(DEFAULT_TEMPLATES))
+            problems.append("templates: expected a table with keys " + ", ".join(defaults))
             templates = None
     template_values: dict[str, object] = {}
     if is_object_mapping(templates):
@@ -207,12 +220,12 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
             templates = None
     if is_object_mapping(templates):
         template_values = {key: value for key, value in templates.items() if isinstance(key, str)}
-        extra = set(template_values) - set(DEFAULT_TEMPLATES) - {"dev_fix"}
+        extra = set(template_values) - set(defaults) - {"dev_fix"}
         if extra:
             problems.append(f"templates: unknown key(s): {', '.join(sorted(extra))}")
         if "dev_fix" in template_values and not isinstance(template_values["dev_fix"], str):
             problems.append("templates.dev_fix: expected a repository-relative template path")
-        for key in DEFAULT_TEMPLATES:
+        for key in defaults:
             value = template_values.get(key)
             if not isinstance(value, str) or not value.strip():
                 problems.append(f"templates.{key}: required nonempty repository-relative path")
@@ -220,7 +233,7 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
             try:
                 relative = Path(value)
                 target = Path(repo) / relative
-                allowed = (TEMPLATE_DIR, CORE_TEMPLATE_DIR)
+                allowed = (TEMPLATE_DIR, CORE_TEMPLATE_DIR, LITE_TEMPLATE_DIR)
                 if (value.endswith("/") or relative.is_absolute() or ".." in relative.parts
                         or not any(relative.is_relative_to(base) and target.resolve().is_relative_to(
                             (Path(repo) / base).resolve()) for base in allowed)):
@@ -239,11 +252,12 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
     typed_templates: PhaseTemplates = {
         "dev": required_config_string(template_values, "dev"),
         "fix": required_config_string(template_values, "fix"),
-        "sanity": required_config_string(template_values, "sanity"),
         "qa": required_config_string(template_values, "qa"),
         "plan_review": required_config_string(template_values, "plan_review"),
         "review": required_config_string(template_values, "review"),
     }
+    if "sanity" in template_values:
+        typed_templates["sanity"] = required_config_string(template_values, "sanity")
     if "dev_fix" in template_values:
         typed_templates["dev_fix"] = required_config_string(template_values, "dev_fix")
     result: PhaseConfig = {
@@ -253,6 +267,8 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
         "lead": required_config_string(data, "lead"),
         "templates": typed_templates,
     }
+    if "profile" in data:
+        result["profile"] = required_config_string(data, "profile")
     if "code_checkout" in data:
         result["code_checkout"] = required_config_string(data, "code_checkout")
     return result

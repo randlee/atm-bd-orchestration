@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11,<3.12"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types>=0.1.1,<1"]
 # ///
 # pyright: strict
 """Bounded Jev transport and startup probe for the proposed sanity agent."""
@@ -24,7 +24,9 @@ import time
 from typing import Literal, NotRequired, TypedDict
 
 import repo_config
+import pr_lookup
 from operation_models import matches_typeddict
+from result import Err
 from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value, load_phase_config, string_list
 
 MODEL = "jev-1.13.0"
@@ -636,6 +638,8 @@ class CommentReference(TypedDict):
     kind: Literal["pr_comment"]
     repo: str
     comment_id: int
+    pr: NotRequired[int]
+    thread: NotRequired[int]
 
 
 EvidenceReference = BeadNotesReference | PullRequestReference | CommentReference
@@ -672,8 +676,9 @@ def parse_evidence_ref(ref: JsonValue) -> EvidenceReference | None:
     if (matches_typeddict(ref, PullRequestReference) and set(ref) == set(PullRequestReference.__required_keys__)
             and ref["repo"] and not ref["repo"].startswith("-") and "{" not in ref["repo"] and ref["pr"] > 0):
         return ref
-    if (matches_typeddict(ref, CommentReference) and set(ref) == set(CommentReference.__required_keys__)
-            and ref["repo"] and not ref["repo"].startswith("-") and "{" not in ref["repo"] and ref["comment_id"] > 0):
+    if (matches_typeddict(ref, CommentReference) and set(ref) <= set(CommentReference.__annotations__)
+            and ref["repo"] and not ref["repo"].startswith("-") and "{" not in ref["repo"] and ref["comment_id"] > 0
+            and ("pr" not in ref or ref["pr"] > 0) and ("thread" not in ref or ref["thread"] > 0)):
         return ref
     return None
 
@@ -695,16 +700,14 @@ def external_evidence_from_ref(parsed: EvidenceReference, worktree: str) -> Json
     repo = parsed["repo"]
     number = parsed["pr"] if parsed["kind"] == "pr_body" else parsed["comment_id"]
     label = f"{repo}#{number}"
-    argv = (["gh", "api", f"repos/{repo}/pulls/{number}"] if kind == "pr_body" else
-            ["gh", "api", f"repos/{repo}/issues/comments/{number}"])
-    try:
-        proc = subprocess.run(argv, cwd=worktree, capture_output=True, text=True, timeout=60)
-        value: JsonValue = json.loads(proc.stdout) if proc.returncode == 0 else None
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        value = None
-    evidence = parse_github_evidence(value, kind, label)
-    return {"kind": kind, "ref": label, "url": evidence["url"], "updated_at": evidence["updated_at"],
-            "author": evidence["author"], "text": evidence["text"]}
+    result = (pr_lookup.pr_body(str(number), Path(worktree), repo) if kind == "pr_body" else
+              pr_lookup.comment_body(str(parsed.get("pr", number)), Path(worktree), repo, str(parsed.get("thread", ""))))
+    if isinstance(result, Err):
+        raise JevError("VALIDATION.INPUT", f"External evidence unreadable: {kind} {label}")
+    evidence = result.value
+    return {"kind": kind, "ref": label, "url": evidence.url, "updated_at": evidence.updated_at,
+            "author": evidence.author, "text": evidence.body}
+
 
 
 class EvidenceAssignment(TypedDict):

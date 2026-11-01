@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11,<3.12"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types>=0.1.1,<1"]
 # ///
 # pyright: strict
 """Validate a phase plan in beads against its plan file and its `.atm-bd/phase-<x>.toml`.
@@ -39,6 +39,8 @@ could not run (no phase file, no plan file, bd or git failed). Report problems t
 this script, the plan or the graph to make it pass.
 """
 from __future__ import annotations
+
+from atm_bd_types import Profile
 
 import argparse
 import json
@@ -273,7 +275,7 @@ def check(beads: Beads, config: plan_io.PhaseConfig, rows: list[plan_io.PlanRow]
                 warn(f"{sanity_id}: metadata.dev_bead is not {dev_id}")
         for pred in row["depends_on"]:
             pred_container = planned[pred]
-            wanted = {plan_io.group_id(pred_container, "sanity"), pred_container}
+            wanted = {plan_io.group_id(pred_container, "dev" if config.get("profile") == "lite" else "sanity"), pred_container}
             if dev is None and before_import:
                 warn(f"{container}: not poured yet; run bead-groups after import to add its edge to {pred}")
                 continue
@@ -281,14 +283,14 @@ def check(beads: Beads, config: plan_io.PhaseConfig, rows: list[plan_io.PlanRow]
             if dev is not None:
                 held.update(blocks(dev))
             if not held & wanted:
-                problems.append(f"{dev_id}: missing blocks edge to {plan_io.group_id(pred_container, 'sanity')} "
+                problems.append(f"{dev_id}: missing blocks edge to {plan_io.group_id(pred_container, 'dev' if config.get('profile') == 'lite' else 'sanity')} "
                                 f"or {pred_container} (plan file: {row['sprint']} depends on {pred})")
                 if dev is None:
                     warn(f"{dev_id} does not exist; pour the group with bead-groups")
     phase_label = f"phase-{beads.phase}"
     active = [bead for bead in beads.everything() if bead.get("status") != "closed"
               and (bead.get("id") == root_id or phase_label in (bead.get("labels") or []))]
-    problems += bead_schema.validate_phase(bead_schema.json_objects(active, context="phase beads"))
+    problems += bead_schema.validate_phase(bead_schema.json_objects(active, context="phase beads"), Profile.LITE if config.get("profile") == "lite" else Profile.FULL)
     check_qa_reviewers(active, repo, problems)
 
 

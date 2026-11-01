@@ -1,9 +1,10 @@
+from atm_bd_types import ErrorDetail
 # pyright: strict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from core_paths import core_scripts_dir, core_templates_dir
-from result import Err, NotFound, Ok
+from result import Err, Ok
 
 
 def test_installed_and_package_layouts() -> None:
@@ -26,6 +27,6 @@ def test_missing_core_gives_actionable_error() -> None:
     with TemporaryDirectory() as directory:
         result = core_scripts_dir(Path(directory))
         assert isinstance(result, Err)
-        assert isinstance(result.error, NotFound)
-        assert "CORE.NOT_FOUND" in result.error.what
+        assert isinstance(result.error.detail, ErrorDetail.NotFound)
+        assert "CORE.NOT_FOUND" in result.error.detail.what
         assert "atm-bd skill" in result.error.fix

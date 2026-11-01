@@ -42,16 +42,23 @@
           "type": "string"
         },
         "linked": {
-          "title": "Linked",
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linked"
         }
       },
       "required": [
         "branch",
         "pr",
         "head",
-        "base",
-        "linked"
+        "base"
       ],
       "title": "LayerRecord",
       "type": "object"

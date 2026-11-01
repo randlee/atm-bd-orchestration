@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-from result import kind_name
-
-from error_fixture_helpers import replace_error
-
-from atm_bd_types import ErrorKind, ErrorDetail
-
 import json
 import os
 import select
@@ -19,6 +13,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from atm_bd_types import ErrorDetail, ErrorKind
 from conftest import HANG_GUARD_S, run_scenario
 from contract_samples import (
     ACTION,
@@ -36,8 +31,9 @@ from contract_samples import (
     TIMEOUT,
     WORKTREE,
 )
+from error_fixture_helpers import replace_error
 from process_helpers import run_process
-from result import CommandFailed, Err, IoFailed, LockHeld, NotFound, Ok
+from result import CommandFailed, Err, IoFailed, NotFound, Ok, kind_name
 from rich.text import Text
 
 from atm_bd_console import app, cli, runner

@@ -1,0 +1,58 @@
+{
+  "formula": "sprint-group",
+  "description": "Lite profile group relations",
+  "ref": "group",
+  "default_option": "C",
+  "defaults": {},
+  "options": {
+    "A": {
+      "description": "Lite: QA validates the checked task and depends on it.",
+      "relations": [
+        {
+          "from": "step:qa",
+          "to": "step:dev",
+          "type": "validates"
+        },
+        {
+          "each": "predecessor_dev",
+          "from": "step:dev",
+          "to": "bead:{each}",
+          "type": "blocks"
+        }
+      ]
+    },
+    "B": {
+      "description": "Lite: QA validates the checked task and depends on it.",
+      "relations": [
+        {
+          "from": "step:qa",
+          "to": "step:dev",
+          "type": "validates"
+        },
+        {
+          "each": "predecessor_dev",
+          "from": "step:dev",
+          "to": "bead:{each}",
+          "type": "blocks"
+        }
+      ]
+    },
+    "C": {
+      "description": "Lite: QA validates the checked task and depends on it.",
+      "relations": [
+        {
+          "from": "step:qa",
+          "to": "step:dev",
+          "type": "validates"
+        },
+        {
+          "each": "predecessor_dev",
+          "from": "step:dev",
+          "to": "bead:{each}",
+          "type": "blocks"
+        }
+      ]
+    }
+  },
+  "relations": []
+}

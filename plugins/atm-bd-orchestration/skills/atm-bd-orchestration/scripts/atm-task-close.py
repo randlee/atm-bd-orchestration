@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11,<3.12"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types>=0.1.1,<1"]
 # ///
 """Close orchestration beads, hand off work, and close the dev task at dev complete.
 
@@ -50,6 +50,7 @@ CORE_TEMPLATES = _core_templates_result.value
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bd_cache
 import repo_config
+import pr_lookup
 import sc_render
 from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
 from stack_top import select_stack_top
@@ -661,32 +662,35 @@ class Hook:
             raise CloseError("BASE.NOT_ANCESTOR", top, f"Rebase onto origin/{top}, push, then rerun the hook.")
         if ancestor.returncode:
             raise CloseError("COMMAND.FAILED", ancestor.stderr, "Repair the local git ancestry check.")
-        remote_url = self.run(["git", "remote", "get-url", "origin"], git=True).stdout.strip()
-        match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", remote_url)
-        if not match:
-            raise CloseError("COMMAND.INVALID", "origin does not name owner/repository", "Configure the repository origin.")
-        owner, repo = match.groups()
         if self.github == "unavailable":
             self.keep_recorded_pr()
             return
         for _attempt in range(3):
-            try:
-                prs = self.json(["gh", "api", f"repos/{owner}/{repo}/pulls?head={owner}:{values['branch']}&state=open"], git=True)
-            except CloseError as error:
-                if error.code not in ("COMMAND.FAILED", "COMMAND.INVALID"):
-                    raise
-                self.record_github_failure(self.last_json_argv, error)
-                continue
-            matches = [pr for pr in prs if pr["head"]["sha"] == head]
-            if not matches:
-                raise CloseError("PR.NOT_FOUND", "no open PR for this branch at HEAD", "Open the PR at the pushed head, then rerun the hook.")
-            if len(matches) != 1:
-                raise CloseError("PR.AMBIGUOUS", "several open PRs match this branch at HEAD",
-                                 "Close the duplicate PRs so exactly one open PR names this branch and pushed head, then rerun the hook.")
-            values["pr_number"] = str(matches[0]["number"] or "")
-            values["pr_url"] = f"https://github.com/{owner}/{repo}/pull/{values['pr_number']}" if values["pr_number"] else ""
-            self.pr_base = str((matches[0].get("base") or {}).get("ref") or "")
-            return
+            provider_argv = []
+            def run_provider(argv, **kwargs):
+                provider_argv[:] = argv
+                try:
+                    return self.run(argv, git=True, check=False)
+                except CloseError as error:
+                    raise OSError(str(error)) from error
+            found = pr_lookup.find_pr_by_head(
+                values["branch"], self.root, expected_head=head,
+                runner=run_provider,
+            )
+            if not isinstance(found, _CoreErr):
+                values["pr_number"] = found.value.number
+                values["pr_url"] = found.value.url
+                self.pr_base = found.value.base
+                return
+            from atm_bd_types import ErrorKind
+            if found.error.kind == ErrorKind.NOT_FOUND:
+                raise CloseError("PR.NOT_FOUND", found.error.message,
+                                 "Open exactly one PR at the pushed head, then rerun the hook.")
+            if found.error.kind == ErrorKind.REJECTED:
+                raise CloseError("PR.AMBIGUOUS", found.error.message, "Close duplicate pull requests and retry.")
+            if found.error.kind == ErrorKind.CONFIG_MISSING:
+                raise CloseError("VARS.EMPTY", found.error.message, found.error.fix)
+            self.record_github_failure(provider_argv, found.error.message)
         self.github = "unavailable"
         self.keep_recorded_pr()
 

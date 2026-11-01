@@ -1,15 +1,14 @@
 """Held values and the Sanity and Quality tabs: last good rows survive a failed read, and nothing is blank."""
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
+from atm_bd_types import ErrorDetail
 from conftest import FakeStep, run_scenario, settle
 from contract_samples import CONFIG, SNAPSHOT, STATE, TIMEOUT
-from result import Err, Ok, ParseFailed
+from result import Err, Ok
 from textual.containers import VerticalScroll
 from textual.widgets import Static, TabbedContent
 

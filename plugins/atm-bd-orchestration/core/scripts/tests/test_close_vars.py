@@ -46,6 +46,16 @@ QA = row("t-d-1.f1-qa", "stage:qa", "qa", layer=34, round=1, reviewers_round1=["
 
 
 class CloseVarsTests(unittest.TestCase):
+    def test_lite_close_vars_omit_sanity_fields(self):
+        lite = row("t-d-1.group-dev", "stage:dev", "dev", profile="lite")
+        del lite["metadata"]["sanity_bead"]
+        del lite["metadata"]["max_sanity_rounds"]
+        role, values, remaining = close_fields.close_vars(lite, REPO)
+        self.assertEqual(role, "dev")
+        for name in ("sanity_bead", "sanity_task_id", "max_sanity_rounds"):
+            self.assertNotIn(name, values)
+            self.assertNotIn(name, remaining)
+
     def test_close_vars_come_from_the_one_bead_and_resolve_the_worktree(self):
         role, values, remaining = close_fields.close_vars(row("t-d-1.f1-fix", "stage:fix", "fix"), REPO)
         self.assertEqual(role, "fix")

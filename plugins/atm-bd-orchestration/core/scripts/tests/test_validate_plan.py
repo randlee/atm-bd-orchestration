@@ -104,6 +104,29 @@ def broken(bid: str, change) -> list[dict]:
 
 
 class ValidatePlan(Repo):
+    def test_lite_predecessor_and_mixed_profiles(self):
+        phase = self.repo / ".atm-bd/phase-t.toml"
+        phase.write_text('profile = "lite"\n' + "\n".join(
+            line for line in phase.read_text().splitlines() if not line.startswith("sanity = ")) + "\n")
+        first = poured("x-t-1", "dev", [])
+        second = poured("x-t-2", "dev", ["x-t-1.group-dev"])
+        for bead in (first, second):
+            bead["metadata"].update(profile="lite")
+            bead["metadata"].pop("sanity_bead")
+            bead["metadata"].pop("max_sanity_rounds")
+        lite = [ROOT_EPIC, STACK, container("x-t-1"), first, container("x-t-2"), second]
+        result = self.run_beads(lite)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        mixed = copy.deepcopy(lite)
+        mixed[-1]["metadata"]["profile"] = "full"
+        result = self.run_beads(mixed)
+        self.assertEqual(result.returncode, 5, result.stdout + result.stderr)
+        self.assertIn("full bead in a lite phase", result.stdout)
+        sanity = poured("x-t-1", "sanity", ["x-t-1.group-dev"])
+        sanity["metadata"]["profile"] = "lite"
+        result = self.run_beads(lite + [sanity])
+        self.assertEqual(result.returncode, 5, result.stdout + result.stderr)
+
     def test_qa_reviewers_are_required_at_planning_not_inferred_from_config(self):
         qa = poured("x-t-1", "qa", ["x-t-1.group-sanity"])
         qa["metadata"].update(checked_bead="x-t-1.group-dev", round=1)

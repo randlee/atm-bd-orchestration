@@ -6,8 +6,6 @@ clock, a fake command boundary and a real on-disk state store. Nothing sleeps.
 
 from __future__ import annotations
 
-from atm_bd_types import ErrorDetail
-
 import json
 import re
 from dataclasses import replace
@@ -15,6 +13,7 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Self, cast
 
 import pytest
+from atm_bd_types import ErrorDetail
 from contract_samples import BEAD, CONFIG, PHASE_FILE, REPO_CONFIG
 from result import CommandFailed, ConfigInvalid, Err, Ok
 

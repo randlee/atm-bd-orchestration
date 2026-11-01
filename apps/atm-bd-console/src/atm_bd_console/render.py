@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from result import error_data, kind_name
-
-from atm_bd_types import ErrorDetail
-
 from typing import TYPE_CHECKING
 
-from result import Error, Timeout
+from atm_bd_types import ErrorDetail
+from result import Error, error_data, kind_name
 from rich.cells import cell_len
 from rich.text import Text
 

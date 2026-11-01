@@ -1,20 +1,16 @@
 """Crash-safe, inspectable runtime files for one console phase."""
 from __future__ import annotations
 
-from result import with_fix
-
-from atm_bd_types import ErrorDetail
-
 import fcntl
 import os
 import tempfile
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Self
 from uuid import uuid4
 
-from result import Err, Error, IoFailed, LockHeld, NotFound, Ok, ParseFailed, Result
+from atm_bd_types import ErrorDetail
+from result import Err, Error, IoFailed, LockHeld, NotFound, Ok, ParseFailed, Result, with_fix
 
 from .codec import from_json, to_json
 from .paths import state_directory
