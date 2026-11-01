@@ -30,6 +30,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build shared types wheel for script and tool runtimes
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/atm-bd-types"
+          uvx 'maturin>=1.9,<2' build --release --manifest-path crates/atm-bd-types/Cargo.toml --features python --out "$RUNNER_TEMP/atm-bd-types"
+          echo "UV_FIND_LINKS=$RUNNER_TEMP/atm-bd-types" >> "$GITHUB_ENV"
       - name: Install sc-compose ${{ env.SC_COMPOSE_VERSION }}
         shell: bash
         run: |
@@ -93,6 +100,14 @@ jobs:
           python-version: "3.11"   # sc-compose publishes cp311 wheels
 
       - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build shared types wheel for package and script runtimes
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/atm-bd-types"
+          uvx 'maturin>=1.9,<2' build --release --manifest-path crates/atm-bd-types/Cargo.toml --features python --out "$RUNNER_TEMP/atm-bd-types"
+          python3 -m pip install "$RUNNER_TEMP"/atm-bd-types/*.whl
+          echo "UV_FIND_LINKS=$RUNNER_TEMP/atm-bd-types" >> "$GITHUB_ENV"
 
       # The scripts render with the sc-compose wheel; it is the same version as the CLI below
       # (the floor of the `sc-compose >=` range in plugins/atm-bd-orchestration/manifest.yaml, so the floor stays tested).

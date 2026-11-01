@@ -16,6 +16,7 @@ name = "atm-bd"
 version = "0.19.12"
 source = { editable = "." }
 dependencies = [
+    { name = "atm-bd-types" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -35,6 +36,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "atm-bd-types", directory = "../../crates/atm-bd-types" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich", specifier = ">=15.0.0,<16" },
@@ -51,6 +53,11 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+
+[[package]]
+name = "atm-bd-types"
+version = "0.1.1"
+source = { directory = "../../crates/atm-bd-types" }
 
 [[package]]
 name = "colorama"
