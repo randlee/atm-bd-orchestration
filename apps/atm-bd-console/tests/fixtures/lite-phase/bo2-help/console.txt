@@ -1,0 +1,17 @@
+usage: atm-bd console [-h] [--phase PHASE] [--github {graphql,rest,off}]
+                      [--interval INTERVAL]
+                      [--github-poll-interval GITHUB_POLL_INTERVAL]
+                      [--github-quota-threshold GITHUB_QUOTA_THRESHOLD]
+                      [--dry-run] [--no-fetch]
+
+options:
+  -h, --help            show this help message and exit
+  --phase PHASE
+  --github {graphql,rest,off}
+  --interval INTERVAL
+  --github-poll-interval GITHUB_POLL_INTERVAL
+                        GitHub polling interval in seconds (default 600)
+  --github-quota-threshold GITHUB_QUOTA_THRESHOLD
+                        minimum remaining quota percentage (default 50)
+  --dry-run
+  --no-fetch

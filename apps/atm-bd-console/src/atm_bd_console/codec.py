@@ -10,6 +10,7 @@ from enum import StrEnum
 from types import UnionType
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
+from atm_bd_types import Profile
 from result import (
     CommandFailed,
     ConfigInvalid,
@@ -55,6 +56,8 @@ def _encode(obj: Any) -> Any:
         if obj.tzinfo is None:
             raise ValueError("naive datetime")
         return obj.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(obj, Profile):
+        return "full" if obj is Profile.FULL else "lite"
     if is_dataclass(obj):
         return {field.name: _encode(getattr(obj, field.name)) for field in fields(obj)}
     if isinstance(obj, tuple):
@@ -123,6 +126,12 @@ def _decode(cls: Any, value: Any, path: str) -> Any:
             return cls(value)
         except (ValueError, TypeError):
             raise _DecodeError(path, f"unknown {cls.__name__} value {value!r}") from None
+    if cls is Profile:
+        if value == "full":
+            return Profile.FULL
+        if value == "lite":
+            return Profile.LITE
+        raise _DecodeError(path, f"unknown Profile value {value!r}")
     if cls is Error:
         return _decode_error(value, path)
     if cls is datetime:

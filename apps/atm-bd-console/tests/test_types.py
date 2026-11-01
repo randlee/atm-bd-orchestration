@@ -39,7 +39,7 @@ FIELDS: dict[str, str] = {
     "Step": "bead_id sprint kind quick_fix anchor status ready assignee branch target worktree layer difficulty tag "
             "top_epic claimed_at closed_at title checked_bead sprint_bead qa_round carry_forward close_reason severity qa_row checked_row",
     "Sprint": "id title layer branch target stack depends_on closed findings status raw_status",
-    "Phase": "root_id label title closed sprints steps step_errors",
+    "Phase": "root_id label title closed sprints steps step_errors profile",
     "DispatchSpec": "template vars",
     "RemoteRef": "branch sha",
     "Merge": "branch target state files messages checked_at",
@@ -65,7 +65,7 @@ FIELDS: dict[str, str] = {
     "Snapshot": "schema generated_at phase root_closed stopped agents sections problems errors metrics gh top_pr "
                 "top_ci mermaid sprints interval_s lead bead_prefix sent prs files phase_data task_data member_data task_bead_data worktree_data",
     "State": "problems cycle_first_send last_batch last_cycle idle_since sent remotes batch_due collision_notices",
-    "PhaseFile": "phase root_id label sprints depends_on lead templates code_checkout",
+    "PhaseFile": "phase root_id label sprints depends_on lead templates code_checkout profile",
     "MergeFile": "checked_at merges",
     "PrsFile": "read_at gh prs attempted_at stack_number stack_prs",
     "ActionLine": "at kind to bead text",

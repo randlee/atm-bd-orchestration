@@ -1,0 +1,12 @@
+profile = "lite"
+plan = "docs/plans/phase-lt.jsonl"
+root = "atm-phase-lt"
+integration_branch = "integrate/phase-lt"
+lead = "fenix"
+
+[templates]
+dev = ".claude/skills/atm-bd-lite/templates/dev-template.xml.j2"
+fix = ".claude/skills/atm-bd-lite/templates/fix-assignment.xml.j2"
+qa = ".claude/skills/atm-bd-lite/templates/qa-template.xml.j2"
+plan_review = ".claude/skills/atm-bd-lite/templates/plan-review-template.xml.j2"
+review = ".claude/skills/atm-bd-lite/templates/review-template.xml.j2"

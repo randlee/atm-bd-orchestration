@@ -24,6 +24,7 @@ import re
 from pathlib import Path
 import subprocess
 import tempfile
+import tomllib
 from collections.abc import Sequence
 from typing import NotRequired, TypedDict
 
@@ -223,6 +224,40 @@ def write_rows(path: Path, rows: Sequence[ExportRow]) -> None:
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
 
 
+def phase_profile(repo: Path, epic: str | None, label: str | None) -> str:
+    scope = epic or label or ""
+    match = re.search(r"-phase-([a-z0-9]+)$", scope)
+    phase = match.group(1) if match else scope.removeprefix("phase-") if scope.startswith("phase-") else ""
+    if not phase:
+        return "full"
+    path = repo / ".atm-bd" / f"phase-{phase}.toml"
+    if not path.is_file():
+        return "full"
+    try:
+        value = tomllib.loads(path.read_text(encoding="utf-8")).get("profile", "full")
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise ValueError(f"{path}: cannot read phase profile: {error}") from error
+    if value not in ("full", "lite"):
+        raise ValueError(f"{path}: profile must be 'full' or 'lite'")
+    return value
+
+
+def without_lite_sanity(rows: Sequence[ExportRow]) -> list[ExportRow]:
+    """Remove obsolete sanity gates and edges from a lite-profile analysis input."""
+    excluded = {row["id"] for row in rows if row["id"].endswith(".group-sanity")
+                or "stage:dev-sanity" in row.get("labels", [])}
+    result: list[ExportRow] = []
+    for source in rows:
+        if source["id"] in excluded:
+            continue
+        row = source.copy()
+        if "dependencies" in row:
+            row["dependencies"] = [edge for edge in row["dependencies"]
+                                   if dependency_target(edge) not in excluded]
+        result.append(row)
+    return result
+
+
 def analyze(repo: str | Path, label: str | None = None, target: str | None = None,
             modes: Sequence[str] | None = None, epic: str | None = None,
             plan_file: str | Path | None = None) -> Receipt:
@@ -233,6 +268,7 @@ def analyze(repo: str | Path, label: str | None = None, target: str | None = Non
     if not modes or any(mode not in MODES for mode in modes):
         raise ValueError("choose one or more supported robot modes")
     repo = Path(repo).resolve(strict=True)
+    profile = phase_profile(repo, epic, label)
     if plan_file:
         plan_file = Path(plan_file).resolve(strict=True)
         info: BdInfo = {}
@@ -269,6 +305,8 @@ def analyze(repo: str | Path, label: str | None = None, target: str | None = Non
             run(["bd", "--readonly", "export", "--all", "--output", str(raw_export)], repo)
         receipt["export_finished_at"] = now()
         rows = export_rows(raw_export.read_bytes())
+        if profile == "lite":
+            rows = without_lite_sanity(rows)
         write_rows(snapshot, rows)
         content = snapshot.read_bytes()
         ids = [row["id"] for row in rows]

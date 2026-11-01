@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from atm_bd_types import Profile
-from phase_profile import require_profile
-from result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result
+from phase_profile import read_profile, require_profile
+from result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result, with_fix
 
 from .enums import SprintState
 from .ids import short_id
@@ -30,6 +30,7 @@ PHASE_ID = re.compile(r"[a-z0-9]+")
 SPRINT_NAME = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 GROUP_MARK = ".group-"
 GROUP_SUFFIXES = ("dev", "sanity", "qa")
+LITE_GROUP_SUFFIXES = ("dev", "qa")
 SPRINT_META = ("layer", "branch", "pr_target", "stack")
 STAGE_PREFIX = "stage:"
 FINDING_LABEL = f"{STAGE_PREFIX}finding"
@@ -96,15 +97,17 @@ def sprint_bead_id(root_id: str, x: str, sprint: str) -> str:
     return f"{root_id.removesuffix(f'-phase-{x}')}-{sprint}"
 
 
-def group_ids(sprint_id: str) -> tuple[str, ...]:
+def group_ids(sprint_id: str, profile: Profile = Profile.FULL) -> tuple[str, ...]:
     """The sprint container's poured group beads `<container>.group-{dev,sanity,qa}`."""
-    return tuple(f"{sprint_id}{GROUP_MARK}{suffix}" for suffix in GROUP_SUFFIXES)
+    suffixes = LITE_GROUP_SUFFIXES if profile is Profile.LITE else GROUP_SUFFIXES
+    return tuple(f"{sprint_id}{GROUP_MARK}{suffix}" for suffix in suffixes)
 
 
-def group_suffix(bead_id: str) -> str | None:
+def group_suffix(bead_id: str, profile: Profile = Profile.FULL) -> str | None:
     """The poured group suffix of `<container>.group-<suffix>`, or None for any other id."""
     _, mark, suffix = bead_id.rpartition(GROUP_MARK)
-    return suffix if mark and suffix in GROUP_SUFFIXES else None
+    allowed = LITE_GROUP_SUFFIXES if profile is Profile.LITE else GROUP_SUFFIXES
+    return suffix if mark and suffix in allowed else None
 
 
 def _plan(path: Path) -> Result[tuple[tuple[str, tuple[str, ...]], ...]]:
@@ -143,24 +146,31 @@ def _plan(path: Path) -> Result[tuple[tuple[str, tuple[str, ...]], ...]]:
     return Ok(tuple(rows))
 
 
-def _phase_templates(root: Path, raw: object) -> Result[Mapping[str, str]]:
+def _phase_templates(root: Path, raw: object, profile: Profile) -> Result[Mapping[str, str]]:
     templates = raw if isinstance(raw, dict) else {}
-    for purpose in sorted(templates.keys() - TEMPLATE_PURPOSES - RETIRED_TEMPLATE_PURPOSES):
+    purposes = TEMPLATE_PURPOSES if profile is Profile.FULL else tuple(
+        purpose for purpose in TEMPLATE_PURPOSES if purpose != "sanity"
+    )
+    for purpose in sorted(templates.keys() - set(purposes) - RETIRED_TEMPLATE_PURPOSES):
         key = f"templates.{purpose}"
-        return Err(ConfigInvalid("config_invalid", key, repr(templates[purpose]), f"remove unknown {key}; use {', '.join(TEMPLATE_PURPOSES)}"))
-    for purpose in TEMPLATE_PURPOSES:
+        return Err(ConfigInvalid("config_invalid", key, repr(templates[purpose]), f"remove unknown {key}; use {', '.join(purposes)}"))
+    for purpose in purposes:
         key = f"templates.{purpose}"
         value = templates.get(purpose)
         fix = f"set {key} to an existing repository-relative file under {TEMPLATE_DIRECTORY}"
         if not isinstance(value, str) or not value.strip():
             return Err(ConfigInvalid("config_invalid", key, repr(value), fix))
         path = Path(value)
+        template_directories = (TEMPLATE_DIRECTORY, CORE_TEMPLATE_DIRECTORY)
+        if profile is Profile.LITE:
+            template_directories += (Path(".claude/skills/atm-bd-lite/templates"),
+                                     Path("plugins/atm-bd-orchestration/skills/atm-bd-lite/templates"))
         try:
             valid = (
                 not value.endswith("/") and not path.is_absolute()
                 and ".." not in path.parts
                 and any(path.is_relative_to(base) and (root / path).resolve().is_relative_to((root / base).resolve())
-                        for base in (TEMPLATE_DIRECTORY, CORE_TEMPLATE_DIRECTORY))
+                        for base in template_directories)
                 and os.path.isfile(os.path.join(root, value))
             )
         except OSError as error:
@@ -170,10 +180,10 @@ def _phase_templates(root: Path, raw: object) -> Result[Mapping[str, str]]:
             valid = False
         if not valid:
             return Err(ConfigInvalid("config_invalid", key, repr(value), fix))
-    return Ok({purpose: templates[purpose] for purpose in TEMPLATE_PURPOSES})
+    return Ok({purpose: templates[purpose] for purpose in purposes})
 
 
-def phase_file(repo_root: str, x: str) -> Result[PhaseFile]:
+def phase_file(repo_root: str, x: str, expected_profile: Profile | None = Profile.FULL) -> Result[PhaseFile]:
     """Read the phase identity, dispatch settings, and its named plan file."""
     if not PHASE_ID.fullmatch(x):
         return Err(ConfigInvalid("config_invalid", "phase", x, "name the phase as lowercase a-z0-9, e.g. bh"))
@@ -185,9 +195,15 @@ def phase_file(repo_root: str, x: str) -> Result[PhaseFile]:
         raw = tomllib.loads(text.value)
     except tomllib.TOMLDecodeError as error:
         return Err(ParseFailed("parse_failed", str(path), str(error), f"repair the TOML in {path}"))
-    profile = require_profile(path, Profile.FULL)
+    profile = read_profile(path)
     if isinstance(profile, Err):
         return profile
+    if expected_profile is not None:
+        required = require_profile(path, expected_profile)
+        if isinstance(required, Err):
+            if profile.value is Profile.LITE and expected_profile is Profile.FULL:
+                return Err(with_fix(required.error, "run the lite loop from skills/atm-bd-lite/SKILL.md"))
+            return required
     lead = raw.get("lead")
     if not isinstance(lead, str) or not lead.strip():
         return Err(ConfigInvalid("config_invalid", "lead", repr(lead), f"set lead in {path} to a nonempty ATM identity"))
@@ -196,7 +212,7 @@ def phase_file(repo_root: str, x: str) -> Result[PhaseFile]:
                                       or Path(code_checkout).is_absolute()):
         return Err(ConfigInvalid("config_invalid", "code_checkout", repr(code_checkout),
                                  f"set code_checkout in {path} to a repository-relative path of the code repository"))
-    templates = _phase_templates(Path(repo_root), raw.get("templates"))
+    templates = _phase_templates(Path(repo_root), raw.get("templates"), profile.value)
     if isinstance(templates, Err):
         return templates
     for key in PHASE_KEYS:
@@ -214,7 +230,7 @@ def phase_file(repo_root: str, x: str) -> Result[PhaseFile]:
     ids = {name: sprint_bead_id(root_id, x, name) for name, _ in rows.value}
     depends_on = {ids[name]: tuple(ids[item] for item in items) for name, items in rows.value}
     return Ok(PhaseFile(x, root_id, _phase_label(x), tuple(ids.values()), depends_on, lead=lead,
-                        templates=templates.value, code_checkout=code_checkout))
+                        templates=templates.value, code_checkout=code_checkout, profile=profile.value))
 
 
 def _yaml_scalars(text: str) -> dict[str, Any]:
@@ -283,15 +299,16 @@ def _top_epic(bead: Bead, parents: Mapping[str, Bead]) -> str | None:
     return top
 
 
-def _kind(bead: Bead) -> StepKind:
+def _kind(bead: Bead, profile: Profile = Profile.FULL) -> StepKind:
     stage = next((label.removeprefix(STAGE_PREFIX) for label in bead.labels if label.startswith(STAGE_PREFIX)), None)
     if stage is None:
-        suffix = group_suffix(bead.id)
+        suffix = group_suffix(bead.id, profile)
         stage = SUFFIX_STAGES[suffix] if suffix else None
     return STAGE_KINDS.get(stage, OTHER_KIND) if stage else OTHER_KIND
 
 
-def _qa_sprint_bead(bead: Bead, checked_id: str | None, parents: Mapping[str, Bead]) -> str | None:
+def _qa_sprint_bead(bead: Bead, checked_id: str | None, parents: Mapping[str, Bead],
+                    profile: Profile = Profile.FULL) -> str | None:
     """Resolve legacy QA beads whose creator omitted sprint_bead metadata."""
     sprint_bead = bead.metadata.get(SPRINT_BEAD_KEY)
     if sprint_bead:
@@ -300,12 +317,12 @@ def _qa_sprint_bead(bead: Bead, checked_id: str | None, parents: Mapping[str, Be
     if checked is not None and checked.metadata.get(SPRINT_BEAD_KEY):
         return checked.metadata[SPRINT_BEAD_KEY]
     parent = parents.get(bead.parent) if bead.parent else None
-    if parent is not None and _kind(parent) == "container":
+    if parent is not None and _kind(parent, profile) == "container":
         return parent.id
     sprint = bead.metadata.get(SPRINT_KEY)
     matches = tuple(
         item.id for item in parents.values()
-        if _kind(item) == "container" and item.metadata.get(SPRINT_KEY) == sprint
+        if _kind(item, profile) == "container" and item.metadata.get(SPRINT_KEY) == sprint
     ) if sprint else ()
     return matches[0] if len(matches) == 1 else None
 
@@ -318,16 +335,16 @@ def _severity(bead: Bead) -> str | None:
     return next((label.removeprefix(SEVERITY_PREFIX) for label in bead.labels if label.startswith(SEVERITY_PREFIX)), None)
 
 
-def step(bead: Bead, parents: Mapping[str, Bead]) -> Result[Step]:
+def step(bead: Bead, parents: Mapping[str, Bead], profile: Profile = Profile.FULL) -> Result[Step]:
     metadata = bead.metadata
-    kind = _kind(bead)
+    kind = _kind(bead, profile)
     checked = metadata.get(CHECKED_KEYS[kind]) if kind in CHECKED_KEYS else None
     if kind in CHECKED_KEYS and not checked:
         return _missing(f"{bead.id}.metadata.{CHECKED_KEYS[kind]}")
     if kind == QA_KIND and metadata.get(ROUND_KEY) is None:
         return _missing(f"{bead.id}.metadata.{ROUND_KEY}")
     checked_bead = parents.get(checked) if checked else None
-    sprint_bead = _qa_sprint_bead(bead, checked, parents) if kind == QA_KIND else metadata.get(SPRINT_BEAD_KEY)
+    sprint_bead = _qa_sprint_bead(bead, checked, parents, profile) if kind == QA_KIND else metadata.get(SPRINT_BEAD_KEY)
     if kind == QA_KIND and not sprint_bead:
         return _missing(f"{bead.id}: neither metadata.{SPRINT_BEAD_KEY} nor metadata.{SPRINT_KEY}")
     # Fix verification: a QA of a fix or finding bead carries it forward (never read from metadata).
@@ -363,7 +380,7 @@ def closed_show_ids(file: PhaseFile, known: tuple[Bead, ...]) -> tuple[str, ...]
     """The plan-derived sprint containers and group beads not among `known` (the open and ready beads):
     the ids for the one batched `show` that brings in closed sprints, never a closed sweep."""
     seen = {bead.id for bead in known}
-    ids = (bead_id for sprint_id in file.sprints for bead_id in (sprint_id, *group_ids(sprint_id)))
+    ids = (bead_id for sprint_id in file.sprints for bead_id in (sprint_id, *group_ids(sprint_id, file.profile)))
     return tuple(bead_id for bead_id in ids if bead_id not in seen)
 
 
@@ -420,13 +437,13 @@ def phase(
     for bead in beads:
         if bead.id in file.sprints or bead.id == root.id:
             continue
-        mapped_step = step(bead, by_id)
+        mapped_step = step(bead, by_id, file.profile)
         if isinstance(mapped_step, Err):
             errors.append((bead.id, mapped_step.error))
         else:
             steps.append(replace(mapped_step.value, ready=bead.id in ready_ids))
     closed = root.status == SprintState.CLOSED
-    return Ok(Phase(root.id, file.label, root.title, closed, tuple(sprints), tuple(steps), tuple(errors)))
+    return Ok(Phase(root.id, file.label, root.title, closed, tuple(sprints), tuple(steps), tuple(errors), file.profile))
 
 
 def dispatch_spec(ctx: DispatchContext, templates: Mapping[str, str]) -> Result[DispatchSpec]:

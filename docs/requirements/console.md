@@ -4,6 +4,14 @@ Package sources: `apps/atm-bd-console` (`atm-bd console`, `atm-bd cron`); `.clau
 
 ## Requirements
 
+### Phase profiles
+
+The phase file's `profile` selects one of the shared `full` or `lite` orchestration profiles; a missing key retains the `full` default. `atm-bd console` is a full-profile runner and requires `Profile.FULL` before dispatch, bead writes, or ATM sends. On a lite phase it exits with the typed `ProfileMismatch` error and directs the operator to the lite loop in `skills/atm-bd-lite/SKILL.md`.
+
+`atm-bd cron` reads the phase profile and runs exactly one matching tick. Its lite tick is invoked as `lite_cron.py --phase <phase>` through `core_paths`; it preserves the tick's stdout, stderr, and exit status. The tick contract is: no due work produces empty stdout and exit 0; due work produces exactly one JSON object on stdout and exit 0; a failure produces an error on stderr and a nonzero exit. A full tick refuses a lite phase, and a lite tick refuses a full phase.
+
+`atm-bd queues --phase <phase>` uses the same profile and bead schema. A lite view contains `needs_dev`, `needs_dev_fix`, `needs_qa`, and `needs_landing`; it contains no sanity queue or sanity column. `sprint-report`, `sprint-review`, and `bv-analyze` interpret only `group-dev` and `group-qa` in lite phases, and the lite DAG contains no sanity nodes. `bead-queues` remains a front for `atm-bd queues`.
+
 ### Identity (ADR-066)
 
 1. Every ATM message the console sends goes out as the constant address `atm-bd@tool`. The only override is one optional key, `tool_identity: <identity>@<team>`, in the repository's `.claude/project/atm-bd-orchestration.yaml`.

@@ -234,7 +234,7 @@ def test_phase_uses_console_phase_file_reader(monkeypatch, tmp_path: Path):
         calls.append((str(root), checkout))
         return Ok((str(code_root.resolve()), "owner/repo"))
     monkeypatch.setattr(config, "code_repository", validate)
-    monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase: Ok(
+    monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase, **_kwargs: Ok(
         SimpleNamespace(root_id=ROOT, code_checkout="../product")))
 
     args = SimpleNamespace(phase="bj", root=None, stack=False)
@@ -258,7 +258,7 @@ def test_phase_rejects_non_git_code_checkout_before_running_gh(monkeypatch, tmp_
             return Err(CommandFailed("command_failed", tuple(argv), 128, "not a git repository", fix))
         raise AssertionError(f"unexpected validation command: {argv}")
     monkeypatch.setattr(config.command, "run", run)
-    monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase: Ok(
+    monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase, **_kwargs: Ok(
         SimpleNamespace(root_id=ROOT, code_checkout="../not-a-repo")))
     args = SimpleNamespace(phase="bj", root=None, stack=True, json=False, all=False, min_age=10, state_file=None)
 
@@ -282,7 +282,7 @@ def test_phase_rejects_code_checkout_subdirectory_with_primary_checkout_hint(mon
             return Ok(Output(0, f"{checkout}\n"))
         raise AssertionError(f"unexpected validation command: {argv}")
     monkeypatch.setattr(config.command, "run", run)
-    monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase: Ok(
+    monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase, **_kwargs: Ok(
         SimpleNamespace(root_id=ROOT, code_checkout="../checkout/subdir")))
     args = SimpleNamespace(phase="bj", root=None, stack=True, json=False, all=False, min_age=10, state_file=None)
 
@@ -310,7 +310,7 @@ def test_phase_stack_check_uses_valid_sibling_checkout(monkeypatch, tmp_path: Pa
             return Ok(Output(0, json.dumps({"trunk": "integrate/phase-bj", "branches": []})))
         return source_runner(list(argv), fix, cwd=cwd, **kwargs)
     monkeypatch.setattr(config.command, "run", run)
-    monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase: Ok(
+    monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase, **_kwargs: Ok(
         SimpleNamespace(root_id=ROOT, code_checkout="../code-checkout")))
     args = SimpleNamespace(phase="bj", root=None, stack=True)
 

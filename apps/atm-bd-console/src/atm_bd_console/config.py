@@ -7,7 +7,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import yaml
-from result import ConfigInvalid, Err, IoFailed, Ok, Result
+from atm_bd_types import ErrorKind, Profile
+from phase_profile import require_profile
+from result import ConfigInvalid, Err, IoFailed, Ok, Result, with_fix
 
 from . import command
 from .atm_bd import REPO_CONFIG_PATH, phase_file
@@ -101,6 +103,7 @@ def load_config(
     github_quota_threshold: int | None = None,
     dry_run: bool = False,
     no_fetch: bool = False,
+    expected_profile: Profile = Profile.FULL,
 ) -> Result[Config]:
     """Return TOML settings with explicit command-line overrides.
 
@@ -109,12 +112,12 @@ def load_config(
     """
     root = Path(repo_root)
     # Gate both console startup and cron before loading orchestration settings.
-    from atm_bd_types import Profile
-    from phase_profile import require_profile
     phase_path = root / ".atm-bd" / f"phase-{phase}.toml"
     if phase_path.is_file():
-        profile = require_profile(phase_path, Profile.FULL)
+        profile = require_profile(phase_path, expected_profile)
         if isinstance(profile, Err):
+            if profile.error.kind is ErrorKind.PROFILE_MISMATCH and expected_profile is Profile.FULL:
+                return Err(with_fix(profile.error, "run the lite loop from skills/atm-bd-lite/SKILL.md"))
             return profile
     team = _team(root)
     if isinstance(team, Err):
@@ -185,7 +188,7 @@ def load_config(
         return Err(ConfigInvalid("config_invalid", "console.stack.repo", repr(stack_repo),
                                  "use owner/name, or omit it to use the code checkout's repository"))
 
-    phase_settings = phase_file(str(root), phase)
+    phase_settings = phase_file(str(root), phase, expected_profile)
     if isinstance(phase_settings, Err):
         return phase_settings
     code_repo = code_repository(root, phase_settings.value.code_checkout)

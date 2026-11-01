@@ -5,12 +5,13 @@ import json
 import sys
 import tomllib
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from atm_bd_types import ErrorDetail
-from result import Err, error_data, kind_name
+from atm_bd_types import ErrorDetail, Profile
+from result import Err, Result, error_data, kind_name
 
 from . import atm_bd, command, config
 from .log import error_message
@@ -36,6 +37,12 @@ QUEUES = [
     ("ready_other", "Other ready, no task", "lead"),
     ("stack_incoherent", "Stack needs the stack writer", "lead (stack writer)"),
     ("not_ready", "Not ready (prerequisite open)", "-"),
+]
+LITE_QUEUES = [
+    ("needs_dev", "Dev ready -> needs dispatch", "lead -> dev"),
+    ("needs_dev_fix", "Dev fix ready -> needs dispatch", "lead -> dev"),
+    ("needs_qa", "QA ready -> needs dispatch", "lead -> quality-mgr"),
+    ("needs_landing", "All sprint work complete -> needs landing", "lead"),
 ]
 QUIET = {"in_flight", "not_ready"}
 STALL_REMINDERS = 3
@@ -113,9 +120,9 @@ def _not_ready_kind(bead: dict[str, Any]) -> str:
     return "other"
 
 
-def _resolve(args, repo_root: Path) -> tuple[str, str | None, Path, str | None]:
+def _resolve(args: Any, repo_root: Path) -> tuple[str, str | None, Path, str | None, Profile]:
     if args.phase:
-        result = atm_bd.phase_file(str(repo_root), args.phase)
+        result = atm_bd.phase_file(str(repo_root), args.phase, expected_profile=None)
         if isinstance(result, Err):
             raise QueueFailure(f"atm-bd queues --phase {args.phase}: {error_message(error_data(result.error))}")
         code_repo = config.code_repository(repo_root, result.value.code_checkout)
@@ -126,13 +133,16 @@ def _resolve(args, repo_root: Path) -> tuple[str, str | None, Path, str | None]:
             integration_branch = tomllib.loads(phase_path.read_text(encoding="utf-8")).get("integration_branch")
         except (OSError, tomllib.TOMLDecodeError) as error:
             raise QueueFailure(f"{phase_path}: {error}: repair the phase file") from error
-        return result.value.root_id, integration_branch, Path(code_repo.value[0]), code_repo.value[1]
+        profile = getattr(result.value, "profile", Profile.FULL)
+        return result.value.root_id, integration_branch, Path(code_repo.value[0]), code_repo.value[1], profile
     root = args.root
+    if not isinstance(root, str) or not root:
+        raise QueueFailure("phase root id is required: provide --phase or --root")
     phase = root.rsplit("-phase-", 1)[-1]
     if not phase or phase == root:
         raise QueueFailure(f"atm-bd queues --root {root}: root must be <prefix>-phase-<phase>: provide a phase root id")
     # The root row supplies the integration branch when --root bypasses the phase file.
-    return root, None, repo_root, None
+    return root, None, repo_root, None, Profile.FULL
 
 
 def _valid_id(row: dict[str, Any], command_name: str) -> str:
@@ -142,10 +152,11 @@ def _valid_id(row: dict[str, Any], command_name: str) -> str:
     return value
 
 
-def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.run) -> dict[str, Any]:
+def build(args: Any, repo_root: Path, *, now: datetime | None = None,
+          runner: Callable[..., Result[command.Output]] = command.run) -> dict[str, Any]:
     """Read open, ready, task and relevant closed rows once each and classify the phase."""
     now = now or datetime.now(UTC)
-    root, integration_branch, code_root, _ = _resolve(args, repo_root)
+    root, integration_branch, code_root, _, profile = _resolve(args, repo_root)
     phase = root.rsplit("-phase-", 1)[-1]
     label = f"phase-{phase}"
     scoped = ["-l", label, "--exclude-label", "anchor", "-n", "0", "--json"]
@@ -186,9 +197,12 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
         return bool(_meta(bead).get("sanity_finding")) or (
             parent is not None and _stage(parent) in WORK and not deps(bead, "discovered-from"))
 
-    queues: dict[str, list[dict[str, Any]]] = {key: [] for key, _, _ in QUEUES}
+    queue_defs = LITE_QUEUES if profile is Profile.LITE else QUEUES
+    queues: dict[str, list[dict[str, Any]]] = {key: [] for key, _, _ in queue_defs}
 
     def add(key: str, bead: dict[str, Any], when: str | None, detail: str = "") -> None:
+        if key not in queues:
+            return
         bead_id = _valid_id(bead, "queue row")
         row = {"queue": key, "id": bead_id, "stage": _stage(bead).removeprefix("stage:"),
                "status": bead.get("status", "unknown"), "assignee": bead.get("assignee") or "-",
@@ -216,14 +230,18 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
         open_children = children.get(bead_id, [])
         since = bead.get("updated_at") or bead.get("created_at")
         if stage == "stage:sprint" and not open_children:
-            add("container_closable", bead, since, "no open children")
+            add("needs_landing" if profile is Profile.LITE else "container_closable", bead, since, "no open children")
             continue
         if bead.get("status") == "in_progress":
             add("claimed_no_task", bead, bead.get("started_at") or bead.get("updated_at"))
             continue
-        if open_children and stage in WORK and any(sanity_child(child) for child in open_children):
-            count = sum(sanity_child(child) for child in open_children)
-            add("needs_dev_fix", bead, since, f"{count} open sanity finding(s)")
+        lite_fixes = [child for child in open_children if _stage(child) in {"stage:fix", FINDING}]
+        if open_children and stage in WORK and (
+            any(sanity_child(child) for child in open_children)
+            or (profile is Profile.LITE and bool(lite_fixes))
+        ):
+            count = sum(sanity_child(child) for child in open_children) if profile is Profile.FULL else len(lite_fixes)
+            add("needs_dev_fix", bead, since, f"{count} open finding(s)")
             continue
         if sanity_child(bead) and bead.get("parent") in by_id:
             add("not_ready", bead, since, f"handled by dev-fix for {bead['parent']}")
@@ -239,7 +257,8 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
         elif stage == "stage:dev":
             add("needs_dev", bead, since, f"difficulty {metadata.get('difficulty', '-')}")
         elif stage == "stage:fix":
-            add("needs_fix", bead, since, f"{metadata.get('finding_ref', '-')} round {metadata.get('round', '-')} filed by {metadata.get('filed_by', '-')}")
+            add("needs_dev_fix" if profile is Profile.LITE else "needs_fix", bead, since,
+                f"{metadata.get('finding_ref', '-')} round {metadata.get('round', '-')} filed by {metadata.get('filed_by', '-')}")
         elif stage == SANITY:
             checked = metadata.get("dev_bead") or metadata.get("checked_bead")
             if not checked:
@@ -249,15 +268,20 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
             else:
                 add("needs_sanity", bead, since, f"checks {checked}")
         elif stage == QA:
-            add("needs_qa", bead, since, "quick fix (no sanity)" if metadata.get("quick_fix") else "sanity passed")
+            detail = ("lite QA ready" if profile is Profile.LITE else
+                      "quick fix (no sanity)" if metadata.get("quick_fix") else "sanity passed")
+            add("needs_qa", bead, since, detail)
         elif stage == FINDING:
-            key = "minor_backlog" if str(metadata.get("severity", "")).lower() == "minor" else "needs_finding_fix"
+            key = ("needs_dev_fix" if profile is Profile.LITE else
+                   "minor_backlog" if str(metadata.get("severity", "")).lower() == "minor" else "needs_finding_fix")
             add(key, bead, since, f"{metadata.get('severity', '-')} by {metadata.get('reviewer', '-')}")
+        elif stage == QA and profile is Profile.LITE:
+            add("needs_qa", bead, since)
         else:
             add("ready_other", bead, since)
 
     stack_note = "not checked (--stack reads it)"
-    if args.stack:
+    if args.stack and profile is Profile.FULL:
         if not integration_branch:
             stack_note = "no integration_branch: stack not checked"
         else:
@@ -407,7 +431,8 @@ def cron(report: dict[str, Any], state_file: Path, min_age: int, *, now: datetim
     state_file.write_text(json.dumps({"schema": SCHEMA, "reported": sorted(present)}, indent=1) + "\n", encoding="utf-8")
     if not new_rows:
         return None
-    labels = {key: (label, actor) for key, label, actor in QUEUES}
+    queue_defs = LITE_QUEUES if "needs_landing" in report["queues"] else QUEUES
+    labels = {key: (label, actor) for key, label, actor in queue_defs}
     for row in new_rows:
         row["label"], row["next_actor"] = labels[row["queue"]]
     return {key: report[key] for key in ("schema", "generated_at", "root", "integration_branch", "stack")} | {"rows": new_rows}
@@ -419,17 +444,18 @@ def _short(text: str, size: int) -> str:
 
 def render(report: dict[str, Any], show_all: bool) -> str:
     queues = report["queues"]
+    queue_defs = LITE_QUEUES if "needs_landing" in queues else QUEUES
     lines = [f"Bead queues · descendants of {report['root']} · {report['generated_at']}", f"stack: {report['stack']}", "",
              f"  {'queue':42} {'count':>5}  next actor"]
-    for key, label, actor in QUEUES:
+    for key, label, actor in queue_defs:
         lines.append(f"  {label:42} {len(queues[key]):>5}  {actor}")
-    for key, label, _ in QUEUES:
+    for key, label, _ in queue_defs:
         if not queues[key] or (key == "not_ready" and not show_all):
             continue
         lines.extend((f"\n== {label} ({len(queues[key])})",))
         for row in queues[key]:
             lines.append(f"  {_short(row['id'], 44):44} {_short(str(row['assignee']), 10):10} {row['age']:>6}  {_short(str(row['detail'] or row['title']), 70)}")
-    if queues["not_ready"] and not show_all:
+    if queues.get("not_ready") and not show_all:
         counts = Counter(row["kind"] for row in queues["not_ready"])
         summary = " | ".join(f"{counts[kind]} {kind}" for kind in ("sprint", "dev", "fix", "sane", "qa", "review", "other") if counts[kind])
         lines.append(f"\nbd not-ready: {summary}")

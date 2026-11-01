@@ -9,7 +9,7 @@ from typing import cast, get_args, get_type_hints
 
 import pytest
 import result
-from atm_bd_types import ErrorDetail
+from atm_bd_types import ErrorDetail, Profile
 from contract_samples import (
     BEAD,
     CONFIG,
@@ -64,6 +64,17 @@ def test_pre_enum_snapshot_decodes_to_typed_states() -> None:
     assert isinstance(pr.pr.ci, CiState)
     assert isinstance(pr.pr.state, PrState)
     assert pr.merge is not None and isinstance(pr.merge.state, MergeState)
+
+
+def test_phase_profile_round_trips_through_snapshot_json() -> None:
+    phase = replace(PHASE, profile=Profile.LITE)
+    snapshot = replace(SNAPSHOT, phase_data=phase)
+    encoded = to_json(snapshot)
+    assert '"profile":"lite"' in encoded
+    decoded = from_json(Snapshot, encoded)
+    assert isinstance(decoded, Ok)
+    assert decoded.value.phase_data is not None
+    assert decoded.value.phase_data.profile is Profile.LITE
 
 
 def test_unrelated_dataclasses_with_domain_names_are_not_migrated() -> None:

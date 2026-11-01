@@ -49,15 +49,43 @@ PKG = Path(__file__).resolve().parents[1]
 FIXED_NOW = datetime(2026, 10, 15, tzinfo=UTC)
 
 
-@pytest.mark.parametrize("command", ["console", "cron"])
-def test_lite_phase_is_rejected_at_full_entry(command, monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize("command", ("console", "cron", "queues"))
+def test_profile_work_preserves_bo2_help_bytes(command, capsys):
+    expected = Path(__file__).parent / "fixtures/lite-phase/bo2-help" / f"{command}.txt"
+    with pytest.raises(SystemExit) as exited:
+        cli.main([command, "--help"])
+    assert exited.value.code == 0
+    assert capsys.readouterr().out.encode() == expected.read_bytes()
+
+
+def test_console_rejects_lite_phase_before_dispatch(monkeypatch, tmp_path, capsys):
     phase = tmp_path / ".atm-bd/phase-bh.toml"
     phase.parent.mkdir()
     phase.write_text('profile = "lite"\n')
     monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
-    assert cli.main([command, "--phase", "bh"]) == 3
+    monkeypatch.setattr(cli.runner, "step", lambda *_: pytest.fail("lite console must not tick"))
+    monkeypatch.setattr(cli.atm_bd, "repo_config", lambda *_: pytest.fail("lite console must fail before config reads"))
+    monkeypatch.setattr(cli.atm_source, "assign", lambda *_: pytest.fail("lite console must not dispatch"))
+    monkeypatch.setattr(cli.atm_source, "send", lambda *_: pytest.fail("lite console must not send"))
+    assert cli.main(["console", "--phase", "bh"]) == 3
     text = capsys.readouterr().out
     assert "profile_mismatch" in text and "phase profile" in text
+    assert "skills/atm-bd-lite/SKILL.md" in text
+
+
+def test_lite_cron_dispatches_only_phase_to_lite_tick(monkeypatch, tmp_path, capfd):
+    phase = tmp_path / ".atm-bd/phase-lt.toml"
+    phase.parent.mkdir()
+    shutil.copyfile(Path(__file__).parent / "fixtures/lite-phase/phase.toml", phase)
+    formulas = tmp_path / ".claude/skills/atm-bd-lite/formulas"
+    scripts = formulas.parent / "scripts"
+    formulas.mkdir(parents=True)
+    scripts.mkdir(parents=True)
+    tick = scripts / "lite_cron.py"
+    tick.write_text("import json,sys\nprint(json.dumps(sys.argv[1:]))\n")
+    monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
+    assert cli.main(["cron", "--phase", "lt", "--github", "off"]) == 0
+    assert capfd.readouterr().out.strip() == '["--phase", "lt"]'
 
 
 @pytest.fixture

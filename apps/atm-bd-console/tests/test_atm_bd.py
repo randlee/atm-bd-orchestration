@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import TypeVar, get_args
 
 import pytest
-from atm_bd_types import ErrorDetail, ErrorKind
+from atm_bd_types import ErrorDetail, Profile
 from contract_samples import PHASE_TEMPLATES
 from process_helpers import run_process
 from result import Err, Error, NotFound, Ok, Result
@@ -99,13 +99,16 @@ def _err(result: object) -> Error:
     return result.error
 
 
-def test_lite_phase_file_returns_typed_profile_mismatch(tmp_path):
-    phase_path = tmp_path / ".atm-bd/phase-bh.toml"
-    phase_path.parent.mkdir()
-    phase_path.write_text('profile = "lite"\n')
-    result = atm_bd_module.phase_file(str(tmp_path), "bh")
-    assert isinstance(result, Err) and result.error.kind == ErrorKind.PROFILE_MISMATCH
-    assert result.error.fix
+def test_lite_phase_file_carries_profile_and_omits_sanity_group(repo: Path):
+    path = repo / TOML
+    path.write_text(path.read_text().replace("[templates]", 'profile = "lite"\n\n[templates]').replace(
+        'sanity = "', '# sanity = "', 1
+    ))
+    result = phase_file(str(repo), "bh", expected_profile=None)
+    assert isinstance(result, Ok)
+    assert result.value.profile is Profile.LITE
+    assert "sanity" not in result.value.templates
+    assert group_ids("atm-bh-1", Profile.LITE) == ("atm-bh-1.group-dev", "atm-bh-1.group-qa")
 
 
 def test_phase_file_reads_the_real_toml_and_its_plan() -> None:

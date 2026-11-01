@@ -50,6 +50,8 @@ from operation_models import (
 from plan_contract import DIFFICULTY_MODELS, difficulty_tiers, model_matches
 import repo_config
 import sc_render
+from atm_bd_types import Profile
+from phase_profile import read_profile
 
 
 class SanityHistoryRecord(TypedDict, total=False):
@@ -339,6 +341,28 @@ def load_index(repo: Path, explicit: Path | None, root: str | None) -> tuple[Pat
         raise RuntimeError(f"invalid canonical phase plan {path}: {exc}") from exc
 
 
+def use_lite_groups(index: NormalizedIndex) -> NormalizedIndex:
+    """Map the shared plan rows onto lite's dev/QA group pair."""
+    for row in index["sprints"]:
+        container = row["sprint_bead_id"]
+        row["sanity_bead_id"] = f"{container}.group-qa"
+        row["depends_on_sanity_bead_ids"] = [
+            dependency.rsplit(".group-", 1)[0] + ".group-qa"
+            for dependency in row["depends_on_sanity_bead_ids"]
+        ]
+    return index
+
+
+def lite_dev_icon(dev: BeadRecord, qa: BeadRecord | None, blocked: bool) -> str:
+    if blocked or dev.get("status") == "blocked":
+        return "🚧"
+    if dev.get("status") == "in_progress":
+        return "🌀"
+    if qa is not None and qa.get("status") == "closed" and qa_verdict(qa) == "PASS":
+        return "✅" if dev.get("status") == "closed" else "📥"
+    return "🚩" if qa is not None and qa.get("status") == "closed" else "📥"
+
+
 def live_sprint_rows(index: NormalizedIndex, beads: dict[str, BeadRecord]) -> list[SprintRow]:
     """The plan supplies membership; labels and ordering come from live beads (the sprint container when
     it is live, else the dev bead)."""
@@ -438,6 +462,15 @@ def main() -> int:
             raise RuntimeError(f"phase root bead not found: {index['root_bead_id']}")
         root_bead = roots[0]
         phase = phase_id(index["root_bead_id"], root_bead)
+        profile_path = repo / ".atm-bd" / f"phase-{phase}.toml"
+        profile = Profile.FULL
+        if profile_path.is_file():
+            parsed_profile = read_profile(profile_path)
+            if isinstance(parsed_profile, _CoreErr):
+                raise RuntimeError(f"{profile_path}: {parsed_profile.error.fix}")
+            profile = parsed_profile.value
+        if profile is Profile.LITE:
+            index = use_lite_groups(index)
         common_dir = Path(subprocess.check_output(
             ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
             cwd=repo, text=True,
@@ -451,7 +484,7 @@ def main() -> int:
             plan_html = None if args.output else (
                 repo / repo_config.load(repo)["plans_dir"] / f"phase-{phase}" / f"phase-{phase}-dag.html")
             return generate(repo, index, sanity_runs, phase, args.output, args.open, args.view,
-                            plan_html=plan_html, beads=all_beads)
+                            plan_html=plan_html, beads=all_beads, profile=profile.value)
         row_ids = list(index_bead_pairs(index))
         if args.dispatch:
             ready = run_bead_records(repo, "beads", "bd", "ready", "-l", f"phase-{phase}", "-n", "0", "--json")
@@ -476,12 +509,12 @@ def main() -> int:
         qa_by_dev: dict[str, list[BeadRecord]] = {}
         for bead in all_beads:
             for dev_id in dev_ids:
-                if "stage:dev-sanity" in label_values(bead) and related_bead(bead, dev_id, "blocks"):
+                if profile is Profile.FULL and "stage:dev-sanity" in label_values(bead) and related_bead(bead, dev_id, "blocks"):
                     sanity_by_dev[dev_id] = bead
                 if is_qa_of(bead, dev_id):
                     qa_by_dev.setdefault(dev_id, []).append(bead)
         selected_qa = {dev_id: choose_round(candidates) for dev_id, candidates in qa_by_dev.items()}
-        for dev_id, gate_id in index_bead_pairs(index).items():
+        for dev_id, gate_id in (index_bead_pairs(index).items() if profile is Profile.FULL else ()):
             live_gates = [bead["id"] for bead in all_beads
                           if "stage:dev-sanity" in label_values(bead)
                           and related_bead(bead, dev_id, "blocks")]
@@ -568,9 +601,8 @@ def main() -> int:
                 or related_bead(bead, str(sanity["id"]), "parent-child")
             )
         ]
-        dev_cell = status_icon(
-            dev, sanity, sanity_findings, blocked=dev_id in blocked_ids
-        )
+        dev_cell = (lite_dev_icon(dev, qa, dev_id in blocked_ids) if profile is Profile.LITE else
+                    status_icon(dev, sanity, sanity_findings, blocked=dev_id in blocked_ids))
         qa_cell = qa_icon(qa, findings)
         find_cell = "" if not qa else findings_summary(findings)
         pr = select_pr(prs, string_field(sprint_meta(dev_id).get("branch"), "branch"))

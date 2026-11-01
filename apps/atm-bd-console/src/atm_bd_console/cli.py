@@ -7,10 +7,13 @@ import shutil
 import sys
 from datetime import UTC, datetime
 
-from atm_bd_types import ErrorDetail
+from atm_bd_types import ErrorDetail, Profile
+from core_paths import profile_formulas_dir
+from phase_profile import read_profile
 from result import Err, Error, NotFound, Ok, error_data, kind_name, with_fix
 
 from . import atm_bd, atm_source, queues, render, runner, status_table
+from . import command as command_source
 from . import config as config_source
 from .build import identity
 from .codec import snapshot_stale, to_json
@@ -49,6 +52,29 @@ def _notification_startup_error(config: Config) -> Error | None:
     if not any(member.name == sender for member in members.value):
         return NotFound("not_found", config.notification_sender, fix)
     return None
+
+
+def _lite_cron(repo_root, phase: str) -> int:
+    formulas = profile_formulas_dir("lite", repo_root)
+    if isinstance(formulas, Err):
+        print(f"atm-bd cron: {error_message(error_data(formulas.error))}", file=sys.stderr)
+        return 3
+    script = formulas.value.parent / "scripts" / "lite_cron.py"
+    if not script.is_file():
+        print(f"atm-bd cron: not_found: lite cron tick is not installed at {script}", file=sys.stderr)
+        return 3
+    result = command_source.run([sys.executable, str(script), "--phase", phase],
+                                "repair the lite phase cron tick and retry", cwd=repo_root)
+    if isinstance(result, Err):
+        detail = result.error.detail
+        if isinstance(detail, ErrorDetail.CommandFailed):
+            message = detail.stderr or f"lite cron tick exited {detail.code}"
+            print(message, file=sys.stderr)
+            return detail.code if detail.code > 0 else 3
+        print(error_message(error_data(result.error)), file=sys.stderr)
+        return 3
+    print(result.value.stdout, end="")
+    return result.value.code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -95,6 +121,19 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     repo_root = config_source.repo_root()
     root_id = f"atm-phase-{args.phase}"
+    phase_path = repo_root / ".atm-bd" / f"phase-{args.phase}.toml"
+    if args.command in ("console", "cron", "snapshot") and phase_path.is_file():
+        profile = read_profile(phase_path)
+        if isinstance(profile, Err):
+            print(f"{invocation}: {error_message(error_data(profile.error))}")
+            return 3
+        if args.command == "cron" and profile.value is Profile.LITE:
+            return _lite_cron(repo_root, args.phase)
+        if profile.value is Profile.LITE:
+            mismatch = config_source.load_config(repo_root, args.phase, expected_profile=Profile.FULL)
+            if isinstance(mismatch, Err):
+                print(f"{invocation}: {error_message(error_data(mismatch.error))}")
+            return 3
     if args.command == "show":
         snapshot = load_snapshot(repo_root, root_id)
         if isinstance(snapshot, Ok) and (snapshot.value.stopped is not None or not snapshot_stale(snapshot.value, now())):

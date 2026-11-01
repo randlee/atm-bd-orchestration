@@ -1,0 +1,12 @@
+usage: atm-bd queues [-h] (--phase PHASE | --root ROOT) [--all] [--stack]
+                     [--json] [--min-age MIN_AGE] [--state-file STATE_FILE]
+
+options:
+  -h, --help            show this help message and exit
+  --phase PHASE         phase; the root comes from .atm-bd/phase-<phase>.toml
+  --root ROOT           the phase root bead id
+  --all                 also list not-ready beads with reasons
+  --stack               also read the phase stack from GitHub
+  --json                print newly dropped rows as one JSON object
+  --min-age MIN_AGE     --json: minutes a row must be old to be reported
+  --state-file STATE_FILE

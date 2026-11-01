@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, TypeAlias
 
+from atm_bd_types import Profile
 from result import Error, Result
 
 from .enums import CiState, MergeState, PrState, QaState, SprintState
@@ -112,6 +113,7 @@ class Phase:
     sprints: tuple[Sprint, ...]
     steps: tuple[Step, ...]
     step_errors: tuple[tuple[str, Error], ...]
+    profile: Profile = field(default_factory=lambda: Profile.FULL)
 
 
 @dataclass(frozen=True)
@@ -415,6 +417,7 @@ class PhaseFile:
     lead: str
     templates: Mapping[str, str]
     code_checkout: str | None = None
+    profile: Profile = field(default_factory=lambda: Profile.FULL)
 
 
 @dataclass(frozen=True)

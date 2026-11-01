@@ -187,8 +187,10 @@ def prerequisites(bead: BeadRecord) -> list[str]:
     return targets
 
 
-def build_graph(index: object, beads: object) -> Graph:
+def build_graph(index: object, beads: object, profile: str = 'full') -> Graph:
     """Render only the declared phase graph; Beads contribute live state."""
+    if profile not in ('full', 'lite'):
+        raise ValueError(f'unknown phase profile: {profile}')
     index = normalized_index(index)
     beads = bead_map(beads)
     devs = set(index_bead_pairs(index))
@@ -196,14 +198,19 @@ def build_graph(index: object, beads: object) -> Graph:
     if missing:
         raise RuntimeError('Missing planned beads: ' + ', '.join(sorted(missing)))
     pairs = index_bead_pairs(index)
+    gate_label = 'stage:dev-sanity' if profile == 'full' else 'stage:qa'
     for dev in sorted(devs):
         gates = [key for key, bead in beads.items()
-                 if 'stage:dev-sanity' in (bead.get('labels') or [])
-                 and dev in prerequisites(bead)]
+                 if gate_label in (bead.get('labels') or [])
+                 and (dev in prerequisites(bead) if profile == 'full' else any(
+                     edge.get('type') == 'validates' and edge.get('depends_on_id') == dev
+                     for edge in bead.get('dependencies', [])))]
         if len(gates) != 1:
-            raise RuntimeError(f'{dev}: expected one live sanity gate, found {len(gates)}')
+            gate_name = 'sanity gate' if profile == 'full' else 'QA gate'
+            raise RuntimeError(f'{dev}: expected one live {gate_name}, found {len(gates)}')
         if pairs[dev] != gates[0]:
-            raise RuntimeError(f'{dev}: indexed sanity bead {pairs[dev]} does not match live gate {gates[0]}')
+            gate_name = 'sanity' if profile == 'full' else 'QA'
+            raise RuntimeError(f'{dev}: indexed {gate_name} bead {pairs[dev]} does not match live gate {gates[0]}')
     nodes = devs | set(pairs.values())
     edges: list[tuple[str, str]] = []
     for row in index['sprints']:
@@ -224,7 +231,7 @@ def build_graph(index: object, beads: object) -> Graph:
 
 
 def collect_state(repo: Path, graph: Graph, beads: dict[str, BeadRecord],
-                  counts: dict[str, int | None], phase: str) -> Snapshot:
+                  counts: dict[str, int | None], phase: str, profile: str = 'full') -> Snapshot:
     errors: dict[str, str] = {}
     def history(key: str) -> tuple[str, list[AtmTaskEvent] | str]:
         try:
@@ -246,15 +253,16 @@ def collect_state(repo: Path, graph: Graph, beads: dict[str, BeadRecord],
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         tasks = {}
         errors['task_list'] = str(exc)
+    blocked_labels = 'stage:dev,stage:dev-sanity' if profile == 'full' else 'stage:dev,stage:qa'
     blocked = {b['id']: b.get('blocked_by', [])
                for b in run_bead_records(repo, 'beads', 'bd', 'blocked', '-l', f'phase-{phase}',
-                                 '--label-any', 'stage:dev,stage:dev-sanity', '--json')}
+                                 '--label-any', blocked_labels, '--json')}
     return {'beads': dict(beads), 'tasks': tasks, 'blocked': blocked, 'events': typed_histories,
             'iterations': counts, 'errors': errors,
             'captured_at': datetime.now(timezone.utc).isoformat()}
 
 
-def states(graph: Graph, snapshot: Snapshot, index: object) -> dict[str, NodeState]:
+def states(graph: Graph, snapshot: Snapshot, index: object, profile: str = 'full') -> dict[str, NodeState]:
     beads, events = snapshot['beads'], snapshot['events']
     pairs = graph['gate_pairs']
     gates: dict[str, str] = {gate: dev for dev, gate in pairs.items()}
@@ -288,7 +296,7 @@ def states(graph: Graph, snapshot: Snapshot, index: object) -> dict[str, NodeSta
         if key in gates:
             findings = open_findings(key)
             if findings:
-                return 'findings', 'Open sanity findings: ' + ', '.join(findings)
+                return 'findings', ('Open sanity findings: ' if profile == 'full' else 'Open QA findings: ') + ', '.join(findings)
             meta = bead.get('metadata') or {}
             passed = str(meta.get('verdict', '')).upper() == 'PASS' or re.match(r'^PASS\b', reason, re.I)
             if bead.get('status') == 'closed' and passed:
@@ -307,10 +315,10 @@ def states(graph: Graph, snapshot: Snapshot, index: object) -> dict[str, NodeSta
                 return 'uncertain', reason + '; dev completion history unavailable'
             gate_state, detail = verdict(pairs[key])
             if gate_state == 'done':
-                return 'done', reason + '; sanity PASS recorded'
+                return 'done', reason + ('; sanity PASS recorded' if profile == 'full' else '; QA PASS recorded')
             if gate_state in ('uncertain', 'findings'):
                 return gate_state, reason + '; ' + detail
-            return 'waiting', reason + '; awaiting sanity completion'
+            return 'waiting', reason + ('; awaiting sanity completion' if profile == 'full' else '; awaiting QA completion')
         return 'waiting', 'Not started / awaiting completion'
     result: dict[str, NodeState] = {}
     for key in graph['nodes']:
@@ -357,12 +365,12 @@ def qa_states(graph: Graph, beads: object, index: object) -> dict[str, QaState]:
     return result
 
 
-def dot_source(graph: Graph, phase: str) -> str:
+def dot_source(graph: Graph, phase: str, profile: str = 'full') -> str:
     def quote(text: str) -> str:
         return json.dumps(text, ensure_ascii=False)
     phase = str(phase).removeprefix('phase-').upper()
     lines = ['digraph execution {',
-             'graph [rankdir=LR, compound=true, bgcolor="white", pad="0.4", nodesep="0.22", ranksep="0.5", splines=spline, fontname="Arial", fontsize=20, labelloc=t, label=' + quote(f'Phase {phase} — execution order\nSprint completes → its gate passes → downstream sprint starts') + '];',
+             'graph [rankdir=LR, compound=true, bgcolor="white", pad="0.4", nodesep="0.22", ranksep="0.5", splines=spline, fontname="Arial", fontsize=20, labelloc=t, label=' + quote(f'Phase {phase} — execution order\nSprint completes → its {"gate passes" if profile == "full" else "QA passes"} → downstream sprint starts') + '];',
              'node [shape=box, style="rounded,filled", fontname="Arial", fontsize=13, margin="0.12,0.10", color="#9caec2", fillcolor="#edf3fb", fontcolor="#172b43"];',
              'edge [color="#647a94", penwidth=1.15, arrowsize=0.75];']
     pairs = graph['gate_pairs']
@@ -372,7 +380,7 @@ def dot_source(graph: Graph, phase: str) -> str:
         gate = pairs[dev]
         lines.append(f'subgraph {quote("cluster_" + dev)} {{ label=""; style=invis;')
         lines.append(f'{quote(dev)} [label={quote(dev)}];')
-        label = quote(dev + '\nsanity gate')
+        label = quote(dev + ('\nsanity gate' if profile == 'full' else '\nQA gate'))
         lines.append(f'{quote(gate)} [label={label}, shape=hexagon, fillcolor="#e6f1e9", color="#a0b8a8"];')
         lines.append('}')
     for key in sorted(set(graph['nodes']) - set(pairs) - set(pairs.values())):
@@ -538,7 +546,8 @@ def open_wyvern(artifact: Path) -> bool:
 
 def generate(repo: Path, index: object, counts: dict[str, int | None], phase: str,
              output: Path | None = None, open_image: bool = False, open_view: bool = False,
-             plan_html: Path | None = None, beads: Sequence[BeadRecord] | None = None) -> int:
+             plan_html: Path | None = None, beads: Sequence[BeadRecord] | None = None,
+             profile: str = 'full') -> int:
     index = normalized_index(index)
     if not (RENDERER / 'node_modules/@viz-js/viz').exists():
         raise RuntimeError(f'DAG renderer dependencies missing; run npm ci --prefix {RENDERER}')
@@ -549,13 +558,13 @@ def generate(repo: Path, index: object, counts: dict[str, int | None], phase: st
     def path(suffix: str) -> Path:
         return output.parent / (output.name + suffix)
     bead_map = {b['id']: b for b in (beads if beads is not None else phase_beads(repo, phase))}
-    graph = build_graph(index, bead_map)
-    snapshot = collect_state(repo, graph, bead_map, counts, phase)
-    icons = states(graph, snapshot, index)
+    graph = build_graph(index, bead_map, profile)
+    snapshot = collect_state(repo, graph, bead_map, counts, phase, profile)
+    icons = states(graph, snapshot, index, profile)
     qa = qa_states(graph, bead_map, index)
     for key in icons:
         icons[key]['qa'] = qa[key]
-    source = dot_source(graph, phase)
+    source = dot_source(graph, phase, profile)
     # Reuse approved geometry when its DOT is unchanged.
     reuse = path('-layout.svg').exists() and path('.dot').exists() and path('.dot').read_text().strip() == source.strip()
     path('.dot').write_text(source)
