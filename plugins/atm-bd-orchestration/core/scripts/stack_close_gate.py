@@ -13,7 +13,7 @@ import providers
 import repo_config
 from result import Err, Ok, Result
 from stack_gate import GitStackGate
-from stack_top import JsonObject, select_stack_top
+from stack_top import JsonObject, is_json_object, select_stack_top
 
 
 def preflight(root: Path, worktree: Path, branch: str, head: str, bead: JsonObject,
@@ -41,6 +41,23 @@ def preflight(root: Path, worktree: Path, branch: str, head: str, bead: JsonObje
         if isinstance(found, Err):
             return found
         pr = found.value
+        metadata = bead.get('metadata')
+        layers = metadata.get('layers', []) if is_json_object(metadata) else []
+        if isinstance(layers, list):
+            for layer in layers:
+                if not is_json_object(layer) or layer.get('branch') != branch:
+                    continue
+                if layer.get('head') != head or str(layer.get('pr')) != pr.number:
+                    return failure(f'recorded layer {branch} has a different head or PR',
+                                   'Keep the recorded layer frozen and open a fix bead for changes.')
+                recorded_base = layer.get('base')
+                if not isinstance(recorded_base, str) or not recorded_base:
+                    return failure(f'recorded layer {branch} has no base', 'Repair the stack ledger and retry.')
+                top = recorded_base
+                top_head = resolve(top)
+                if not top_head:
+                    return failure(f'cannot resolve origin/{top}', 'Fetch origin and repair the recorded base.')
+                break
         checked = GitStackGate(worktree, runner=runner).check(pr.base, branch, head, top)
         if isinstance(checked, Err):
             return checked
