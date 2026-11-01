@@ -215,6 +215,14 @@ def test_full_hook_refuses_lite_dispatch_before_writes(world):
     assert world.writes == []
 
 
+def test_dispatch_render_rechecks_the_phase_profile(world):
+    instance = hook.Hook("dev", world.values, world.path, world, lambda: 42)
+    (world.root / ".atm-bd/phase-bj.toml").write_text('lead = "phase-lead"\nprofile = "lite"\n')
+    with pytest.raises(hook.CloseError) as caught:
+        instance.render("dev-sanity-template.xml.j2")
+    assert caught.value.code == "PROFILE.MISMATCH"
+
+
 def test_not_reproducible_missing_pr_identity_is_fix_only(world):
     for field in ("branch", "commit", "pr_number"):
         world.values.pop(field, None)
