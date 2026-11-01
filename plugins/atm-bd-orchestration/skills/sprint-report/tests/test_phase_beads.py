@@ -6,9 +6,10 @@ import sys
 from pathlib import Path
 import unittest
 from unittest import mock
+from phase_fixtures import core_scripts
 
 SKILL = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(SKILL / 'scripts'), str(SKILL.parent / 'atm-beads/scripts')]
+sys.path[:0] = [str(SKILL / 'scripts'), str(core_scripts())]
 import phase_beads as pb
 import sprint_dag as dag
 from sprint_dag import Graph

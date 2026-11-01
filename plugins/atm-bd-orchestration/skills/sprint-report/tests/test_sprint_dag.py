@@ -4,9 +4,10 @@ import sys
 from pathlib import Path
 import unittest
 import xml.etree.ElementTree as ET
+from phase_fixtures import core_scripts
 
 SKILL = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(SKILL / 'scripts'), str(SKILL.parent / 'atm-beads/scripts')]
+sys.path[:0] = [str(SKILL / 'scripts'), str(core_scripts())]
 import sprint_dag as dag
 from operation_models import AtmTask, BeadRecord
 from sprint_dag import Graph, Snapshot

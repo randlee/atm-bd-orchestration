@@ -9,10 +9,9 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
-from operation_models import BeadRecord
-
 SKILLS = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(SKILLS / 'sprint-report/scripts'), str(SKILLS / 'atm-beads/scripts')]
+sys.path[:0] = [str(SKILLS / 'sprint-report/scripts'), str(core_scripts())]
+from operation_models import BeadRecord
 import sprint_dag as dag
 
 

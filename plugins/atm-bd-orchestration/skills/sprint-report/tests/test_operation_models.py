@@ -8,12 +8,11 @@ import unittest
 from collections.abc import Mapping
 from typing import Literal, TypedDict, cast
 from unittest import mock
+from phase_fixtures import core_scripts
 
 SKILLS = Path(__file__).resolve().parents[2]
-BEADS_SCRIPTS = SKILLS / 'atm-beads/scripts'
 REPORT_SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
-sys.path[:0] = [str(BEADS_SCRIPTS), str(REPORT_SCRIPTS),
-                str(SKILLS / 'atm-bd-orchestration/scripts')]
+sys.path[:0] = [str(core_scripts()), str(REPORT_SCRIPTS)]
 import bead_formulas
 import operation_models as models
 JsonValue = models.JsonValue
