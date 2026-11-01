@@ -13,7 +13,7 @@ wheels = [
 
 [[package]]
 name = "atm-bd"
-version = "0.19.12"
+version = "0.20.0"
 source = { editable = "." }
 dependencies = [
     { name = "atm-bd-types" },
@@ -56,7 +56,7 @@ dev = [
 
 [[package]]
 name = "atm-bd-types"
-version = "0.19.12"
+version = "0.20.0"
 source = { directory = "../../crates/atm-bd-types" }
 
 [[package]]

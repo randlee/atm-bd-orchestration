@@ -1,6 +1,6 @@
 """Shared contract for the ATM bead dashboard."""
 
-__version__ = "0.19.12"
+__version__ = "0.20.0"
 
 # The installed wheel bundles the same core used by repository installs.
 import importlib

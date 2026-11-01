@@ -423,7 +423,7 @@ def test_config_template_declares_exactly_the_spec_variables_and_sanity_default(
 
 def test_versions_agree():
     version = install.package_version(PKG)
-    assert version == "0.19.12"
+    assert version == "0.20.0"
     assert json.loads((PKG / ".claude-plugin/plugin.json").read_text())["version"] == version
     assert f"## [{version}]" in (PKG / "CHANGELOG.md").read_text()
 
@@ -894,7 +894,7 @@ def test_fresh_install(tmp_path, capsys):
     assert config["reviewers_round1"] == ["req-qa", "arch-qa"]
     # the install record: version and the sha256 of every file written
     record = lock(repo)
-    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.19.12"
+    assert record["package"] == "atm-bd-orchestration" and record["version"] == "0.20.0"
     expected = ({f".claude/{rel}" for rel in artifacts["skills"] + artifacts["agents"]}
                 | {f".atm-bd/{rel.removeprefix('core/')}" for rel in artifacts["core"]}
                 | {install.CONFIG_OUT})
@@ -1213,7 +1213,7 @@ def test_migration_owns_shipped_and_legacy_bytes_and_fails_on_others(tmp_path, p
     assert not (repo / ".claude" / script).exists()
     assert (repo / ".atm-bd/scripts/resolve-role").read_bytes() == (PKG / "core/scripts/resolve-role").read_bytes()
     assert not (repo / ".claude" / dropped).exists()
-    assert lock(repo)["version"] == "0.19.12"
+    assert lock(repo)["version"] == "0.20.0"
 
 
 def _git_has(rev: str) -> bool:

@@ -1,6 +1,6 @@
 ---
 name: atm-bd-lite
-version: 0.19.12
+version: 0.20.0
 description: One-agent development and QA orchestration for lite-profile phases.
 format: markdown
 ---
