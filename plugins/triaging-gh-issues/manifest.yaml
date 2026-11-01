@@ -1,0 +1,32 @@
+name: triaging-gh-issues
+version: 1.0.0
+description: One-label triage from GitHub issues onto beads.
+author: randlee
+license: MIT
+artifacts:
+  skills:
+    - skills/triaging-gh-issues/SKILL.md
+    - skills/triaging-gh-issues/references/installation-and-troubleshooting.md
+    - skills/triaging-gh-issues/scripts/next.py
+  agents:
+    - agents/registry.yaml
+    - agents/issue-import.md
+    - agents/issue-duplicate-judge.md
+    - agents/issue-phase-match.md
+    - agents/issue-phase-done.md
+    - agents/issue-overlap-judge.md
+    - agents/issue-prpair-judge.md
+    - agents/issue-kind-classify.md
+    - agents/issue-area-classify.md
+    - agents/issue-size-classify.md
+    - agents/issue-priority-classify.md
+    - agents/issue-report-verify.md
+    - agents/issue-gap-classify.md
+    - agents/issue-arch-classify.md
+    - agents/issue-security-classify.md
+    - agents/issue-plan-write.md
+    - agents/plan-accept.md
+    - agents/issue-landed-record.md
+    - agents/issue-close-mark.md
+    - agents/issue-release-close.md
+    - agents/pr-author-credit.md

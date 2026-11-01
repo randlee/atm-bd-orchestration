@@ -1,0 +1,10 @@
+{
+  "name": "triaging-gh-issues",
+  "description": "One-label triage from GitHub issues onto beads.",
+  "version": "1.0.0",
+  "author": {
+    "name": "randlee"
+  },
+  "license": "MIT",
+  "keywords": ["github", "beads", "triage"]
+}

@@ -1,0 +1,81 @@
+agents:
+  issue-import:
+    version: 1.0.0
+    path: agents/issue-import.md
+    difficulty: fast
+  issue-duplicate-judge:
+    version: 1.0.0
+    path: agents/issue-duplicate-judge.md
+    difficulty: fast
+  issue-phase-match:
+    version: 1.0.0
+    path: agents/issue-phase-match.md
+    difficulty: fast
+  issue-phase-done:
+    version: 1.0.0
+    path: agents/issue-phase-done.md
+    difficulty: fast
+  issue-overlap-judge:
+    version: 1.0.0
+    path: agents/issue-overlap-judge.md
+    difficulty: fast
+  issue-prpair-judge:
+    version: 1.0.0
+    path: agents/issue-prpair-judge.md
+    difficulty: fast
+  issue-kind-classify:
+    version: 1.0.0
+    path: agents/issue-kind-classify.md
+    difficulty: fast
+  issue-area-classify:
+    version: 1.0.0
+    path: agents/issue-area-classify.md
+    difficulty: fast
+  issue-size-classify:
+    version: 1.0.0
+    path: agents/issue-size-classify.md
+    difficulty: fast
+  issue-priority-classify:
+    version: 1.0.0
+    path: agents/issue-priority-classify.md
+    difficulty: fast
+  issue-report-verify:
+    version: 1.0.0
+    path: agents/issue-report-verify.md
+    difficulty: normal
+  issue-gap-classify:
+    version: 1.0.0
+    path: agents/issue-gap-classify.md
+    difficulty: normal
+  issue-arch-classify:
+    version: 1.0.0
+    path: agents/issue-arch-classify.md
+    difficulty: normal
+  issue-security-classify:
+    version: 1.0.0
+    path: agents/issue-security-classify.md
+    difficulty: normal
+  issue-plan-write:
+    version: 1.0.0
+    path: agents/issue-plan-write.md
+    difficulty: hard
+  plan-accept:
+    version: 1.0.0
+    path: agents/plan-accept.md
+    difficulty: quality-mgr
+  issue-landed-record:
+    version: 1.0.0
+    path: agents/issue-landed-record.md
+    difficulty: fast
+  issue-close-mark:
+    version: 1.0.0
+    path: agents/issue-close-mark.md
+    difficulty: fast
+  issue-release-close:
+    version: 1.0.0
+    path: agents/issue-release-close.md
+    difficulty: quality-mgr
+  pr-author-credit:
+    version: 1.0.0
+    path: agents/pr-author-credit.md
+    difficulty: fast
