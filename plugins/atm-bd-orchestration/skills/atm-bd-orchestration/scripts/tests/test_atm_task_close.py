@@ -43,3 +43,19 @@ def test_recorded_layer_replay_checks_its_base_and_freezes_identity(tmp_path: An
         assert 'ok' in result, result
         assert any(argv == ['git', 'rev-parse', '--verify', 'refs/remotes/origin/integrate/phase-bj^{commit}']
                    for argv, _ in world.calls)
+
+
+def test_replay_of_recorded_layer_below_top_uses_its_original_base(tmp_path: Any, monkeypatch: Any) -> None:
+    world: Any = World(tmp_path, monkeypatch)
+    branch = world.values['branch']
+    world.pr_base_override = 'integrate/phase-bj'
+    world.beads[world.values['stack_bead']]['metadata']['layers'] = [
+        {'branch': branch, 'head': world.head, 'pr': int(world.pr_number),
+         'base': 'integrate/phase-bj', 'linked': True},
+        {'branch': 'later-layer', 'head': 'b' * 40, 'pr': 352,
+         'base': branch, 'linked': True},
+    ]
+    result = world.run()
+    assert 'ok' in result, result
+    assert any(argv == ['git', 'rev-parse', '--verify', 'refs/remotes/origin/integrate/phase-bj^{commit}']
+               for argv, _ in world.calls)
