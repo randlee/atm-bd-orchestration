@@ -384,6 +384,7 @@ def validate(values, role):
 class Hook:
     def __init__(self, role, values, path, runner, clock, sleep=time.sleep, sample=load_sample):
         self.role, self.values, self.path = role, values, Path(path).resolve()
+        self.dispatch_path = self.path
         self.runner, self.clock, self.sleep, self.sample = runner, clock, sleep, sample
         self.root = Path(values["primary_checkout"]).resolve()
         self.worktree = Path(values["worktree_path"]).resolve()
@@ -451,7 +452,11 @@ class Hook:
 
     def _run_once(self, argv, *, lead=False, git=False):
         try:
-            return self.runner(list(argv), cwd=self.worktree if git else self.root,
+            from provider_vars import enrich_atm_vars
+            enriched = enrich_atm_vars(argv, self.config, self.dispatch_path, self.task)
+            if isinstance(enriched, _CoreErr):
+                raise CloseError("PROVIDER.INVALID", enriched.error.message, enriched.error.fix)
+            return self.runner(enriched.value, cwd=self.worktree if git else self.root,
                                env=self.lead_env if lead else self.env, capture_output=True, text=True,
                                timeout=COMMAND_TIMEOUT)
         except subprocess.TimeoutExpired as error:

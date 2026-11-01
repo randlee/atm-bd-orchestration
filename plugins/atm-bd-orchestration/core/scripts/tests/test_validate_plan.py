@@ -88,7 +88,7 @@ class Repo(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_vp(self, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
-        return run_subprocess([str(SCRIPT), *args], cwd=self.repo, capture_output=True, text=True, env=env)
+        return run_subprocess([sys.executable, str(SCRIPT), *args], cwd=self.repo, capture_output=True, text=True, env=env)
 
     def run_beads(self, beads: list[dict], plan: list = PLAN, *extra: str) -> subprocess.CompletedProcess:
         (self.base / "plan.jsonl").write_text(lines(plan))

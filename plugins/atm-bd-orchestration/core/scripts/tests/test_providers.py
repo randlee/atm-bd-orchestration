@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from atm_bd_types import ErrorKind, MergedPrRef, PrOp, ProviderCommands
 from pr_lookup import comment_body
-from providers import execute, load_provider
+from providers import cli_execute, execute, load_provider
 from result import Err, Ok
 
 
@@ -100,7 +100,7 @@ def test_azure_comment_builds_json_from_file_body_in_adapter(tmp_path: Path) -> 
     assert text not in seen[0]
 
 
-def test_azure_create_builds_json_from_file_body_in_adapter(tmp_path: Path) -> None:
+def test_azure_create_passes_markdown_file_to_cli(tmp_path: Path) -> None:
     loaded = load_provider({"provider": "azure", "azure": {"organization": "org", "project": "p", "repository": "r"}})
     assert isinstance(loaded, Ok)
     source = tmp_path / "description.md"
@@ -109,9 +109,8 @@ def test_azure_create_builds_json_from_file_body_in_adapter(tmp_path: Path) -> N
 
     def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         seen.append(argv)
-        payload = json.loads(Path(argv[argv.index("--in-file") + 1]).read_text())
-        assert payload == {"sourceRefName": "refs/heads/feature", "targetRefName": "refs/heads/main",
-                           "title": "Title", "description": source.read_text()}
+        assert argv[:4] == ["az", "repos", "pr", "create"]
+        assert argv[argv.index("--description") + 1] == f"@{source}"
         return subprocess.CompletedProcess(argv, 0, "{}", "")
 
     result = execute(loaded.value, PrOp.CREATE, {"organization": "org", "project": "p", "repository": "r",
@@ -119,6 +118,30 @@ def test_azure_create_builds_json_from_file_body_in_adapter(tmp_path: Path) -> N
                      cwd=tmp_path, runner=run)
     assert isinstance(result, Ok)
     assert source.read_text() not in seen[0]
+
+
+def test_azure_comment_exec_adapts_markdown_file_to_thread_json(tmp_path: Path) -> None:
+    source = tmp_path / "comment.md"
+    text = 'Markdown "quoted"\nsecond line'
+    source.write_text(text)
+    seen: list[list[str]] = []
+
+    def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(argv)
+        payload = json.loads(Path(argv[argv.index("--in-file") + 1]).read_text())
+        assert payload == {"comments": [{"parentCommentId": 0, "content": text, "commentType": 1}], "status": 1}
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    result = cli_execute(["exec", "comment", "--set", "number=12", "--body-file", str(source)],
+                         {"provider": "azure", "azure": {"organization": "org", "project": "p", "repository": "r"}},
+                         cwd=tmp_path, runner=run)
+    assert isinstance(result, Ok)
+    assert seen[0][:3] == ["az", "devops", "invoke"]
+    assert "pullRequestId=12" in seen[0]
+    piped = cli_execute(["exec", "comment", "--set", "number=12", "--body-file", "-"],
+                        {"provider": "azure", "azure": {"organization": "org", "project": "p", "repository": "r"}},
+                        cwd=tmp_path, stdin=text, runner=run)
+    assert isinstance(piped, Ok)
 
 
 def test_render_provider_context_and_unknown_operation(tmp_path: Path) -> None:
@@ -163,3 +186,31 @@ def test_azure_comment_evidence_uses_configured_repo_and_thread(tmp_path: Path) 
     assert isinstance(result, Ok) and result.value.body == "evidence"
     assert "repositoryId=actual-repo" in seen[0]
     assert "pullRequestId=12" in seen[0] and "threadId=34" in seen[0]
+
+
+def test_view_defaults_keep_full_json_for_existing_callers(tmp_path: Path) -> None:
+    loaded = load_provider({})
+    assert isinstance(loaded, Ok)
+    seen: list[list[str]] = []
+
+    def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, '{"body":"message"}', "")
+
+    result = execute(loaded.value, PrOp.VIEW, {"number": "12", "repository": "owner/repo"}, cwd=tmp_path, runner=run)
+    assert isinstance(result, Ok)
+    assert result.value == {"body": "message"}
+    assert seen[0][seen[0].index("--repo") + 1] == "owner/repo"
+    assert seen[0][seen[0].index("--jq") + 1] == "."
+    assert "body" in seen[0][seen[0].index("--json") + 1].split(",")
+
+
+def test_installer_provider_validation_returns_typed_errors() -> None:
+    from providers import validate_installer_provider
+
+    invalid = validate_installer_provider("other", {})
+    assert isinstance(invalid, Err) and invalid.error.kind == ErrorKind.PROVIDER_INVALID
+    assert invalid.error.fix
+    missing = validate_installer_provider("azure", {"organization": "org", "project": "p"})
+    assert isinstance(missing, Err) and missing.error.kind == ErrorKind.CONFIG_MISSING
+    assert "azure.repository" in missing.error.fix

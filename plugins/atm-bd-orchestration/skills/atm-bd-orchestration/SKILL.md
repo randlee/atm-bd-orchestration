@@ -34,6 +34,14 @@ Never block on bureaucracy. Dev waits only on its prerequisites'
 sanity checks; QA, triage and fixes run beside it. 100% of findings are
 closed, each with a close reason.
 
+## Provider installation
+
+Install with `atm-bd skill --github` (default) or `atm-bd skill --azure`;
+the standalone installer accepts `--provider github` or `--provider azure`.
+Azure needs `azure.organization`, `azure.project`, and `azure.repository` in
+the repository configuration or agent registry. Azure commands have been
+render-tested only; no live Azure repository was available in this phase.
+
 ## Step 1 — Verify CLI Installation
 
 Run this before anything else in the skill:

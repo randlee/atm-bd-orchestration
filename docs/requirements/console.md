@@ -47,3 +47,7 @@ The phase file's `profile` selects one of the shared `full` or `lite` orchestrat
 
 - `input.log`, the console's hand-written input trace, is a second file outside the structured log. ADR-067 reviews it against D1; whether it is folded into the log or removed awaits a ruling.
 - Cross-team `atm task assign` for tool members (requirement 5) is an atm-core change (#1870); until it lands requirement 1 covers sends only.
+
+## Provider dispatch variables
+
+Dispatch and task-close handoff vars carry the configured `provider` and its `provider.*` operations when sent to ATM for template rendering.

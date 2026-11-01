@@ -417,7 +417,7 @@ def test_workflow_issue_bead_declares_parent():
 def test_config_template_declares_exactly_the_spec_variables_and_sanity_default():
     assert install.config_variables(PKG) == SPEC_VARIABLES
     front = yaml.safe_load((PKG / install.CONFIG_TEMPLATE).read_text().split("---\n")[1])
-    assert front["defaults"] == {"max_sanity_rounds": 5, "gate_timeout_s": 180, "provider": "github"}
+    assert front["defaults"] == {"max_sanity_rounds": 5, "gate_timeout_s": 180, "provider": "github", "azure_organization": "", "azure_project": "", "azure_repository": ""}
     assert set(install.ROLE_KEYS) | install.LIST_VARIABLES <= set(SPEC_VARIABLES)
 
 

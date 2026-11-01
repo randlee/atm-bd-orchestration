@@ -56,3 +56,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 ## Unresolved
 
 None.
+
+## Provider dispatch variables
+
+Dispatch and task-close handoff vars carry the configured `provider` and its `provider.*` operations when sent to ATM for template rendering.

@@ -42,6 +42,9 @@ artifacts:
     - skills/atm-bd-orchestration/examples/plan-review-template-vars.json
     - skills/atm-bd-orchestration/examples/plan-scope-reviewer-assignment-vars.json
     - skills/atm-bd-orchestration/examples/pr-body-vars.json
+    - skills/atm-bd-orchestration/examples/provider-github-dev-template.golden
+    - skills/atm-bd-orchestration/examples/provider-github-fix-assignment.golden
+    - skills/atm-bd-orchestration/examples/provider-github-qa-template.golden
     - skills/atm-bd-orchestration/examples/qa-bead-vars.json
     - skills/atm-bd-orchestration/examples/qa-complete-vars.json
     - skills/atm-bd-orchestration/examples/qa-findings-vars.json
@@ -85,6 +88,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/fix-round-scope
     - skills/atm-bd-orchestration/scripts/post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/post_mortem_jev.py
+    - skills/atm-bd-orchestration/scripts/provider_vars.py
     - skills/atm-bd-orchestration/scripts/sanity-close-repair.py
     - skills/atm-bd-orchestration/scripts/sanity-close-vars
     - skills/atm-bd-orchestration/scripts/sanity-merge
@@ -105,6 +109,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_handoff_contracts.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_jev.py
+    - skills/atm-bd-orchestration/scripts/tests/test_provider_templates.py
     - skills/atm-bd-orchestration/scripts/tests/test_qa_report_contract.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_close_legacy.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_close_vars.py

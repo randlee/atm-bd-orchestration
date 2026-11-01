@@ -25,6 +25,8 @@
       "pr",
       "view",
       "{number}",
+      "--repo",
+      "{repository}",
       "--json",
       "{fields}",
       "--jq",

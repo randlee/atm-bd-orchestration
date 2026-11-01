@@ -51,3 +51,7 @@ Worst case for one `bd` call that keeps dropping: `(3 + 1) x COMMAND_TIMEOUT + 3
 
 The hook records every attempt that was not a clean first-try success, and a success that needed a retry, under `attempts` in its JSON output: `command`, `attempt`, `timeout_s`, `elapsed_s`, `outcome` (`ok`, `dolt_drop_retry`, `failed`, `timeout`, `error`), `retries_until_now`, `total_elapsed_s`, `load_avg` (1, 5 and 15 minute `os.getloadavg`) and `cpu_pct` (1 minute load as a percentage of CPU count; `null` where `os.getloadavg` is unavailable).
 
+
+## Provider dispatch variables
+
+Dispatch and task-close handoff vars carry the configured `provider` and its `provider.*` operations when sent to ATM for template rendering.

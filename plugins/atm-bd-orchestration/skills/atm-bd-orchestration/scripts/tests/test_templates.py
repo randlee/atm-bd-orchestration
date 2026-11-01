@@ -58,7 +58,7 @@ class TemplateContractTests(unittest.TestCase):
             with self.subTest(template=name):
                 text = (template_path(f"{name}.xml.j2")).read_text()
                 self.assertIn("templates/pr-body.md.j2", text)
-                self.assertIn("--body-file", text)
+                self.assertIn("{body_file}", text)
                 self.assertNotIn("--fill", text)
 
     def test_sanity_fail_report_explains_handoff_without_finding_beads(self):
@@ -603,7 +603,7 @@ class DevAssignmentTests(unittest.TestCase):
                 self.assertIn("any other exit prints `GATE_CANNOT_RUN`: never guess, refuse with it by step ", result.stdout)
                 self.assertNotIn("no output means the top is", result.stdout)
                 self.assertNotIn("gh_stack_view.py", result.stdout)
-                self.assertIn("run `/sc-gh-stack-view` (read-only) and keep its output verbatim", result.stdout)
+                self.assertIn("run `gh stack view --json` (read-only) and keep its output verbatim", result.stdout)
                 self.assertIn("`git rebase origin/<top>`", result.stdout)
                 self.assertRegex(result.stdout, r"`gh pr create --base <top> --head \S+ --title \"<one-line title>\" "
                                                 r"--body-file <scratch>/[^`\s]*(?:\{\{ bead_prefix \}\})?[^`\s]*-pr-body\.md`")

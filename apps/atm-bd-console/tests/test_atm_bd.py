@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar, get_args
 
+import providers
 import pytest
 from atm_bd_types import ErrorDetail, Profile
 from contract_samples import PHASE_TEMPLATES
@@ -667,7 +668,9 @@ def expected(kind: str, pr: PullRequest | None) -> tuple[str, dict]:
     qa = SPRINT_QA if kind == "sprint_qa" else FIX_QA
     meta = qa.metadata
     checked = DEV if kind == "sprint_qa" else FIX
-    return "qa-template.xml.j2", {
+    provider = providers.render_context({"provider": "github"})
+    assert isinstance(provider, Ok)
+    return "qa-template.xml.j2", {"provider": provider.value,
         "task_id": qa.id, "qa_task_id": qa.id, "checked_bead": checked.id, "dev_task_id": checked.id,
         "sanity_task_id": meta["sanity_bead"], "phase": "bh", "phase_feature": "atm-bd-console", "sprint": "bh-5",
         "sprint_bead": "atm-bh-5", "stack": "phase-bh", "layer": 7, "round": meta["round"], "base": QA_BASE,

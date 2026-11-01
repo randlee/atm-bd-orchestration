@@ -554,25 +554,25 @@ def resolve_config(repo_root: Path, overrides: Mapping[str, ConfigInputValue], p
     roles = reg.get("roles", {})
     values: Config = {}
     provider = overrides.get("provider", "github")
-    if provider not in ("github", "azure"):
-        raise InstallError("PROVIDER_INVALID: provider must be github or azure")
-    values["provider"] = provider
-    if provider == "azure":
-        identity = reg.get("azure", {})
-        existing_config = repo_root / CONFIG_OUT
-        if not identity and existing_config.is_file():
-            prior = _load_yaml(existing_config).get("azure")
-            if isinstance(prior, dict):
-                try:
-                    identity = TypeAdapter(AzureIdentity).validate_python(prior, strict=True)
-                except ValidationError as error:
-                    raise InstallError(f"CONFIG_INVALID: azure identity in {existing_config} is invalid; set organization, project and repository to strings") from error
-        for key, value in (("organization", identity.get("organization")),
-                           ("project", identity.get("project")),
-                           ("repository", identity.get("repository"))):
-            if not isinstance(value, str) or not value.strip():
-                raise InstallError(f"CONFIG_MISSING: azure.{key} is missing; set azure.{key} in {CONSUMER_REGISTRY} and rerun")
-            values[f"azure_{key}"] = value
+    identity = reg.get("azure", {})
+    existing_config = repo_root / CONFIG_OUT
+    if provider == "azure" and not identity and existing_config.is_file():
+        prior = _load_yaml(existing_config).get("azure")
+        if isinstance(prior, dict):
+            try:
+                identity = TypeAdapter(AzureIdentity).validate_python(prior, strict=True)
+            except ValidationError as error:
+                raise InstallError(f"CONFIG_INVALID: azure identity in {existing_config} is invalid; set organization, project and repository to strings") from error
+    sys.path.insert(0, str(PKG_DIR / "core/scripts"))
+    try:
+        from providers import validate_installer_provider
+        from result import Err, kind_name
+    finally:
+        sys.path.pop(0)
+    selection = validate_installer_provider(provider, identity)
+    if isinstance(selection, Err):
+        raise InstallError(f"{kind_name(selection.error.kind).upper()}: {selection.error.message}; {selection.error.fix}")
+    values.update(selection.value)
     rounds = overrides.get("max_sanity_rounds", reg.get("max_sanity_rounds", 5))
     if isinstance(rounds, str) and rounds.isdecimal():
         rounds = int(rounds)

@@ -25,6 +25,13 @@ manifests exist so Claude Code can discover it; `install.py` puts it to work.
 
 ## Install
 
+Select the PR provider with `atm-bd skill --github` (the default) or
+`atm-bd skill --azure`. Standalone installs use `install.py --provider github`
+or `--provider azure`. For Azure, supply `azure.organization`, `azure.project`,
+and `azure.repository` in `.claude/agents/registry.yaml` or the existing repo
+configuration before installation. Azure support in this phase is render-only;
+it has not been run against a live Azure repository.
+
 Requirements in the consuming repository:
 
 - `.claude/agents/registry.yaml` with every configuration variable (below);

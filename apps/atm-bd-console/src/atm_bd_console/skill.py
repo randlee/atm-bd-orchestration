@@ -47,7 +47,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _provider(github: bool, azure: bool) -> Result[str]:
+def select_provider(github: bool, azure: bool) -> Result[str]:
     if github and azure:
         return Err(Error(ErrorKind.CONFIG_INVALID, "--github and --azure cannot be combined", "Select one provider flag."))
     return Ok("azure" if azure else "github")
@@ -60,7 +60,7 @@ def _source_line(name: str, commit: str) -> str:
 def run(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
-    selected = _provider(args.github, args.azure)
+    selected = select_provider(args.github, args.azure)
     if isinstance(selected, Err):
         print(f"atm-bd skill: CONFIG_INVALID: {selected.error.message}; {selected.error.fix}", file=sys.stderr)
         return 2
@@ -83,7 +83,8 @@ def run(argv: list[str] | None = None) -> int:
         if dest.name not in {".claude", ".codex"}:
             dest = dest / (".codex" if args.codex else ".claude")
         overrides = installer.parse_set(args.set)
-        overrides["provider"] = selected.value
+        if args.azure or args.github:
+            overrides["provider"] = selected.value
         with skill_source.resolve_source(version=args.version, latest=args.latest) as source:
             manifest = skill_integrity.load_manifest(source)
             manifest_version = manifest["version"]

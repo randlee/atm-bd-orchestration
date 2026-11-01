@@ -9,6 +9,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import providers
+import repo_config as provider_repo_config
 from atm_bd_types import Profile
 from phase_profile import read_profile, require_profile
 from result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result, with_fix
@@ -493,6 +495,22 @@ def dispatch_spec(ctx: DispatchContext, templates: Mapping[str, str]) -> Result[
     checked_meta = (current.checked_row or {}).get("metadata") or {}
     qa_vars[keys["pr_url"]] = pr.url if pr is not None else str(checked_meta.get(PR_URL_KEY) or "")
     qa_vars[keys["layer_prs"]] = layer_prs
+    template_path = Path(ctx.repo.primary_checkout) / template
+    try:
+        needs_provider = "provider." in template_path.read_text(encoding="utf-8") if template_path.is_file() else template_path.name == "qa-template.xml.j2"
+    except OSError as error:
+        return Err(IoFailed("io_failed", str(template_path), str(error), "check the QA template is readable"))
+    if needs_provider:
+        try:
+            provider_config = provider_repo_config.load(Path(ctx.repo.primary_checkout))
+        except provider_repo_config.ConfigNotFound:
+            provider_config = {"provider": "github"}
+        except provider_repo_config.ConfigError as error:
+            return Err(ConfigInvalid("config_invalid", "provider", str(error), "repair the repository provider configuration"))
+        provider = providers.render_context(provider_config)
+        if isinstance(provider, Err):
+            return provider
+        qa_vars["provider"] = provider.value
     return Ok(DispatchSpec(template, qa_vars))
 
 

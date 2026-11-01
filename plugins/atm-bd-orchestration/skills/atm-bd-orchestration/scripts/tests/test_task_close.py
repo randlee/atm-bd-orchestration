@@ -110,7 +110,7 @@ def test_dev_handoff_is_immediate_and_closes_the_dev_task_as_the_dev(world, monk
             assert argv[-2:] == ["--actor", "caller"]
         if "--vars" in argv:
             # The hook sends the completion file it wrote, never the lead's dispatch file.
-            assert Path(argv[argv.index("--vars") + 1]).name == "completion-vars.json"
+            assert Path(argv[argv.index("--vars") + 1]).name.endswith(".provider.json")
     for argv, kwargs in world.calls:
         if argv[:3] in (["atm", "task", "assign"], ["atm", "hook", "list"]):   # the lead's team: the sanity dispatch
             assert kwargs["env"]["ATM_TEAM"] == "test-team"
@@ -431,7 +431,7 @@ def test_not_reproducible_assigns_runtime_top_without_rewriting_input(world):
     assert assignment["values"]["beads_dir"] == str(world.root / ".beads")
     assert any(argv == ["bd", "where", "--json"] for argv, _kwargs in world.calls)
     assert set(assignment["values"]) == set(world.values) | {"branch", "commit", *contract["derived_variables"],
-                                                          "close_context", "beads_dir", "sanity_close_mode"}
+                                                          "close_context", "beads_dir", "sanity_close_mode", "provider"}
     assert not any(argv[0] == "gh" for argv, _kwargs in world.calls)
 
 
@@ -461,6 +461,25 @@ def test_sanity_pass_leaves_the_already_closed_dev_task_alone_then_assigns_qa(wo
     assert not any(argv[:4] == ["atm", "task", "close", world.values["dev_task_id"]] for argv, _sender in world.writes)
     assert world.tasks[world.values["sanity_bead"]][-1]["close_outcome"] == "completed"
     assert world.messages[-1]["recipient"] == "quality"
+
+
+def test_sanity_pass_qa_assignment_sends_provider_vars(world):
+    assert "ok" in world.run("sanity")
+    original = world.path.read_bytes()
+    assignment = next(message for message in world.messages if message["type"] == "qa-task")
+    values = assignment["values"]
+    call = next(argv for argv, _kwargs in world.calls if argv[:3] == ["atm", "task", "assign"] and argv[argv.index("--task-id") + 1] == world.values["qa_bead"])
+    persisted = Path(call[call.index("--vars") + 1])
+    assert persisted.is_file()
+    assert json.loads(persisted.read_text()) == values
+    assert values["provider"]["create"].startswith("gh pr create")
+    template = hook.template_path("qa-template.xml.j2")
+    # Invoke the wheel directly so the test cannot pass via sc_render's injection.
+    import sc_compose
+    request = sc_compose.ComposeRequest(str(template.parent), sc_compose.ComposeMode.file(str(template)),
+                                        vars_input=values, policy=sc_compose.ComposePolicy(strict_undeclared_variables=True))
+    assert sc_compose.compose_file(request).rendered_text
+    assert world.path.read_bytes() == original
 
 
 def test_sanity_pass_closes_without_waiting_for_stack(world):
@@ -821,6 +840,8 @@ def test_shared_contract_covers_all_role_templates_and_ids(world):
              "dev-sanity-complete.md.j2", "qa-template.xml.j2", "qa-complete.md.j2")
     for name in names:
         dispatch_only = {"beads_dir", "close_context"} if name == "dev-sanity-template.xml.j2" else set()
+        if name == "qa-template.xml.j2":
+            dispatch_only |= {"provider", "provider.comment", "provider.checks", "provider.stack_link", "provider.stack_view", "provider.view"}
         assert set(hook.header(hook.template_path(name))["required_variables"]) <= declared | dispatch_only, name
         values = {**world.values, "beads_dir": str(world.root / ".beads"),
                   "close_context": {**world.values, "phase_lead": "phase-lead"}}
@@ -1059,7 +1080,7 @@ def test_close_from_documented_dispatch_and_result_files_derives_handoff(world, 
                "pr_url": f"https://github.com/example/repo/pull/{world.pr_number}",
                "rebased_onto": "b" * 40}
     assert set(assignment["values"]) == set(dispatch) | set(result) | set(DERIVED) | {"close_context", "beads_dir",
-                                                                                         "sanity_close_mode", "layer_prs"}
+                                                                                         "sanity_close_mode", "layer_prs", "provider"}
     assert assignment["values"]["layer_prs"] == [str(world.pr_number)]  # the checked PR, derived (#636)
     assert {name: assignment["values"][name] for name in derived} == derived
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", assignment["values"]["generated_at"])
@@ -1219,13 +1240,15 @@ def test_shared_render_uses_exact_role_fields_without_union_placeholders(world, 
 
 
 @pytest.mark.parametrize("role", ["dev", "fix"])
-def test_assignment_consumes_completion_vars_before_the_temporary_file_is_removed(world, role):
+def test_assignment_retains_provider_vars_after_hook_returns(world, role):
     assert "ok" in world.run(role)
     command = next(argv for argv, _ in world.calls if argv[:3] == ["atm", "task", "assign"])
     consumed = Path(command[command.index("--vars") + 1])
-    assert consumed.name == "completion-vars.json"
-    assert not consumed.exists()
+    assert consumed.name.endswith(".provider.json")
+    assert consumed.exists()
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")
+    assert json.loads(consumed.read_text()) == assignment["values"]
+    assert assignment["values"]["provider"]["create"].startswith("gh pr create")
     assert assignment["values"]["commit"] == world.head
     assert world.values["checked_bead"] in assignment["body"]
     assert json.loads(world.path.read_text())

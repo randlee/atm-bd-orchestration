@@ -82,3 +82,7 @@ Not yet implemented (phase bl): these items state the ruled target. Today `jev_c
 
 1. Clean tree: all three ignore `.beads.gate.lock`/`.sc-compose/`; `assignment-gates.py` also ignores untracked files, while `sanity-split` and `sanity-merge` fail `COMMIT_MISMATCH` on any other `git status --porcelain` output.
 2. Jev child: requirements 20, 22, 24, 33 and 45 still describe an `sc-sanity-jev` child and a Jev reply screened by `sanity-merge --reviewer sanity-jev` (a reply whose choice contradicts its findings, a receipt check), where a request now yields one JSONL line (53) instead of one reply per child. Requirements 19, 40 and 51 to 53 now have dev-sanity send the request array to `jev_client.py` and copy its JSON unchanged with no agent interpreting it. What a Jev failure does is settled by 57 (the LLM reply is used); how a Jev evaluation becomes a verdict, and whether the `sc-sanity-jev` child and the receipt screening in 45 remain, awaits a ruling and the phase-bl design.
+
+## Provider dispatch variables
+
+Dispatch and task-close handoff vars carry the configured `provider` and its `provider.*` operations when sent to ATM for template rendering.
