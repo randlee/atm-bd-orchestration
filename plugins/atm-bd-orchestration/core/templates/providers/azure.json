@@ -2,21 +2,25 @@
   "create": {
     "argv": [
       "az",
-      "devops",
-      "invoke",
-      "--area",
-      "git",
-      "--resource",
-      "pullRequests",
-      "--route-parameters",
-      "project={project}",
-      "repositoryId={repository}",
+      "repos",
+      "pr",
+      "create",
       "--org",
       "https://dev.azure.com/{organization}",
-      "--http-method",
-      "POST",
-      "--in-file",
-      "{body_file}"
+      "--project",
+      "{project}",
+      "--repository",
+      "{repository}",
+      "--source-branch",
+      "{head}",
+      "--target-branch",
+      "{base}",
+      "--title",
+      "{title}",
+      "--description",
+      "@{body_file}",
+      "--output",
+      "json"
     ],
     "body": "file",
     "output": "json",
@@ -25,7 +29,7 @@
       "url": "url",
       "base": "targetRefName"
     },
-    "comment": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/create"
+    "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr#az-repos-pr-create"
   },
   "view": {
     "argv": [
@@ -38,7 +42,9 @@
       "--output",
       "json",
       "--organization",
-      "https://dev.azure.com/{organization}"
+      "https://dev.azure.com/{organization}",
+      "--query",
+      "{jq}"
     ],
     "body": "none",
     "output": "json",
@@ -200,5 +206,20 @@
       "updated_at": "lastUpdatedDate"
     },
     "comment": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-threads/get"
+  },
+  "edit_body": {
+    "argv": [
+      "az",
+      "repos",
+      "pr",
+      "update",
+      "--id",
+      "{number}",
+      "--description",
+      "@{body_file}"
+    ],
+    "body": "file",
+    "output": "exit_code",
+    "result": {}
   }
 }

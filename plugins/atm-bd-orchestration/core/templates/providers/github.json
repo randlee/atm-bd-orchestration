@@ -25,10 +25,10 @@
       "pr",
       "view",
       "{number}",
-      "--repo",
-      "{repository}",
       "--json",
-      "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author"
+      "{fields}",
+      "--jq",
+      "{jq}"
     ],
     "body": "none",
     "output": "json",
@@ -136,5 +136,18 @@
       "author": "user.login",
       "updated_at": "updated_at"
     }
+  },
+  "edit_body": {
+    "argv": [
+      "gh",
+      "pr",
+      "edit",
+      "{number}",
+      "--body-file",
+      "{body_file}"
+    ],
+    "body": "file",
+    "output": "exit_code",
+    "result": {}
   }
 }

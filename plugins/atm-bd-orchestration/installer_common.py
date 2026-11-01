@@ -149,7 +149,14 @@ class ConfigTemplate(TypedDict, total=False):
     defaults: dict[str, ConfigValue]
 
 
+class AzureIdentity(TypedDict, total=False):
+    organization: str
+    project: str
+    repository: str
+
+
 class ConsumerRegistry(TypedDict, total=False):
+    azure: AzureIdentity
     bead_prefix: str | None
     dev_sanity_member: str | None
     qa_member: str | None
@@ -513,7 +520,7 @@ def _coerce_set_value(name: str, raw: ConfigInputValue) -> ConfigInputValue:
 def resolve_config(repo_root: Path, overrides: Mapping[str, ConfigInputValue], pkg_dir: Path = PKG_DIR) -> Config:
     """Read the declared variables from registry.yaml and --set. Missing ones are left
     out (the strict render names them); unknown --set keys and wrong types are errors."""
-    names = [*config_variables(pkg_dir), "max_sanity_rounds", "gate_timeout_s"]
+    names = [*config_variables(pkg_dir), "max_sanity_rounds", "gate_timeout_s", "provider"]
     unknown = sorted(k for k in overrides if k not in names)
     if unknown:
         raise InstallError(
@@ -546,6 +553,26 @@ def resolve_config(repo_root: Path, overrides: Mapping[str, ConfigInputValue], p
             f"{registry}: " + ", ".join(f"{n} belongs under roles.{ROLE_KEYS[n]}" for n in misplaced))
     roles = reg.get("roles", {})
     values: Config = {}
+    provider = overrides.get("provider", "github")
+    if provider not in ("github", "azure"):
+        raise InstallError("PROVIDER_INVALID: provider must be github or azure")
+    values["provider"] = provider
+    if provider == "azure":
+        identity = reg.get("azure", {})
+        existing_config = repo_root / CONFIG_OUT
+        if not identity and existing_config.is_file():
+            prior = _load_yaml(existing_config).get("azure")
+            if isinstance(prior, dict):
+                try:
+                    identity = TypeAdapter(AzureIdentity).validate_python(prior, strict=True)
+                except ValidationError as error:
+                    raise InstallError(f"CONFIG_INVALID: azure identity in {existing_config} is invalid; set organization, project and repository to strings") from error
+        for key, value in (("organization", identity.get("organization")),
+                           ("project", identity.get("project")),
+                           ("repository", identity.get("repository"))):
+            if not isinstance(value, str) or not value.strip():
+                raise InstallError(f"CONFIG_MISSING: azure.{key} is missing; set azure.{key} in {CONSUMER_REGISTRY} and rerun")
+            values[f"azure_{key}"] = value
     rounds = overrides.get("max_sanity_rounds", reg.get("max_sanity_rounds", 5))
     if isinstance(rounds, str) and rounds.isdecimal():
         rounds = int(rounds)
@@ -559,7 +586,7 @@ def resolve_config(repo_root: Path, overrides: Mapping[str, ConfigInputValue], p
         raise InstallError("gate_timeout_s must be a positive integer number of seconds")
     values["gate_timeout_s"] = timeout
     for name in names:
-        if name in ("max_sanity_rounds", "gate_timeout_s"):
+        if name in ("max_sanity_rounds", "gate_timeout_s", "provider"):
             continue
         if name in overrides:
             value = _coerce_set_value(name, overrides[name])

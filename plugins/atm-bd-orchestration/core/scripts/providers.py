@@ -54,6 +54,7 @@ def operation_name(op: PrOp) -> str:
         case PrOp.CREATE: return "create"
         case PrOp.VIEW: return "view"
         case PrOp.EDIT_BASE: return "edit_base"
+        case PrOp.EDIT_BODY: return "edit_body"
         case PrOp.COMMENT: return "comment"
         case PrOp.COMMENT_VIEW: return "comment_view"
         case PrOp.CHECKS: return "checks"
@@ -206,11 +207,18 @@ def render_context(config: Mapping[str, object]) -> Result[dict[str, str]]:
     if isinstance(loaded, Err):
         return loaded
     result: dict[str, str] = {}
-    for op in (PrOp.CREATE, PrOp.VIEW, PrOp.EDIT_BASE, PrOp.COMMENT, PrOp.COMMENT_VIEW,
+    for op in (PrOp.CREATE, PrOp.VIEW, PrOp.EDIT_BASE, PrOp.EDIT_BODY, PrOp.COMMENT, PrOp.COMMENT_VIEW,
                PrOp.CHECKS, PrOp.LOOKUP_BY_HEAD, PrOp.STACK_LINK, PrOp.STACK_VIEW):
         name = operation_name(op)
         command = loaded.value.command(name)
         if command is None:
             return _problem(ErrorKind.PROVIDER_INVALID, f"missing provider operation {name}", "Repair the provider file.")
-        result[name] = shlex.join(command.argv)
+        argv = command.argv
+        identity = config.get("azure")
+        if config.get("provider") == "azure" and is_json_object(identity):
+            for key in ("organization", "project", "repository"):
+                value = identity.get(key)
+                if isinstance(value, str):
+                    argv = [arg.replace("{" + key + "}", value) for arg in argv]
+        result[name] = shlex.join(argv)
     return Ok(result)

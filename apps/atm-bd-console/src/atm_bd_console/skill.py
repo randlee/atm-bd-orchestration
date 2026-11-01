@@ -1,4 +1,5 @@
 """Install the bundled or released atm-bd-orchestration skill set."""
+# pyright: strict
 from __future__ import annotations
 
 import argparse
@@ -6,6 +7,9 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
+
+from atm_bd_types import Error, ErrorKind
+from result import Err, Ok, Result
 
 from . import __version__, skill_integrity, skill_source
 
@@ -36,9 +40,17 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--dest", type=Path, metavar="REPO", help="target repository (default: current directory)")
     parser.add_argument("--orchestration", action="store_true", help="install the orchestration set (the default and only set)")
     parser.add_argument("--codex", action="store_true", help="install skills under .codex")
+    parser.add_argument("--github", action="store_true", help="render commands for GitHub (default)")
+    parser.add_argument("--azure", action="store_true", help="render commands for Azure Git")
     parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="set an installer config value")
     parser.add_argument("--overwrite", action="store_true", help="back up files that differ from the package")
     return parser
+
+
+def _provider(github: bool, azure: bool) -> Result[str]:
+    if github and azure:
+        return Err(Error(ErrorKind.CONFIG_INVALID, "--github and --azure cannot be combined", "Select one provider flag."))
+    return Ok("azure" if azure else "github")
 
 
 def _source_line(name: str, commit: str) -> str:
@@ -48,8 +60,12 @@ def _source_line(name: str, commit: str) -> str:
 def run(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+    selected = _provider(args.github, args.azure)
+    if isinstance(selected, Err):
+        print(f"atm-bd skill: CONFIG_INVALID: {selected.error.message}; {selected.error.fix}", file=sys.stderr)
+        return 2
     if args.list:
-        if args.version or args.dest is not None or args.codex or args.set or args.overwrite:
+        if args.version or args.dest is not None or args.codex or args.set or args.overwrite or args.github or args.azure:
             parser.error("--list cannot be combined with a version or install options")
         try:
             print("\n".join((*skill_source.remote_tags(), "orchestration")))
@@ -67,6 +83,7 @@ def run(argv: list[str] | None = None) -> int:
         if dest.name not in {".claude", ".codex"}:
             dest = dest / (".codex" if args.codex else ".claude")
         overrides = installer.parse_set(args.set)
+        overrides["provider"] = selected.value
         with skill_source.resolve_source(version=args.version, latest=args.latest) as source:
             manifest = skill_integrity.load_manifest(source)
             manifest_version = manifest["version"]

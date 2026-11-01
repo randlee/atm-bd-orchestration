@@ -238,6 +238,7 @@ pub enum PrOp {
     Create,
     View,
     EditBase,
+    EditBody,
     Comment,
     CommentView,
     Checks,
@@ -325,6 +326,7 @@ impl<'de> Deserialize<'de> for ProviderCommands {
             (PrOp::Create, &["base", "head", "title", "body_file"][..]),
             (PrOp::View, &["number"][..]),
             (PrOp::EditBase, &["number", "base"][..]),
+            (PrOp::EditBody, &["number", "body_file"][..]),
             (PrOp::Comment, &["number", "body_file"][..]),
             (PrOp::CommentView, &["number"][..]),
             (PrOp::Checks, &[][..]),
@@ -367,6 +369,8 @@ impl<'de> Deserialize<'de> for ProviderCommands {
                         "owner",
                         "repo",
                         "head_sha",
+                        "fields",
+                        "jq",
                     ]
                     .contains(&name)
                     {

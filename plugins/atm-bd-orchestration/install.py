@@ -200,11 +200,13 @@ def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
                         help="set a config variable (wins over registry.yaml); lists take a JSON array or a,b,c")
     parser.add_argument("--overwrite", action="store_true",
                         help=f"move modified or foreign files in the way to {BACKUP_DIR}/<time>/ and install over them")
+    parser.add_argument("--provider", default="github", help="Git provider: github (default) or azure")
     args = parser.parse_args(argv)
     try:
         _check_python_version(tuple(sys.version_info[:3]), "installer interpreter")
         common.load_validation_dependencies()
         overrides = parse_set(args.set)
+        overrides["provider"] = args.provider
     except InstallError as exc:
         print(f"install.py: {exc}", file=sys.stderr)
         return 1
