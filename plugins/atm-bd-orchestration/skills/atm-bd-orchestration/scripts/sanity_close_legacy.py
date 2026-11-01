@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11,<3.12"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types>=0.1.1,<1"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2", "atm-bd-types==0.19.12"]
 # ///
 # Frozen copy of the pre-bd-cache sanity close hook (2026-10-23), kept only for
 # sanity-close-repair.py and repair tasks assigned before the cutover.

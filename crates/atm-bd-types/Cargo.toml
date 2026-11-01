@@ -1,6 +1,6 @@
 [package]
 name = "atm-bd-types"
-version = "0.1.1"
+version = "0.19.12"
 edition = "2024"
 description = "Shared types for ATM bead orchestration"
 license = "MIT"

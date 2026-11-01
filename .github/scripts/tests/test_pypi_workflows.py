@@ -11,7 +11,15 @@ ROOT = Path(__file__).resolve().parents[3]
 def test_publish_uses_release_assets_and_separate_targets():
     workflow = yaml.safe_load((ROOT / ".github/workflows/pypi-publish.yml").read_text())
     assert workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"] == ["testpypi", "production"]
-    assert workflow["jobs"]["publish"]["needs"] == "verify-release"
+    assert workflow["jobs"]["publish"]["needs"] == ["verify-release", "publish-types"]
+    types = workflow["jobs"]["publish-types"]
+    assert types["needs"] == "verify-release"
+    assert types["if"] == "${{ inputs.target == 'production' }}"
+    assert types["uses"] == "./.github/workflows/crate-release.yml"
+    assert types["with"]["release_ref"] == "${{ inputs.tag }}"
+    condition = workflow["jobs"]["publish"]["if"]
+    assert "needs.publish-types.result == 'success'" in condition
+    assert "inputs.target == 'testpypi'" in condition
     steps = workflow["jobs"]["publish"]["steps"]
     script = "\n".join(step.get("run", "") for step in steps)
     assert "gh release download" in script
@@ -20,6 +28,20 @@ def test_publish_uses_release_assets_and_separate_targets():
     assert "--skip-existing" in script
     assert "uv publish" not in script
     assert "python -m build" not in script
+
+
+def test_types_release_uses_the_release_ref_and_repository_version():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/crate-release.yml").read_text())
+    calls = workflow[True]["workflow_call"]
+    assert set(calls["inputs"]) == {"release_ref"}
+    assert workflow[True]["workflow_dispatch"] is None
+    jobs = workflow["jobs"]
+    assert jobs["crate"]["needs"] == "wheels"
+    assert jobs["pypi"]["needs"] == ["wheels", "crate"]
+    for name in ("wheels", "crate"):
+        checkout = next(step for step in jobs[name]["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+        assert checkout["with"]["ref"] == "${{ inputs.release_ref || github.sha }}"
+        assert any("release-version.toml" in step.get("run", "") for step in jobs[name]["steps"])
 
 
 def test_release_jobs_preserve_tagging_and_rehearsal_order():

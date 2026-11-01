@@ -1,9 +1,8 @@
 name: Publish PyPI
 
-# Production publication is intentionally separate from release.yml. It uploads
-# only the already-attached artifacts from a published, immutable GitHub Release
-# so an upload failure can be retried without creating another tag, rerunning
-# crates.io publication, or rebuilding any artifact.
+# Production publication is intentionally separate from release.yml. The
+# matching types crate and wheel are published from the immutable release ref
+# first; the skill itself is uploaded from the already-attached release assets.
 
 on:
   workflow_dispatch:
@@ -53,8 +52,16 @@ jobs:
           plan="$(python3 .github/scripts/release_artifacts.py build-plan --manifest release/publish-artifacts.toml)"
           echo "python_upload_tool=$(jq -r '.python_upload_tool' <<<"${plan}")" >> "$GITHUB_OUTPUT"
 
-  publish:
+  publish-types:
     needs: verify-release
+    if: ${{ inputs.target == 'production' }}
+    uses: ./.github/workflows/crate-release.yml
+    with:
+      release_ref: ${{ inputs.tag }}
+
+  publish:
+    needs: [verify-release, publish-types]
+    if: ${{ !cancelled() && needs.verify-release.result == 'success' && (inputs.target == 'testpypi' || needs.publish-types.result == 'success') }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.target == 'production' && 'pypi' || 'testpypi' }}
     steps:
