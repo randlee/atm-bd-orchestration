@@ -232,6 +232,24 @@ A prompt that works: *"Use atm-beads to turn docs/design/x.md into a phase plan 
 
 To bring in a plan you already wrote in markdown, ask Claude to follow `.claude/skills/atm-beads/resources/importing-md-plan.md`.
 
+## Running a lite phase
+
+Use the lite profile when one agent will carry out development and QA without a separate sanity stage. A phase has one profile throughout; the full-profile console refuses to dispatch a lite phase. Install the skills in the repository first, then create a phase file with the lite templates:
+
+```bash
+.atm-bd/scripts/phase-config init --phase <x> --lead <member> --profile lite
+```
+
+Check `.atm-bd/phase-<x>.toml` contains `profile = "lite"` and the lite template paths. Plan and validate real work, then pour the lite sprint groups: each has a dev and a QA bead. The lead assigns ready work using the lite templates in `.claude/skills/atm-bd-lite/templates/` (or the corresponding `.codex/skills/` directory for a Codex installation).
+
+The agent implements the dev bead and runs the lite close runner with its supplied vars:
+
+```bash
+atm-bd-task-close --role dev --vars <close-vars.json>
+```
+
+The runner checks that the PR is based on the current stack top before it closes work and assigns QA. If the stack gate rejects the base, rebase and push onto the current top, then rerun the same close command. QA closes with `--role qa`; a failed review creates finding work. The lead lands completed work from the stack top. For a single queue tick, run `atm-bd cron --phase <x>`; use `atm-bd queues --phase <x> --all` to inspect the queues. The full-profile setup and dispatch flow in the following sections applies to full phases, not lite phases. See the installed `atm-bd-lite` skill for the close contract and error actions.
+
 ## Who sends which work
 
 - **The lead** sends plan review, dev and fix work by hand, with `atm task assign` and the phase file's templates. For each dev or fix bead, it also writes the close vars file the dev will need: `.atm-bd/scripts/close-vars.py <bead> --out <path>`.
