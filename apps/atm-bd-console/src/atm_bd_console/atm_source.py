@@ -6,9 +6,10 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from result import CommandFailed, Err, IoFailed, Ok, ParseFailed, Result, Unreachable
+
 from . import command
 from .enums import SprintState
-from .result import CommandFailed, Err, IoFailed, Ok, ParseFailed, Result, Unreachable
 from .types import DispatchSpec, Member, Task
 
 # The caller supplies the identity and team for each command. The subprocess environment

@@ -5,10 +5,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from result import CommandFailed, ConfigInvalid, Err, IoFailed, Ok, Timeout
 
 from atm_bd_console.command import Output
 from atm_bd_console.config import load_config, repo_root
-from atm_bd_console.result import CommandFailed, ConfigInvalid, Err, IoFailed, Ok, Timeout
 
 
 def _team_config(root) -> None:

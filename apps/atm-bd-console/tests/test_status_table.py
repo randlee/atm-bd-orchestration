@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from inspect import getdoc
 
 from contract_samples import BEAD, CONFIG, GH_STATUS, INPUTS, MEMBER, PHASE, PR_ROW, SNAPSHOT, SPRINT, STEP, TASK
+from result import Ok, Result
 from type_helpers import rich_text_of
 
 from atm_bd_console import runner, status_table
@@ -10,7 +11,6 @@ from atm_bd_console.enums import AgentIcon, CiState, MergeState, PrState, Sprint
 from atm_bd_console.facts import ActiveAgent, CiFacts, PrFacts, SprintFacts, _gavel, agent_icon_of, sprint_facts
 from atm_bd_console.icons import icon
 from atm_bd_console.model import tick
-from atm_bd_console.result import Ok, Result
 from atm_bd_console.runner import _durable_state
 from atm_bd_console.status_table import STATE, markdown, rich_table, rows
 from atm_bd_console.types import INITIAL_STATE, DispatchContext, DispatchSpec, Merge, Phase, Snapshot

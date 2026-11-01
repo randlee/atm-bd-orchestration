@@ -8,11 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from result import CommandFailed, ConfigInvalid, Err, Ok, ParseFailed, Rejected, Result, Timeout, Unreachable
+
 from . import command
 from .ci import ci_failure_key
 from .enums import CiState, PrState
 from .pr_selection import select_pr
-from .result import CommandFailed, ConfigInvalid, Err, Ok, ParseFailed, Rejected, Result, Timeout, Unreachable
 from .types import GhStatus, PullRequest
 
 PR_FIELDS = "number url state isDraft headRefName baseRefName headRefOid commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { name conclusion databaseId startedAt checkSuite { workflowRun { workflow { name } } app { slug } } } ... on StatusContext { context state createdAt } } } } } } }"

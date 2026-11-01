@@ -13,10 +13,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from result import Err, IoFailed, LockHeld, NotFound, Ok, ParseFailed
 
 from atm_bd_console import state
 from atm_bd_console.codec import from_json
-from atm_bd_console.result import Err, IoFailed, LockHeld, NotFound, Ok, ParseFailed
 from atm_bd_console.state import acquire_lock, load_merges, load_prs, load_snapshot, load_state
 from atm_bd_console.types import INITIAL_STATE, ActionLine, MergeFile, PrsFile, Snapshot, State
 

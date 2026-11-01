@@ -8,10 +8,10 @@ from typing import TypeVar, cast, get_args, get_type_hints
 import pytest
 from conftest import SYSTEM_PATH, FakeBin
 from contract_fixtures import SNAPSHOTS, fixtures
+from result import Ok, Rejected
 
 from atm_bd_console.codec import from_json, to_json
 from atm_bd_console.enums import CiState, MergeState
-from atm_bd_console.result import Ok, Rejected
 from atm_bd_console.types import ActionLine, Inputs, MergeFile, PrsFile, Snapshot
 
 FIXTURES = Path(__file__).parent / "fixtures" / "contract"

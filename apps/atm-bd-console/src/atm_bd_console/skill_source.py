@@ -14,8 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from result import Err, Timeout
+
 from . import __version__, command, skill_integrity
-from .result import Err, Timeout
 
 REPOSITORY = "https://github.com/randlee/atm-bd-orchestration"
 # The published release assets: the sdist carries the skill manifest the release's tag is verified against.

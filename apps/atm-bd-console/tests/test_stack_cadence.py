@@ -14,11 +14,11 @@ from typing import Self, cast
 
 import pytest
 from contract_samples import BEAD, CONFIG, PHASE_FILE, REPO_CONFIG
+from result import CommandFailed, ConfigInvalid, Err, Ok
 
 from atm_bd_console import github_source, runner
 from atm_bd_console.command import Output
 from atm_bd_console.enums import CiState, PrState, SprintState
-from atm_bd_console.result import CommandFailed, ConfigInvalid, Err, Ok
 from atm_bd_console.state import acquire_lock
 from atm_bd_console.types import Due, GhStatus, Phase, PullRequest, Sprint, State, Step
 

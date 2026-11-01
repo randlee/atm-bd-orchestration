@@ -9,13 +9,14 @@ from enum import StrEnum
 from types import UnionType
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
-from .result import (
+from result import (
     Err,
     Error,
     Ok,
     ParseFailed,
     Result,
 )
+
 from .types import Snapshot
 
 _ERROR_TYPES = get_args(Error)

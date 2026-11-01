@@ -4,12 +4,12 @@ import re
 from typing import cast
 
 import pytest
+from result import Err, Ok
 from sc_observability import Err as ObservabilityErr
 from sc_observability import Logger, LoggerConfig, create_logger
 
 from atm_bd_console import log
 from atm_bd_console.log import create_console_logger
-from atm_bd_console.result import Err, Ok
 
 UTC_Z = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z")
 

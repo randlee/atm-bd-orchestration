@@ -7,11 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
+import atm_bd_console  # noqa: F401  # Initialize the shared core import path.
+
+# isort: split
 from contract_fixtures import RUNNING
+from result import Ok
 from textual.worker import WorkerCancelled
 
 from atm_bd_console import app as console
-from atm_bd_console.result import Ok
 from atm_bd_console.types import Config, Snapshot, State, StepResult
 
 

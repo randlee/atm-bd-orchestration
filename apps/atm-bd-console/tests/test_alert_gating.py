@@ -14,9 +14,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from result import Err, NotFound, Ok
+
 from atm_bd_console.enums import CiState, PrState, SprintState
 from atm_bd_console.model import tick
-from atm_bd_console.result import Err, NotFound, Ok
 from atm_bd_console.types import GhStatus, Inputs, PullRequest, RemoteRef, RepoConfig, Sprint, State, Step
 
 NOW = datetime(2026, 10, 23, 19, 0, tzinfo=UTC)

@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Any, Self
 from uuid import uuid4
 
+from result import Err, Error, IoFailed, LockHeld, NotFound, Ok, ParseFailed, Result
+
 from .codec import from_json, to_json
 from .paths import state_directory
-from .result import Err, Error, IoFailed, LockHeld, NotFound, Ok, ParseFailed, Result
 from .types import ActionLine, MergeFile, PrsFile, Snapshot, State
 
 

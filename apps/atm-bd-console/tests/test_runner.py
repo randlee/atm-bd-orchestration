@@ -27,6 +27,7 @@ from contract_samples import (
     STATE,
     TIMEOUT,
 )
+from result import CommandFailed, ConfigInvalid, Err, IoFailed, NotFound, Ok, ParseFailed
 
 from atm_bd_console import atm_bd, log, runner
 from atm_bd_console.beads_source import open_rows
@@ -35,7 +36,6 @@ from atm_bd_console.enums import CiState, MergeState, PrState, QaState, SprintSt
 from atm_bd_console.log import TickLog, error_message
 from atm_bd_console.model import due as model_due
 from atm_bd_console.model import tick as model_tick
-from atm_bd_console.result import CommandFailed, ConfigInvalid, Err, IoFailed, NotFound, Ok, ParseFailed
 from atm_bd_console.state import StateStore, acquire_lock, load_prs, load_snapshot, load_state
 from atm_bd_console.types import (
     INITIAL_STATE,

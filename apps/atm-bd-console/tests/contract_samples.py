@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
 
-from atm_bd_console.enums import CiState, MergeState, SprintState
-from atm_bd_console.result import (
+from result import (
     CommandFailed,
     ConfigInvalid,
     Err,
@@ -17,6 +16,8 @@ from atm_bd_console.result import (
     Timeout,
     Unreachable,
 )
+
+from atm_bd_console.enums import CiState, MergeState, SprintState
 from atm_bd_console.types import (
     Action,
     ActionLine,

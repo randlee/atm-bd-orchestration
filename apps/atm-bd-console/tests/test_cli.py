@@ -31,6 +31,7 @@ from contract_samples import (
     WORKTREE,
 )
 from process_helpers import run_process
+from result import CommandFailed, Err, IoFailed, LockHeld, NotFound, Ok
 from rich.text import Text
 
 from atm_bd_console import app, cli, runner
@@ -38,7 +39,6 @@ from atm_bd_console.build import identity
 from atm_bd_console.enums import MergeState, SprintState
 from atm_bd_console.error_text import error_text
 from atm_bd_console.poll_health import PollHealth
-from atm_bd_console.result import CommandFailed, Err, IoFailed, LockHeld, NotFound, Ok
 from atm_bd_console.state import acquire_lock, load_snapshot, load_state
 from atm_bd_console.status_table import markdown, rows
 from atm_bd_console.types import INITIAL_STATE, Due, StepResult
@@ -622,7 +622,7 @@ def test_snapshot_subcommand_runs_one_dry_tick_without_actions(cli_runtime, monk
 def test_headless_runs_after_the_holder_is_killed(cli_runtime, monkeypatch, capsys) -> None:
     code = (
         "import sys; from atm_bd_console.state import acquire_lock; "
-        "from atm_bd_console.result import Ok; "
+        "from result import Ok; "
         "held = acquire_lock(sys.argv[1], sys.argv[2]); assert isinstance(held, Ok); "
         "print('ready', flush=True); sys.stdin.read()"
     )

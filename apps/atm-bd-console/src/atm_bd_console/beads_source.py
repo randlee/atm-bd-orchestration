@@ -5,9 +5,10 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
+from result import CommandFailed, Err, Ok, ParseFailed, Result, Timeout
+
 from . import command
 from .atm_source import sprint_state_of
-from .result import CommandFailed, Err, Ok, ParseFailed, Result, Timeout
 from .types import Bead
 
 

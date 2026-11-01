@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Literal, Protocol
 
+from result import Err, Error, NotFound, Ok, Result
 from sc_observability import Level
 
 from . import atm_bd, atm_source, beads_source, git_source, github_source, ledger_source, model
@@ -13,7 +14,6 @@ from .closed_cache import ClosedBeads
 from .dispatch import candidates, sprint_of, verification_reason
 from .enums import MergeState, PrState, SprintState
 from .log import EventAction, TickLog, create_console_logger, error_message
-from .result import Err, Error, NotFound, Ok, Result
 from .state import StateStore, read_snapshot
 from .types import (
     Action,

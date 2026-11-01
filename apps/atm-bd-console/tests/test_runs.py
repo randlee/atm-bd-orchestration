@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 import sc_compose
+from result import Ok
 
 from atm_bd_console import beads_source, command, findings_renderer, ledger_source, runs, skill_loader
 from atm_bd_console.closed_cache import ClosedBeads
 from atm_bd_console.enums import QaState
-from atm_bd_console.result import Ok
 
 ROOT = Path(__file__).resolve().parents[3]
 SKILL = ROOT / "plugins/atm-bd-orchestration/skills/atm-bd-orchestration"

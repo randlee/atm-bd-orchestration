@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from result import CommandFailed, Err, Ok, ParseFailed, Timeout, Unreachable
 
 from atm_bd_console import atm_source
-from atm_bd_console.result import CommandFailed, Err, Ok, ParseFailed, Timeout, Unreachable
 from atm_bd_console.types import DispatchSpec
 
 FIXTURES = Path(__file__).parent / "fixtures" / "atm"

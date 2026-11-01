@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+from result import Ok, Timeout
 from rich.cells import cell_len
 
 from atm_bd_console.ci import ci_failure_key
@@ -16,7 +17,6 @@ from atm_bd_console.enums import CiState, MergeState, PrState
 from atm_bd_console.error_text import error_text
 from atm_bd_console.icons import icon
 from atm_bd_console.prs import render_prs
-from atm_bd_console.result import Ok, Timeout
 from atm_bd_console.types import AgentView, GhStatus, Merge, PrRow, PullRequest, Snapshot
 
 FIXTURES = Path(__file__).parent / "fixtures" / "contract"

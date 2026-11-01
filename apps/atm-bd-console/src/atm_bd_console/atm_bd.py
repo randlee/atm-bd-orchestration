@@ -9,9 +9,10 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result
+
 from .enums import SprintState
 from .ids import short_id
-from .result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result
 from .skill_loader import load_skill
 from .types import Bead, DispatchContext, DispatchSpec, Phase, PhaseFile, RepoConfig, Sprint, Step, StepKind
 

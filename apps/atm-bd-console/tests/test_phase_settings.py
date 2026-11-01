@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 from contract_samples import BEAD, MERGE, PHASE_TEMPLATES, REMOTE_REF, SPRINT, WORKTREE
+from result import ConfigInvalid, Err, Ok
 
 from atm_bd_console import atm_bd, cli, config, runner
 from atm_bd_console.enums import MergeState, SprintState
-from atm_bd_console.result import ConfigInvalid, Err, Ok
 from atm_bd_console.state import acquire_lock, load_snapshot
 from atm_bd_console.types import INITIAL_STATE
 

@@ -11,10 +11,10 @@ from shutil import copytree, ignore_patterns, which
 import pytest
 from process_helpers import PROCESS_TIMEOUT, build_command
 from process_helpers import run_process as run
+from result import CommandFailed, Err, Ok
 
 from atm_bd_console import __version__, build, git_source
 from atm_bd_console.build import display_identity
-from atm_bd_console.result import CommandFailed, Err, Ok
 
 CONSOLE = Path(__file__).resolve().parents[1]
 UV = which("uv")

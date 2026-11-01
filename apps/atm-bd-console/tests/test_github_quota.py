@@ -6,12 +6,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 import pytest
+from result import CommandFailed, Err, Ok
 from test_github_source import RECORDED_REST, TEST_REPO, graphql
 
 from atm_bd_console import github_source
 from atm_bd_console.codec import from_json, to_json
 from atm_bd_console.command import Output
-from atm_bd_console.result import CommandFailed, Err, Ok
 from atm_bd_console.types import GhStatus
 
 NOW = datetime(2026, 10, 18, 12, tzinfo=UTC)

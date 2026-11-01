@@ -29,6 +29,7 @@ from typing import TypeVar, get_args
 import pytest
 from contract_samples import PHASE_TEMPLATES
 from process_helpers import run_process
+from result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result
 
 from atm_bd_console import atm_bd as atm_bd_module
 from atm_bd_console import beads_source
@@ -47,7 +48,6 @@ from atm_bd_console.atm_bd import (
     step,
 )
 from atm_bd_console.enums import CiState, SprintState
-from atm_bd_console.result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result
 from atm_bd_console.types import (
     Bead,
     DispatchContext,

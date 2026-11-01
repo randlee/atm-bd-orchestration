@@ -5,13 +5,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 
+from result import CommandFailed, ConfigInvalid, Err, Error, NotFound, Result, Timeout
+
 from . import command
 from .enums import SprintState
 from .error_text import error_text
 from .icons import SPRINT_ICONS
 from .ids import short_id
 from .render import render_agent
-from .result import CommandFailed, ConfigInvalid, Err, Error, NotFound, Result, Timeout
 from .types import Snapshot, SprintView
 
 _COMMAND = ("mmdflux", "--format", "text")

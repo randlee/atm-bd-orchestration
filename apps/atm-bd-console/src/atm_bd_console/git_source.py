@@ -5,9 +5,10 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from result import CommandFailed, Err, NotFound, Ok, Result, Timeout
+
 from . import command
 from .enums import MergeState
-from .result import CommandFailed, Err, NotFound, Ok, Result, Timeout
 from .types import Merge, RemoteRef, Worktree
 
 # git fetch talks to the remote; local reads get the default timeout.

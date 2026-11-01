@@ -5,12 +5,12 @@ from datetime import UTC, datetime
 
 import pytest
 from contract_samples import BEAD, CONFIG, PHASE, PHASE_FILE, REPO_CONFIG
+from result import CommandFailed, Err, Ok, Timeout
 from test_git_source import commit, git, ok
 
 from atm_bd_console import git_source, runner
 from atm_bd_console.codec import to_json
 from atm_bd_console.enums import MergeState, SprintState
-from atm_bd_console.result import CommandFailed, Err, Ok, Timeout
 from atm_bd_console.state import acquire_lock, load_snapshot
 from atm_bd_console.types import INITIAL_STATE, DispatchSpec, Merge, MergeFile
 

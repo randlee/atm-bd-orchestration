@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import ClassVar, Protocol
 
 from markdown_it.token import Token
+from result import Err, Error, IoFailed, Ok, Result
 from rich.cells import cell_len
 from rich.text import Text
 from sc_observability import Level
@@ -37,7 +38,6 @@ from .held import Held, held_view
 from .icons import JEV_VERDICT_ICONS, LLM_VERDICT_ICONS, SPRINT_ICONS, icon_for, qa_run_icon
 from .log import create_console_logger, error_message
 from .poll_health import PollHealth
-from .result import Err, Error, IoFailed, Ok, Result
 from .state import acquire_lock
 from .terminal import CONSOLE_DRIVER_CLASS
 from .types import INITIAL_STATE, AgentView, Config, Snapshot, SprintView, State, StepFn, StepResult

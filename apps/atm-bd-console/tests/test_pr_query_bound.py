@@ -11,6 +11,7 @@ import re
 from datetime import timedelta
 
 import pytest
+from result import Ok
 from test_stack_cadence import (
     QUOTA_ARGV,
     REAL_OPEN_PRS,
@@ -27,7 +28,6 @@ from test_stack_cadence import (
 from atm_bd_console import github_source, runner
 from atm_bd_console.command import Output
 from atm_bd_console.enums import PrState
-from atm_bd_console.result import Ok
 
 TOTAL = 2250
 # Phase PRs: bk-1 merged long ago (deep in history), bk-2 and bk-3 open and linked in the stack.

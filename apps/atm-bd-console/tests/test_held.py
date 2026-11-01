@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from conftest import FakeStep, run_scenario, settle
 from contract_samples import CONFIG, SNAPSHOT, STATE, TIMEOUT
+from result import Err, Ok, ParseFailed
 from textual.containers import VerticalScroll
 from textual.widgets import Static, TabbedContent
 
@@ -14,7 +15,6 @@ from atm_bd_console import ledger_source, runs
 from atm_bd_console.app import ConsoleApp, FindingsMarkdown, quality_notes, sanity_pane
 from atm_bd_console.error_text import error_text
 from atm_bd_console.held import Held, held_view
-from atm_bd_console.result import Err, Ok, ParseFailed
 
 NOW = datetime(2026, 10, 20, 12, 0, 0, tzinfo=UTC)
 LATER = NOW + timedelta(seconds=150)

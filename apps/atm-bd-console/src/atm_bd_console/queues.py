@@ -10,9 +10,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from result import CommandFailed, Err, Timeout
+
 from . import atm_bd, command, config
 from .log import error_message
-from .result import CommandFailed, Err, Timeout
 
 SCHEMA = "atm-bd-orchestration/bead-queues/v1"
 FAILED = 2

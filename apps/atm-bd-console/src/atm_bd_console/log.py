@@ -7,11 +7,11 @@ from functools import cache
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
+from result import Err, Error, IoFailed, Ok, Result
 from sc_observability import Err as ObservabilityErr
 from sc_observability import Level, LogEvent, Logger, LoggerConfig, LogQuery, create_logger
 
 from .paths import CONSOLE_NAME, console_root
-from .result import Err, Error, IoFailed, Ok, Result
 
 EventAction = Literal["tick_start", "tick_end", "read", "github_read", "action", "hold", "error"]
 Value = TypeVar("Value")

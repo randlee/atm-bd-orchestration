@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from result import Err, Error, IoFailed, Ok, ParseFailed, Result
+
 from . import beads_source, command, runs
 from .closed_cache import ClosedBeads
-from .result import Err, Error, IoFailed, Ok, ParseFailed, Result
 from .skill_loader import load_skill
 
 

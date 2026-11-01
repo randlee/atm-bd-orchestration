@@ -5,11 +5,11 @@ from datetime import UTC, datetime
 from functools import partial
 
 from contract_samples import PHASE_TEMPLATES
+from result import Err, NotFound, Ok
 
 from atm_bd_console.atm_bd import dispatch_spec
 from atm_bd_console.dispatch import candidates, dispatch
 from atm_bd_console.enums import CiState, MergeState, PrState, SprintState
-from atm_bd_console.result import Err, NotFound, Ok
 from atm_bd_console.types import (
     DispatchContext,
     DispatchSpec,

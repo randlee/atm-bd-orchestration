@@ -6,8 +6,9 @@ import os
 import subprocess
 from pathlib import Path
 
+from result import CommandFailed, Err, Ok, Timeout
+
 from atm_bd_console import command
-from atm_bd_console.result import CommandFailed, Err, Ok, Timeout
 
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "atm_bd_console"
 

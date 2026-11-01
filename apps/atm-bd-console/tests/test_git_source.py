@@ -6,10 +6,10 @@ from typing import TypeVar
 
 import pytest
 from process_helpers import run_process
+from result import Err, NotFound, Ok, Result
 
 from atm_bd_console import git_source
 from atm_bd_console.enums import MergeState
-from atm_bd_console.result import Err, NotFound, Ok, Result
 
 T = TypeVar("T")
 

@@ -6,7 +6,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
-    from .result import Error, Result
+    from result import Error, Result
+
     from .types import Action, Snapshot, State
 
 

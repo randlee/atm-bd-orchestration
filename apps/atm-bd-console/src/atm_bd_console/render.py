@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from result import Error, Timeout
 from rich.cells import cell_len
 from rich.text import Text
 
@@ -23,7 +24,6 @@ from .icons import (
 )
 from .ids import short_id
 from .poll_health import DISPATCH
-from .result import Error, Timeout
 from .timefmt import _age, clock
 from .types import Action, AgentView, GhStatus, Member, Row, Snapshot
 

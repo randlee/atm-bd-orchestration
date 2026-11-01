@@ -4,12 +4,12 @@ from itertools import product
 
 import pytest
 from contract_samples import PHASE, PR_ROW, SNAPSHOT, SPRINT
+from result import Ok
 
 from atm_bd_console import facts, github_source
 from atm_bd_console.command import Output
 from atm_bd_console.enums import PrState
 from atm_bd_console.pr_selection import select_pr
-from atm_bd_console.result import Ok
 
 PRIORITIES = (
     (PrState.OPEN, 2), (PrState.DRAFT, 2), (PrState.MERGED, 1), (PrState.CLOSED, 0),

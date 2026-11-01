@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 import sc_compose
+from result import CommandFailed, Err, Ok
 
 from atm_bd_console import config, queues
 from atm_bd_console.command import Output
-from atm_bd_console.result import CommandFailed, Err, Ok
 
 NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
 ROOT = "atm-phase-bj"

@@ -5,9 +5,10 @@ from dataclasses import asdict
 from importlib import import_module
 from pathlib import Path
 
+from result import Err, Error
+
 from . import __version__, git_source
 from .log import create_console_logger, error_message
-from .result import Err, Error
 
 try:
     BUILT_IDENTITY = import_module("._build_identity", __package__).IDENTITY

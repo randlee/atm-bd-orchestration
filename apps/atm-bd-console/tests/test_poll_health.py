@@ -7,11 +7,11 @@ import pytest
 from conftest import run_scenario, settle
 from contract_fixtures import RUNNING
 from contract_samples import CONFIG, STATE, TIMEOUT
+from result import IoFailed
 from textual.widgets import OptionList
 
 from atm_bd_console.app import ConsoleApp
 from atm_bd_console.poll_health import PollHealth
-from atm_bd_console.result import IoFailed
 from atm_bd_console.timefmt import clock
 from atm_bd_console.types import Metrics, Snapshot, StepResult
 

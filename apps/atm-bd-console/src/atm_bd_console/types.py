@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, TypeAlias
 
+from result import Error, Result
+
 from .enums import CiState, MergeState, PrState, QaState, SprintState
 from .migrations import migrate_pull_request_ci, migrate_snapshot_ci
-from .result import Error, Result
 from .step_result import StepResult
 
 Presence: TypeAlias = Literal["active", "idle", "offline", "blocked", "unknown"]

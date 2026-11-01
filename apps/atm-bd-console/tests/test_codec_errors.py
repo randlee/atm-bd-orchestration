@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from result import CommandFailed, Err, NotFound, Ok, ParseFailed
 
 from atm_bd_console.codec import from_json, to_json
-from atm_bd_console.result import CommandFailed, Err, NotFound, Ok, ParseFailed
 from atm_bd_console.types import Config, GhStatus, Inputs, RepoConfig, Sprint
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)

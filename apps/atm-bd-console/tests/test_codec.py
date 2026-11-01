@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast, get_args, get_type_hints
 
 import pytest
+import result
 from contract_samples import (
     BEAD,
     CONFIG,
@@ -22,12 +23,7 @@ from contract_samples import (
     STEP,
     TASK,
 )
-
-from atm_bd_console import result, types
-from atm_bd_console.codec import _ERRORS, from_json, snapshot_stale, to_json
-from atm_bd_console.enums import CiState, MergeState, PrState, QaState, SprintState
-from atm_bd_console.icons import icon_for
-from atm_bd_console.result import (
+from result import (
     CommandFailed,
     ConfigInvalid,
     Err,
@@ -42,6 +38,11 @@ from atm_bd_console.result import (
     Timeout,
     Unreachable,
 )
+
+from atm_bd_console import types
+from atm_bd_console.codec import _ERRORS, from_json, snapshot_stale, to_json
+from atm_bd_console.enums import CiState, MergeState, PrState, QaState, SprintState
+from atm_bd_console.icons import icon_for
 from atm_bd_console.types import Config, Inputs, RepoConfig, Snapshot, Sprint
 
 TEST_LEAD = "test-lead"

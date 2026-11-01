@@ -8,6 +8,7 @@ import pytest
 from conftest import FakeStep, run_scenario, settle
 from contract_fixtures import RUNNING
 from contract_samples import CONFIG, PHASE, SPRINT_VIEW, STATE, STEP_VIEW
+from result import Ok
 from rich.cells import cell_len
 from textual import events
 from textual.widgets import OptionList, TabbedContent
@@ -37,7 +38,6 @@ from atm_bd_console.icons import icon_for
 from atm_bd_console.model import _sprint_views
 from atm_bd_console.prs import render_prs
 from atm_bd_console.render import dashboard, status_bar
-from atm_bd_console.result import Ok
 from atm_bd_console.status import _fallback
 from atm_bd_console.types import AgentView, SprintView, StepView
 

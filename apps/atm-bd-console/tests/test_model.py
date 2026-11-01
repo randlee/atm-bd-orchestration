@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from result import CommandFailed, Err, NotFound, Ok, Timeout
 from rich.cells import cell_len
 
 from atm_bd_console.agent_roles import agent_group
@@ -13,7 +14,6 @@ from atm_bd_console.dispatch import sprint_of
 from atm_bd_console.enums import CiState, MergeState, PrState, QaState, SprintState
 from atm_bd_console.icons import icon_for
 from atm_bd_console.model import _reconcile_problems, _sprint_views, due, qa_state_from_close, tick
-from atm_bd_console.result import CommandFailed, Err, NotFound, Ok, Timeout
 from atm_bd_console.types import (
     Bead,
     DispatchSpec,

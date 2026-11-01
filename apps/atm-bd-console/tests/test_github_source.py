@@ -5,11 +5,11 @@ import json
 from pathlib import Path
 
 import pytest
+from result import CommandFailed, Err, Ok, ParseFailed, Rejected, Timeout, Unreachable
 
 from atm_bd_console import github_source
 from atm_bd_console.command import Output
 from atm_bd_console.enums import CiState, PrState
-from atm_bd_console.result import CommandFailed, Err, Ok, ParseFailed, Rejected, Timeout, Unreachable
 
 
 def fake_gh(fake_bin, monkeypatch: pytest.MonkeyPatch, body: object, *, exit_code: int = 0, stderr: str = ""):

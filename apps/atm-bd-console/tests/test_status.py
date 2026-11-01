@@ -5,12 +5,13 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from result import CommandFailed, ConfigInvalid, Err, NotFound, Ok, Timeout
+
 from atm_bd_console.codec import from_json
 from atm_bd_console.command import Output
 from atm_bd_console.enums import SprintState
 from atm_bd_console.error_text import error_text
 from atm_bd_console.icons import SPRINT_ICONS
-from atm_bd_console.result import CommandFailed, ConfigInvalid, Err, NotFound, Ok, Timeout
 from atm_bd_console.status import DagPane, _fallback, status_text
 from atm_bd_console.types import Snapshot, SprintView, StepView
 

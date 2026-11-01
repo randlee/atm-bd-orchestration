@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Literal, get_args, get_origin, get_type_hints
 
 import pytest
+import result
 
-from atm_bd_console import result, types
+from atm_bd_console import types
 from atm_bd_console.enums import QaState, SprintState
 
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "atm_bd_console"

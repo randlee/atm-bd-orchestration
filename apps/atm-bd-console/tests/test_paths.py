@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from result import Ok
+
 from atm_bd_console.config import load_config
 from atm_bd_console.log import create_console_logger
 from atm_bd_console.paths import console_config_path, log_directory, state_directory
-from atm_bd_console.result import Ok
 
 
 def test_every_console_path_resolves_under_one_root(tmp_path) -> None:

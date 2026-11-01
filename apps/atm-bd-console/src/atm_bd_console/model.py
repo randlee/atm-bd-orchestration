@@ -4,6 +4,7 @@ import re
 from dataclasses import replace
 from datetime import datetime, timedelta
 
+from result import Err, Error, Ok, Result
 from rich.cells import cell_len
 
 from .agent_roles import agent_group
@@ -13,7 +14,6 @@ from .icons import SPRINT_ICONS
 from .ids import short_id
 from .prs import active_pr
 from .render import render_agent
-from .result import Err, Error, Ok, Result
 from .types import (
     Action,
     AgentView,

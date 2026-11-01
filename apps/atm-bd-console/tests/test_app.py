@@ -14,6 +14,7 @@ import pytest
 from conftest import HANG_GUARD_S, FakeStep, run_scenario, settle
 from contract_fixtures import RUNNING
 from contract_samples import CONFIG, SNAPSHOT, STATE, TIMEOUT
+from result import Err, Ok
 from rich.cells import cell_len
 from sc_observability import Level
 from textual import events
@@ -36,7 +37,6 @@ from atm_bd_console.error_text import error_text
 from atm_bd_console.held import Held
 from atm_bd_console.log import create_console_logger
 from atm_bd_console.poll_health import PollHealth
-from atm_bd_console.result import Err, Ok
 from atm_bd_console.state import acquire_lock
 from atm_bd_console.types import Config, GhStatus, Snapshot, SprintView, State, StepResult, StepView
 
@@ -773,8 +773,9 @@ def test_build_line_for_a_release_install_is_the_package_version(monkeypatch) ->
 
 
 def test_startup_atm_members_error_is_not_repeated_by_the_tick_that_reads_the_same_command() -> None:
+    from result import CommandFailed, NotFound
+
     from atm_bd_console.app import startup_error_applies
-    from atm_bd_console.result import CommandFailed, NotFound
 
     startup = CommandFailed("command_failed", ("atm", "members", "--team", "t", "--json"), 1, "daemon down", "could not verify the sender; start the daemon")
     tick_error = replace(startup, fix="start the daemon")
@@ -832,7 +833,7 @@ def _diagnostics_text(monkeypatch, tmp_path, logger_result) -> str:
 
 
 def test_diagnostics_shows_the_typed_error_of_a_failed_log_query_not_no_errors(monkeypatch, tmp_path) -> None:
-    from atm_bd_console.result import IoFailed
+    from result import IoFailed
 
     failure = IoFailed("io_failed", "logs", "disk unreadable", "inspect the console log directory")
     text = _diagnostics_text(monkeypatch, tmp_path, Ok(_QueryLogger(Err(failure))))
@@ -871,7 +872,7 @@ def test_sprint_steps_pane_is_never_blank_before_or_after_a_failed_first_tick() 
 
 
 def test_findings_render_failure_shows_the_typed_error_text(monkeypatch) -> None:
-    from atm_bd_console.result import IoFailed
+    from result import IoFailed
 
     def boom(_root, _rows):
         raise ValueError("renderer exploded")

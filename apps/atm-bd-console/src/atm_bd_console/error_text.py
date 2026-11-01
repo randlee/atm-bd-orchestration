@@ -1,7 +1,7 @@
 """The one text for an Error, shared by the dashboard, the dispatch reasons and the console log."""
 from __future__ import annotations
 
-from .result import (
+from result import (
     CommandFailed,
     ConfigInvalid,
     Error,

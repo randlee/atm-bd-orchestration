@@ -7,11 +7,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import yaml
+from result import ConfigInvalid, Err, IoFailed, Ok, Result
 
 from . import command
 from .atm_bd import REPO_CONFIG_PATH, phase_file
 from .paths import console_config_path, state_directory
-from .result import ConfigInvalid, Err, IoFailed, Ok, Result
 from .types import DEFAULT_NOTIFICATION_SENDER, Config
 
 _GITHUB = frozenset(("graphql", "rest", "off"))

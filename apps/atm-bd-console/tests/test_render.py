@@ -10,16 +10,7 @@ from typing import Literal, cast
 import pytest
 from contract_fixtures import RUNNING
 from contract_samples import STEP, TIMEOUT
-from rich.cells import cell_len
-
-from atm_bd_console import atm_source
-from atm_bd_console.codec import from_json
-from atm_bd_console.enums import CiState, SprintState
-from atm_bd_console.error_text import error_text
-from atm_bd_console.model import _agent_views
-from atm_bd_console.poll_health import PollHealth
-from atm_bd_console.render import _age, _error_text, dashboard, github_quotas, status_bar
-from atm_bd_console.result import (
+from result import (
     CommandFailed,
     ConfigInvalid,
     Error,
@@ -32,6 +23,15 @@ from atm_bd_console.result import (
     Timeout,
     Unreachable,
 )
+from rich.cells import cell_len
+
+from atm_bd_console import atm_source
+from atm_bd_console.codec import from_json
+from atm_bd_console.enums import CiState, SprintState
+from atm_bd_console.error_text import error_text
+from atm_bd_console.model import _agent_views
+from atm_bd_console.poll_health import PollHealth
+from atm_bd_console.render import _age, _error_text, dashboard, github_quotas, status_bar
 from atm_bd_console.timefmt import clock
 from atm_bd_console.types import (
     Action,

@@ -9,9 +9,10 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from result import Err, Error, IoFailed, Ok, ParseFailed, Result
+
 from .codec import from_json, to_json
 from .enums import SprintState
-from .result import Err, Error, IoFailed, Ok, ParseFailed, Result
 from .types import Bead
 
 STAGES = ("qa", "finding")

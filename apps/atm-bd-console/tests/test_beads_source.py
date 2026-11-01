@@ -6,10 +6,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from result import CommandFailed, Err, Ok, ParseFailed, Timeout
 
 from atm_bd_console import beads_source
 from atm_bd_console.enums import SprintState
-from atm_bd_console.result import CommandFailed, Err, Ok, ParseFailed, Timeout
 from atm_bd_console.types import Bead
 
 NOW = datetime(2026, 10, 15, 4, 0, tzinfo=UTC)

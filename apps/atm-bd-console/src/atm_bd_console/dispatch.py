@@ -4,11 +4,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from result import Err, Error, NotFound
+
 from .enums import MergeState, SprintState
 from .error_text import error_text
 from .ids import short_id
 from .prs import active_pr
-from .result import Err, Error, NotFound
 from .types import (
     Action,
     DispatchContext,

@@ -8,9 +8,9 @@ from email.message import Message
 from pathlib import Path
 
 import pytest
+from result import Err, Ok, Timeout
 
 from atm_bd_console import __version__, command, skill_integrity, skill_source
-from atm_bd_console.result import Err, Ok, Timeout
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 def published_manifest(version: str) -> bytes:

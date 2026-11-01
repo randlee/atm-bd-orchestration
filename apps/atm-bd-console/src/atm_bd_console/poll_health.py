@@ -5,7 +5,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from .result import Error
+from result import Error
+
 from .timefmt import _age, clock
 from .types import Snapshot
 

@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .result import CommandFailed, Err, Ok, Result, Timeout
+from result import CommandFailed, Err, Ok, Result, Timeout
 
 DEFAULT_TIMEOUT_S = 20
 # Exit status a shell uses for "program not found"; a missing or unexecutable program is reported with it.
