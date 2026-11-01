@@ -7,6 +7,7 @@ import importlib.util
 import json
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 import time
 import unittest
@@ -94,7 +95,7 @@ class SanityMerge(unittest.TestCase):
     def merge(self, results, *args):
         argv = args or (str(self.manifest), TASK, DEV, SPRINT)
         body = results if isinstance(results, str) else json.dumps(results)
-        return run_bounded([str(SCRIPT), *argv, "--client", str(CLIENT)], input=body, capture_output=True, text=True, env=env())
+        return run_bounded([sys.executable, str(SCRIPT), *argv, "--client", str(CLIENT)], input=body, capture_output=True, text=True, env=env())
 
     def test_paired_reports_share_identity_preserve_conclusions_and_own_timing(self):
         self.write_manifest(run_id="shared-run", reviewers=["sanity-llm", "sanity-jev"],

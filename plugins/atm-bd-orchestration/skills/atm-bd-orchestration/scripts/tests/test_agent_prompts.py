@@ -52,11 +52,11 @@ def test_qa_reviewers_leave_upstream_owned_installed_content_to_the_lead():
 def test_qa_template_names_the_installed_stack_view_skill_only():
     """#357: the QA template names `sc-gh-stack-view`, with no `gh-stack-view` fallback."""
     template = (core_scripts().parent / "templates/qa-template.xml.j2").read_text()
-    assert "the `sc-gh-stack-view` skill" in template
+    assert "{{ provider.stack_view" in template
     assert "`gh-stack-view`" not in template
     examples = AGENTS.parent / "skills/atm-bd-orchestration/examples"
     for example in ("qa-template-vars.json", "qa-template-fix-round-vars.json"):
         rendered = subprocess.run(["sc-compose", "render", "--strict", "--file", str(core_scripts().parent / "templates/qa-template.xml.j2"),
                                    "--var-file", str(examples / example)], capture_output=True, text=True, check=True).stdout
-        assert ("the `sc-gh-stack-view` skill" in rendered) == (example == "qa-template-vars.json")  # step h needs a PR
+        assert ("the `gh stack view --json` command" in rendered) == (example == "qa-template-vars.json")  # step h needs a PR
         assert "`gh-stack-view`" not in rendered

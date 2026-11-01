@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import sys
 import re
 from pathlib import Path
 from typing import cast
@@ -12,7 +14,11 @@ import sc_render
 from providers import render_context
 from result import Ok
 
-PACKAGE = Path(__file__).resolve().parents[4]
+CONSOLE_SRC = os.environ.get("ATM_BD_CONSOLE_SRC")
+PACKAGE = (Path(CONSOLE_SRC).resolve().parents[2] / "plugins/atm-bd-orchestration"
+           if CONSOLE_SRC else Path(__file__).resolve().parents[4])
+if str(PACKAGE) not in sys.path:
+    sys.path.insert(0, str(PACKAGE))
 EXAMPLES = PACKAGE / "skills/atm-bd-orchestration/examples"
 TEMPLATES = {
     "dev-template": PACKAGE / "skills/atm-bd-orchestration/templates/dev-template.xml.j2",

@@ -21,5 +21,17 @@
     "ruthless-boundary-qa",
     "rust-best-practices-agent",
     "rust-service-hardening-agent"
-  ]
+  ],
+  "provider": {
+    "create": "gh pr create --base '{base}' --head '{head}' --title '{title}' --body-file '{body_file}'",
+    "view": "gh pr view '{number}' --repo '{repository}' --json '{fields}' --jq '{jq}'",
+    "edit_base": "gh pr edit '{number}' --base '{base}'",
+    "edit_body": "gh pr edit '{number}' --body-file '{body_file}'",
+    "comment": "gh pr comment '{number}' --body-file '{body_file}'",
+    "comment_view": "gh api 'repos/{repository}/issues/comments/{number}'",
+    "checks": "gh api 'repos/{owner}/{repo}/commits/{head_sha}/check-runs'",
+    "lookup_by_head": "gh api 'repos/{owner}/{repo}/pulls?head={owner}:{head}&state={state}&per_page=100'",
+    "stack_link": "gh stack link '{number}'",
+    "stack_view": "gh stack view --json"
+  }
 }
