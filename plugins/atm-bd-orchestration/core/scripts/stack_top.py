@@ -64,10 +64,14 @@ def select_stack_top(
     layers = metadata.get("layers", []) if metadata is not None else []
     if not isinstance(layers, list):
         raise ValueError("stack bead metadata.layers must be an array")
-    if layers:
-        layer = layers[-1]
+    for layer in reversed(layers):
         if not is_json_object(layer):
             raise ValueError("last stack layer must have non-empty branch and head strings")
+        linked = layer.get("linked", True)
+        if not isinstance(linked, bool):
+            raise ValueError("stack layer linked flag must be boolean")
+        if not linked:
+            continue
         branch = layer.get("branch")
         head = layer.get("head")
         if isinstance(branch, str) and isinstance(head, str):
@@ -75,9 +79,13 @@ def select_stack_top(
                 raise ValueError("last stack layer must have non-empty branch and head strings")
             return branch, head
         raise ValueError("last stack layer must have non-empty branch and head strings")
-    if not isinstance(pr_target, str) or not pr_target.strip():
-        raise ValueError("pr_target must be a non-empty string")
-    head = resolve_head(pr_target)
+    trunk = metadata.get("trunk") if metadata is not None else None
+    if trunk is not None and (not isinstance(trunk, str) or not trunk.strip()):
+        raise ValueError("stack trunk must be a non-empty string")
+    target = trunk if isinstance(trunk, str) else pr_target
+    if not isinstance(target, str) or not target.strip():
+        raise ValueError("stack trunk or pr_target must be a non-empty string")
+    head = resolve_head(target)
     if not isinstance(head, str) or not head.strip():
-        raise ValueError(f"origin/{pr_target} has no resolvable head")
-    return pr_target, head
+        raise ValueError(f"origin/{target} has no resolvable head")
+    return target, head
