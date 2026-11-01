@@ -66,6 +66,7 @@ pub enum ErrorKind {
     ParseFailed,
     NotFound,
     ConfigInvalid,
+    ConfigMissing,
     LockHeld,
     IoFailed,
     ProfileMismatch,
@@ -232,6 +233,7 @@ pub enum PrOp {
 pub enum BodyTransport {
     None,
     File,
+    JsonFile,
 }
 
 /// Format of a command's standard output.
@@ -274,10 +276,7 @@ pub enum StackGateResult {
 
 /// An argv-only provider command and its response-field mapping.
 #[cfg_attr(feature = "python", pyo3_stub_gen::derive::gen_stub_pyclass)]
-#[cfg_attr(
-    feature = "python",
-    pyclass(module = "atm_bd_types", get_all, from_py_object)
-)]
+#[cfg_attr(feature = "python", pyclass(module = "atm_bd_types", from_py_object))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderOp {
@@ -285,6 +284,10 @@ pub struct ProviderOp {
     pub body: BodyTransport,
     pub output: OutputFormat,
     pub result: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
 }
 
 /// Complete provider command set, validated on deserialization.
@@ -309,6 +312,60 @@ impl<'de> Deserialize<'de> for ProviderCommands {
             let op = commands.get(&operation).ok_or_else(|| {
                 serde::de::Error::custom(format!("missing {operation:?} operation"))
             })?;
+            for arg in &op.argv {
+                let mut rest = arg.as_str();
+                while let Some(start) = rest.find('{') {
+                    let after = &rest[start + 1..];
+                    let end = after.find('}').ok_or_else(|| {
+                        serde::de::Error::custom(format!(
+                            "{operation:?} has an unclosed placeholder"
+                        ))
+                    })?;
+                    let name = &after[..end];
+                    if ![
+                        "base",
+                        "head",
+                        "title",
+                        "body_file",
+                        "number",
+                        "text",
+                        "organization",
+                        "project",
+                        "repository",
+                        "stack_bead",
+                    ]
+                    .contains(&name)
+                    {
+                        return Err(serde::de::Error::custom(format!(
+                            "{operation:?} has unknown placeholder {{{name}}}"
+                        )));
+                    }
+                    rest = &after[end + 1..];
+                }
+                if rest.contains('}') {
+                    return Err(serde::de::Error::custom(format!(
+                        "{operation:?} has an unmatched brace"
+                    )));
+                }
+            }
+            if op.body == BodyTransport::JsonFile {
+                let payload = op.payload.as_ref().ok_or_else(|| {
+                    serde::de::Error::custom(format!("{operation:?} requires a JSON payload"))
+                })?;
+                if payload
+                    .pointer("/comments/0/content")
+                    .and_then(serde_json::Value::as_str)
+                    != Some("{text}")
+                {
+                    return Err(serde::de::Error::custom(format!(
+                        "{operation:?} JSON payload must contain a comment with {{text}}"
+                    )));
+                }
+            } else if op.payload.is_some() {
+                return Err(serde::de::Error::custom(format!(
+                    "{operation:?} unexpectedly defines a JSON payload"
+                )));
+            }
             for name in required {
                 let placeholder = format!("{{{name}}}");
                 if !op.argv.iter().any(|arg| arg.contains(&placeholder)) {
@@ -317,7 +374,7 @@ impl<'de> Deserialize<'de> for ProviderCommands {
                     )));
                 }
             }
-            if op.body == BodyTransport::File
+            if matches!(op.body, BodyTransport::File | BodyTransport::JsonFile)
                 && !op.argv.iter().any(|arg| arg.contains("{body_file}"))
             {
                 return Err(serde::de::Error::custom(format!(
@@ -404,5 +461,31 @@ impl CloseVars {
             sanity_bead,
             max_sanity_rounds,
         }
+    }
+}
+
+#[cfg(feature = "python")]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+#[pymethods]
+impl ProviderOp {
+    #[getter]
+    fn argv(&self) -> Vec<String> {
+        self.argv.clone()
+    }
+    #[getter]
+    fn body(&self) -> BodyTransport {
+        self.body
+    }
+    #[getter]
+    fn output(&self) -> OutputFormat {
+        self.output
+    }
+    #[getter]
+    fn result(&self) -> std::collections::BTreeMap<String, String> {
+        self.result.clone()
+    }
+    #[getter]
+    fn payload_json(&self) -> Option<String> {
+        self.payload.as_ref().map(serde_json::Value::to_string)
     }
 }
