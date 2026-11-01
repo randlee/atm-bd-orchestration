@@ -264,6 +264,8 @@ artifacts:
     - core/templates/plan-review-template.xml.j2
     - core/templates/plan-scope-reviewer-assignment.json.j2
     - core/templates/pr-body.md.j2
+    - core/templates/providers/azure.json
+    - core/templates/providers/github.json
     - core/templates/qa-bead.json.j2
     - core/templates/qa-complete.md.j2
     - core/templates/qa-findings.md.j2

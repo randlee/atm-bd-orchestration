@@ -1,0 +1,157 @@
+{
+  "create": {
+    "argv": [
+      "az",
+      "repos",
+      "pr",
+      "create",
+      "--target-branch",
+      "{base}",
+      "--source-branch",
+      "{head}",
+      "--title",
+      "{title}",
+      "--description",
+      "@{body_file}",
+      "--output",
+      "json"
+    ],
+    "body": "file",
+    "output": "json",
+    "result": {
+      "number": "pullRequestId",
+      "url": "url",
+      "base": "targetRefName"
+    },
+    "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr#az-repos-pr-create"
+  },
+  "view": {
+    "argv": [
+      "az",
+      "repos",
+      "pr",
+      "show",
+      "--id",
+      "{number}",
+      "--output",
+      "json"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {
+      "number": "pullRequestId",
+      "url": "url",
+      "base": "targetRefName"
+    },
+    "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr#az-repos-pr-show"
+  },
+  "edit_base": {
+    "argv": [
+      "az",
+      "repos",
+      "pr",
+      "update",
+      "--id",
+      "{number}",
+      "--target-branch",
+      "{base}",
+      "--output",
+      "none"
+    ],
+    "body": "none",
+    "output": "exit_code",
+    "result": {},
+    "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr#az-repos-pr-update"
+  },
+  "comment": {
+    "argv": [
+      "az",
+      "devops",
+      "invoke",
+      "--area",
+      "git",
+      "--resource",
+      "pullRequestThreads",
+      "--route-parameters",
+      "project={project}",
+      "repositoryId={repository}",
+      "pullRequestId={number}",
+      "--org",
+      "https://dev.azure.com/{organization}",
+      "--http-method",
+      "POST",
+      "--in-file",
+      "{body_file}"
+    ],
+    "body": "json_file",
+    "output": "json",
+    "result": {},
+    "comment": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-threads/create",
+    "payload": {
+      "comments": [
+        {
+          "parentCommentId": 0,
+          "content": "{text}",
+          "commentType": 1
+        }
+      ],
+      "status": 1
+    }
+  },
+  "checks": {
+    "argv": [
+      "az",
+      "repos",
+      "pr",
+      "policy",
+      "list",
+      "--id",
+      "{number}",
+      "--output",
+      "json"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {},
+    "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr/policy#az-repos-pr-policy-list"
+  },
+  "lookup_by_head": {
+    "argv": [
+      "az",
+      "repos",
+      "pr",
+      "list",
+      "--source-branch",
+      "{head}",
+      "--output",
+      "json"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {
+      "number": "pullRequestId",
+      "url": "url",
+      "base": "targetRefName"
+    },
+    "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr#az-repos-pr-list"
+  },
+  "stack_link": {
+    "argv": [],
+    "body": "none",
+    "output": "exit_code",
+    "result": {},
+    "comment": "https://learn.microsoft.com/en-us/cli/azure/repos/pr"
+  },
+  "stack_view": {
+    "argv": [
+      "bd",
+      "show",
+      "{stack_bead}",
+      "--json"
+    ],
+    "body": "none",
+    "output": "json",
+    "result": {},
+    "comment": "https://github.com/steveyegge/beads"
+  }
+}
