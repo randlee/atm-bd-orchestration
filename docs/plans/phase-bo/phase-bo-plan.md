@@ -1,7 +1,8 @@
-# triaging-gh-issues
+# Phase bo — triaging-gh-issues
 
-Plan of record for the second plugin. Bead import waits on a phase id and a
-lead. Until then this file is the plan.
+Phase `bo`. The latest integration branch on this repo is `integrate/phase-bn`,
+so this plan is the next phase. Bead import still waits on a lead and
+`.atm-bd/phase-bo.toml`.
 
 The skill is `triaging-gh-issues`. It follows the skills and agents
 guidelines: the skill discovers and deploys, each agent does one thing, and
@@ -233,5 +234,5 @@ the same name. Closing the bead as `dup/#N` closes that issue with
 
 ## Waiting on appointment
 
-This file is not a phase index. Import needs a phase id, a lead, and
-`.atm-bd/phase-<x>.toml`. Those are not set.
+The phase id is `bo`. Import still needs a lead and `.atm-bd/phase-bo.toml`.
+The sprint index `docs/plans/phase-bo.jsonl` is not written yet.
