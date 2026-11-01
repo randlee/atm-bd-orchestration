@@ -330,7 +330,7 @@ impl<'de> Deserialize<'de> for ProviderCommands {
             (PrOp::EditBase, &["number", "base"][..]),
             (PrOp::Comment, &["number", "body_file"][..]),
             (PrOp::CommentView, &["number"][..]),
-            (PrOp::Checks, &["number"][..]),
+            (PrOp::Checks, &[][..]),
             (PrOp::LookupByHead, &["head"][..]),
             (PrOp::StackLink, &[][..]),
             (PrOp::StackView, &[][..]),
@@ -361,6 +361,9 @@ impl<'de> Deserialize<'de> for ProviderCommands {
                         "stack_bead",
                         "state",
                         "thread",
+                        "owner",
+                        "repo",
+                        "head_sha",
                     ]
                     .contains(&name)
                     {
@@ -429,6 +432,16 @@ impl<'de> Deserialize<'de> for ProviderCommands {
                         "{operation:?} lacks {placeholder}"
                     )));
                 }
+            }
+            if operation == PrOp::Checks
+                && !op
+                    .argv
+                    .iter()
+                    .any(|arg| arg.contains("{number}") || arg.contains("{head_sha}"))
+            {
+                return Err(serde::de::Error::custom(
+                    "Checks lacks {number} or {head_sha}",
+                ));
             }
             if matches!(op.body, BodyTransport::File | BodyTransport::JsonFile)
                 && !op.argv.iter().any(|arg| arg.contains("{body_file}"))

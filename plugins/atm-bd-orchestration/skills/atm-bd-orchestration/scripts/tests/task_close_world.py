@@ -215,7 +215,7 @@ class World:
             if self.github_failure:
                 return subprocess.CompletedProcess(argv, 1, "", "HTTP 429")
             number = self.values.get("pr_number", self.pr_number)
-            output = [{"number": number, "headRefOid": self.values.get("commit", self.head), "baseRefName": "deliberately-different", "url": f"https://github.com/example/repo/pull/{number}"}]
+            output = [{"number": number, "head": {"sha": self.values.get("commit", self.head)}, "base": {"ref": "deliberately-different"}, "html_url": f"https://github.com/example/repo/pull/{number}"}]
         else:
             raise AssertionError(argv)
         if write and argv[0] == "bd":

@@ -224,7 +224,7 @@ def test_github_retries_and_falls_back_without_requiring_pr_base(world, failure)
     assert len([argv for argv, _kwargs in world.calls if argv[0] == "gh"]) == 3
 
 
-@pytest.mark.parametrize("command", [["gh", "pr", "list"], ["git", "ls-remote"], ["git", "fetch"]])
+@pytest.mark.parametrize("command", [["gh", "api"], ["git", "ls-remote"], ["git", "fetch"]])
 def test_network_timeouts_retry_then_fall_back(world, command, monkeypatch):
     monkeypatch.setattr(hook, "COMMAND_TIMEOUT", 7)
     monkeypatch.setenv("ATM_BD_GATE_TIMEOUT_S", "7")  # main() resolves the deadline per run
@@ -323,7 +323,7 @@ def test_github_fallback_names_the_failed_api_call_and_error(world, failure, std
     world.github_failure = failure
     result = world.run()["ok"]
     assert result["github"] == "unavailable"
-    assert result["github_error"].startswith("gh pr list ")
+    assert result["github_error"].startswith("gh api repos/{owner}/{repo}/pulls?head={owner}:")
     assert result["github_error"].endswith(f": {stderr}")
 
 
@@ -392,7 +392,7 @@ def test_sanity_lookup_fallback_and_actionable_missing_bead(world):
     (["git", "status", "--porcelain"], (0, " M source.py"), "HEAD.DIRTY"),
     (["git", "ls-remote", "origin", "refs/heads/sprint/bj-1-task-close-hook"], (0, "wrong"), "HEAD.NOT_PUSHED"),
     (["git", "merge-base", "--is-ancestor", "origin/integrate/phase-bj", "a" * 40], (1, ""), "BASE.NOT_ANCESTOR"),
-    (["gh", "pr", "list", "--head", "sprint/bj-1-task-close-hook", "--state", "open", "--json", "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author", "--limit", "100"], (0, "[]"), "PR.NOT_FOUND"),
+    (["gh", "api", "repos/{owner}/{repo}/pulls?head={owner}:sprint/bj-1-task-close-hook&state=open&per_page=100"], (0, "[]"), "PR.NOT_FOUND"),
 ])
 def test_dev_preconditions_do_not_write(world, argv, response, code):
     world.overrides[tuple(argv)] = response
@@ -1162,8 +1162,8 @@ def test_offline_close_keeps_the_recorded_pr_base(world, role):
     assert world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] == "fix/recorded-layer"
 
 def test_multiple_open_prs_at_head_are_refused_before_writes(world):
-    prs = [{"number": number, "headRefOid": world.head, "baseRefName": "main", "url": "https://example.test/pr"} for number in (351, 352)]
-    command = ("gh", "pr", "list", "--head", world.values["branch"], "--state", "open", "--json", "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author", "--limit", "100")
+    prs = [{"number": number, "head": {"sha": world.head}, "base": {"ref": "main"}, "html_url": "https://example.test/pr"} for number in (351, 352)]
+    command = ("gh", "api", f"repos/{{owner}}/{{repo}}/pulls?head={{owner}}:{world.values['branch']}&state=open&per_page=100")
     world.overrides[command] = (0, json.dumps(prs))
     output = world.run()
     assert output["err"]["code"] == "PR.AMBIGUOUS"
@@ -1173,8 +1173,8 @@ def test_multiple_open_prs_at_head_are_refused_before_writes(world):
 
 @pytest.mark.parametrize("number", [None, "", 0])
 def test_empty_discovered_pr_identity_is_refused_before_writes(world, number):
-    command = ("gh", "pr", "list", "--head", world.values["branch"], "--state", "open", "--json", "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author", "--limit", "100")
-    world.overrides[command] = (0, json.dumps([{"number": number, "headRefOid": world.head, "baseRefName": "main", "url": "https://example.test/pr"}]))
+    command = ("gh", "api", f"repos/{{owner}}/{{repo}}/pulls?head={{owner}}:{world.values['branch']}&state=open&per_page=100")
+    world.overrides[command] = (0, json.dumps([{"number": number, "head": {"sha": world.head}, "base": {"ref": "main"}, "html_url": "https://example.test/pr"}]))
     output = world.run()
     assert output["err"]["code"] == "VARS.EMPTY"
     assert "pr_number" in output["err"]["message"]

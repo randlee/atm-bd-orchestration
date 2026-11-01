@@ -80,10 +80,15 @@ def execute(commands: ProviderCommands, op: PrOp, values: Mapping[str, str], *, 
         return Ok(None)
     with tempfile.TemporaryDirectory(prefix="atm-bd-provider-") as directory:
         substitutions = dict(values)
+        # GitHub's CLI resolves these two placeholders from the current repository.
+        substitutions.setdefault("owner", "{owner}")
+        substitutions.setdefault("repo", "{repo}")
         if op == PrOp.LOOKUP_BY_HEAD:
             substitutions.setdefault("state", "open")
             if command.argv[0] == "az":
                 substitutions["state"] = {"open": "active", "merged": "completed"}.get(substitutions["state"], substitutions["state"])
+            elif substitutions["state"] == "merged":
+                substitutions["state"] = "closed"
         if uses_json_file(command.body):
             if command.payload_json is None:
                 return _problem(ErrorKind.CONFIG_MISSING, "JSON payload is missing", "Supply the provider payload.")
@@ -158,7 +163,7 @@ def execute(commands: ProviderCommands, op: PrOp, values: Mapping[str, str], *, 
             parsed = parsed[0]
         if op == PrOp.LOOKUP_BY_HEAD and isinstance(parsed, dict):
             fields = command.result
-            number, url, base = (parsed.get(fields.get(name, "")) for name in ("number", "url", "base"))
+            number, url, base = (field_at(parsed, fields.get(name, "")) for name in ("number", "url", "base"))
             if number in (None, "", 0):
                 return _problem(ErrorKind.CONFIG_MISSING, "pr_number is empty", "Repair the pull request identity.")
             if isinstance(number, (str, int)) and isinstance(url, str) and isinstance(base, str):

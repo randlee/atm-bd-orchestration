@@ -73,11 +73,8 @@
   "checks": {
     "argv": [
       "gh",
-      "pr",
-      "checks",
-      "{number}",
-      "--json",
-      "name,state"
+      "api",
+      "repos/{owner}/{repo}/commits/{head_sha}/check-runs"
     ],
     "body": "none",
     "output": "json",
@@ -86,29 +83,21 @@
   "lookup_by_head": {
     "argv": [
       "gh",
-      "pr",
-      "list",
-      "--head",
-      "{head}",
-      "--state",
-      "{state}",
-      "--json",
-      "number,url,baseRefName,mergedAt,mergeCommit,body,headRefOid,updatedAt,author",
-      "--limit",
-      "100"
+      "api",
+      "repos/{owner}/{repo}/pulls?head={owner}:{head}&state={state}&per_page=100"
     ],
     "body": "none",
     "output": "json",
     "result": {
       "number": "number",
-      "url": "url",
-      "base": "baseRefName",
-      "merged_at": "mergedAt",
-      "merge_commit": "mergeCommit.oid",
+      "url": "html_url",
+      "base": "base.ref",
+      "merged_at": "merged_at",
+      "merge_commit": "merge_commit_sha",
       "body": "body",
-      "head_sha": "headRefOid",
-      "author": "author.login",
-      "updated_at": "updatedAt"
+      "head_sha": "head.sha",
+      "author": "user.login",
+      "updated_at": "updated_at"
     }
   },
   "stack_link": {

@@ -22,8 +22,33 @@ def test_provider_files_are_valid_and_reject_missing_ops_and_placeholders() -> N
         missing = dict(document)
         del missing["view"]
         assert ProviderCommands.parse_json(json.dumps(missing))[1] is not None
+        missing_checks = json.loads(path.read_text())
+        missing_checks["checks"]["argv"] = ["no-check-identity"]
+        assert ProviderCommands.parse_json(json.dumps(missing_checks))[1] is not None
         document["create"]["argv"] = ["no-placeholders"]
         assert ProviderCommands.parse_json(json.dumps(document))[1] is not None
+
+
+def test_github_commands_do_not_use_blocked_pr_polling_operations() -> None:
+    path = Path(__file__).resolve().parents[2] / "templates/providers/github.json"
+    data = json.loads(path.read_text())
+    for operation in data.values():
+        assert operation["argv"][:3] not in (["gh", "pr", "list"], ["gh", "pr", "checks"])
+    assert data["checks"]["argv"] == ["gh", "api", "repos/{owner}/{repo}/commits/{head_sha}/check-runs"]
+
+
+def test_github_checks_uses_head_sha(tmp_path: Path) -> None:
+    loaded = load_provider({})
+    assert isinstance(loaded, Ok)
+    seen: list[list[str]] = []
+
+    def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, '{"check_runs": []}', "")
+
+    checked = execute(loaded.value, PrOp.CHECKS, {"head_sha": "abc123"}, cwd=tmp_path, runner=run)
+    assert isinstance(checked, Ok)
+    assert seen == [["gh", "api", "repos/{owner}/{repo}/commits/abc123/check-runs"]]
 
 
 def test_azure_requires_each_config_key() -> None:
@@ -93,8 +118,8 @@ def test_render_provider_context_and_unknown_operation(tmp_path: Path) -> None:
 def test_merged_lookup_checks_each_candidate(tmp_path: Path) -> None:
     loaded = load_provider({})
     assert isinstance(loaded, Ok)
-    rows = [{"number": n, "url": f"https://example.test/{n}", "baseRefName": "main",
-             "mergedAt": "2026-01-01", "mergeCommit": {"oid": sha}}
+    rows = [{"number": n, "html_url": f"https://example.test/{n}", "base": {"ref": "main"},
+             "merged_at": "2026-01-01", "merge_commit_sha": sha}
             for n, sha in ((1, "old"), (2, "wanted"))]
 
     def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
