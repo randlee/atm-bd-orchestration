@@ -1,5 +1,5 @@
 ---
-id: bo-1
+id: a-1
 title: Skill, config, and gates
 difficulty: normal
 relation: root
@@ -7,7 +7,7 @@ requirements: ["NONE"]
 adrs: ["NONE"]
 ---
 
-# bo-1 — Skill, config, and gates
+# a-1 — Skill, config, and gates
 
 ## Goal
 

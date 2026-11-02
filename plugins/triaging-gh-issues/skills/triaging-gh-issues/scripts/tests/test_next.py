@@ -46,7 +46,7 @@ class Next(unittest.TestCase):
         self.assertEqual(stop["stop"], "duplicate")
 
     def test_phase_done_stops_before_classify(self) -> None:
-        labels = {"dup/none", "phase/bo-1", "phase-done/yes"}
+        labels = {"dup/none", "phase/a-1", "phase-done/yes"}
         self.assertEqual(next_agent(labels, has_bead=True, priority=1, repo=REPO, pr="", replacement=False)["stop"], "phase-done")
 
     def test_clean_scan_classifies_then_verifies(self) -> None:

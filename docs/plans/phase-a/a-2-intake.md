@@ -1,14 +1,14 @@
 ---
-id: bo-2
+id: a-2
 title: Intake and duplicate agents
 difficulty: fast
 relation: must_follow
-depends_on: ["bo-1"]
+depends_on: ["a-1"]
 requirements: ["NONE"]
 adrs: ["NONE"]
 ---
 
-# bo-2 — Intake and duplicate agents
+# a-2 — Intake and duplicate agents
 
 ## Goal
 

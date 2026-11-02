@@ -1,14 +1,14 @@
 ---
-id: bo-5
+id: a-5
 title: Plan agents
 difficulty: hard
 relation: must_follow
-depends_on: ["bo-1"]
+depends_on: ["a-1"]
 requirements: ["NONE"]
 adrs: ["NONE"]
 ---
 
-# bo-5 — Plan agents
+# a-5 — Plan agents
 
 ## Goal
 
