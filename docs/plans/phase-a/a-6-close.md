@@ -1,14 +1,14 @@
 ---
-id: bo-6
+id: a-6
 title: Close and credit agents
 difficulty: fast
 relation: must_follow
-depends_on: ["bo-1"]
+depends_on: ["a-1"]
 requirements: ["NONE"]
 adrs: ["NONE"]
 ---
 
-# bo-6 — Close and credit agents
+# a-6 — Close and credit agents
 
 ## Goal
 

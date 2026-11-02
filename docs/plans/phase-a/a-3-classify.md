@@ -1,14 +1,14 @@
 ---
-id: bo-3
+id: a-3
 title: Classification agents
 difficulty: fast
 relation: must_follow
-depends_on: ["bo-1"]
+depends_on: ["a-1"]
 requirements: ["NONE"]
 adrs: ["NONE"]
 ---
 
-# bo-3 — Classification agents
+# a-3 — Classification agents
 
 ## Goal
 

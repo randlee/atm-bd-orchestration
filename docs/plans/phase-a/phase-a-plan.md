@@ -1,7 +1,6 @@
-# Phase bo — triaging-gh-issues
+# Phase a — triaging-gh-issues
 
-Phase `bo`. The latest integration branch on this repo is `integrate/phase-bn`,
-so this plan is the next phase.
+Phase `a`.
 
 The skill is `triaging-gh-issues`. It follows the skills and agents
 guidelines: the skill discovers and deploys, each agent does one thing, and
@@ -20,16 +19,16 @@ Plugin path: `plugins/triaging-gh-issues`.
 
 ## Sprints
 
-`bo-1` is first. `bo-2` through `bo-6` follow it and do not share paths, so they can run at the same time. Each sprint doc is the work package for one subagent. This file remains the contract.
+`a-1` is first. `a-2` through `a-6` follow it and do not share paths, so they can run at the same time. Each sprint doc is the work package for one subagent. This file remains the contract.
 
 | Sprint | Doc | Difficulty | Follows | Owns |
 | --- | --- | --- | --- | --- |
-| `bo-1` | [bo-1-skill.md](bo-1-skill.md) | normal | | Plugin skeleton, skill, config reader, gate check, agent registry |
-| `bo-2` | [bo-2-intake.md](bo-2-intake.md) | fast | `bo-1` | Intake and duplicate agents |
-| `bo-3` | [bo-3-classify.md](bo-3-classify.md) | fast | `bo-1` | kind, area, size, priority agents |
-| `bo-4` | [bo-4-review.md](bo-4-review.md) | normal | `bo-1` | verify, gap, arch, security agents |
-| `bo-5` | [bo-5-plan.md](bo-5-plan.md) | hard | `bo-1` | plan-write and plan-accept agents |
-| `bo-6` | [bo-6-close.md](bo-6-close.md) | fast | `bo-1` | landed, close, release, and credit agents |
+| `a-1` | [a-1-skill.md](a-1-skill.md) | normal | | Plugin skeleton, skill, config reader, gate check, agent registry |
+| `a-2` | [a-2-intake.md](a-2-intake.md) | fast | `a-1` | Intake and duplicate agents |
+| `a-3` | [a-3-classify.md](a-3-classify.md) | fast | `a-1` | kind, area, size, priority agents |
+| `a-4` | [a-4-review.md](a-4-review.md) | normal | `a-1` | verify, gap, arch, security agents |
+| `a-5` | [a-5-plan.md](a-5-plan.md) | hard | `a-1` | plan-write and plan-accept agents |
+| `a-6` | [a-6-close.md](a-6-close.md) | fast | `a-1` | landed, close, release, and credit agents |
 
 ## Review standard
 

@@ -1,14 +1,14 @@
 ---
-id: bo-4
+id: a-4
 title: Review agents
 difficulty: normal
 relation: must_follow
-depends_on: ["bo-1"]
+depends_on: ["a-1"]
 requirements: ["NONE"]
 adrs: ["NONE"]
 ---
 
-# bo-4 — Review agents
+# a-4 — Review agents
 
 ## Goal
 
