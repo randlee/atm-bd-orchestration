@@ -2,6 +2,7 @@
 import json
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 import atm_bd_types as T
@@ -73,7 +74,7 @@ def test_land_without_target_reports(repo, layers):
     assert isinstance(action, T.Report) and action.key == "cron:review:land"
 
 
-@pytest.mark.parametrize("stage", [T.Stage.QA, T.Stage.LAND])
+@pytest.mark.parametrize("stage", [T.Stage.DEV, T.Stage.QA, T.Stage.LAND])
 def test_decision_vars_strictly_render_assignment(tmp_path, stage):
     [action] = CRON.decide(facts(bead("task", stage=stage, checked_bead="dev")), PARAMS)
     template = Path(__file__).resolve().parents[2] / "skills/atm-bd-lite" / action.template
@@ -81,11 +82,17 @@ def test_decision_vars_strictly_render_assignment(tmp_path, stage):
     if action.vars.review is not None:
         review = action.vars.review
         values.update(repo=review.repo, pr_number=review.pr_number, branch=review.branch, commit=review.commit)
+    if stage is T.Stage.DEV:
+        provider_table = Path(__file__).resolve().parents[2] / "core" / "atm_bd_core" / "providers.toml"
+        values["provider"] = {"create": tomllib.loads(provider_table.read_text())["gh"]["create"]}
     source = template.read_text()
     match = re.search(r"^required_variables:\s*\[([^]]*)\]$", source, re.MULTILINE)
     assert match is not None
     required = {item.strip() for item in match.group(1).split(",")}
-    assert set(values) == required
+    provided = set(values)
+    if isinstance(values.get("provider"), dict):
+        provided.update(f"provider.{key}" for key in values["provider"])
+    assert provided == required
     var_file = tmp_path / "vars.json"
     var_file.write_text(json.dumps(values))
     subprocess.run(["sc-compose", "render", "--root", str(template.parent), "--strict", "--file", str(template), "--var-file", str(var_file)],
