@@ -453,6 +453,7 @@ impl BeadPatch {
 }
 
 /// Reads and the one guarded write a hook makes. The beads-cache adapter implements it.
+/// Intentionally open: a plug-in may replace this hook port.
 pub trait BeadStore {
     fn refresh(&self, bead_ids: &[BeadId]) -> Result<(), Refusal>;
     fn show(&self, bead_id: &BeadId) -> Result<Bead, Refusal>;
@@ -462,6 +463,7 @@ pub trait BeadStore {
 }
 
 /// Loads `.atm-bd/phase-<x>.toml`; PHASE_UNREADABLE, or PROFILE_MISMATCH when `profile` differs.
+/// Intentionally open: a plug-in may replace this hook port.
 pub trait PhaseFiles {
     fn load(&self, path: &str, profile: &str) -> Result<PhaseFile, Refusal>;
 }
