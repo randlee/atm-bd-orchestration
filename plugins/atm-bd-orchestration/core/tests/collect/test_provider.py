@@ -5,17 +5,17 @@ from atm_bd_core.collect.provider import pr_bases, resolve_provider, top_checks
 from atm_bd_types import CheckState, FactKind
 
 
-@pytest.mark.parametrize(("remote", "head_argv", "checks_argv", "base_argv", "check_state"), [
+@pytest.mark.parametrize(("remote", "head_argv", "checks_argv", "base_argv", "check_state", "base_response"), [
     ("https://github.com/example/repo.git",
      ["gh", "pr", "view", "5", "--json", "headRefOid", "--jq", ".headRefOid"],
      ["gh", "pr", "view", "5", "--json", "statusCheckRollup", "--jq", "[.statusCheckRollup[] | .conclusion // .state // .status]"],
-     ["gh", "pr", "view", "5", "--json", "baseRefName", "--jq", ".baseRefName"], "success"),
+     ["gh", "pr", "view", "5", "--json", "baseRefName", "--jq", ".baseRefName"], "success", "main"),
     ("https://dev.azure.com/example/repo",
      ["az", "repos", "pr", "show", "--id", "5", "--query", "lastMergeSourceCommit.commitId", "--output", "tsv"],
      ["az", "repos", "pr", "status", "list", "--id", "5", "--query", "[].state", "--output", "json"],
-     ["az", "repos", "pr", "show", "--id", "5", "--query", "targetRefName", "--output", "tsv"], "succeeded"),
+     ["az", "repos", "pr", "show", "--id", "5", "--query", "targetRefName", "--output", "tsv"], "succeeded", "refs/heads/main"),
 ])
-def test_provider_commands_and_check_states(recorded_runner, remote, head_argv, checks_argv, base_argv, check_state):
+def test_provider_commands_and_check_states(recorded_runner, remote, head_argv, checks_argv, base_argv, check_state, base_response):
     discover = recorded_runner({"stdout": remote})
     provider, error = resolve_provider(discover, None)
     assert provider is not None and error is None
@@ -26,7 +26,7 @@ def test_provider_commands_and_check_states(recorded_runner, remote, head_argv, 
     result, error = top_checks(runner, provider, layer)
     assert result is not None and error is None and result.state == CheckState.PASSING
     assert runner.calls == [(head_argv, None), (checks_argv, None), (head_argv, None)]
-    runner = recorded_runner({"stdout": "refs/heads/main\n"})
+    runner = recorded_runner({"stdout": base_response + "\n"})
     result, error = pr_bases(runner, provider, [layer])
     assert result is not None and error is None and result[0].base == "main"
     assert runner.calls == [(base_argv, None)]
