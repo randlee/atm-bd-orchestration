@@ -46,7 +46,7 @@ def test_task_bead_mapping_uses_only_matching_task_ids(tmp_path, recorded_runner
         {"stdout": '{"events": []}'},
         {"stdout": ""},
     )
-    templates = [(f"/r/{n}", "/r", b"ok") for n in range(4)]
+    templates = [(f"/r/{n}", "/r", b"ok") for n in range(5)]
     phase_file = _phase_file("lite", "lead", templates, [("integration_branch", "main")])
     facts = collect("bo", phase_file, SimpleNamespace(runner=runner, cache=Cache()), 123, tmp_path)
     assert [(task.task_id, task.bead_id) for task in facts.tasks] == [("bo-1", "bo-1")]
