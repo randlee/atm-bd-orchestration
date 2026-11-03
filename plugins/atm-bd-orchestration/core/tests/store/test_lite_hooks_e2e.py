@@ -18,7 +18,7 @@ from . import beads_db as beads_db_helpers
 from .beads_db import bd, create_bead, init_db, require_test_bd_binary
 
 ROOT = Path(__file__).resolve().parents[5]
-SCRIPTS = ROOT / "crates/atm-bd-types/tests/fixtures/scripts"
+SCRIPTS = ROOT / "plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
@@ -27,7 +27,7 @@ def load_hook(name: str):
     path = SCRIPTS / f"atm-bd-task-{name}-hook.py"
     if name == "close":
         path = SCRIPTS / "atm-bd-task-hook.py"
-    spec = importlib.util.spec_from_file_location(f"fixture_{name}", path)
+    spec = importlib.util.spec_from_file_location(f"shipped_{name}", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
