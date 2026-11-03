@@ -92,3 +92,16 @@ def test_base_prefix_is_provider_specific(recorded_runner):
         assert provider is not None and error is None
         bases, error = pr_bases(recorded_runner({"stdout": "refs/heads/main"}), provider, [layer])
         assert bases is not None and error is None and bases[0].base == expected
+
+
+def test_github_reads_use_configured_repository(recorded_runner):
+    provider, error = resolve_provider(recorded_runner(), "gh", "owner/other-repo")
+    assert provider is not None and error is None
+    layer = SimpleNamespace(pr=5, head="a" * 40)
+    runner = recorded_runner({"stdout": layer.head}, {"stdout": '["success"]'}, {"stdout": layer.head},
+                             {"stdout": "main"})
+    checks, error = top_checks(runner, provider, layer)
+    assert error is None and checks.state == CheckState.PASSING
+    bases, error = pr_bases(runner, provider, [layer])
+    assert bases is not None and error is None and bases[0].base == "main"
+    assert all(argv[-2:] == ["--repo", "owner/other-repo"] for argv, _ in runner.calls)

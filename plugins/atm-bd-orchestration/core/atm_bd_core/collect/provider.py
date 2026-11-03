@@ -14,14 +14,22 @@ def _table():
         return tomllib.load(stream)
 
 
-def resolve_provider(runner, configured):
+def resolve_provider(runner, configured, repo=None):
     try:
         table = _table()
     except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, f"Cannot load provider command table: {error}"
+    def qualified(provider):
+        selected = dict(provider)
+        if repo and selected.get("repo_args"):
+            suffix = [part.replace("{repo}", repo) for part in selected["repo_args"]]
+            for key in ("head", "checks", "base"):
+                selected[key] = [*selected[key], *suffix]
+        return selected
+
     if configured:
         if configured in table:
-            return table[configured], None
+            return qualified(table[configured]), None
         return None, f"Unknown provider {configured!r}; set provider in the phase file."
     argv = ["git", "remote", "get-url", "origin"]
     try:
@@ -32,7 +40,7 @@ def resolve_provider(runner, configured):
         host = urlsplit(remote).hostname if "://" in remote else remote.split("@")[-1].split(":")[0]
         for provider in table.values():
             if host and any(host == item or host.endswith("." + item) for item in provider["hosts"]):
-                return provider, None
+                return qualified(provider), None
         raise ValueError(f"unrecognized remote {remote!r}")
     except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, f"{error}; set provider in the phase file."

@@ -51,7 +51,7 @@ def collect(phase, phase_file, ports, now, state_dir):
         layers = stack.stack.layers
         refs = [stack.trunk, *(layer.branch for layer in layers)]
         ancestry = take(git.ancestry(ports.runner, [(f"origin/{a}", f"origin/{b}") for a, b in pairwise(refs)]))
-        selected, issue = provider.resolve_provider(ports.runner, phase_file.key("provider"))
+        selected, issue = provider.resolve_provider(ports.runner, phase_file.key("provider"), phase_file.key("repo"))
         if issue:
             checks = bases = None
             for kind in (FactKind.TOP_CHECKS, FactKind.PR_BASES):

@@ -1,4 +1,5 @@
 [gh]
+repo_args = ["--repo", "{repo}"]
 base_prefix = ""
 failing = ["failure", "error", "cancelled", "timed_out", "action_required"]
 pending = ["pending", "queued", "in_progress", "expected", "waiting", "requested", ""]

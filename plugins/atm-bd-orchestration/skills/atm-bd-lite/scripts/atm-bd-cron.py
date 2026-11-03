@@ -5,7 +5,7 @@ existing `atm task assign` path." Who and with what template: policy.toml params
 """
 TIMEOUT_MS = 2500
 
-from atm_bd_types import Action, Assign, AssignVars, Params, PhaseFacts, Report, ReviewTarget, Stage, Status
+from atm_bd_types import Action, Assign, AssignVars, CheckState, Params, PhaseFacts, Report, ReviewTarget, Stage, Status
 
 
 def decide(facts: PhaseFacts, params: Params) -> list[Action]:
@@ -48,6 +48,16 @@ def decide(facts: PhaseFacts, params: Params) -> list[Action]:
             actions.append(Report(f"cron:review:{bead.id}", "config", bead.id,
                                   "Missing repo, checked dev bead, or recorded review layer (branch, PR, head)."))
             continue
+        if bead.stage == Stage.LAND:
+            checks = facts.top_checks
+            if checks is None or checks.head != layer.head:
+                continue
+            if checks.state == CheckState.FAILING:
+                actions.append(Report(f"cron:ci:{bead.id}", "ci", bead.id,
+                                      f"Top {layer.head} CI failing; fix on the stack top."))
+                continue
+            if checks.state != CheckState.PASSING:
+                continue
         review = ReviewTarget(repo, layer.pr, layer.branch, layer.head)
         actions.append(Assign(f"assign:{bead.id}", agent, bead.id, template,
                               AssignVars(bead.id, facts.phase, facts.phase_file.profile, review)))
