@@ -13,6 +13,7 @@ from atm_bd_core.store import CacheStore, PhaseFilesCli
 from atm_bd_types import BeadPatch, ErrorId, HookRequest, Refusal, Status
 from atm_bd_types._core import stack_of
 
+from . import beads_db as beads_db_helpers
 from .beads_db import bd, create_bead, init_db
 
 ROOT = Path(__file__).resolve().parents[5]
@@ -82,7 +83,26 @@ def test_three_hooks_assign_start_and_close_on_real_db(setup):
     reply = load_hook("close")(request("task.close", "dev", op={"op": "close", "outcome": "completed", "reason": "done"}, report="done"), store, phases)
     assert 'handled' in reply.to_json(), reply.to_json()
     assert store.show("tst-1").status == Status.CLOSED
-    assert json.loads(subprocess.check_output([os.environ.get("ATM_TEST_BD", "bd"), "show", "tst-1", "--json"], cwd=root))[0]["status"] == "closed"
+    assert json.loads(bd(root, "show", "tst-1", "--json"))[0]["status"] == "closed"
+
+
+def test_bd_helper_bounds_the_process_and_reports_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    command = ["fake-bd", "show", "tst-1", "--json"]
+    observed: dict[str, object] = {}
+
+    def timeout_run(args: list[str], **kwargs: object) -> None:
+        observed["args"] = args
+        observed.update(kwargs)
+        raise subprocess.TimeoutExpired(args, timeout=beads_db_helpers.BD_TIMEOUT_SECONDS)
+
+    monkeypatch.setenv("ATM_TEST_BD", "fake-bd")
+    monkeypatch.setattr(beads_db_helpers.subprocess, "run", timeout_run)
+    with pytest.raises(RuntimeError, match="fake-bd.*show.*tst-1.*--json"):
+        bd(tmp_path, "show", "tst-1", "--json")
+
+    assert observed["args"] == command
+    assert observed["stdin"] == subprocess.DEVNULL
+    assert observed["timeout"] == beads_db_helpers.BD_TIMEOUT_SECONDS
 
 
 def test_stale_snapshot_is_a_typed_race(setup):
