@@ -55,8 +55,10 @@ def _hook_close_actions() -> list[dict]:
     stack = bead("stack", layers={target.branch: target})
     phases = FakePhases()
 
+    work = bead("dev-task", T.Status.CLOSED, branch=target.branch, stack_bead="stack")
+
     def run(item, request, *extra, target_layer=None):
-        reply = hook.hook(request, FakeStore(item, stack, *extra, target=target_layer), phases)
+        reply = hook.hook(request, FakeStore(stack, work, item, *extra, target=target_layer), phases)
         actions = reply_actions(reply)
         assert len(actions) == 1, reply.to_json(None)
         return actions[0]
@@ -66,7 +68,7 @@ def _hook_close_actions() -> list[dict]:
     refused = hook_request(caller="dev", task_id="dev-task", outcome="refused", close_reason="blocked")
     completed = hook_request(caller="dev", task_id="dev-task", outcome="completed", close_report="complete")
     qa = bead("qa-task", T.Status.IN_PROGRESS, assignee="qa", stage="qa", stack_bead="stack",
-              sprint="sprint-10", phase="bo")
+              sprint="sprint-10", phase="bo", checked_bead="dev-task")
     passed = hook_request(caller="qa", task_id="qa-task", outcome="completed", verdict="PASS", verdict_sha=target.head)
     findings = hook_request(caller="qa", task_id="qa-task", outcome="completed", verdict="FINDINGS",
                             verdict_sha=target.head,

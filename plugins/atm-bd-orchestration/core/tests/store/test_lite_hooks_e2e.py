@@ -11,7 +11,7 @@ import pytest
 from atm_bd_core.profile import TEMPLATES
 from atm_bd_core.store import CacheStore, PhaseFilesCli
 from atm_bd_core.store._cache_binding import cache_module as bd_cache_rs
-from atm_bd_types import BeadPatch, ErrorId, HookRequest, Refusal, Status
+from atm_bd_types import BeadPatch, ErrorId, Hook, HookRequest, Refusal, Status
 from atm_bd_core import stack_of
 
 from . import beads_db as beads_db_helpers
@@ -34,12 +34,12 @@ def load_hook(name: str):
     return module.hook
 
 
-def request(hook: str, actor: str, *, to=None, op=None, report=""):
+def request(hook: str, actor: str, *, to=None, op=None, report="", task_id="tst-1"):
     body = {"schema_version": "1.0.0", "hook": hook, "team": "t", "phase": "bo",
             "caller": {"identity": actor, "team": "t", "host": None}, "custom": {},
             "request": {"home_dir": "/h", "current_dir": "/r", "caller_identity": actor, "caller_team": "t",
                         "to": {"agent": to} if to else None, "message_source": {"Inline": report},
-                        "requires_ack": False, "task_id": "tst-1", "task_op": op, "dry_run": False}}
+                        "requires_ack": False, "task_id": task_id, "task_op": op, "dry_run": False}}
     result = HookRequest.parse(json.dumps(body))
     assert isinstance(result, HookRequest), result
     return result
@@ -299,7 +299,7 @@ def test_qa_target_and_ready_views(setup):
     _root, store = setup
     store.cache.add_bead("tst-qa", "qa", "open", ["phase-bo", "stage:qa"], {"checked_bead": "tst-1"})
     qa = store.show("tst-qa")
-    assert store.target_layer(qa).head == SHA
+    assert store.target_layer(store.show(qa.checked_bead)).head == SHA
     assert stack_of(store.show("tst-stack")).layers[0].head == SHA
     assert {b.id for b in store.list("bo")} == {"tst-1", "tst-stack", "tst-qa"}
     assert "tst-1" in {b.id for b in store.ready("bo")}
@@ -335,12 +335,29 @@ def test_missing_cache_root_names_the_working_directory(tmp_path, monkeypatch):
     assert str(tmp_path.resolve()) in repr(result)
 
 
-def test_qa_without_checked_bead_names_the_qa_bead(setup):
+def test_store_resolves_the_supplied_checked_bead_without_qa_fallback(setup):
     _, store = setup
-    store.cache.add_bead("tst-qa", "qa", "open", ["phase-bo", "stage:qa"], {})
-    result = store.target_layer(store.show("tst-qa"))
-    assert isinstance(result, Refusal) and result.id == ErrorId.CACHE_UNAVAILABLE
-    assert "QA bead tst-qa has no checked bead or closed blocker" in repr(result)
+    store.cache.add_bead("other", "work", "closed", ["phase-bo", "stage:dev"],
+                         {"branch": "missing", "stack_bead": "tst-stack"})
+    checked = store.show("tst-1")
+    assert store.target_layer(checked).head == SHA
+    result = store.target_layer(store.show("other"))
+    assert isinstance(result, Refusal) and result.id == ErrorId.STACK_NOT_RECORDED
+
+
+
+def test_qa_without_checked_bead_does_not_use_a_closed_blocker(setup):
+    _, store = setup
+    store.cache.rows["tst-1"]["status"] = "closed"
+    store.cache.add_bead("tst-qa", "qa", "in_progress", ["phase-bo", "stage:qa"], {})
+    store.cache.rows["tst-qa"]["assignee"] = "qa"
+    store.cache.rows["tst-qa"]["dependencies"] = [{"type": "blocks", "depends_on_id": "tst-1"}]
+    report = f'done\n```json\n{{"verdict":"PASS","sha":"{SHA}"}}\n```'
+    req = request("task.close", "qa", op={"op": "close", "outcome": "completed"},
+                  report=report, task_id="tst-qa")
+    reply = load_hook("close")(req, store, PhaseFilesCli())
+    assert "STACK_NOT_RECORDED" in reply.to_json(Hook.TASK_CLOSE)
+    assert store.cache.seq == 0
 
 
 def test_external_poured_finding_is_visible_with_its_dependency(real_db_setup):

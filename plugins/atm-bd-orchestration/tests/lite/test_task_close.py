@@ -13,11 +13,11 @@ def dev_bead(status=S.IN_PROGRESS, branch=LAYER.branch, stage=T.Stage.DEV):
 
 
 def qa_bead():
-    return bead("bo-10-qa", S.IN_PROGRESS, QA, stage=T.Stage.QA, stack_bead="stack", sprint="sprint-10", phase="bo")
+    return bead("bo-10-qa", S.IN_PROGRESS, QA, stage=T.Stage.QA, stack_bead="stack", sprint="sprint-10", phase="bo", checked_bead="bo-10")
 
 
 def run(hooks, bead_record, req, *extra, phases=None, **store_kw):
-    store = FakeStore(bead_record, STACK, *extra, **store_kw)
+    store = FakeStore(STACK, dev_bead(S.CLOSED), bead_record, *extra, **store_kw)
     return hooks["hook"].hook(req, store, phases or FakePhases()), store
 
 
@@ -81,12 +81,22 @@ def test_t_close_03_pass_closes_with_sha(hooks):
     req = completed(caller=QA, task="bo-10-qa", verdict="PASS", verdict_sha=LAYER.head)
     reply, store = run(hooks, qa_bead(), req, target=LAYER)
     assert reply_data(reply)["result"] == "handled"
+    assert store.target_requests == ["bo-10"]
     [(operation, bead_id, evidence, actor)] = store.writes
     assert (operation, bead_id, actor) == ("close", "bo-10-qa", QA)
     assert isinstance(evidence, T.QaPass) and evidence.sha == LAYER.head
     [action] = reply_actions(reply)
     assert action_template(action).endswith("/qa-pass.md")
     assert action_vars(action) == {"sha": LAYER.head}
+
+
+
+def test_qa_without_checked_bead_does_not_select_a_closed_work_bead(hooks):
+    qa = bead("bo-10-qa", S.IN_PROGRESS, QA, stage=T.Stage.QA, stack_bead="stack", sprint="sprint-10", phase="bo")
+    req = completed(caller=QA, task="bo-10-qa", verdict="PASS", verdict_sha=LAYER.head)
+    reply, store = run(hooks, qa, req, target=LAYER)
+    expect_refused(reply, T.ErrorId.STACK_NOT_RECORDED, store)
+    assert store.target_requests == []
 
 
 def test_t_close_03_sha_differs(hooks):
@@ -183,7 +193,7 @@ def test_closed_bead_replays_only_the_close_action(hooks):
 
 
 def test_closed_qa_replays_validated_pass_without_a_write(hooks):
-    closed = bead("bo-10-qa", S.CLOSED, QA, stage=T.Stage.QA, stack_bead="stack", sprint="sprint-10", phase="bo")
+    closed = bead("bo-10-qa", S.CLOSED, QA, stage=T.Stage.QA, stack_bead="stack", sprint="sprint-10", phase="bo", checked_bead="bo-10")
     req = completed(caller=QA, task="bo-10-qa", verdict="PASS", verdict_sha=LAYER.head)
     reply, store = run(hooks, closed, req, target=LAYER)
     assert reply_data(reply)["result"] == "handled" and store.writes == []

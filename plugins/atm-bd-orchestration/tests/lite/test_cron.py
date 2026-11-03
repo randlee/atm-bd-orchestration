@@ -32,6 +32,13 @@ def test_qa_assignment_has_recorded_target():
             action.vars.review.commit) == ("example/repo", 42, "work", HEAD)
 
 
+def test_qa_without_checked_bead_reports_instead_of_choosing_closed_work():
+    qa = bead("qa", stage=T.Stage.QA)
+    closed = bead("dev", T.Status.CLOSED, branch="work")
+    [action] = CRON.decide(facts(qa, beads=[closed]), PARAMS)
+    assert isinstance(action, T.Report) and action.key == "cron:review:qa"
+
+
 def test_no_assignment_when_task_read_fails_or_task_already_exists():
     qa = bead("qa", stage=T.Stage.QA, checked_bead="dev")
     assert CRON.decide(facts(qa, tasks=None), PARAMS) == []

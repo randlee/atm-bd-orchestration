@@ -44,7 +44,9 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
         case Transition.QA_PASS:  # T-CLOSE-03
             if isinstance(verdict := req.qa_pass(), Refusal):
                 return HookReply.refused(verdict)
-            if isinstance(target := beads.target_layer(bead), Refusal):
+            if isinstance(checked := beads.show(bead.checked_bead), Refusal):
+                return HookReply.refused(checked)
+            if isinstance(target := beads.target_layer(checked), Refusal):
                 return HookReply.refused(target)
             if target.branch is None:
                 return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=""))
@@ -54,7 +56,9 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
         case Transition.QA_FINDINGS:  # T-CLOSE-04
             if isinstance(verdict := req.qa_findings(), Refusal):
                 return HookReply.refused(verdict)
-            if isinstance(target := beads.target_layer(bead), Refusal):
+            if isinstance(checked := beads.show(bead.checked_bead), Refusal):
+                return HookReply.refused(checked)
+            if isinstance(target := beads.target_layer(checked), Refusal):
                 return HookReply.refused(target)
             if target.branch is None:
                 return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=""))

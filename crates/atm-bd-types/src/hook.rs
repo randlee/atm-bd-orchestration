@@ -521,8 +521,8 @@ impl BeadPatch {
 pub trait BeadStore {
     fn refresh(&self, bead_ids: &[Option<BeadId>]) -> Result<(), Refusal>;
     fn show(&self, bead_id: Option<&BeadId>) -> Result<Bead, Refusal>;
-    /// The ledger layer of the QA bead's closed dev/fix blocker, or of its `checked_bead`.
-    fn target_layer(&self, qa_bead: &Bead) -> Result<Layer, Refusal>;
+    /// The ledger layer for the supplied checked bead's branch.
+    fn target_layer(&self, checked_bead: &Bead) -> Result<Layer, Refusal>;
     fn update(&self, patch: &BeadPatch, actor: &str) -> Result<(), Refusal>;
 }
 
