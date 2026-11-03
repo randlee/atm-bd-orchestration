@@ -10,7 +10,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 GATE_PATH = ROOT / "plugins/atm-bd-orchestration/core/gate/atm-bd-lite-gate.py"
 SPEC_PATH = ROOT / "plugins/atm-bd-orchestration/skills/atm-bd-lite/hooks/task-start.md"
+TASK_CLOSE_SPEC_PATH = ROOT / "plugins/atm-bd-orchestration/skills/atm-bd-lite/hooks/task-close.md"
 FIXTURES = Path(__file__).parent
+EXPECTED_CLOSE = FIXTURES / "expected.json"
 spec = importlib.util.spec_from_file_location("hook_gate", GATE_PATH)
 assert spec is not None and spec.loader is not None
 gate = importlib.util.module_from_spec(spec)
@@ -119,3 +121,38 @@ def test_deterministic_failure_never_calls_jev(monkeypatch, tmp_path):
     assert gate.main([str(FIXTURES / "fail-rows.py"), str(SPEC_PATH), "--out", str(output)]) == 1
     result = json.loads(output.read_text())
     assert result["jev"] is None and result["deterministic_failures"]
+
+
+def test_close_fixtures_match_controlled_jev_outcomes(monkeypatch, tmp_path):
+    expected = json.loads(EXPECTED_CLOSE.read_text(encoding="utf-8"))
+    spec_text = TASK_CLOSE_SPEC_PATH.read_text(encoding="utf-8")
+
+    for name, contract in expected.items():
+        hook = FIXTURES / f"{name}.py"
+        output = tmp_path / f"{name}.json"
+        expected_no = contract["expected_no"]
+        calls = []
+
+        def controlled_reply(state, questions):
+            calls.append((state, questions))
+            assert state["spec"] == spec_text
+            assert set(expected_no) <= set(questions)
+
+            class Reply:
+                answers = {
+                    key: {"choice": "no" if key in expected_no else "yes"}
+                    for key in questions
+                }
+                input_tokens = 1
+
+            return Reply()
+
+        monkeypatch.setattr(gate, "check", controlled_reply)
+        result = gate.main([str(hook), str(TASK_CLOSE_SPEC_PATH), "--out", str(output)])
+        actual = json.loads(output.read_text(encoding="utf-8"))
+
+        assert result == (1 if expected_no else 0)
+        assert len(calls) == 1
+        assert actual["deterministic_failures"] == []
+        assert actual["jev"]["no"] == expected_no
+        assert actual["pass"] is (not expected_no)
