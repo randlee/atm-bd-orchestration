@@ -5,9 +5,10 @@ import enum
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
-from atm_bd_types import Refusal
+if TYPE_CHECKING:
+    from atm_bd_types import Refusal
 
 from .closed_cache import ClosedBeads
 from .state import StateStore
