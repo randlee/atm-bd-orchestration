@@ -13,7 +13,7 @@ from atm_bd_types._core import stack_of
 from atm_bd_types._native import _phase_file
 
 
-def test_stack_from_embedded_cache(tmp_path, monkeypatch):
+def test_stack_from_embedded_cache(tmp_path, monkeypatch, recorded_runner):
     helper_path = Path(__file__).resolve().parents[1] / "store" / "beads_db.py"
     spec = importlib.util.spec_from_file_location("beads_db", helper_path)
     assert spec is not None and spec.loader is not None
@@ -38,27 +38,27 @@ def test_stack_from_embedded_cache(tmp_path, monkeypatch):
         assert fact.stack.layers[0].head == head
         assert fact.trunk == "main"
 
-        class Runner:
-            def run(self, argv, stdin):
-                if argv[:3] == ["atm", "task", "list"]:
-                    output = "[]"
-                elif argv[:2] == ["git", "ls-remote"]:
-                    output = f"{head}\trefs/heads/work\n"
-                elif argv[:3] == ["git", "remote", "get-url"]:
-                    output = "https://github.com/example/repo.git"
-                elif argv[:2] == ["git", "merge-base"]:
-                    output = ""
-                elif "headRefOid" in argv:
-                    output = head
-                elif "baseRefName" in argv:
-                    output = "main"
-                elif "statusCheckRollup" in argv:
-                    output = '["SUCCESS"]'
-                else:
-                    raise AssertionError(f"unexpected command {argv!r}")
-                return SimpleNamespace(code=0, stdout=output, stderr="")
-
-        facts = collect("bo", phase_file, SimpleNamespace(runner=Runner(), cache=store), 123, tmp_path)
+        runner = recorded_runner(
+            {"stdout": "[]"},
+            {"stdout": f"{head}\trefs/heads/work\n"},
+            {"stdout": ""},
+            {"stdout": "https://github.com/example/repo.git"},
+            {"stdout": "main"},
+            {"stdout": head},
+            {"stdout": '["SUCCESS"]'},
+            {"stdout": head},
+        )
+        facts = collect("bo", phase_file, SimpleNamespace(runner=runner, cache=store), 123, tmp_path)
+        assert runner.calls == [
+            (["atm", "task", "list", "--all", "--json"], None),
+            (["git", "ls-remote", "--heads", "origin"], None),
+            (["git", "merge-base", "--is-ancestor", "origin/main", "origin/work"], None),
+            (["git", "remote", "get-url", "origin"], None),
+            (["gh", "pr", "view", "7", "--json", "baseRefName", "--jq", ".baseRefName"], None),
+            (["gh", "pr", "view", "7", "--json", "headRefOid", "--jq", ".headRefOid"], None),
+            (["gh", "pr", "view", "7", "--json", "statusCheckRollup", "--jq", "[.statusCheckRollup[] | .conclusion // .state // .status]"], None),
+            (["gh", "pr", "view", "7", "--json", "headRefOid", "--jq", ".headRefOid"], None),
+        ]
         assert facts.errors == []
         assert facts.stack is not None and facts.stack.stack.layers[0].head == head
         assert facts.top_checks is not None and facts.top_checks.head == head

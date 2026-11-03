@@ -1,56 +1,59 @@
 from types import SimpleNamespace
 
+import pytest
 from atm_bd_core.collect.provider import pr_bases, resolve_provider, top_checks
 from atm_bd_types import CheckState, FactKind
 
 
-class Runner:
-    def __init__(self, stdout, code=0):
-        self.stdout, self.code = stdout, code
-
-    def run(self, argv, stdin):
-        return SimpleNamespace(stdout=self.stdout, stderr="failed", code=self.code)
-
-
-def test_resolve_provider_from_remote_and_unknown():
-    provider, error = resolve_provider(Runner("https://github.com/example/repo.git"), None)
+@pytest.mark.parametrize(("remote", "head_argv", "checks_argv", "base_argv", "check_state"), [
+    ("https://github.com/example/repo.git",
+     ["gh", "pr", "view", "5", "--json", "headRefOid", "--jq", ".headRefOid"],
+     ["gh", "pr", "view", "5", "--json", "statusCheckRollup", "--jq", "[.statusCheckRollup[] | .conclusion // .state // .status]"],
+     ["gh", "pr", "view", "5", "--json", "baseRefName", "--jq", ".baseRefName"], "success"),
+    ("https://dev.azure.com/example/repo",
+     ["az", "repos", "pr", "show", "--id", "5", "--query", "lastMergeSourceCommit.commitId", "--output", "tsv"],
+     ["az", "repos", "pr", "status", "list", "--id", "5", "--query", "[].state", "--output", "json"],
+     ["az", "repos", "pr", "show", "--id", "5", "--query", "targetRefName", "--output", "tsv"], "succeeded"),
+])
+def test_provider_commands_and_check_states(recorded_runner, remote, head_argv, checks_argv, base_argv, check_state):
+    discover = recorded_runner({"stdout": remote})
+    provider, error = resolve_provider(discover, None)
     assert provider is not None and error is None
-    provider, error = resolve_provider(Runner("https://unknown.example/repo"), None)
-    assert error is not None
-    assert provider is None and "unknown.example" in error
+    assert discover.calls == [(["git", "remote", "get-url", "origin"], None)]
+    head = "a" * 40
+    layer = SimpleNamespace(pr=5, head=head)
+    runner = recorded_runner({"stdout": head}, {"stdout": f'["{check_state}"]'}, {"stdout": head})
+    result, error = top_checks(runner, provider, layer)
+    assert result is not None and error is None and result.state == CheckState.PASSING
+    assert runner.calls == [(head_argv, None), (checks_argv, None), (head_argv, None)]
+    runner = recorded_runner({"stdout": "refs/heads/main\n"})
+    result, error = pr_bases(runner, provider, [layer])
+    assert result is not None and error is None and result[0].base == "main"
+    assert runner.calls == [(base_argv, None)]
+    runner = recorded_runner({"stdout": head}, {"code": 1, "stderr": "unavailable"})
+    result, error = top_checks(runner, provider, layer)
+    assert result is None and error is not None and error.kind == FactKind.TOP_CHECKS
+    assert runner.calls == [(head_argv, None), (checks_argv, None)]
+    runner = recorded_runner({"code": 1, "stderr": "unavailable"})
+    result, error = pr_bases(runner, provider, [layer])
+    assert result is None and error is not None and error.kind == FactKind.PR_BASES
+    assert runner.calls == [(base_argv, None)]
 
 
-def test_checks_success_and_failed_read():
-    provider, _ = resolve_provider(Runner("https://github.com/example/repo"), None)
+def test_unknown_provider_remote(recorded_runner):
+    runner = recorded_runner({"stdout": "https://unknown.example/repo"})
+    provider, error = resolve_provider(runner, None)
+    assert provider is None and error is not None and "unknown.example" in error
+    assert runner.calls == [(["git", "remote", "get-url", "origin"], None)]
+
+
+def test_checks_rejects_head_mismatch(recorded_runner):
+    discover = recorded_runner({"stdout": "https://github.com/example/repo"})
+    selected, error = resolve_provider(discover, None)
+    assert selected is not None and error is None
     layer = SimpleNamespace(pr=5, head="a" * 40)
-    class ChecksRunner:
-        def run(self, argv, stdin):
-            stdout = "a" * 40 if "headRefOid" in argv else '["SUCCESS"]'
-            return SimpleNamespace(stdout=stdout, stderr="", code=0)
-
-    result, error = top_checks(ChecksRunner(), provider, layer)
-    assert result is not None
-    assert error is None and result.state == CheckState.PASSING
-    result, error = top_checks(Runner("", 1), provider, layer)
-    assert error is not None
-    assert result is None and error.kind == FactKind.TOP_CHECKS
-
-
-def test_bases_success_and_failed_read():
-    provider, _ = resolve_provider(Runner("https://dev.azure.com/example/repo"), None)
-    layer = SimpleNamespace(pr=5)
-    result, error = pr_bases(Runner("refs/heads/main\n"), provider, [layer])
-    assert result is not None
-    assert error is None and result[0].base == "main"
-    result, error = pr_bases(Runner("", 1), provider, [layer])
-    assert error is not None
-    assert result is None and error.kind == FactKind.PR_BASES
-
-
-def test_checks_rejects_head_mismatch():
-    selected, _ = resolve_provider(Runner("https://github.com/example/repo"), None)
-    layer = SimpleNamespace(pr=5, head="a" * 40)
-    value, error = top_checks(Runner("b" * 40), selected, layer)
-    assert error is not None
-    assert value is None and error.kind == FactKind.TOP_CHECKS
+    runner = recorded_runner({"stdout": "b" * 40})
+    value, error = top_checks(runner, selected, layer)
+    assert value is None and error is not None and error.kind == FactKind.TOP_CHECKS
     assert "differs" in error.message
+    assert runner.calls == [(["gh", "pr", "view", "5", "--json", "headRefOid", "--jq", ".headRefOid"], None)]

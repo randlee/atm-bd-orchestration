@@ -5,13 +5,9 @@ from atm_bd_types import FactKind
 from atm_bd_types._native import _phase_file
 
 
-def test_failed_reads_remain_unknown(tmp_path):
+def test_failed_reads_remain_unknown(tmp_path, recorded_runner):
     templates = [(f"/r/{n}", "/r", b"ok") for n in range(4)]
     phase_file = _phase_file("lite", "lead", templates, [("integration_branch", "main")])
-
-    class Runner:
-        def run(self, argv, stdin):
-            return SimpleNamespace(code=1, stdout="", stderr="unavailable")
 
     class Cache:
         def list(self, phase):
@@ -20,7 +16,10 @@ def test_failed_reads_remain_unknown(tmp_path):
         def ready(self, phase):
             raise OSError("offline")
 
-    facts = collect("bo", phase_file, SimpleNamespace(runner=Runner(), cache=Cache()), 123, tmp_path)
+    runner = recorded_runner({"code": 1, "stderr": "unavailable"}, {"code": 1, "stderr": "unavailable"})
+    facts = collect("bo", phase_file, SimpleNamespace(runner=runner, cache=Cache()), 123, tmp_path)
+    assert runner.calls == [(["atm", "task", "list", "--all", "--json"], None),
+                            (["git", "ls-remote", "--heads", "origin"], None)]
     assert facts.now == 123
     assert facts.beads is None and facts.ready is None and facts.tasks is None
     assert facts.reported_keys == []
