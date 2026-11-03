@@ -103,6 +103,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
+      - uses: extractions/setup-just@v2
+        with:
+          just-version: "1.40.0"
       - name: Warm the Python 3.11 script environment
         run: just warm-py311
 
