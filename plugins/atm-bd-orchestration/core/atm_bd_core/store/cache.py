@@ -26,7 +26,7 @@ class CacheStore:
         self.phase = phase
 
     @staticmethod
-    def for_phase(phase: str):
+    def for_phase(phase: str) -> CacheStore | Refusal:
         try:
             cwd = Path.cwd()
             root = next((p for p in (cwd, *cwd.parents) if (p / ".beads").is_dir()), None)

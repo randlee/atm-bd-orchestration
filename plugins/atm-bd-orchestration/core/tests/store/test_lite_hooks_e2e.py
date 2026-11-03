@@ -150,7 +150,8 @@ def test_pending_journal_warning_names_late_write(setup, monkeypatch):
 def test_missing_cache_root_names_the_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = CacheStore.for_phase("bo")
-    assert isinstance(result, Refusal) and result.id == ErrorId.CACHE_UNAVAILABLE
+    assert isinstance(result, Refusal)
+    assert getattr(result, "id", None) == ErrorId.CACHE_UNAVAILABLE
     assert "no .beads directory" in repr(result)
     assert str(tmp_path.resolve()) in repr(result)
 
