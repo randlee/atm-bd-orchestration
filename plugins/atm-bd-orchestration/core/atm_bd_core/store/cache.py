@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
 from pathlib import Path
 
@@ -28,7 +29,10 @@ class CacheStore:
     def for_phase(phase: str):
         try:
             root = next(p for p in (Path.cwd(), *Path.cwd().parents) if (p / ".beads").is_dir())
-            return CacheStore(bd_cache_rs.Cache(str(root), scopes=[phase]), phase)
+            binary = shutil.which("bd")
+            if binary is None:
+                raise FileNotFoundError("bd executable not found on PATH")
+            return CacheStore(bd_cache_rs.Cache(str(root), bd_binary=binary, scopes=[phase]), phase)
         except (bd_cache_rs.CacheError, StopIteration, OSError, RuntimeError, ValueError) as exc:
             return _refusal(exc, phase)
 

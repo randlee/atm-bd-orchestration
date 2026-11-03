@@ -57,10 +57,19 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     for name in ("refuse", "dev-close", "qa-pass", "qa-findings"):
         (tmp_path / f"{name}.j2").write_text("fixed template")
     monkeypatch.chdir(tmp_path)
-    cache = bd_cache_rs.Cache(str(tmp_path), bd_binary=os.environ.get("ATM_TEST_BD", "bd"), scopes=["bo"])
+    binary = os.environ.get("ATM_TEST_BD", "bd")
+    cache = bd_cache_rs.Cache(str(tmp_path), bd_binary=binary, scopes=["bo"])
     cache.sync("bo", 30)
-    yield tmp_path, CacheStore(cache, "bo")
     cache.close()
+    if os.path.isabs(binary):
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        (bindir / "bd").symlink_to(binary)
+        monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ.get("PATH", ""))
+    store = CacheStore.for_phase("bo")
+    assert isinstance(store, CacheStore), store
+    yield tmp_path, store
+    store.cache.close()
 
 
 def test_three_hooks_assign_start_and_close_on_real_db(setup):
