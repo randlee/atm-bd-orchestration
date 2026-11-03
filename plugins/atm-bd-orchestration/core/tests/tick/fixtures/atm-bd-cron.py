@@ -36,7 +36,7 @@ def decide(facts: PhaseFacts, params: Params) -> list[Action]:
         dev = next((b for b in facts.beads or [] if b.id == bead.checked_bead), None)
         layer = (layers[-1] if layers and bead.stage == Stage.LAND else
                  next((item for item in layers if dev is not None and item.branch == dev.branch), None))
-        if not repo or layer is None or not layer.pr or not layer.head:
+        if not repo or layer is None or not layer.pr or not layer.branch or not layer.head:
             actions.append(Report(f"cron:review:{bead.id}", "config", bead.id,
                                   "Missing repo, checked dev bead, or recorded review layer (branch, PR, head)."))
             continue

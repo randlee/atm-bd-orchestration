@@ -12,7 +12,7 @@ metadata:
   <profile>{{ profile }}</profile>
   <instructions><![CDATA[
 Read your own bead with `bd show {{ task_id }} --json` for the work and metadata. Start with `atm task start {{ task_id }}`.
-Never write your own task bead: only the task hooks do that. The only `bd` writes below are to the stack bead.
+Never write your own task bead: only the task hooks do that. Run no cache commands; hooks refresh what they read. The only `bd` writes below are to the stack bead.
 Run this setup block from the primary checkout; it locks the stack and creates an isolated worktree:
 
 ```bash

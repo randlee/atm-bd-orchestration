@@ -45,6 +45,32 @@ def set_repo(primary: Path, phase: str, repo: str) -> None:
     temp.replace(path)
 
 
+def set_startup(primary: Path, policy_path: Path, profile: str) -> None:
+    """Install role instructions without changing unrelated configuration blocks."""
+    policy = tomllib.loads(policy_path.read_text(encoding="utf-8"))
+    params = policy.get("params", {})
+    roles = [("dev", params.get("dev_agent")), ("qa", params.get("qa_agent")), ("lead", params.get("lead"))]
+    if any(not isinstance(agent, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", agent) for _, agent in roles):
+        raise ValueError("policy must name dev_agent, qa_agent and lead")
+    if len({agent for _, agent in roles}) != len(roles):
+        raise ValueError("lite roles must use distinct agent identities")
+    path = primary / ".atm.toml"
+    source = path.read_text(encoding="utf-8") if path.exists() else ""
+    tomllib.loads(source)
+    for role, agent in roles:
+        header = f"startup.{agent}"
+        pattern = rf"(?ms)^\[{re.escape(header)}\][^\n]*\n.*?(?=^\[|\Z)"
+        source = re.sub(pattern, "", source)
+        message = (f"Your role is {role} in the {profile} profile. Work only from the assigned template; "
+                   "do not load the full orchestration skill. Use atm task start and atm task close as the only "
+                   "task transitions. Never write your own task bead. Run no cache commands; hooks refresh their reads.")
+        source += f"\n[{header}]\nall = [{json.dumps(message)}]\n"
+    tomllib.loads(source)
+    temp = path.with_suffix(".toml.tmp")
+    temp.write_text(source, encoding="utf-8")
+    temp.replace(path)
+
+
 def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expression: str, repo: str) -> None:
     loaded = load_profile(profile_path)
     if isinstance(loaded, Refusal):
@@ -55,6 +81,7 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
         raise ValueError("phase must be a single path component")
     primary = primary.resolve()
     set_repo(primary, phase, repo)
+    set_startup(primary, loaded.path(loaded.profile.policy), loaded.profile.name)
     target = primary / ".atm-bd" / "install" / phase
     target.mkdir(parents=True, exist_ok=True)
     python = target / "venv" / "bin" / "python"

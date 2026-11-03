@@ -1,6 +1,7 @@
 """Controlled tests for profile-driven registration and the cron wire."""
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,8 +20,21 @@ def test_registers_each_declared_hook_and_cron_with_runtime_launchers(tmp_path, 
     phase_dir = tmp_path / ".atm-bd"
     phase_dir.mkdir()
     (phase_dir / "phase-sample.toml").write_text('profile = "lite"\n[templates]\n', encoding="utf-8")
+    unrelated = '[atm]\ndefault_team = "other"\n\n[startup.unrelated]\nall = ["leave me alone"]\n'
+    (tmp_path / ".atm.toml").write_text(unrelated, encoding="utf-8")
     monkeypatch.setattr(installer.subprocess, "run", lambda argv, **kwargs: calls.append(argv))
     installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
+    startup = (tmp_path / ".atm.toml").read_text(encoding="utf-8")
+    assert startup.startswith(unrelated)
+    installer.set_startup(tmp_path, PROFILE.parent / "policy.toml", "lite")
+    assert (tmp_path / ".atm.toml").read_text(encoding="utf-8") == startup
+    entries = tomllib.loads(startup)["startup"]
+    assert entries["unrelated"] == {"all": ["leave me alone"]}
+    for agent, role in (("dev", "dev"), ("quality-mgr", "qa"), ("team-lead", "lead")):
+        [line] = entries[agent]["all"]
+        assert line == (f"Your role is {role} in the lite profile. Work only from the assigned template; "
+                        "do not load the full orchestration skill. Use atm task start and atm task close as the only "
+                        "task transitions. Never write your own task bead. Run no cache commands; hooks refresh their reads.")
     assert 'repo = "owner/repo"' in (phase_dir / "phase-sample.toml").read_text(encoding="utf-8")
     registrations = [args for args in calls if args[:3] == ["atm", "hook", "register"]]
     sync_index = next(i for i, args in enumerate(calls) if args[1:3] == ["-m", "atm_bd_core.install.sync"])
