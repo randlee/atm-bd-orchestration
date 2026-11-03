@@ -60,13 +60,16 @@ def top_checks(runner, provider, layer):
         if not isinstance(states, list) or any(not isinstance(state, str) for state in states):
             raise ValueError("expected list of check states")
         states = [state.lower() for state in states]
-        if any(state in {"failure", "failed", "error", "cancelled", "timed_out", "action_required"} for state in states):
+        known = set(provider["failing"]) | set(provider["pending"]) | set(provider["passing"])
+        if any(state not in known for state in states):
+            raise ValueError(f"unknown check states: {states}")
+        if any(state in provider["failing"] for state in states):
             state = CheckState.FAILING
-        elif any(state in {"pending", "queued", "in_progress", "notset", "running", "expected", "waiting", "requested", "inprogress", ""} for state in states):
+        elif any(state in provider["pending"] for state in states):
             state = CheckState.PENDING
         elif not states:
             state = CheckState.NONE
-        elif all(state in {"success", "succeeded", "neutral", "skipped"} for state in states):
+        elif all(state in provider["passing"] for state in states):
             state = CheckState.PASSING
         else:
             raise ValueError(f"unknown check states: {states}")
@@ -80,7 +83,7 @@ def pr_bases(runner, provider, layers):
     for layer in layers:
         argv = [part.replace("{pr}", str(layer.pr)) for part in provider["base"]]
         try:
-            base = _run(runner, provider["base"], layer.pr).strip().removeprefix("refs/heads/")
+            base = _run(runner, provider["base"], layer.pr).strip().removeprefix(provider["base_prefix"])
             if not base:
                 raise ValueError("empty pull request base")
             bases.append(PrBase(layer.pr, base))

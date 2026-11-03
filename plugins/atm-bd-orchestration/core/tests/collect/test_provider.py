@@ -57,3 +57,38 @@ def test_checks_rejects_head_mismatch(recorded_runner):
     assert value is None and error is not None and error.kind == FactKind.TOP_CHECKS
     assert "differs" in error.message
     assert runner.calls == [(["gh", "pr", "view", "5", "--json", "headRefOid", "--jq", ".headRefOid"], None)]
+
+
+def test_provider_states_are_isolated_and_unknown_fails_closed(recorded_runner):
+    layer = SimpleNamespace(pr=5, head="a" * 40)
+    for remote, valid, pending, failing, foreign in [
+        ("https://github.com/example/repo", "success", "queued", "timed_out", "succeeded"),
+        ("https://dev.azure.com/example/repo", "succeeded", "notset", "failed", "success"),
+    ]:
+        provider, error = resolve_provider(recorded_runner({"stdout": remote}), None)
+        assert provider is not None and error is None
+        for state, expected in [(valid, CheckState.PASSING), (pending, CheckState.PENDING),
+                                (failing, CheckState.FAILING)]:
+            runner = recorded_runner({"stdout": layer.head}, {"stdout": f'["{state}"]'}, {"stdout": layer.head})
+            value, error = top_checks(runner, provider, layer)
+            assert value is not None and error is None and value.state == expected
+        for states in (f'["{foreign}"]', '["pending", "not-a-real-state"]'):
+            runner = recorded_runner({"stdout": layer.head}, {"stdout": states}, {"stdout": layer.head})
+            value, error = top_checks(runner, provider, layer)
+            assert value is None and error is not None and error.kind == FactKind.TOP_CHECKS
+            assert "unknown check states" in error.message
+        runner = recorded_runner({"stdout": layer.head}, {"stdout": "[]"}, {"stdout": layer.head})
+        value, error = top_checks(runner, provider, layer)
+        assert value is not None and error is None and value.state == CheckState.NONE
+
+
+def test_base_prefix_is_provider_specific(recorded_runner):
+    layer = SimpleNamespace(pr=5)
+    for remote, expected in [
+        ("https://github.com/example/repo", "refs/heads/main"),
+        ("https://dev.azure.com/example/repo", "main"),
+    ]:
+        provider, error = resolve_provider(recorded_runner({"stdout": remote}), None)
+        assert provider is not None and error is None
+        bases, error = pr_bases(recorded_runner({"stdout": "refs/heads/main"}), provider, [layer])
+        assert bases is not None and error is None and bases[0].base == expected
