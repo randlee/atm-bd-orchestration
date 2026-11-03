@@ -10,7 +10,7 @@ from atm_bd_core.tick import tick
 from atm_bd_types import Assign, CollectError, ErrorId, FactKind, PhaseFacts, Refusal, TaskFact, TaskState
 from atm_bd_types._core import OutcomeKind, Ports, TickResult
 
-from .helpers import LEAD, QA, Collector, Runner, make_primary, make_profile, ports, qa_bead
+from .helpers import STARTUP_PARAMS, LEAD, QA, Collector, Runner, make_primary, make_profile, ports, qa_bead
 
 NOW = 1_700_000_000
 
@@ -192,7 +192,7 @@ def test_dry_run_executes_nothing_and_writes_no_state(tmp_path):
 
 def test_missing_params_report_goes_to_the_lead_once_then_stays_a_row(tmp_path, monkeypatch):
     monkeypatch.setenv("ATM_TEAM", "test-team")
-    make_profile(tmp_path, policy='[params]\nqa_agent = "qa-agent"\n')
+    make_profile(tmp_path, policy='[params]\nqa_agent = "qa-agent"\n' + STARTUP_PARAMS)
     make_primary(tmp_path)
     runner, collector = Runner(), Collector([qa_bead()])
     first = run(tmp_path, runner, collector)
@@ -210,7 +210,7 @@ def test_missing_params_report_goes_to_the_lead_once_then_stays_a_row(tmp_path, 
 
 
 def test_unreadable_reported_keys_hold_reports_instead_of_resending(tmp_path):
-    make_profile(tmp_path, policy='[params]\nqa_agent = "qa-agent"\n')
+    make_profile(tmp_path, policy='[params]\nqa_agent = "qa-agent"\n' + STARTUP_PARAMS)
     make_primary(tmp_path)
     keys = tmp_path / "primary/.atm-bd/state/phase-bo/reported-keys.json"
     keys.parent.mkdir(parents=True)
@@ -297,7 +297,7 @@ def test_report_deduplication_uses_same_ledger_when_filename_changes(tmp_path, m
     monkeypatch.setenv("ATM_TEAM", "test-team")
 
     monkeypatch.setattr(reported, "REPORTED_KEYS", "renamed-reports.json")
-    make_profile(tmp_path, policy='[params]\nqa_agent = "qa-agent"\n')
+    make_profile(tmp_path, policy='[params]\nqa_agent = "qa-agent"\n' + STARTUP_PARAMS)
     make_primary(tmp_path)
     runner, collector = Runner(), Collector([qa_bead()])
     first = run(tmp_path, runner, collector)

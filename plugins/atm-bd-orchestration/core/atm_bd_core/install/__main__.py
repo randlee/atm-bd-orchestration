@@ -67,30 +67,36 @@ def set_phase_paths(primary: Path, phase: str, installed: LoadedProfile, manifes
     temp.replace(path)
 
 
-def set_startup(primary: Path, policy_path: Path) -> None:
+def set_startup(primary: Path, installed: LoadedProfile) -> None:
     """Install role instructions without changing unrelated configuration blocks."""
-    policy = tomllib.loads(policy_path.read_text(encoding="utf-8"))
+    policy = tomllib.loads(installed.path(installed.profile.policy).read_text(encoding="utf-8"))
     params = policy.get("params", {})
-    roles = [("dev", params.get("dev_agent")), ("qa", params.get("qa_agent")), ("lead", params.get("lead"))]
-    if any(not isinstance(agent, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", agent) for _, agent in roles):
-        raise ValueError("policy must name dev_agent, qa_agent and lead")
-    if len({agent for _, agent in roles}) != len(roles):
-        raise ValueError("roles must use distinct agent identities")
+    pairs = [(params.get(agent), params.get(message)) for agent, message in installed.profile.startup.items()]
+    if any(not isinstance(agent, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", agent) for agent, _ in pairs):
+        raise ValueError("startup agent params must name valid identities")
+    if len({agent for agent, _ in pairs}) != len(pairs):
+        raise ValueError("startup entries must use distinct agent identities")
+    if any(not isinstance(message, str) or not message for _, message in pairs):
+        raise ValueError("startup message params must contain non-empty text")
     path = primary / ".atm.toml"
     source = path.read_text(encoding="utf-8") if path.exists() else ""
     tomllib.loads(source)
-    for role, agent in roles:
+    for agent, message in pairs:
         header = f"startup.{agent}"
         pattern = rf"(?ms)^\[{re.escape(header)}\][^\n]*\n.*?(?=^\[|\Z)"
         source = re.sub(pattern, "", source)
-        message = params.get(f"{role}_startup")
-        if not isinstance(message, str) or not message:
-            raise ValueError(f"policy must provide {role}_startup")
         source += f"\n[{header}]\nall = [{json.dumps(message)}]\n"
     tomllib.loads(source)
     temp = path.with_suffix(".toml.tmp")
     temp.write_text(source, encoding="utf-8")
     temp.replace(path)
+
+
+def cache_requirement(core: Path) -> str:
+    """Use the same cache source and revision as the core project."""
+    with (core / "pyproject.toml").open("rb") as source:
+        cache = tomllib.load(source)["tool"]["uv"]["sources"]["bd-cache-rs"]
+    return f"bd-cache-rs @ git+{cache['git']}@{cache['rev']}#subdirectory={cache['subdirectory']}"
 
 
 def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expression: str, repo: str) -> None:
@@ -103,7 +109,7 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
         raise ValueError("phase must be a single path component")
     primary = primary.resolve()
     set_repo(primary, phase, repo)
-    set_startup(primary, loaded.path(loaded.profile.policy))
+    set_startup(primary, loaded)
     target = primary / ".atm-bd" / "install" / phase
     target.mkdir(parents=True, exist_ok=True)
     python = target / "venv" / "bin" / "python"
@@ -112,8 +118,7 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
     core = checkout / "plugins/atm-bd-orchestration/core"
     types = checkout / "crates/atm-bd-types"
     subprocess.run(["uv", "pip", "install", "--python", str(python), str(types), str(core),
-                    ("bd-cache-rs @ git+https://github.com/randlee/beads-cache@"
-                     "f57859f5c01fa463eb57ef11679e00118532c993#subdirectory=crates/bd-cache-py")], check=True)
+                    cache_requirement(core)], check=True)
     subprocess.run([str(python), "-m", "atm_bd_core.install.sync", str(primary), phase], check=True)
     skill = target / "profile"
     shutil.copytree(loaded.root, skill, dirs_exist_ok=True)

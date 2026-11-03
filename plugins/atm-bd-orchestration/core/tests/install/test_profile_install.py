@@ -10,6 +10,7 @@ import pytest
 from atm_bd_core import cron_entry
 from atm_bd_core.install import __main__ as installer
 from atm_bd_core.install import sync
+from atm_bd_core.profile import load_profile
 from atm_bd_types import ErrorId, Refusal, Status
 
 ROOT = Path(__file__).resolve().parents[5]
@@ -27,7 +28,7 @@ def test_registers_each_declared_hook_and_cron_with_runtime_launchers(tmp_path, 
     installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
     startup = (tmp_path / ".atm.toml").read_text(encoding="utf-8")
     assert startup.startswith(unrelated)
-    installer.set_startup(tmp_path, PROFILE.parent / "policy.toml")
+    installer.set_startup(tmp_path, load_profile(PROFILE))
     assert (tmp_path / ".atm.toml").read_text(encoding="utf-8") == startup
     entries = tomllib.loads(startup)["startup"]
     assert entries["unrelated"] == {"all": ["leave me alone"]}
@@ -154,3 +155,22 @@ def test_reinstall_reuses_venv_and_identical_active_cron(tmp_path, monkeypatch):
     installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
     assert not any(args[:2] == ["uv", "venv"] for args in calls)
     assert any(args[:3] == ["atm", "cron", "list"] for args in calls)
+
+
+def test_cache_requirement_uses_core_project_source(tmp_path):
+    revision = "a" * 40
+    (tmp_path / "pyproject.toml").write_text(
+        f'[tool.uv.sources]\nbd-cache-rs = {{ git = "https://example.test/cache", rev = "{revision}", '
+        'subdirectory = "python/cache" }\n', encoding="utf-8")
+    assert installer.cache_requirement(tmp_path) == (
+        f"bd-cache-rs @ git+https://example.test/cache@{revision}#subdirectory=python/cache")
+
+
+def test_startup_uses_arbitrary_declared_policy_parameters(tmp_path):
+    policy = tmp_path / "policy.toml"
+    policy.write_text('[params]\nworker_name = "worker"\nworker_message = "instructions"\n', encoding="utf-8")
+    loaded = SimpleNamespace(path=lambda relative: policy,
+                             profile=SimpleNamespace(policy="policy.toml", startup={"worker_name": "worker_message"}))
+    installer.set_startup(tmp_path, loaded)
+    assert tomllib.loads((tmp_path / ".atm.toml").read_text(encoding="utf-8"))["startup"] == {
+        "worker": {"all": ["instructions"]}}

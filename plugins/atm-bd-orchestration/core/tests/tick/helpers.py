@@ -16,7 +16,8 @@ from atm_bd_types._native import _bead, _layer, _stack
 SHIPPED = Path(__file__).resolve().parents[3] / "skills" / "atm-bd-lite"
 LEAD = "lead-agent"
 QA = "qa-agent"
-POLICY = '[params]\nqa_agent = "qa-agent"\nqa_template = "templates/qa.xml.j2"\n'
+STARTUP_PARAMS = 'dev_agent = "dev-agent"\nlead = "lead-agent"\ndev_startup = "dev instructions"\nqa_startup = "qa instructions"\nlead_startup = "lead instructions"\n'
+POLICY = '[params]\nqa_agent = "qa-agent"\nqa_template = "templates/qa.xml.j2"\n' + STARTUP_PARAMS
 HOOK_FILES = ["scripts/atm-bd-task-assign-hook.py", "scripts/atm-bd-task-start-hook.py",
               "scripts/atm-bd-task-hook.py"]
 TEMPLATE_FILES = ["templates/refuse.md.j2", "templates/dev-close.md.j2", "templates/qa-pass.md.j2",

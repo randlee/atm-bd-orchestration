@@ -387,6 +387,7 @@ record! {
         templates: std::collections::BTreeMap<crate::plugin::Template, String>,
         policy: String,
         cron: Option<String> = None => "None",
+        startup: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new() => "{}",
     }
 }
 

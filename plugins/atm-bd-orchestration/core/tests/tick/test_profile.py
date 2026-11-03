@@ -61,15 +61,17 @@ def test_bad_profile_refuses_profile_mismatch(tmp_path, edit):
     'notify_template = "templates/missing.j2"\n',
 ], ids=["malformed", "bool", "array", "params-not-table", "unknown-key", "missing-notify-template"])
 def test_bad_policy_refuses_policy_bad_params(tmp_path, policy):
-    loaded = load_profile(make_profile(tmp_path, policy=policy))
+    loaded = load_profile(make_profile(tmp_path))
     assert not isinstance(loaded, Refusal)
+    (loaded.root / "policy.toml").write_text(policy, encoding="utf-8")
     refused = load_policy(loaded)
     assert isinstance(refused, Refusal) and refused.id == ErrorId.POLICY_BAD_PARAMS
 
 
 def test_policy_naming_another_profile_refuses_profile_mismatch(tmp_path):
-    loaded = load_profile(make_profile(tmp_path, policy='profile = "other"\n[params]\n'))
+    loaded = load_profile(make_profile(tmp_path))
     assert not isinstance(loaded, Refusal)
+    (loaded.root / "policy.toml").write_text('profile = "other"\n[params]\n', encoding="utf-8")
     refused = load_policy(loaded)
     assert isinstance(refused, Refusal) and refused.id == ErrorId.PROFILE_MISMATCH
 
@@ -129,3 +131,11 @@ def test_decide_returning_non_actions_raises(tmp_path, body):
     assert cron is not None and not isinstance(cron, Refusal)
     with pytest.raises(TypeError, match="decide returned"):
         cron.decide(PhaseFacts("bo", 0, _phase_file("lite", "lead", TEMPLATES, [])), Params([]))
+
+
+@pytest.mark.parametrize("entry", ['missing = "qa_agent"', 'qa_agent = "missing"'])
+def test_startup_unknown_policy_param_refuses(tmp_path, entry):
+    path = make_profile(tmp_path)
+    source = path.read_text(encoding="utf-8").split("\n[startup]", 1)[0]
+    path.write_text(f"{source}\n[startup]\n{entry}\n", encoding="utf-8")
+    assert refusal_id(load_profile(path)) == ErrorId.PROFILE_MISMATCH

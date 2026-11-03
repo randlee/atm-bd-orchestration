@@ -20,7 +20,7 @@ from atm_bd_types._core import Policy
 HOOKS = {"task.assign": Hook.TASK_ASSIGN, "task.start": Hook.TASK_START, "task.close": Hook.TASK_CLOSE}
 TEMPLATES = {"refuse": Template.REFUSE, "dev-close": Template.DEV_CLOSE, "qa-pass": Template.QA_PASS,
              "qa-findings": Template.QA_FINDINGS, "land-close": Template.LAND_CLOSE}
-PROFILE_KEYS = {"name", "stages", "hooks", "templates", "policy", "cron"}
+PROFILE_KEYS = {"name", "stages", "hooks", "templates", "policy", "cron", "startup"}
 POLICY_KEYS = {"profile", "notify_template", "params"}
 
 
@@ -85,7 +85,18 @@ def load_profile(path: Path) -> LoadedProfile | Refusal:
             raise ValueError("cron must be a path")
         hooks = _text_map(raw["hooks"], HOOKS, "hooks")
         templates = _text_map(raw["templates"], TEMPLATES, "templates")
-        loaded = LoadedProfile(Profile(name, stages, hooks, templates, policy, cron), file.parent)
+        startup = raw.get("startup", {})
+        if not isinstance(startup, dict) or any(not isinstance(v, str) or not v for v in startup.values()):
+            raise ValueError("[startup] must map agent parameters to message parameters")
+        loaded = LoadedProfile(Profile(name, stages, hooks, templates, policy, cron, startup), file.parent)
+        if startup:
+            policy_data = load_policy(loaded)
+            if isinstance(policy_data, Refusal):
+                return policy_data
+            unknown_params = [key for key in [*startup, *startup.values()]
+                              if policy_data.params.text(key) is None and policy_data.params.int(key) is None]
+            if unknown_params:
+                raise ValueError(f"startup references unknown policy params {sorted(unknown_params)}")
         for relative in [*hooks.values(), *templates.values(), *([cron] if cron else [])]:  # policy: load_policy
             if not loaded.path(relative).is_file():
                 raise FileNotFoundError(f"{relative} named by {file} does not exist")
