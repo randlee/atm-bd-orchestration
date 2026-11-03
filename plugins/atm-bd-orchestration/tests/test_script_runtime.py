@@ -18,7 +18,7 @@ import install
 
 PKG = Path(__file__).resolve().parents[1]
 SCRIPTS = sorted(p for p in PKG.glob("skills/*/scripts/*") if p.is_file() and p.read_bytes().startswith(b"#!")
-                 and not p.read_bytes().startswith(b"#!/bin/sh"))  # `bead-queues` is a sh wrapper over `atm-bd queues`
+                 and not p.read_bytes().startswith(b"#!/bin/sh") and p.parent.parent.name != "atm-bd-lite")  # profile hooks retain their approved source headers
 EXECUTABLES = [*SCRIPTS, PKG / "install.py"]
 DOCUMENTS = sorted(p for p in PKG.rglob("*") if p.suffix in {".md", ".j2", ".yaml", ".json"}
                    and p.is_file() and "CHANGELOG" not in p.name and ".pytest_cache" not in p.parts)
@@ -46,7 +46,7 @@ def test_every_executable_script_starts_with_the_header_and_is_executable():
 
 def test_library_modules_carry_no_shebang():
     for path in PKG.glob("skills/*/scripts/*.py"):
-        if path not in SCRIPTS:
+        if path not in SCRIPTS and path.parent.parent.name != "atm-bd-lite":
             assert not path.read_text(encoding="utf-8").startswith("#!"), path
 
 

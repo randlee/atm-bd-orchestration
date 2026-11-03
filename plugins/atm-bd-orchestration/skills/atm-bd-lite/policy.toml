@@ -1,0 +1,3 @@
+[params]
+qa_agent = "quality-mgr"
+qa_template = "templates/qa.xml.j2"

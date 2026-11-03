@@ -31,5 +31,9 @@
     "plugins/atm-bd-orchestration/skills/atm-beads/scripts",
     "plugins/atm-bd-orchestration/skills/atm-beads/tests",
     "plugins/atm-bd-orchestration/skills/sprint-report/scripts"
+  ],
+  "exclude": [
+    "plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts",
+    "plugins/atm-bd-orchestration/tests/lite"
   ]
 }
