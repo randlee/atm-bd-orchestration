@@ -1,5 +1,8 @@
 """hooks/task-close.md: one test per Transitions row (T-CLOSE-01..04), per guard, and per Errors row."""
+import json
+
 import atm_bd_types as T
+import pytest
 from lite_helpers import (DEV, QA, FakePhases, FakeStore, action_template, action_vars, bead, expect_refused,
                       hook_request, layer, reply_actions, reply_data)
 
@@ -91,11 +94,22 @@ def test_t_close_03_pass_closes_with_sha(hooks):
 
 
 
-def test_qa_without_checked_bead_does_not_select_a_closed_work_bead(hooks):
+@pytest.mark.parametrize("verdict", ["PASS", "FINDINGS"])
+def test_qa_without_checked_bead_does_not_select_a_closed_work_bead(hooks, monkeypatch, verdict):
     qa = bead("bo-10-qa", S.IN_PROGRESS, QA, stage=T.Stage.QA, stack_bead="stack", sprint="sprint-10", phase="bo")
-    req = completed(caller=QA, task="bo-10-qa", verdict="PASS", verdict_sha=LAYER.head)
+    req = completed(caller=QA, task="bo-10-qa", verdict=verdict, verdict_sha=LAYER.head,
+                    findings=[{"id": "f-1", "blocking": True}] if verdict == "FINDINGS" else [])
+    looked_up = []
+    original = FakeStore.show
+    def show(store, bead_id):
+        looked_up.append(bead_id)
+        return original(store, bead_id)
+    monkeypatch.setattr(FakeStore, "show", show)
     reply, store = run(hooks, qa, req, target=LAYER)
-    expect_refused(reply, T.ErrorId.STACK_NOT_RECORDED, store)
+    expect_refused(reply, T.ErrorId.QA_NOTHING_TO_REVIEW, store)
+    message = json.loads(reply.to_json(T.Hook.TASK_CLOSE))["message"]
+    assert "bo-10-qa" in message and "checked_bead" in message
+    assert looked_up == ["bo-10-qa"]
     assert store.target_requests == []
 
 

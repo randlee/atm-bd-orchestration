@@ -27,7 +27,6 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
         return HookReply.refused(transition)
     if bead.status == Status.CLOSED and transition == Transition.GIVE_BACK:
         return HookReply.refused(Refusal(ErrorId.BEAD_CLOSED, bead=bead.id))
-
     match transition:
         case Transition.GIVE_BACK:  # T-CLOSE-01
             if not (reason := req.close_reason):
@@ -44,6 +43,8 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
         case Transition.QA_PASS:  # T-CLOSE-03
             if isinstance(verdict := req.qa_pass(), Refusal):
                 return HookReply.refused(verdict)
+            if bead.checked_bead is None:
+                return HookReply.refused(Refusal(ErrorId.QA_NOTHING_TO_REVIEW, bead=bead.id, reason="checked_bead missing"))
             if isinstance(checked := beads.show(bead.checked_bead), Refusal):
                 return HookReply.refused(checked)
             if isinstance(target := beads.target_layer(checked), Refusal):
@@ -56,6 +57,8 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
         case Transition.QA_FINDINGS:  # T-CLOSE-04
             if isinstance(verdict := req.qa_findings(), Refusal):
                 return HookReply.refused(verdict)
+            if bead.checked_bead is None:
+                return HookReply.refused(Refusal(ErrorId.QA_NOTHING_TO_REVIEW, bead=bead.id, reason="checked_bead missing"))
             if isinstance(checked := beads.show(bead.checked_bead), Refusal):
                 return HookReply.refused(checked)
             if isinstance(target := beads.target_layer(checked), Refusal):
