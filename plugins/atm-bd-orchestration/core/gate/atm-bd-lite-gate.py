@@ -14,7 +14,7 @@ beads write and no create/claim/release (ANC-064), stack_bead only read (ANC-065
 (ANC-066), <= 100 lines (ANC-070). Then one Jev request with two question sets: every Transitions row
 is implemented by exactly one arm with no additional check or write (ANC-053); every arm and reply site
 is listed as a row or an Errors entry (ANC-054). Writes the run JSON; exits 1 on any failure or "no",
-2 when Jev cannot be asked.
+2 when Jev cannot be asked, and 3 for invalid usage.
 """
 import ast, dataclasses, json, sys
 from pathlib import Path
@@ -140,9 +140,12 @@ def findings(answers: dict, f: dict) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    if argv in (["-h"], ["--help"]):
+        print(__doc__)
+        return 0
     if len(argv) != 4 or argv[2] != "--out" or not argv[3]:
         print(__doc__, file=sys.stderr)
-        return 2
+        return 3
     hook, spec = Path(argv[0]), Path(argv[1])
     out = Path(argv[3])
     src, spec_md = hook.read_text(), spec.read_text()
