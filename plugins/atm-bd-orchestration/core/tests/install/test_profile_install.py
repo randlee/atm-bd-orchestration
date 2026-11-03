@@ -17,6 +17,28 @@ ROOT = Path(__file__).resolve().parents[5]
 PROFILE = ROOT / "plugins/atm-bd-orchestration/skills/atm-bd-lite/profile.toml"
 
 
+def list_response(argv, calls, tmp_path):
+    """Produce the bare-array shape returned by ATM's hook/cron list commands."""
+    target = tmp_path / ".atm-bd/install/sample"
+    phase = "sample"
+    if argv[:3] == ["atm", "hook", "list"]:
+        rows = [{"team": "test-team", "phase": phase, "hook": hook,
+                 "module_path": str(target / f"{hook}.py"), "cwd": str(tmp_path),
+                 "timeout_ms": 2500, "custom": {}, "active": True,
+                 "registered_by": "lead", "registered_at": "2026-10-19T00:00:00Z", "disabled_at": None}
+                for hook in ("task.assign", "task.start", "task.close")]
+        return SimpleNamespace(stdout=json.dumps(rows))
+    if argv[:3] == ["atm", "cron", "list"]:
+        row = {"id": 1, "generation": 1, "team": "test-team", "phase": phase, "name": "profile",
+               "cron_expr": "0 * * * * *", "module_path": str(target / "cron.py"), "cwd": str(tmp_path),
+               "args": [str(target / "profile/profile.toml"), str(tmp_path)], "timeout_ms": 30000,
+               "jitter_s": 0, "custom": {}, "stop": {"kind": "hook"}, "active": True,
+               "created_by": "lead", "created_at": "2026-10-19T00:00:00Z",
+               "last_run_at": None, "last_outcome": None, "ended_at": None}
+        return SimpleNamespace(stdout=json.dumps([row]))
+    return SimpleNamespace(stdout="")
+
+
 def test_registers_each_declared_hook_and_cron_with_runtime_launchers(tmp_path, monkeypatch):
     calls = []
     phase_dir = tmp_path / ".atm-bd"
@@ -24,7 +46,11 @@ def test_registers_each_declared_hook_and_cron_with_runtime_launchers(tmp_path, 
     (phase_dir / "phase-sample.toml").write_text('profile = "lite"\n[templates]\n', encoding="utf-8")
     unrelated = '[atm]\ndefault_team = "other"\n\n[startup.unrelated]\nall = ["leave me alone"]\n'
     (tmp_path / ".atm.toml").write_text(unrelated, encoding="utf-8")
-    monkeypatch.setattr(installer.subprocess, "run", lambda argv, **kwargs: calls.append(argv))
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return list_response(argv, calls, tmp_path)
+
+    monkeypatch.setattr(installer.subprocess, "run", run)
     installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
     startup = (tmp_path / ".atm.toml").read_text(encoding="utf-8")
     assert startup.startswith(unrelated)
@@ -143,13 +169,7 @@ def test_reinstall_reuses_venv_and_identical_active_cron(tmp_path, monkeypatch):
         calls.append(argv)
         if argv[:3] == ["atm", "cron", "start"]:
             raise subprocess.CalledProcessError(3, argv)
-        if argv[:3] == ["atm", "cron", "list"]:
-            cron = {"active": True, "name": "profile", "module_path": str(phase_dir / "install/sample/cron.py"),
-                    "cron_expr": "0 * * * * *", "cwd": str(tmp_path),
-                    "args": [str(phase_dir / "install/sample/profile/profile.toml"), str(tmp_path)],
-                    "stop": {"kind": "hook"}}
-            return SimpleNamespace(stdout=json.dumps([cron]))
-        return SimpleNamespace(stdout="")
+        return list_response(argv, calls, tmp_path)
 
     monkeypatch.setattr(installer.subprocess, "run", run)
     installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
@@ -243,3 +263,70 @@ def test_timeout_rejects_missing_or_invalid_declarations(tmp_path, source):
     module.write_text(source, encoding="utf-8")
     with pytest.raises(ValueError):
         installer.timeout(module, "TIMEOUT_MS")
+
+
+@pytest.mark.parametrize("kind,mutation", [
+    ("hook", "missing"), ("hook", "inactive"), ("hook", "wrong_module"), ("hook", "wrong_phase"),
+    ("cron", "missing"), ("cron", "inactive"), ("cron", "wrong_module"), ("cron", "wrong_phase"),
+    ("cron", "wrong_args"), ("cron", "wrong_stop"),
+])
+def test_registration_check_refuses_missing_or_wrong_rows(tmp_path, monkeypatch, kind, mutation):
+    hooks = {name: tmp_path / f".atm-bd/install/sample/{name}.py"
+             for name in ("task.assign", "task.start", "task.close")}
+    target = tmp_path / ".atm-bd/install/sample"
+    entry = target / "cron.py"
+    cron_args = [str(target / "profile/profile.toml"), str(tmp_path)]
+
+    def run(argv, **kwargs):
+        response = list_response(argv, [], tmp_path)
+        if argv[1] == kind:
+            rows = json.loads(response.stdout)
+            if mutation == "missing":
+                rows.pop()
+            else:
+                row = rows[-1]
+                if mutation == "inactive":
+                    row["active"] = False
+                elif mutation == "wrong_module":
+                    row["module_path"] = "/other.py"
+                elif mutation == "wrong_phase":
+                    row["phase"] = "other"
+                elif mutation == "wrong_args":
+                    row["args"] = []
+                else:
+                    row["stop"] = {"kind": "manual"}
+            return SimpleNamespace(stdout=json.dumps(rows))
+        return response
+
+    monkeypatch.setattr(installer.subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="active"):
+        installer.verify_registrations("sample", tmp_path, hooks, entry, "0 * * * * *", cron_args)
+
+
+def test_registration_list_rejects_non_array(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(stdout='{"rows": []}'))
+    with pytest.raises(ValueError, match="JSON array"):
+        installer.list_registrations("hook", "sample")
+
+
+def test_install_fails_when_registered_hook_is_absent(tmp_path, monkeypatch):
+    phase_dir = tmp_path / ".atm-bd"
+    phase_dir.mkdir()
+    (phase_dir / "phase-sample.toml").write_text('profile = "lite"\n', encoding="utf-8")
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        response = list_response(argv, calls, tmp_path)
+        if argv[:3] == ["atm", "hook", "list"]:
+            rows = json.loads(response.stdout)
+            rows.pop()
+            return SimpleNamespace(stdout=json.dumps(rows))
+        return response
+
+    monkeypatch.setattr(installer.subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="active hook task.close"):
+        installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
+    assert any(argv[:3] == ["atm", "cron", "start"] for argv in calls)
+    assert any(argv[:3] == ["atm", "hook", "list"] for argv in calls)
+    assert any(argv[:3] == ["atm", "cron", "list"] for argv in calls)

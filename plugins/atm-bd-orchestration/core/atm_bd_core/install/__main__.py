@@ -113,6 +113,36 @@ def cache_requirement(core: Path) -> str:
     return f"bd-cache-rs @ git+{cache['git']}@{cache['rev']}#subdirectory={cache['subdirectory']}"
 
 
+def list_registrations(kind: str, phase: str) -> list[dict]:
+    result = subprocess.run(["atm", kind, "list", "--phase", phase, "--json"], check=True,
+                            capture_output=True, text=True)
+    rows = json.loads(result.stdout)
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError(f"atm {kind} list did not return a JSON array of registrations")
+    return rows
+
+
+def cron_matches(row: dict, phase: str, entry: Path, primary: Path, expression: str, args: list[str]) -> bool:
+    stop = row.get("stop")
+    return (row.get("active") is True and row.get("phase") == phase and row.get("name") == "profile"
+            and row.get("module_path") == str(entry) and row.get("cron_expr") == expression
+            and row.get("cwd") == str(primary) and row.get("args") == args
+            and isinstance(stop, dict) and stop.get("kind") == "hook")
+
+
+def verify_registrations(phase: str, primary: Path, hooks: dict[str, Path], entry: Path,
+                         expression: str, cron_args: list[str], schedules: list[dict] | None = None) -> None:
+    rows = list_registrations("hook", phase)
+    if schedules is None:
+        schedules = list_registrations("cron", phase)
+    for hook, module in hooks.items():
+        if not any(row.get("active") is True and row.get("phase") == phase and row.get("hook") == hook
+                   and row.get("module_path") == str(module) and row.get("cwd") == str(primary) for row in rows):
+            raise RuntimeError(f"active hook {hook} for {phase} is missing or does not match {module}")
+    if not any(cron_matches(row, phase, entry, primary, expression, cron_args) for row in schedules):
+        raise RuntimeError(f"active profile cron for {phase} is missing or does not match {entry}")
+
+
 def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expression: str, repo: str) -> None:
     loaded = load_profile(profile_path)
     if isinstance(loaded, Refusal):
@@ -140,11 +170,13 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
     if isinstance(installed, Refusal):
         raise RuntimeError(str(installed))
     set_phase_paths(primary, phase, installed, skill / profile_path.name)
+    hooks: dict[str, Path] = {}
     for hook, relative in installed.profile.hooks.items():
         module = installed.path(relative)
         hook_name = hook.name.lower().replace("_", ".")
         entry = target / f"{hook_name}.py"
         launcher(entry, python, module, timeout(module, "TIMEOUT_MS"))
+        hooks[hook_name] = entry
         subprocess.run(["atm", "hook", "register", hook_name, "--module", str(entry), "--phase", phase,
                         "--cwd", str(primary)], check=True)
     cron_source = core / "atm_bd_core/cron_entry.py"
@@ -153,19 +185,16 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
     entry = target / "cron.py"
     launcher(entry, python, cron_module, timeout(cron_module, "CRON_TIMEOUT_MS"), cron=True)
     cron_args = [str(skill / profile_path.name), str(primary)]
+    schedules = None
     try:
         subprocess.run(["atm", "cron", "start", "profile", "--cron", expression, "--module", str(entry),
                         "--phase", phase, "--until-hook", "--cwd", str(primary),
                         "--arg", cron_args[0], "--arg", cron_args[1]], check=True)
     except subprocess.CalledProcessError:
-        listing = subprocess.run(["atm", "cron", "list", "--phase", phase, "--json"], check=True,
-                                 capture_output=True, text=True)
-        schedules = json.loads(listing.stdout)
-        if not any(row.get("active") and row.get("name") == "profile" and row.get("module_path") == str(entry)
-                   and row.get("cron_expr") == expression and row.get("cwd") == str(primary)
-                   and row.get("args") == cron_args and row.get("stop", {}).get("kind") == "hook"
-                   for row in schedules):
+        schedules = list_registrations("cron", phase)
+        if not any(cron_matches(row, phase, entry, primary, expression, cron_args) for row in schedules):
             raise
+    verify_registrations(phase, primary, hooks, entry, expression, cron_args, schedules)
 
 
 def main() -> None:
