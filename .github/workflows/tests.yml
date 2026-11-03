@@ -1,11 +1,20 @@
 name: tests
 
 on:
+  # A stacked PR branch runs once, under pull_request. Pushes run only on the
+  # long-lived branches, so a force-pushed layer does not queue the matrix twice.
   push:
+    branches: [develop, main, 'integrate/**']
   pull_request:
 
 permissions:
   contents: read
+
+# A newer push to the same PR supersedes its older run; pushes to the long-lived
+# branches always run to completion.
+concurrency:
+  group: tests-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   console-tests:
