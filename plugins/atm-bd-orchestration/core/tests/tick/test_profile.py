@@ -15,14 +15,30 @@ from .helpers import Collector, Runner, make_primary, make_profile, ports, refus
 def test_contract_profile_loads_with_typed_hooks_and_templates(tmp_path):
     loaded = load_profile(make_profile(tmp_path))
     assert not isinstance(loaded, Refusal)
-    assert loaded.profile.name == "lite" and loaded.profile.stages == ["dev", "qa"]
+    assert loaded.profile.name == "lite" and loaded.profile.stages == ["dev", "qa", "land"]
     assert set(loaded.profile.hooks) == {Hook.TASK_ASSIGN, Hook.TASK_START, Hook.TASK_CLOSE}
     assert set(loaded.profile.templates) == {Template.REFUSE, Template.DEV_CLOSE, Template.QA_PASS,
-                                             Template.QA_FINDINGS}
+                                             Template.QA_FINDINGS, Template.LAND_CLOSE}
     policy = load_policy(loaded)
     assert isinstance(policy, Policy) and policy.params.text("qa_agent") == "qa-agent"
     cron = load_cron(loaded)
     assert cron is not None and not isinstance(cron, Refusal)
+
+
+def test_make_profile_tracks_shipped_inputs(tmp_path, monkeypatch):
+    from . import helpers
+
+    shipped = tmp_path / "shipped"
+    (shipped / "scripts").mkdir(parents=True)
+    (shipped / "profile.toml").write_text('name = "first"\n', encoding="utf-8")
+    (shipped / "scripts/atm-bd-cron.py").write_text('MARKER = "first"\n', encoding="utf-8")
+    monkeypatch.setattr(helpers, "SHIPPED", shipped)
+    for marker in ("first", "second"):
+        (shipped / "profile.toml").write_text(f'name = "{marker}"\n', encoding="utf-8")
+        (shipped / "scripts/atm-bd-cron.py").write_text(f'MARKER = "{marker}"\n', encoding="utf-8")
+        profile = make_profile(tmp_path / marker)
+        assert profile.read_text(encoding="utf-8") == f'name = "{marker}"\n'
+        assert (profile.parent / "scripts/atm-bd-cron.py").read_text(encoding="utf-8") == f'MARKER = "{marker}"\n'
 
 
 @pytest.mark.parametrize("edit", [
@@ -31,7 +47,7 @@ def test_contract_profile_loads_with_typed_hooks_and_templates(tmp_path):
     lambda p: p.write_text(p.read_text(encoding="utf-8") + 'extra = "x"\n', encoding="utf-8"),
     lambda p: p.write_text(p.read_text(encoding="utf-8").replace('"task.close"', '"task.other"'), encoding="utf-8"),
     lambda p: (p.parent / "templates/qa-pass.md.j2").unlink(),
-    lambda p: p.write_text(p.read_text(encoding="utf-8").replace('stages = ["dev", "qa"]', "stages = []"),
+    lambda p: p.write_text(p.read_text(encoding="utf-8").replace('stages = ["dev", "qa", "land"]', "stages = []"),
                            encoding="utf-8"),
 ], ids=["missing", "malformed", "unknown-key", "unknown-hook", "missing-template", "no-stages"])
 def test_bad_profile_refuses_profile_mismatch(tmp_path, edit):

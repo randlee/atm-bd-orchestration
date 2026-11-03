@@ -13,7 +13,7 @@ from atm_bd_types import Bead, ErrorId, PhaseFacts, Refusal, PhaseFile, StackFac
 from atm_bd_types._core import CommandResult, Ports
 from atm_bd_types._native import _bead, _layer, _stack
 
-FIXTURES = Path(__file__).parent / "fixtures"
+SHIPPED = Path(__file__).resolve().parents[3] / "skills" / "atm-bd-lite"
 LEAD = "lead-agent"
 QA = "qa-agent"
 POLICY = '[params]\nqa_agent = "qa-agent"\nqa_template = "templates/qa.xml.j2"\n'
@@ -28,8 +28,8 @@ def make_profile(root: Path, policy: str | None = POLICY) -> Path:
     skill = root / "skill"
     (skill / "scripts").mkdir(parents=True)
     (skill / "templates").mkdir()
-    shutil.copy(FIXTURES / "profile.toml", skill / "profile.toml")
-    shutil.copy(FIXTURES / "atm-bd-cron.py", skill / "scripts" / "atm-bd-cron.py")
+    shutil.copy(SHIPPED / "profile.toml", skill / "profile.toml")
+    shutil.copy(SHIPPED / "scripts" / "atm-bd-cron.py", skill / "scripts" / "atm-bd-cron.py")
     for name in [*HOOK_FILES, *TEMPLATE_FILES]:
         (skill / name).write_text("x\n", encoding="utf-8")
     if policy is not None:
