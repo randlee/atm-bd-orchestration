@@ -7,7 +7,12 @@ authors = [{ name = "Rand Lee" }]
 requires-python = ">=3.11"
 
 [dependency-groups]
-dev = ["pytest==9.1.1", "pyright==1.1.414", "ruff==0.17.0", "atm-bd-core"]
+dev = [
+    "pytest==9.1.1",
+    "pyright[nodejs]==1.1.414",
+    "ruff==0.17.0",
+    "atm-bd-core",
+]
 
 [build-system]
 requires = ["maturin>=1.9,<2"]
