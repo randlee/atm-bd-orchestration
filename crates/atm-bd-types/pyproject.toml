@@ -1,0 +1,42 @@
+[project]
+name = "atm-bd-types"
+version = "0.3.0"
+description = "atm-bd framework contract: hook and monitor types, ATM hook wire (pyo3 bindings)"
+license = "MIT"
+authors = [{ name = "Rand Lee" }]
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "pyright==1.1.414", "ruff==0.17.0", "atm-bd-core"]
+
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[tool.maturin]
+# One abi3 extension (pyo3 feature abi3-py311) behind both surfaces: atm_bd_types and atm_bd_types._core.
+manifest-path = "Cargo.toml"
+features = ["python"]
+module-name = "atm_bd_types._native"
+python-source = "python"
+
+[tool.uv]
+# Rebuild the wheel when the Rust or the Python package changes, not only pyproject.toml.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "src/**/*.rs" },
+    { file = "python/**/*.py" },
+    { file = "../../Cargo.lock" },
+]
+
+[tool.uv.sources]
+# The framework package skeleton (plugins/atm-bd-orchestration/core): tests import atm_bd_core beside the wheel.
+atm-bd-core = { path = "../../plugins/atm-bd-orchestration/core" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["tests/fixtures", "stubs"]  # copied contract files and generated stubs

@@ -8,3 +8,6 @@ mod wire;
 
 pub mod framework;
 pub mod plugin;
+
+#[cfg(feature = "python")]
+mod python;

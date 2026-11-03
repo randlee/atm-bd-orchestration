@@ -1,0 +1,170 @@
+"""The bindings delegate to the Rust: transitions, requests, verdicts, guarded writes, records and the wheel tag."""
+
+from __future__ import annotations
+
+import importlib.metadata
+
+import atm_bd_core
+import pytest
+from atm_bd_types import (
+    Assign,
+    AssignTransition,
+    AssignVars,
+    BeadPatch,
+    CacheStore,
+    CloseTransition,
+    ErrorId,
+    FactKind,
+    Hook,
+    HookAction,
+    HookReply,
+    HookRequest,
+    Notify,
+    Params,
+    PhaseFacts,
+    PhaseFilesCli,
+    Profile,
+    QaFail,
+    QaPass,
+    Refusal,
+    RemoteBranch,
+    Report,
+    Stage,
+    StartTransition,
+    Status,
+    Template,
+)
+from atm_bd_types._core import ActionOutcome, Decision, OutcomeKind, ViewRow
+from atm_bd_types._native import _bead, _phase_file
+from conftest import SHA, pass_report, request_json
+
+S = Status
+TEMPLATES = [(f"/r/t/{n}.md.j2", "/r/t", b"ok") for n in ("refuse", "dev-close", "qa-pass", "qa-findings")]
+
+
+def parse(hook: str, report: str = "", op: dict[str, str] | None = None, to: str | None = None) -> HookRequest:
+    req = HookRequest.parse(request_json(hook, report, op, to))
+    assert isinstance(req, HookRequest), req
+    return req
+
+
+@pytest.mark.parametrize(("status", "assignee", "expected"), [
+    (S.OPEN, "dev", AssignTransition.ASSIGN_SAME), (S.IN_PROGRESS, None, AssignTransition.ASSIGN),
+    (S.CLOSED, "dev", AssignTransition.ASSIGN_CLOSED), (S.DEFERRED, None, AssignTransition.ASSIGN_NOT_READY),
+])
+def test_assign_select(status: Status, assignee: str | None, expected: AssignTransition) -> None:
+    assert AssignTransition.select(status, assignee, "dev") == expected
+
+
+@pytest.mark.parametrize(("status", "expected"), [
+    (S.OPEN, StartTransition.START), (S.IN_PROGRESS, StartTransition.START_AGAIN),
+    (S.CLOSED, StartTransition.START_CLOSED), (S.BLOCKED, StartTransition.START_NOT_READY),
+])
+def test_start_select(status: Status, expected: StartTransition) -> None:
+    assert StartTransition.select(status) == expected
+
+
+def test_close_select_by_outcome_stage_and_verdict() -> None:
+    qa, dev = _bead("q", S.IN_PROGRESS, Stage.QA), _bead("d", S.IN_PROGRESS, Stage.DEV)
+    completed = {"op": "close", "outcome": "completed"}
+    assert CloseTransition.select(parse("task.close", "", {"op": "close", "outcome": "refused"}), qa) \
+        == CloseTransition.GIVE_BACK
+    assert CloseTransition.select(parse("task.close", "done", completed), dev) == CloseTransition.WORK_CLOSE
+    assert CloseTransition.select(parse("task.close", pass_report(), completed), qa) == CloseTransition.QA_PASS
+    no_verdict = CloseTransition.select(parse("task.close", "no block", completed), qa)
+    assert isinstance(no_verdict, Refusal) and no_verdict.id == ErrorId.QA_VERDICT
+
+
+def test_request_fields_and_bad_stdin() -> None:
+    req = parse("task.assign", "hi", to="dev")
+    assert (req.phase, req.phase_config_path, req.caller, req.task_id, req.assignee) == (
+        "bo", ".atm-bd/phase-bo.toml", "qa", "bo-3", "dev")
+    assert req.is_phase_task() and req.close_report == "hi" and req.close_reason == "hi"
+    bad = HookRequest.parse("{")
+    assert isinstance(bad, Refusal) and bad.id == ErrorId.REQUEST_INVALID
+
+
+def test_verdicts() -> None:
+    report = f'```json\n{{"verdict": "FINDINGS", "sha": "{SHA}", "findings": [{{"id": "f1", "blocking": true}}]}}\n```'
+    req = parse("task.close", report, {"op": "close", "outcome": "completed"})
+    fail = req.qa_findings()
+    assert isinstance(fail, QaFail) and fail.sha == SHA
+    assert [(f.id, f.blocking) for f in fail.findings] == [("f1", True)]
+    wrong = req.qa_pass()
+    assert isinstance(wrong, Refusal) and wrong.id == ErrorId.QA_VERDICT
+
+
+def test_bead_patch_guards_the_snapshot() -> None:
+    bead = _bead("b", S.OPEN, Stage.DEV, "dev")
+    assert "Assign { guard: Guard { bead_id: \"b\", status: Open, assignee: Some(\"dev\") }, agent: \"qa\" }" \
+        == repr(BeadPatch.assign(bead, "qa"))
+    assert BeadPatch.start(bead) == BeadPatch.start(bead) != BeadPatch.reopen(bead)
+    verdict = parse("task.close", pass_report(), {"op": "close", "outcome": "completed"}).qa_pass()
+    assert isinstance(verdict, QaPass)
+    assert "QaPass" in repr(BeadPatch.close(bead, verdict))
+    with pytest.raises(TypeError):
+        BeadPatch.close(bead, "not evidence")  # type: ignore[arg-type]
+
+
+def test_refused_message_uses_the_parsed_hooks_fix_table() -> None:
+    parse("task.assign")
+    assert HookReply.refused(Refusal(ErrorId.ASSIGN_NOT_LEAD, lead="fenix")).to_json() == (
+        '{"result":"refused","message":"ASSIGN_NOT_LEAD: Only the lead (fenix) assigns. Ask the lead."}')
+
+
+def test_give_back_reason_and_unknown_template() -> None:
+    parse("task.close", "", {"op": "close", "outcome": "refused", "reason": "blocked"})
+    phase = _phase_file("lite", "lead", TEMPLATES, [("root", "atm-phase-bo")])
+    assert phase.key("root") == "atm-phase-bo" and phase.key("nope") is None
+    reply = HookReply.handled([HookAction.close(phase.template(Template.REFUSE), "blocked")]).to_json()
+    assert '"var_file_values":{"reason":"blocked"}' in reply and '"outcome":"refused"' in reply
+    unknown = HookReply.handled([HookAction.close("/elsewhere.j2", "blocked")]).to_json()
+    assert unknown == (
+        '{"result":"refused","message":"REQUEST_INVALID: Not yours to fix: field=template. The lead has it."}')
+
+
+def test_stores_refuse_until_bo_10() -> None:
+    store = CacheStore.for_phase("bo")
+    assert isinstance(store, Refusal) and store.id == ErrorId.CACHE_UNAVAILABLE
+    phase = PhaseFilesCli().load(".atm-bd/phase-bo.toml", "lite")
+    assert isinstance(phase, Refusal) and phase.id == ErrorId.PHASE_UNREADABLE
+
+
+def test_params_delegate() -> None:
+    params = Params([("qa_agent", "qa"), ("max", 3)])
+    assert (params.text("qa_agent"), params.int("max"), params.int("qa_agent"), params.text("none")) == (
+        "qa", 3, None, None)
+    with pytest.raises(TypeError):
+        Params([("bad", 1.5)])  # type: ignore[list-item]
+
+
+def test_records_construct_positionally_and_by_name() -> None:
+    vars_ = AssignVars("q", "bo", "lite")
+    assert Assign("k", "qa", "q", "t.j2", vars_) == Assign(key="k", to="qa", bead_id="q", template="t.j2", vars=vars_)
+    assert Report("k", "config", None, "text").bead_id is None and Notify("lead", ["k"]).keys == ["k"]
+    facts = PhaseFacts("bo", 0, _phase_file("lite", "lead", TEMPLATES, []))
+    assert facts.ready is None and facts.errors == [] and facts.phase_file.profile == "lite"
+    with pytest.raises(TypeError, match='missing field "now"'):
+        PhaseFacts("bo")  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="unexpected field"):
+        AssignVars("q", "bo", "lite", extra=1)  # type: ignore[call-arg]
+    with pytest.raises(ValueError, match="40-hex"):
+        RemoteBranch("main", "not-a-sha")
+    profile = Profile("lite", ["dev", "qa"], {Hook.TASK_CLOSE: "s.py"}, {Template.REFUSE: "r.j2"}, "policy.toml")
+    assert profile.cron is None and profile.hooks == {Hook.TASK_CLOSE: "s.py"}
+    assert FactKind.TOP_CHECKS.name == "TOP_CHECKS"
+
+
+def test_actions_round_trip_through_the_rust_action() -> None:
+    actions = [Assign("k", "qa", "q", "t.j2", AssignVars("q", "bo", "lite")), Report("r", "config", None, "x"),
+               Notify("lead", ["r"])]
+    decision = Decision(actions, [ViewRow("config", "r", None, "x", None)])
+    assert decision.actions == actions
+    failed = ActionOutcome(actions[2], OutcomeKind.FAILED, Refusal(ErrorId.BEAD_RACED, bead="q"))
+    assert failed.failure is not None and failed.failure.id == ErrorId.BEAD_RACED and failed.action == actions[2]
+
+
+def test_wheel_is_abi3_and_both_modules_import() -> None:
+    wheel = importlib.metadata.distribution("atm-bd-types").read_text("WHEEL") or ""
+    assert "-abi3-" in wheel, wheel
+    assert atm_bd_core.__name__ == "atm_bd_core"
