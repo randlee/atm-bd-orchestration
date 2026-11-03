@@ -20,6 +20,9 @@ tags:
 artifacts:
   skills:
     - skills/atm-bd-lite/SKILL.md
+    - skills/atm-bd-lite/hooks/task-assign.md
+    - skills/atm-bd-lite/hooks/task-close.md
+    - skills/atm-bd-lite/hooks/task-start.md
     - skills/atm-bd-lite/policy.toml
     - skills/atm-bd-lite/profile.toml
     - skills/atm-bd-lite/scripts/atm-bd-cron.py

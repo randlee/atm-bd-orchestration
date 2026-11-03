@@ -17,7 +17,7 @@ Issues = "https://github.com/randlee/atm-bd-orchestration/issues"
 atm-bd = "atm_bd_console.cli:main"
 
 [dependency-groups]
-dev = ["pytest", "ruff", "pyright", "hatchling==1.31.0", "atm-bd-types", "atm-bd-core"]
+dev = ["pytest", "ruff", "pyright", "hatchling==1.31.0", "atm-bd-types", "atm-bd-core", "jev-check"]
 
 [build-system]
 requires = ["hatchling==1.31.0", "sc-sha>=1.7.0,<2"]
@@ -37,6 +37,7 @@ testpaths = ["tests"]
 line-length = 120
 
 [tool.uv.sources]
+jev-check = { path = "../../plugins/atm-bd-orchestration/core/gate/jev-check" }
 atm-bd-types = { path = "../../crates/atm-bd-types", editable = true }
 atm-bd-core = { path = "../../plugins/atm-bd-orchestration/core", editable = true }
 bd-cache-rs = { git = "https://github.com/randlee/beads-cache", rev = "f57859f5c01fa463eb57ef11679e00118532c993", subdirectory = "crates/bd-cache-py" }
