@@ -1,4 +1,6 @@
 //! Task-hook surface (hooks/task-*.md): beads, transitions, guarded writes, typed refusals.
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,6 +131,7 @@ impl Ctx {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
     pub id: ErrorId,
+    /// Dynamic placeholder values matching the Python constructor's keyword arguments.
     pub context: Vec<(String, Ctx)>,
 }
 
@@ -180,6 +183,29 @@ impl Refusal {
         }
         out.push_str(rest);
         Some(out)
+    }
+}
+
+impl fmt::Display for Refusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message(None))
+    }
+}
+
+impl std::error::Error for Refusal {}
+
+#[cfg(test)]
+mod refusal_error_tests {
+    use super::{Ctx, ErrorId, Refusal};
+
+    #[test]
+    fn refusal_implements_standard_error_and_displays_its_context() {
+        fn assert_std_error<T: std::error::Error>() {}
+        assert_std_error::<Refusal>();
+
+        let refusal =
+            Refusal::new(ErrorId::RequestInvalid).with("field", Ctx::One("outcome".to_owned()));
+        assert_eq!(refusal.to_string(), "REQUEST_INVALID: field=outcome");
     }
 }
 
