@@ -118,3 +118,26 @@ def test_qa_target_and_ready_views(setup):
     assert stack_of(store.show("tst-stack")).layers[0].head == SHA
     assert {b.id for b in store.list("bo")} == {"tst-1", "tst-stack", "tst-qa"}
     assert "tst-1" in {b.id for b in store.ready("bo")}
+
+
+def test_pending_journal_warning_names_late_write(setup, monkeypatch):
+    _, store = setup
+    snapshot = store.show("tst-1")
+
+    class PendingCache:
+        def write(self, *_args):
+            return {"seq": 1}
+
+        def drain(self, *_args):
+            return {"escalated": []}
+
+        def entry(self, _seq):
+            return {"state": "pending"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(store, "cache", PendingCache())
+    result = store.update(BeadPatch.start(snapshot), "dev")
+    assert isinstance(result, Refusal) and result.id == ErrorId.CACHE_UNAVAILABLE
+    assert "write journaled; may still apply; re-check bead tst-1 before retrying" in repr(result)

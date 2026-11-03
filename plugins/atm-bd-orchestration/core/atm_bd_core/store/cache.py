@@ -104,10 +104,12 @@ class CacheStore:
         args = {"assign": {"assignee": value.get("agent")}, "start": {"status": "in_progress"},
                 "reopen": {"status": "open", "assignee": ""},
                 "close": {"reason": json.dumps(value, sort_keys=True, separators=(",", ":"))}}[operation]
+        journaled = False
         try:
             written = self.cache.write(data["id"], "close" if operation == "close" else "update", args,
                              {"status": data["status"], "assignee": data["assignee"] or ""},
                              str(uuid.uuid4()), actor)
+            journaled = True
             report = self.cache.drain(20, 25)
             entry = self.cache.entry(written["seq"])
             if entry["state"] == "applied":
@@ -116,6 +118,9 @@ class CacheStore:
                    for item in report["escalated"]):
                 return Refusal(ErrorId.BEAD_RACED, bead=data["id"])
             return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=self.phase, bead=data["id"],
-                           reason=f"guarded write is {entry['state']}")
+                           reason=f"write journaled; may still apply; re-check bead {data['id']} before retrying")
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
+            if journaled:
+                return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=self.phase, bead=data["id"],
+                               reason=f"write journaled; may still apply; re-check bead {data['id']} before retrying: {exc}")
             return _refusal(exc, self.phase, data["id"])
