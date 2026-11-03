@@ -254,3 +254,19 @@ def test_decide_failure_refuses_before_executing_or_writing_state(tmp_path, body
     assert str(script) in repr(result) and error in repr(result)
     assert runner.calls == []
     assert not (tmp_path / "primary/.atm-bd/state").exists()
+
+
+def test_report_deduplication_uses_same_ledger_when_filename_changes(tmp_path, monkeypatch):
+    from atm_bd_core import reported
+
+    monkeypatch.setattr(reported, "REPORTED_KEYS", "renamed-reports.json")
+    make_profile(tmp_path, policy='[params]\nqa_agent = "qa-agent"\n')
+    make_primary(tmp_path)
+    runner, collector = Runner(), Collector([qa_bead()])
+    first = run(tmp_path, runner, collector)
+    assert [outcome.kind for outcome in first.outcomes] == [OutcomeKind.SENT]
+    ledger = tmp_path / "primary/.atm-bd/state/phase-bo/renamed-reports.json"
+    assert json.loads(ledger.read_text(encoding="utf-8")) == ["cron:params"]
+    second = run(tmp_path, runner, collector)
+    assert len(runner.calls) == 1
+    assert second.decision.actions == [] and [row.key for row in second.decision.rows] == ["cron:params"]

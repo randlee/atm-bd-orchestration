@@ -22,8 +22,9 @@ from subprocess import SubprocessError
 from atm_bd_types import Action, Assign, ErrorId, Notify, Refusal, Report
 from atm_bd_types._core import ActionOutcome, CommandRunner, Decision, OutcomeKind, ViewRow
 
+from . import reported
+
 RETRY_LIMIT = 3
-REPORTED_KEYS = "reported-keys.json"
 EXECUTED = "executed.json"
 ERROR_IDS = {name: getattr(ErrorId, name)
              for name in sorted((n for n in dir(ErrorId) if n.isupper()), key=len, reverse=True)}
@@ -152,7 +153,7 @@ class Executor:
         key = action_key(action)
         if isinstance(action, Report) and reported_keys is None:
             return ActionOutcome(action, OutcomeKind.FAILED, Refusal(
-                ErrorId.PHASE_UNREADABLE, key=key, path=str(self.state_dir / REPORTED_KEYS),
+                ErrorId.PHASE_UNREADABLE, key=key, path=str(reported.path_for(self.state_dir)),
                 reason="reported keys unreadable this tick; Report held so it is not sent twice"))
         previous = ledger.failures.get(key)
         if previous is not None and previous.attempts >= RETRY_LIMIT:
@@ -170,8 +171,7 @@ class Executor:
         if code == 0:
             ledger.failures.pop(key, None)
             if isinstance(action, Report) and reported_keys is not None:
-                reported_keys.append(key)
-                _write_json(self.state_dir / REPORTED_KEYS, reported_keys)
+                reported.append(self.state_dir, reported_keys, key)
             else:
                 ledger.sent.add(key)
             return ActionOutcome(action, OutcomeKind.SENT, None)

@@ -7,7 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from atm_bd_core.collect.reported import reported_keys
+from atm_bd_core.reported import reported_keys
 from atm_bd_core.profile import CronScript, LoadedProfile
 from atm_bd_types import Bead, ErrorId, PhaseFacts, Refusal, PhaseFile, Stage, Status
 from atm_bd_types._core import CommandResult, Ports

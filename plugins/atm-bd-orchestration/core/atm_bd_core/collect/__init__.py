@@ -5,7 +5,8 @@ from itertools import pairwise
 from atm_bd_types import CollectError, FactKind, PhaseFacts, TaskFact
 from atm_bd_types._core import stack_of
 
-from . import atm, beads, git, provider, reported
+from .. import reported
+from . import atm, beads, git, provider
 
 
 def collect(phase, phase_file, ports, now, state_dir):

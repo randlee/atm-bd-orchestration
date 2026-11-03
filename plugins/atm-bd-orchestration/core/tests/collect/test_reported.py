@@ -1,4 +1,4 @@
-from atm_bd_core.collect.reported import reported_keys
+from atm_bd_core.reported import reported_keys
 from atm_bd_types import FactKind
 
 
