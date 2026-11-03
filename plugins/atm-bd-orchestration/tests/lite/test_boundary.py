@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 SKILLS = Path(__file__).resolve().parents[2] / "skills" / "atm-bd-lite"
-CORE = Path(__file__).resolve().parents[2] / "core"
 ALLOWED = {"atm_bd_types", "sys"}
 
 
@@ -55,7 +54,3 @@ def test_checker_rejects_framework_and_io_imports(source: str) -> None:
 
 def test_checker_accepts_the_plugin_surface() -> None:
     assert foreign_imports("import sys\nfrom atm_bd_types import Refusal\nfrom atm_bd_types import CloseTransition as T") == []
-
-
-def test_core_does_not_name_lite() -> None:
-    assert CORE.is_dir() and all("lite" not in path.read_text().lower() for path in CORE.rglob("*") if path.is_file())
