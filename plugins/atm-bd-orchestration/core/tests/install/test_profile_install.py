@@ -10,8 +10,8 @@ import pytest
 from atm_bd_core import cron_entry
 from atm_bd_core.install import __main__ as installer
 from atm_bd_core.install import sync
-from atm_bd_core.profile import load_profile
-from atm_bd_types import ErrorId, Refusal, Status
+from atm_bd_core.profile import LoadedProfile, load_profile
+from atm_bd_types import ErrorId, Profile, Refusal, Status
 
 ROOT = Path(__file__).resolve().parents[5]
 PROFILE = ROOT / "plugins/atm-bd-orchestration/skills/atm-bd-lite/profile.toml"
@@ -169,8 +169,57 @@ def test_cache_requirement_uses_core_project_source(tmp_path):
 def test_startup_uses_arbitrary_declared_policy_parameters(tmp_path):
     policy = tmp_path / "policy.toml"
     policy.write_text('[params]\nworker_name = "worker"\nworker_message = "instructions"\n', encoding="utf-8")
-    loaded = SimpleNamespace(path=lambda relative: policy,
-                             profile=SimpleNamespace(policy="policy.toml", startup={"worker_name": "worker_message"}))
+    loaded = LoadedProfile(Profile("test", ["stage"], {}, {}, "policy.toml",
+                                   startup={"worker_name": "worker_message"}), tmp_path)
     installer.set_startup(tmp_path, loaded)
     assert tomllib.loads((tmp_path / ".atm.toml").read_text(encoding="utf-8"))["startup"] == {
         "worker": {"all": ["instructions"]}}
+
+
+def test_phase_paths_preserve_indented_nested_and_unrelated_tables(tmp_path):
+    phase_dir = tmp_path / ".atm-bd"
+    phase_dir.mkdir()
+    path = phase_dir / "phase-sample.toml"
+    path.write_text('[templates]\nold = "obsolete"\n  [templates.sub]\nkeep = "yes"\n'
+                    '[unrelated]\nvalue = 7\n', encoding="utf-8")
+    loaded = load_profile(PROFILE)
+    installer.set_phase_paths(tmp_path, "sample", loaded, PROFILE)
+    result = tomllib.loads(path.read_text(encoding="utf-8"))
+    assert result["templates"]["sub"] == {"keep": "yes"}
+    assert "old" not in result["templates"]
+    assert result["unrelated"] == {"value": 7}
+
+
+def test_rewrite_rejects_invalid_input_and_output_without_modifying_original(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('valid = "before"\n', encoding="utf-8")
+    with pytest.raises(tomllib.TOMLDecodeError):
+        installer._rewrite(path, lambda source: "invalid = [")
+    assert path.read_text(encoding="utf-8") == 'valid = "before"\n'
+    assert not path.with_suffix(".toml.tmp").exists()
+    path.write_text("invalid = [", encoding="utf-8")
+    with pytest.raises(tomllib.TOMLDecodeError):
+        installer._rewrite(path, lambda source: pytest.fail("invalid input must not be transformed"))
+    assert path.read_text(encoding="utf-8") == "invalid = ["
+
+
+def test_startup_preserves_indented_nested_table(tmp_path):
+    policy = tmp_path / "policy.toml"
+    policy.write_text('[params]\nname = "worker"\nmessage = "new"\n', encoding="utf-8")
+    path = tmp_path / ".atm.toml"
+    path.write_text('[startup.worker]\nall = ["old"]\n  [startup.worker.extra]\nkeep = true\n',
+                    encoding="utf-8")
+    loaded = LoadedProfile(Profile("test", ["stage"], {}, {}, "policy.toml",
+                                   startup={"name": "message"}), tmp_path)
+    installer.set_startup(tmp_path, loaded)
+    assert tomllib.loads(path.read_text(encoding="utf-8"))["startup"]["worker"] == {
+        "all": ["new"], "extra": {"keep": True}}
+
+
+def test_empty_final_templates_header_is_replaced(tmp_path):
+    phase_dir = tmp_path / ".atm-bd"
+    phase_dir.mkdir()
+    path = phase_dir / "phase-sample.toml"
+    path.write_text("[templates]", encoding="utf-8")
+    installer.set_phase_paths(tmp_path, "sample", load_profile(PROFILE), PROFILE)
+    assert tomllib.loads(path.read_text(encoding="utf-8"))["templates"]

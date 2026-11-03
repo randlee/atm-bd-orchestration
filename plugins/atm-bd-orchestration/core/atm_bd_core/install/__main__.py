@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tomllib
 from pathlib import Path
+from collections.abc import Callable
 
 from atm_bd_types import Refusal
 
@@ -30,41 +31,56 @@ def launcher(path: Path, python: Path, module: Path, limit: int, *, cron: bool =
                     f"[{str(python)!r}, {str(module)!r}, *sys.argv[1:]])\n", encoding="utf-8")
 
 
+def _rewrite(path: Path, transform: Callable[[str], str], *, missing_ok: bool = False) -> None:
+    """Validate the original and transformed TOML before atomically replacing it."""
+    try:
+        source = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        if not missing_ok:
+            raise
+        source = ""
+    tomllib.loads(source)
+    updated = transform(source)
+    tomllib.loads(updated)
+    temp = path.with_suffix(".toml.tmp")
+    try:
+        temp.write_text(updated, encoding="utf-8")
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def set_repo(primary: Path, phase: str, repo: str) -> None:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise ValueError("--repo must be owner/name")
     path = primary / ".atm-bd" / f"phase-{phase}.toml"
-    source = path.read_text(encoding="utf-8")
-    tomllib.loads(source)
-    parts = re.split(r"(?m)^(?=\s*\[)", source, maxsplit=1)
-    prefix = re.sub(r"(?m)^\s*repo\s*=.*\n?", "", parts[0])
-    updated = f"repo = {json.dumps(repo)}\n" + prefix + "".join(parts[1:])
-    tomllib.loads(updated)
-    temp = path.with_suffix(".toml.tmp")
-    temp.write_text(updated, encoding="utf-8")
-    temp.replace(path)
+
+    def transform(source: str) -> str:
+        parts = re.split(r"(?m)^(?=\s*\[)", source, maxsplit=1)
+        prefix = re.sub(r"(?m)^\s*repo\s*=.*\n?", "", parts[0])
+        return f"repo = {json.dumps(repo)}\n" + prefix + "".join(parts[1:])
+
+    _rewrite(path, transform)
 
 
 def set_phase_paths(primary: Path, phase: str, installed: LoadedProfile, manifest: Path) -> None:
     """Publish only existing canonical installed paths into the phase configuration."""
     path = primary / ".atm-bd" / f"phase-{phase}.toml"
-    source = path.read_text(encoding="utf-8")
-    tomllib.loads(source)
     manifest = manifest.resolve(strict=True)
     paths = {name: installed.path(installed.profile.templates[kind]).resolve(strict=True)
              for name, kind in TEMPLATES.items() if kind in installed.profile.templates}
     if any(not item.is_absolute() or not item.is_file() for item in [manifest, *paths.values()]):
         raise ValueError("installed phase paths must be absolute files")
-    parts = re.split(r"(?m)^(?=\s*\[)", source, maxsplit=1)
-    prefix = re.sub(r"(?m)^\s*profile_path\s*=.*\n?", "", parts[0])
-    source = f"profile_path = {json.dumps(str(manifest))}\n" + prefix + "".join(parts[1:])
-    block = "[templates]\n" + "".join(f"{name} = {json.dumps(str(value))}\n" for name, value in paths.items())
-    source = re.sub(r"(?ms)^\[templates\][^\n]*\n.*?(?=^\[|\Z)", "", source)
-    source = source.rstrip() + "\n\n" + block
-    tomllib.loads(source)
-    temp = path.with_suffix(".toml.tmp")
-    temp.write_text(source, encoding="utf-8")
-    temp.replace(path)
+
+    def transform(source: str) -> str:
+        parts = re.split(r"(?m)^(?=\s*\[)", source, maxsplit=1)
+        prefix = re.sub(r"(?m)^\s*profile_path\s*=.*\n?", "", parts[0])
+        source = f"profile_path = {json.dumps(str(manifest))}\n" + prefix + "".join(parts[1:])
+        block = "[templates]\n" + "".join(f"{name} = {json.dumps(str(value))}\n" for name, value in paths.items())
+        source = re.sub(r"(?ms)^[ \t]*\[templates\][^\n]*(?:\n|\Z).*?(?=^[ \t]*\[|\Z)", "", source)
+        return source.rstrip() + "\n\n" + block
+
+    _rewrite(path, transform)
 
 
 def set_startup(primary: Path, installed: LoadedProfile) -> None:
@@ -78,18 +94,16 @@ def set_startup(primary: Path, installed: LoadedProfile) -> None:
         raise ValueError("startup entries must use distinct agent identities")
     if any(not isinstance(message, str) or not message for _, message in pairs):
         raise ValueError("startup message params must contain non-empty text")
-    path = primary / ".atm.toml"
-    source = path.read_text(encoding="utf-8") if path.exists() else ""
-    tomllib.loads(source)
-    for agent, message in pairs:
-        header = f"startup.{agent}"
-        pattern = rf"(?ms)^\[{re.escape(header)}\][^\n]*\n.*?(?=^\[|\Z)"
-        source = re.sub(pattern, "", source)
-        source += f"\n[{header}]\nall = [{json.dumps(message)}]\n"
-    tomllib.loads(source)
-    temp = path.with_suffix(".toml.tmp")
-    temp.write_text(source, encoding="utf-8")
-    temp.replace(path)
+
+    def transform(source: str) -> str:
+        for agent, message in pairs:
+            header = f"startup.{agent}"
+            pattern = rf"(?ms)^[ \t]*\[{re.escape(header)}\][^\n]*(?:\n|\Z).*?(?=^[ \t]*\[|\Z)"
+            source = re.sub(pattern, "", source)
+            source += f"\n[{header}]\nall = [{json.dumps(message)}]\n"
+        return source
+
+    _rewrite(primary / ".atm.toml", transform, missing_ok=True)
 
 
 def cache_requirement(core: Path) -> str:
