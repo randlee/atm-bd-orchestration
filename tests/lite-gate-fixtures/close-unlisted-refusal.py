@@ -65,6 +65,10 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
                                                  phase=bead.phase_bead))
             ids = [f.id for f in verdict.findings]
             patch, template, args = BeadPatch.close(bead, evidence=(verdict.sha, ids)), Template.QA_FINDINGS, (verdict.sha, ids)
+        case Transition.LAND:  # T-CLOSE-05
+            if isinstance(merged := req.merged(), Refusal):
+                return HookReply.refused(merged)
+            patch, template, args = BeadPatch.close(bead, evidence=merged), Template.LAND_CLOSE, merged
     if (failed := beads.update(patch, actor=req.caller)) is not None:
         return HookReply.refused(failed)
     return HookReply.handled(phase.close_action(req, template, args))
