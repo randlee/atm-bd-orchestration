@@ -51,6 +51,18 @@ def _notification_startup_error(config: Config) -> Error | None:
     return None
 
 
+def _startup_checks(config: Config, invocation: str, *, notification: bool) -> tuple[bool, Error | None]:
+    check = atm_bd.repo_config(config.repo_root)
+    if isinstance(check, Err):
+        print(f"{invocation}: {error_message(asdict(check.error))}")
+        return False, None
+    for command in ("bd", "atm", "git"):
+        if shutil.which(command) is None:
+            print(f"{invocation}: not_found: install {command} and retry")
+            return False, None
+    return True, _notification_startup_error(config) if notification else None
+
+
 def main(argv: list[str] | None = None) -> int:
     values = sys.argv[1:] if argv is None else argv
     # Skill has its own parser; dispatch it before the console parser to pass through its options.
@@ -95,18 +107,23 @@ def main(argv: list[str] | None = None) -> int:
         interval=getattr(args, "interval", None), github_poll_interval=getattr(args, "github_poll_interval", None),
         github_quota_threshold=getattr(args, "github_quota_threshold", None),
         dry_run=getattr(args, "dry_run", False), no_fetch=getattr(args, "no_fetch", False))
+    startup_error = None
     def today_command(values):
-        return _run_today(values, selected_route)
+        return _run_today(values, selected_route, startup_error)
 
     selected_route = monitor_source.route(config_source.repo_root(), parsed, today_command, runner.step)
     if parsed.command in ("queues", "snapshot", "cron"):
         return int(getattr(selected_route.monitor, parsed.command)(parsed))
     if parsed.command == "console":
-        return selected_route.launch()
+        if isinstance(selected_route.config, Config):
+            ready, startup_error = _startup_checks(selected_route.config, f"{CONSOLE_NAME} console", notification=True)
+            if not ready:
+                return 3
+        return selected_route.launch(startup_error)
     return _run_today(parsed, selected_route)
 
 
-def _run_today(args, selected_route) -> int:
+def _run_today(args, selected_route, startup_error=None) -> int:
     invocation = f"{CONSOLE_NAME} {args.command}"
     if args.command == "queues":
         return queues.main(args, repo_root=config_source.repo_root())
@@ -133,11 +150,9 @@ def _run_today(args, selected_route) -> int:
                                         dry_run=getattr(args, "dry_run", False) or args.command == "snapshot" or md_table,
                                         no_fetch=args.no_fetch))
     if isinstance(loaded, Err): print(f"{invocation}: {error_message(asdict(loaded.error))}"); return 3
-    check = atm_bd.repo_config(loaded.value.repo_root)
-    if isinstance(check, Err): print(f"{invocation}: {error_message(asdict(check.error))}"); return 3
-    for command in ("bd", "atm", "git"):
-        if shutil.which(command) is None:
-            print(f"{invocation}: not_found: install {command} and retry")
+    if args.command != "console":
+        ready, _ = _startup_checks(loaded.value, invocation, notification=False)
+        if not ready:
             return 3
     if args.command in ("cron", "snapshot"):
         lock = acquire_lock(loaded.value.repo_root, root_id)
@@ -178,4 +193,4 @@ def _run_today(args, selected_route) -> int:
         return 0
     from .app import run
 
-    return run(loaded.value, None, INITIAL_STATE, _notification_startup_error(loaded.value), runner_step=selected_route.step)
+    return run(loaded.value, None, INITIAL_STATE, startup_error, runner_step=selected_route.step)

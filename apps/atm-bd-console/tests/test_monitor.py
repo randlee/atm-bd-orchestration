@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast
 
 import atm_bd_core.tick as tick_module
+import pytest
 from atm_bd_types import ErrorId, HookReply, PhaseFacts, Refusal, Stage, Status, TaskEvents, TaskFact, TaskState
 from atm_bd_types._core import Ports
 from atm_bd_types._native import _bead
@@ -258,7 +259,10 @@ def test_policy_console_launches_with_monitor_step_and_config(tmp_path, monkeypa
     _lite(tmp_path)
     monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
     seen = []
-    def run(config, step, state, **kwargs):
+    monkeypatch.setattr(cli.atm_bd, "repo_config", lambda *_: cli.Ok(object()))
+    monkeypatch.setattr(cli.shutil, "which", lambda _: "/fixture/bin")
+    monkeypatch.setattr(cli, "_notification_startup_error", lambda _: None)
+    def run(config, step, state, startup_error, **kwargs):
         seen.append((config, kwargs["runner_step"]))
         return 0
     monkeypatch.setattr(app, "run", run)
@@ -266,6 +270,43 @@ def test_policy_console_launches_with_monitor_step_and_config(tmp_path, monkeypa
     config, callback = seen[0]
     assert config.phase == "zz" and Path(config.state_dir).name == "atm-phase-zz"
     assert isinstance(callback.__self__, monitor.PolicyMonitor)
+
+
+
+@pytest.mark.parametrize("policy", [False, True], ids=["today", "policy"])
+@pytest.mark.parametrize("failure", ["repo", "bd", "atm", "git", "notification"])
+def test_console_startup_checks_apply_to_both_monitors(tmp_path, monkeypatch, policy, failure):
+    from atm_bd_console import app
+    from atm_bd_console.result import Err, NotFound, Ok
+
+    if policy:
+        _lite(tmp_path)
+    config = monitor.PolicyMonitor(tmp_path, "zz", {})._config(monitor.MonitorArgs("console", phase="zz"))
+    monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.config_source, "load_config", lambda *_a, **_kw: Ok(config))
+    error = NotFound("not_found", "test", "test fix")
+    checks, launched = [], []
+    def repo(root):
+        checks.append(("repo", root))
+        return Err(error) if failure == "repo" else Ok(object())
+    def which(command):
+        checks.append(("tool", command))
+        return None if failure == command else "/fixture/bin"
+    def notification(actual):
+        checks.append(("notification", actual))
+        return error if failure == "notification" else None
+    monkeypatch.setattr(cli.atm_bd, "repo_config", repo)
+    monkeypatch.setattr(cli.shutil, "which", which)
+    monkeypatch.setattr(cli, "_notification_startup_error", notification)
+    monkeypatch.setattr(app, "run", lambda actual, _step, _state, startup_error, **_kw: launched.append((actual, startup_error)) or 0)
+    assert cli.main(["console", "--phase", "zz"]) == (0 if failure == "notification" else 3)
+    assert checks[0] == ("repo", config.repo_root)
+    if failure == "notification":
+        assert checks[:4] == [("repo", config.repo_root), *(("tool", tool) for tool in ("bd", "atm", "git"))]
+        assert checks[4][0] == "notification"
+        assert launched == [(checks[4][1], error)]
+    else:
+        assert not launched
 
 
 def test_policy_console_rejects_bad_configuration_before_launch(tmp_path, monkeypatch, capsys):
@@ -299,7 +340,7 @@ def test_cli_accepts_a_third_monitor_without_concrete_dispatch(monkeypatch, tmp_
             raise AssertionError("step is not needed for this check")
     other = OtherMonitor()
     def select(root, args, command, step):
-        return monitor.Route(other, None, "custom-root", other.step, lambda: calls.append(("console", args.phase)) or 0)
+        return monitor.Route(other, None, "custom-root", other.step, lambda _startup_error: calls.append(("console", args.phase)) or 0)
     monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
     monkeypatch.setattr(monitor, "route", select)
     for command in ("queues", "snapshot", "cron", "console"):
