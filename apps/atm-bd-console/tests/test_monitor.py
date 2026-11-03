@@ -12,8 +12,22 @@ from atm_bd_types._core import Ports
 from atm_bd_types._native import _bead
 
 from atm_bd_console import cli, monitor
-from atm_bd_console.result import ConfigInvalid
+from atm_bd_console.result import ConfigInvalid, Err
 from atm_bd_console.state import StateStore
+
+
+@pytest.fixture(autouse=True)
+def _config_source_stub(monkeypatch):
+    from atm_bd_console.result import Ok
+    from atm_bd_console.types import Config
+
+    def load(root, phase, **options):
+        interval = options["interval_s"]
+        return Ok(Config(phase, "lead", "atm-dev", options["github"] or "off", interval or 60,
+                         options["dry_run"], options["no_fetch"], str(root),
+                         str(Path(root) / ".atm-bd/atm-bd" / f"atm-phase-{phase}")))
+
+    monkeypatch.setattr(cli.config_source, "load_config", load)
 
 
 def _phase(root, text):
@@ -81,7 +95,9 @@ def test_lite_tick_snapshot_and_dry_step(tmp_path, monkeypatch, capsys):
     args = monitor.MonitorArgs("queues", phase="zz", json=True)
     assert selected.queues(args) == monitor.Exit.OK
     assert json.loads(capsys.readouterr().out) == {"phase": "zz", "rows": []}
-    step = selected.step(selected._config(args), cli.INITIAL_STATE, False, cast(StateStore, object()))
+    config = selected._config(args)
+    assert not isinstance(config, Err)
+    step = selected.step(config, cli.INITIAL_STATE, False, cast(StateStore, object()))
     assert step[0].phase == "zz" and step[0].errors == ()
     assert step[0].agents[0].name == "agent" and step[0].agents[0].rows[0].task_id == "b"
     assert step[0].sprints[0].id == "sprint1"
@@ -119,6 +135,37 @@ def test_cli_has_one_monitor_route_and_no_specific_profile_names():
         source_tree = ast.parse(path.read_text(encoding="utf-8"))
         assert not any(isinstance(node, ast.Constant) and node.value in ("lite", "orchestration")
                        for node in ast.walk(source_tree))
+
+
+@pytest.mark.parametrize(("command", "interval", "expected_interval"), [
+    ("cron", None, cli.config_source.CRON_CADENCE_S), ("cron", 42, 42), ("console", None, None),
+])
+def test_policy_config_uses_shared_loader_and_cron_cadence(tmp_path, monkeypatch, command, interval,
+                                                          expected_interval):
+    from atm_bd_console.result import Ok
+    from atm_bd_console.types import Config
+
+    config = Config("zz", "configured-lead", "configured-team", "off", cli.config_source.CRON_CADENCE_S, True, False,
+                    str(tmp_path), str(tmp_path / ".atm-bd/atm-bd/atm-phase-zz"))
+    calls = []
+
+    def load(root, phase, **options):
+        calls.append((root, phase, options))
+        return Ok(config)
+
+    monkeypatch.setattr(cli.config_source, "load_config", load)
+    monkeypatch.setenv("ATM_TEAM", "environment-team")
+    selected = monitor.PolicyMonitor(tmp_path, "zz", {"lead": "raw-phase-lead"})
+
+    assert selected._config(monitor.MonitorArgs(command, phase="zz", interval=interval)) is config
+    assert calls == [(tmp_path, "zz", {
+        "github": "off",
+        "interval_s": expected_interval,
+        "github_poll_interval_s": None,
+        "github_quota_threshold": None,
+        "dry_run": True,
+        "no_fetch": False,
+    })]
 
 
 def test_refusal_snapshot_preserves_id_and_wire_message(tmp_path):
@@ -173,7 +220,9 @@ def test_cron_dry_run_never_sends_and_live_tick_sends_only_decided_action(tmp_pa
     assert selected.queues(monitor.MonitorArgs("queues", phase="zz", json=True)) == monitor.Exit.OK
     assert json.loads(capsys.readouterr().out)["rows"] == [{"queue": "q", "key": "k", "bead_id": None, "text": "hello"}]
     assert calls == []
-    preview = selected.step(selected._config(monitor.MonitorArgs("console", phase="zz")), cli.INITIAL_STATE, False, cast(StateStore, object()))
+    config = selected._config(monitor.MonitorArgs("console", phase="zz"))
+    assert not isinstance(config, Err)
+    preview = selected.step(config, cli.INITIAL_STATE, False, cast(StateStore, object()))
     assert preview[0].sections[0].rows[0].reason == "hello" and calls == []
     assert selected.cron(monitor.MonitorArgs("cron", phase="zz", dry_run=True)) == monitor.Exit.OK
     assert calls == [] and json.loads(capsys.readouterr().out)["outcome"] == "DRY_RUN"
@@ -299,10 +348,15 @@ def test_policy_console_launches_with_monitor_step_and_config(tmp_path, monkeypa
 def test_console_startup_checks_apply_to_both_monitors(tmp_path, monkeypatch, policy, failure):
     from atm_bd_console import app
     from atm_bd_console.result import Err, NotFound, Ok
+    from atm_bd_console.types import Config
 
     if policy:
         _lite(tmp_path)
-    config = monitor.PolicyMonitor(tmp_path, "zz", {})._config(monitor.MonitorArgs("console", phase="zz"))
+        config = monitor.PolicyMonitor(tmp_path, "zz", {})._config(monitor.MonitorArgs("console", phase="zz"))
+        assert not isinstance(config, Err)
+    else:
+        config = Config("zz", "lead", "atm-dev", "off", 60, True, False,
+                        str(tmp_path), str(tmp_path / ".atm-bd/atm-bd/atm-phase-zz"))
     monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
     monkeypatch.setattr(cli.config_source, "load_config", lambda *_a, **_kw: Ok(config))
     error = NotFound("not_found", "test", "test fix")

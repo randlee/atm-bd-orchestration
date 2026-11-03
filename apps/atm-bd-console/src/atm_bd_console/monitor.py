@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 if TYPE_CHECKING:
     from atm_bd_types import Refusal
 
-    from .result import Error
+    from .result import Err, Error
 
 from .closed_cache import ClosedBeads
 from .state import StateStore
@@ -117,7 +117,11 @@ def route(repo_root, args, command, step):
             from atm_bd_types import HookReply
 
             from .app import run
+            from .result import Err
             from .types import INITIAL_STATE
+            if isinstance(config, Err):
+                print(config.error)
+                return int(Exit.CONFIG)
             if isinstance(config, Refusal):
                 print(json.loads(HookReply.refused(config).to_json())["message"])
                 return int(Exit.CONFIG)
@@ -181,14 +185,28 @@ class PolicyMonitor:
     def root_id(self):
         return str(self.phase_data.get("root") or f"atm-phase-{self.phase}")
 
-    def _config(self, args):
-        import os
+    def _config(self, args) -> Config | Err:
+        from dataclasses import replace
 
+        from . import config as config_source
         from .paths import state_directory
-        from .types import Config
-        return Config(self.phase, str(self.phase_data.get("lead", "")), os.environ.get("ATM_TEAM", ""),
-                      args.github or "off", args.interval or 60, True, args.no_fetch, str(self.root),
-                      str(state_directory(self.root, self.root_id)))
+        from .result import Err
+
+        cadence = config_source.CRON_CADENCE_S if args.interval is None and args.command == "cron" else args.interval
+        loaded = config_source.load_config(
+            self.root,
+            self.phase,
+            github=args.github or "off",
+            interval_s=cadence,
+            github_poll_interval_s=args.github_poll_interval,
+            github_quota_threshold=args.github_quota_threshold,
+            dry_run=True,
+            no_fetch=args.no_fetch,
+        )
+        if isinstance(loaded, Err):
+            return loaded
+        state_dir = str(state_directory(self.root, self.root_id))
+        return loaded.value if loaded.value.state_dir == state_dir else replace(loaded.value, state_dir=state_dir)
 
     def _snapshot(self, result, config):
         from datetime import UTC, datetime
@@ -299,13 +317,17 @@ class PolicyMonitor:
 
         from .result import Err
         from .state import acquire_lock
+        config = self._config(args)
+        if isinstance(config, Err):
+            print(config.error)
+            return Exit.CONFIG
         result = acquire_lock(self.root, self.root_id)
         if isinstance(result, Err):
             print(result.error)
             return Exit.UNAVAILABLE
         with result.value as store:
             tick = self._tick(dry_run=True)
-            snapshot = self._snapshot(tick, self._config(args))
+            snapshot = self._snapshot(tick, config)
             written = store.write_snapshot(snapshot)
             if isinstance(written, Err):
                 print(written.error)
@@ -333,7 +355,11 @@ class PolicyMonitor:
             return Exit.CONFIG
         if args.md_table:
             from . import status_table
-            snapshot = self._snapshot(tick, self._config(args))
+            config = self._config(args)
+            if isinstance(config, Err):
+                print(config.error)
+                return Exit.CONFIG
+            snapshot = self._snapshot(tick, config)
             if snapshot.errors or snapshot.phase_data is None:
                 import sys
                 print("policy snapshot is incomplete", file=sys.stderr)
