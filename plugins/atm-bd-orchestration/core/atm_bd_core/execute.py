@@ -114,11 +114,14 @@ class Executor:
     root: Path
     lead: str
     notify_template: str
+    provider_create: str | None = None
 
     def argv(self, action: Action) -> tuple[list[str], str]:
         if isinstance(action, Assign):
-            variables: dict[str, str | int] = {"task_id": action.vars.task_id, "phase": action.vars.phase,
-                                                "profile": action.vars.profile}
+            variables: dict[str, object] = {"task_id": action.vars.task_id, "phase": action.vars.phase,
+                                            "profile": action.vars.profile}
+            if Path(action.template).name == "dev.xml.j2" and self.provider_create:
+                variables["provider"] = {"create": self.provider_create}
             if (review := action.vars.review) is not None:
                 variables.update(repo=review.repo, pr_number=review.pr_number, branch=review.branch,
                                  commit=review.commit)
