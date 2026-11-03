@@ -88,3 +88,29 @@ def test_copied_behavior_suite_runs_isolated_and_reports_67_passes() -> None:
     details = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode == 0, details
     assert re.search(r"(?m)^67 passed in \d+(?:\.\d+)?s$", result.stdout), details
+
+
+def test_registered_profile_modules_declare_one_timeout_within_registrar_cap() -> None:
+    profile = tomllib.loads((SKILL / "profile.toml").read_text())
+    skill = (SKILL / "SKILL.md").read_text()
+    registration_lines = [line for line in skill.splitlines() if line.startswith("atm hook register ")]
+    registered = [line.split("--module ", 1)[1].split()[0].rsplit("/", 1)[-1] for line in registration_lines]
+    hook_names = [Path(script).name for script in profile["hooks"].values()]
+    assert registered == hook_names
+
+    modules = [SKILL / script for script in profile["hooks"].values()] + [SKILL / profile["cron"]]
+    for module in modules:
+        values = []
+        for line in module.read_text().splitlines():
+            if not line.startswith("TIMEOUT_MS"):
+                continue
+            tail = line[len("TIMEOUT_MS"):].lstrip(" \t")
+            if tail.startswith(": int"):
+                tail = tail[len(": int"):].lstrip(" \t")
+            if not tail.startswith("="):
+                continue
+            value = tail[1:].split("#", 1)[0].strip()
+            assert value.isascii() and value.isdecimal(), f"invalid TIMEOUT_MS in {module}: {line}"
+            values.append(int(value))
+        assert len(values) == 1, f"expected exactly one TIMEOUT_MS in {module}, found {values}"
+        assert 0 < values[0] <= 2500, f"TIMEOUT_MS exceeds registrar cap in {module}: {values[0]}"
