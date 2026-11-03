@@ -34,6 +34,18 @@ def test_each_deterministic_rule_has_passing_and_failing_fixture(bad: str, rule:
     assert any(item.startswith(rule) for item in failures(bad))
 
 
+@pytest.mark.parametrize(("script", "spec_name"), [
+    ("atm-bd-task-assign-hook.py", "task-assign.md"),
+    ("atm-bd-task-start-hook.py", "task-start.md"),
+    ("atm-bd-task-hook.py", "task-close.md"),
+])
+def test_shipped_hooks_pass_deterministic_gate_offline(script: str, spec_name: str) -> None:
+    skill = ROOT / "plugins/atm-bd-orchestration/skills/atm-bd-lite"
+    source = (skill / "scripts" / script).read_text(encoding="utf-8")
+    spec_text = (skill / "hooks" / spec_name).read_text(encoding="utf-8")
+    assert gate.deterministic(source, gate.facts(source), gate.table(spec_text, "Transitions")) == []
+
+
 def test_jev_no_answers_map_to_the_specific_row_and_site() -> None:
     facts = {"arms": [("Transition.START", 3)], "replies": [("HookReply.pass_through()", 4)]}
     answers = {"implemented:T-START-01": {"choice": "no"}, "listed:L4:1": {"choice": "no"}}

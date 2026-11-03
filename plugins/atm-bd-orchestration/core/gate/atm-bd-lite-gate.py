@@ -22,6 +22,7 @@ from jev_check import JevCheckError, Question, check, load_question_set
 from jev_check.checks import input_record
 
 QUESTIONS = Path(__file__).with_name("gate-questions.json")
+# Write detection recognizes only receivers named beads, cache, or store; aliases are not tracked.
 WRITES, FORBIDDEN_WRITES = {"update", "create", "claim", "release"}, {"create", "claim", "release"}
 READS = {("beads", "show"), ("cache", "get")}
 CLI_ADAPTERS, OS_SPAWN, CLI_TOOLS = {"BdCli", "GitCli", "AtmCli"}, ("system", "popen", "exec", "spawn"), {"gh", "bd", "git"}
