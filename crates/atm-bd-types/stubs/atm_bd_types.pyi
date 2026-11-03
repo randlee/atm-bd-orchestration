@@ -219,7 +219,7 @@ class HookRequest:
 @typing.final
 class HookAction:
     @staticmethod
-    def close(template: str, vars: Layer | QaPass | QaFail | Merged | str) -> HookAction:
+    def close(request: HookRequest, phase: PhaseFile, template: str, vars: Layer | QaPass | QaFail | Merged | str) -> HookAction:
         r"""atm task close --template <template> --vars <vars>; str is the give-back reason."""
 
 @typing.final
@@ -232,7 +232,7 @@ class HookReply:
     def refused(refusal: Refusal) -> HookReply: ...
     @staticmethod
     def handled(actions: list[HookAction]) -> HookReply: ...
-    def to_json(self) -> str: ...
+    def to_json(self, hook: Hook | None) -> str: ...
 
 class BeadStore(typing.Protocol):
     def refresh(self, bead_ids: list[str | None]) -> Refusal | None: ...

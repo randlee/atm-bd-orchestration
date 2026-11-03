@@ -7,7 +7,7 @@
 TIMEOUT_MS = 2500
 
 import sys
-from atm_bd_types import (BeadPatch, BeadStore, CacheStore, ErrorId, HookAction, HookReply, HookRequest, PhaseFiles,
+from atm_bd_types import (Hook, BeadPatch, BeadStore, CacheStore, ErrorId, HookAction, HookReply, HookRequest, PhaseFiles,
                           PhaseFilesCli, Refusal, Status, Template)
 from atm_bd_types import CloseTransition as Transition
 
@@ -32,7 +32,7 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
         case Transition.GIVE_BACK:  # T-CLOSE-01
             if not (reason := req.close_reason):
                 return HookReply.refused(Refusal(ErrorId.CLOSE_REASON_EMPTY, bead=bead.id))
-            patch, action = BeadPatch.reopen(bead), HookAction.close(phase.template(Template.REFUSE), reason)
+            patch, action = BeadPatch.reopen(bead), HookAction.close(req, phase, phase.template(Template.REFUSE), reason)
         case Transition.WORK_CLOSE:  # T-CLOSE-02
             if not req.close_report:
                 return HookReply.refused(Refusal(ErrorId.CLOSE_REPORT_NOT_INLINE, bead=bead.id))
@@ -40,7 +40,7 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
                 return HookReply.refused(stack)
             if (layer := stack.layer_for(bead.branch)) is None:
                 return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=bead.branch or ""))
-            patch, action = BeadPatch.close(bead, layer), HookAction.close(phase.template(Template.DEV_CLOSE), layer)
+            patch, action = BeadPatch.close(bead, layer), HookAction.close(req, phase, phase.template(Template.DEV_CLOSE), layer)
         case Transition.QA_PASS:  # T-CLOSE-03
             if isinstance(verdict := req.qa_pass(), Refusal):
                 return HookReply.refused(verdict)
@@ -50,7 +50,7 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
                 return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=""))
             if verdict.sha != target.head:
                 return HookReply.refused(Refusal(ErrorId.QA_NOT_ON_STACK, sha=verdict.sha, branch=target.branch, head=target.head))
-            patch, action = BeadPatch.close(bead, verdict), HookAction.close(phase.template(Template.QA_PASS), verdict)
+            patch, action = BeadPatch.close(bead, verdict), HookAction.close(req, phase, phase.template(Template.QA_PASS), verdict)
         case Transition.QA_FINDINGS:  # T-CLOSE-04
             if isinstance(verdict := req.qa_findings(), Refusal):
                 return HookReply.refused(verdict)
@@ -70,11 +70,11 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
                     return HookReply.refused(poured)
                 if not poured.blocks(bead.sprint if finding.blocking else bead.phase):
                     return HookReply.refused(Refusal(ErrorId.FINDINGS_NOT_POURED, ids=[finding.id], sprint=bead.sprint or ""))
-            patch, action = BeadPatch.close(bead, verdict), HookAction.close(phase.template(Template.QA_FINDINGS), verdict)
+            patch, action = BeadPatch.close(bead, verdict), HookAction.close(req, phase, phase.template(Template.QA_FINDINGS), verdict)
         case Transition.LAND:  # T-CLOSE-05
             if isinstance(merged := req.merged(), Refusal):
                 return HookReply.refused(merged)
-            patch, action = BeadPatch.close(bead, merged), HookAction.close(phase.template(Template.LAND_CLOSE), merged)
+            patch, action = BeadPatch.close(bead, merged), HookAction.close(req, phase, phase.template(Template.LAND_CLOSE), merged)
 
     if bead.status == Status.CLOSED:
         return HookReply.handled([action])
@@ -86,8 +86,8 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
 if __name__ == "__main__":
     req = HookRequest.parse(sys.stdin.read())
     if isinstance(req, Refusal):
-        print(HookReply.refused(req).to_json())
+        print(HookReply.refused(req).to_json(Hook.TASK_CLOSE))
     elif isinstance(store := CacheStore.for_phase(req.phase), Refusal):
-        print(HookReply.refused(store).to_json())
+        print(HookReply.refused(store).to_json(Hook.TASK_CLOSE))
     else:
-        print(hook(req, store, PhaseFilesCli()).to_json())
+        print(hook(req, store, PhaseFilesCli()).to_json(Hook.TASK_CLOSE))

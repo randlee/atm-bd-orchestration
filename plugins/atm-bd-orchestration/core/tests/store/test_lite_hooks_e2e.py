@@ -226,11 +226,11 @@ def test_three_hooks_assign_start_and_close_with_controlled_cache(setup):
     _, store = setup
     phases = PhaseFilesCli()
     assigned = load_hook("assign")(request("task.assign", "lead", to="dev"), store, phases)
-    assert "pass-through" in assigned.to_json()
+    assert "pass-through" in assigned.to_json(None)
     assert store.show("tst-1").assignee == "dev"
 
     started = load_hook("start")(request("task.start", "dev"), store, phases)
-    assert "pass-through" in started.to_json()
+    assert "pass-through" in started.to_json(None)
     assert store.show("tst-1").status == Status.IN_PROGRESS
 
     reply = load_hook("close")(
@@ -239,7 +239,7 @@ def test_three_hooks_assign_start_and_close_with_controlled_cache(setup):
         store,
         phases,
     )
-    assert "handled" in reply.to_json(), reply.to_json()
+    assert "handled" in reply.to_json(None), reply.to_json(None)
     assert store.show("tst-1").status == Status.CLOSED
 
 

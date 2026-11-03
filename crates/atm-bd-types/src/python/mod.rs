@@ -3,7 +3,6 @@
 //! One native module carries both Python surfaces. The wheel's `atm_bd_types` package re-exports the plug-in
 //! surface; `atm_bd_core` re-exports the framework surface.
 //! `_stub(module)` returns each surface's `.pyi` text, assembled from the stub text each binding carries.
-mod context;
 mod conv;
 mod enums;
 mod hook;

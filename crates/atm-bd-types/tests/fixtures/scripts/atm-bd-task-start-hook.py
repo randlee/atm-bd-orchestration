@@ -5,7 +5,7 @@
 # ///
 """task.start: hooks/task-start.md. One write: in_progress. Does not read the ledger."""
 import sys
-from atm_bd_types import (BeadPatch, BeadStore, CacheStore, ErrorId, HookReply, HookRequest, PhaseFiles, PhaseFilesCli,
+from atm_bd_types import (Hook, BeadPatch, BeadStore, CacheStore, ErrorId, HookReply, HookRequest, PhaseFiles, PhaseFilesCli,
                           Refusal)
 from atm_bd_types import StartTransition as Transition
 
@@ -40,8 +40,8 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
 if __name__ == "__main__":
     req = HookRequest.parse(sys.stdin.read())
     if isinstance(req, Refusal):
-        print(HookReply.refused(req).to_json())
+        print(HookReply.refused(req).to_json(Hook.TASK_START))
     elif isinstance(store := CacheStore.for_phase(req.phase), Refusal):
-        print(HookReply.refused(store).to_json())
+        print(HookReply.refused(store).to_json(Hook.TASK_START))
     else:
-        print(hook(req, store, PhaseFilesCli()).to_json())
+        print(hook(req, store, PhaseFilesCli()).to_json(Hook.TASK_START))

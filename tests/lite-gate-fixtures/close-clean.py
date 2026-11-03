@@ -75,8 +75,8 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
 if __name__ == "__main__":
     req = HookRequest.parse(sys.stdin.read())
     if isinstance(req, Refusal):
-        print(HookReply.refused(req).to_json())
+        print(HookReply.refused(req).to_json(None))
     elif isinstance(beads := CacheStore.for_phase(req.phase), Refusal):
-        print(HookReply.refused(beads).to_json())
+        print(HookReply.refused(beads).to_json(None))
     else:
-        print(hook(req, beads, PhaseFilesCli()).to_json())
+        print(hook(req, beads, PhaseFilesCli()).to_json(None))

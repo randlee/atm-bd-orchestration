@@ -95,7 +95,7 @@ def hook_request(
 
 
 def reply_data(reply) -> dict:
-    return json.loads(reply.to_json())
+    return json.loads(reply.to_json(None))
 
 
 def reply_actions(reply) -> list[dict]:

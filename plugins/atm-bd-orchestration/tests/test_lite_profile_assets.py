@@ -60,7 +60,7 @@ def _hook_close_actions() -> list[dict]:
     def run(item, request, *extra, target_layer=None):
         reply = hook.hook(request, FakeStore(item, stack, *extra, target=target_layer), phases)
         actions = reply_actions(reply)
-        assert len(actions) == 1, reply.to_json()
+        assert len(actions) == 1, reply.to_json(None)
         return actions[0]
 
     dev = bead("dev-task", T.Status.IN_PROGRESS, assignee="dev", branch=target.branch,
