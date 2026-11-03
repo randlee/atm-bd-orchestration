@@ -96,24 +96,17 @@ def main(argv: list[str] | None = None) -> int:
         github_quota_threshold=getattr(args, "github_quota_threshold", None),
         dry_run=getattr(args, "dry_run", False), no_fetch=getattr(args, "no_fetch", False))
     def today_command(values):
-        return _run_today(values, preloaded=selected_config)
+        return _run_today(values, selected_route)
 
-    selected, selected_config = monitor_source.route(config_source.repo_root(), parsed, today_command, runner.step)
+    selected_route = monitor_source.route(config_source.repo_root(), parsed, today_command, runner.step)
     if parsed.command in ("queues", "snapshot", "cron"):
-        return int(getattr(selected, parsed.command)(parsed))
-    if parsed.command == "console" and isinstance(selected, monitor_source.PolicyMonitor):
-        from atm_bd_types import HookReply, Refusal
-
-        from .app import run
-        if isinstance(selected_config, Refusal):
-            print(json.loads(HookReply.refused(selected_config).to_json())["message"])
-            return 3
-        assert isinstance(selected_config, Config)
-        return run(selected_config, None, INITIAL_STATE, runner_step=selected.step)
-    return _run_today(parsed, selected, selected_config)
+        return int(getattr(selected_route.monitor, parsed.command)(parsed))
+    if parsed.command == "console":
+        return selected_route.launch()
+    return _run_today(parsed, selected_route)
 
 
-def _run_today(args, selected=None, preloaded=None) -> int:
+def _run_today(args, selected_route) -> int:
     invocation = f"{CONSOLE_NAME} {args.command}"
     if args.command == "queues":
         return queues.main(args, repo_root=config_source.repo_root())
@@ -121,7 +114,7 @@ def _run_today(args, selected=None, preloaded=None) -> int:
         print(f"{invocation}: --phase <phase> is required; name the phase to run")
         return 3
     repo_root = config_source.repo_root()
-    root_id = selected.root_id if isinstance(selected, monitor_source.PolicyMonitor) else f"atm-phase-{args.phase}"
+    root_id = selected_route.root_id
     if args.command == "show":
         snapshot = load_snapshot(repo_root, root_id)
         if isinstance(snapshot, Ok) and (snapshot.value.stopped is not None or not snapshot_stale(snapshot.value, now())):
@@ -132,6 +125,7 @@ def _run_today(args, selected=None, preloaded=None) -> int:
         print(f"{invocation}: console is not running for phase {args.phase}{last}; start it: {CONSOLE_NAME} console --phase {args.phase}")
         return 2
     md_table = getattr(args, "md_table", False)
+    preloaded = selected_route.config
     loaded = (preloaded if isinstance(preloaded, Err) else Ok(preloaded) if preloaded is not None else
               config_source.load_config(repo_root, args.phase, github=args.github, interval_s=_cadence(args),
                                         github_poll_interval_s=args.github_poll_interval,
@@ -184,4 +178,4 @@ def _run_today(args, selected=None, preloaded=None) -> int:
         return 0
     from .app import run
 
-    return run(loaded.value, None, INITIAL_STATE, _notification_startup_error(loaded.value), runner_step=selected.step if selected is not None else runner.step)
+    return run(loaded.value, None, INITIAL_STATE, _notification_startup_error(loaded.value), runner_step=selected_route.step)

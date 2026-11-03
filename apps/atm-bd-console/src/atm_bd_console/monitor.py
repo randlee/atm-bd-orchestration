@@ -49,6 +49,16 @@ class PhaseMonitor(Protocol):
     def cron(self, args: MonitorArgs) -> Exit: ...
 
 
+@dataclass(frozen=True)
+class Route:
+    """The selected monitor and everything the CLI needs to launch it."""
+    monitor: PhaseMonitor
+    config: object
+    root_id: str
+    step: Callable[..., StepResult]
+    launch: Callable[[], int]
+
+
 class TodayMonitor:
     """Delegate legacy behavior to the existing command and runner implementations."""
 
@@ -78,24 +88,41 @@ def route(repo_root, args, command, step):
         from . import config as config_source
         from .result import Ok
         selected = TodayMonitor(command, step)
+        root_id = f"atm-phase-{phase}"
         if phase is None or args.command in ("queues", "show"):
-            return selected, None
+            return Route(selected, None, root_id, selected.step, lambda: command(args))
         cadence = config_source.CRON_CADENCE_S if args.interval is None and args.command == "cron" else args.interval
         loaded = config_source.load_config(repo_root, phase, github=args.github, interval_s=cadence,
                                            github_poll_interval_s=args.github_poll_interval,
                                            github_quota_threshold=args.github_quota_threshold,
                                            dry_run=args.dry_run or args.command == "snapshot" or args.md_table,
                                            no_fetch=args.no_fetch)
-        return selected, loaded.value if isinstance(loaded, Ok) else loaded
+        config = loaded.value if isinstance(loaded, Ok) else loaded
+        return Route(selected, config, root_id, selected.step, lambda: command(args))
 
     def policy(data):
         from atm_bd_types import Refusal
         selected = PolicyMonitor(Path(repo_root), phase, data)
+        config = selected._config(args)
         if args.command == "console":
             profile = selected._profile_path()
             if isinstance(profile, Refusal):
-                return selected, profile
-        return selected, selected._config(args)
+                config = profile
+
+        def launch():
+            import json
+
+            from atm_bd_types import HookReply
+
+            from .app import run
+            from .types import INITIAL_STATE
+            if isinstance(config, Refusal):
+                print(json.loads(HookReply.refused(config).to_json())["message"])
+                return int(Exit.CONFIG)
+            assert isinstance(config, Config)
+            return run(config, None, INITIAL_STATE, runner_step=selected.step)
+
+        return Route(selected, config, selected.root_id, selected.step, launch)
 
     if phase is None:
         return today()
