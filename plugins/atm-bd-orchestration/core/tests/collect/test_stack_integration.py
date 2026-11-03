@@ -1,7 +1,6 @@
 """Exercise the stack fact against the shared embedded beads fixture."""
 
 import importlib.util
-import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,7 +24,7 @@ def test_stack_from_embedded_cache(tmp_path, monkeypatch, recorded_runner):
         "layers": [{"branch": "work", "head": head, "pr": 7, "base": "main"}],
     })
     monkeypatch.chdir(tmp_path)
-    cache = bd_cache_rs.Cache(str(tmp_path), bd_binary=os.environ.get("ATM_TEST_BD", "bd"), scopes=["bo"])
+    cache = bd_cache_rs.Cache(str(tmp_path), bd_binary=helper.require_test_bd_binary(), scopes=["bo"])
     try:
         cache.sync("bo", 30)
         store = CacheStore(cache, "bo")

@@ -18,5 +18,6 @@ test:
     uv run --frozen --project apps/atm-bd-console python -m pytest -q tests/lite-gate-fixtures/test_gate.py plugins/atm-bd-orchestration/core/gate/jev-check/tests
     cd plugins/atm-bd-orchestration && uv run --frozen --project ../../apps/atm-bd-console python tests/gen_manifest.py --check
     cd plugins/atm-bd-orchestration && uv run --frozen --project ../../apps/atm-bd-console python -m pytest -q -rs
+    cd plugins/atm-bd-orchestration/tests/lite && uv run --frozen --project ../../../../apps/atm-bd-console python -m pytest -q -c /dev/null --rootdir . --confcutdir . .
     cargo test -p atm-bd-types
     cd crates/atm-bd-types && uv run --frozen --no-editable pytest -q

@@ -2,9 +2,7 @@
 import json
 import re
 import subprocess
-import sys
 import tomllib
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import atm_bd_types as T
@@ -191,23 +189,6 @@ def test_skill_registers_each_profile_hook_once() -> None:
         assert sum(hook in command and f"--module .claude/skills/atm-bd-lite/{script}" in command for command in commands) == 1
     assert "followed by QA" in skill
     assert "does not add a sanity stage" in skill
-
-
-def test_copied_behavior_suite_runs_isolated(tmp_path: Path) -> None:
-    suite = Path(__file__).resolve().parent / "lite"
-    junit_xml = tmp_path / "lite-suite.xml"
-    result = _run_with_timeout(
-        [sys.executable, "-m", "pytest", "-q", "-c", "/dev/null", "--rootdir", ".", "--confcutdir", ".",
-         "--junitxml", str(junit_xml), "."],
-        timeout=15,
-        cwd=suite,
-        check=False,
-    )
-    details = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    assert result.returncode == 0, details
-    root = ET.parse(junit_xml).getroot()
-    test_count = sum(int(suite_report.attrib.get("tests", "0")) for suite_report in root.iter("testsuite"))
-    assert test_count > 0, f"no nested tests ran\n{details}"
 
 
 def test_subprocess_timeout_failure_includes_command_and_partial_output(monkeypatch: pytest.MonkeyPatch) -> None:
