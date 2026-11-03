@@ -10,6 +10,10 @@ on:
       - 'tests/lite-gate-fixtures/**'
       - '.github/workflows/plugin-gate.yml'
   push:
+    branches:
+      - develop
+      - main
+      - 'integrate/**'
     paths:
       - 'plugins/atm-bd-orchestration/skills/*/scripts/**'
       - 'plugins/atm-bd-orchestration/skills/*/hooks/**'
