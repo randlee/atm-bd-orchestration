@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -124,7 +125,7 @@ def test_empty_spec_is_rejected() -> None:
     assert any(item.startswith("ANC-052") for item in gate.deterministic(source, gate.facts(source), []))
 
 
-def test_profile_runner_checks_each_hook_once_and_fails_missing_spec(monkeypatch, tmp_path):
+def test_profile_runner_checks_each_hook_once_and_fails_missing_spec(monkeypatch, tmp_path, capsys):
     runner_path = GATE_PATH.with_name("run-plugin-gates.py")
     runner_spec = importlib.util.spec_from_file_location("gate_runner", runner_path)
     assert runner_spec is not None and runner_spec.loader is not None
@@ -142,8 +143,9 @@ def test_profile_runner_checks_each_hook_once_and_fails_missing_spec(monkeypatch
     monkeypatch.setattr(runner, "__file__", str(gate_file))
     calls = []
 
-    def run(argv, *, check):
+    def run(argv, *, check, timeout):
         assert check is False
+        assert timeout == runner.GATE_TIMEOUT_SECONDS
         calls.append(argv)
         class Result:
             returncode = 0
@@ -157,6 +159,16 @@ def test_profile_runner_checks_each_hook_once_and_fails_missing_spec(monkeypatch
     (skill / "hooks/task-start.md").unlink()
     assert runner.main() == 2
     assert len(calls) == 1
+
+    def timed_out(argv, *, check, timeout):
+        raise subprocess.TimeoutExpired(argv, timeout)
+
+    monkeypatch.setattr(runner.subprocess, "run", timed_out)
+    (skill / "hooks/task-start.md").write_text("spec")
+    assert runner.main() == 2
+    errors = capsys.readouterr().err
+    assert "GATE.TIMEOUT: sample task.assign exceeded 180s" in errors
+    assert "GATE.TIMEOUT: sample task.start exceeded 180s" in errors
 
 
 def test_deterministic_failure_never_calls_jev(monkeypatch, tmp_path):

@@ -8,6 +8,8 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+GATE_TIMEOUT_SECONDS = 180
+
 
 def main() -> int:
     root = Path(__file__).resolve().parents[2]
@@ -23,12 +25,17 @@ def main() -> int:
                 print(f"GATE.SPEC_MISSING: {spec}", file=sys.stderr)
                 status = 2
                 continue
-            result = subprocess.run([sys.executable, str(gate), str(profile.parent / script), str(spec),
-                                     "--out", str(output_dir / f"{profile.parent.name}-{hook}.json")],
-                                    check=False)
+            count += 1
+            try:
+                result = subprocess.run([sys.executable, str(gate), str(profile.parent / script), str(spec),
+                                         "--out", str(output_dir / f"{profile.parent.name}-{hook}.json")],
+                                        check=False, timeout=GATE_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                print(f"GATE.TIMEOUT: {profile.parent.name} {hook} exceeded {GATE_TIMEOUT_SECONDS}s", file=sys.stderr)
+                status = max(status, 2)
+                continue
             if result.returncode:
                 status = max(status, result.returncode)
-            count += 1
     if count == 0:
         print("GATE.NO_HOOKS: no declared plug-in hooks found", file=sys.stderr)
         return 2
