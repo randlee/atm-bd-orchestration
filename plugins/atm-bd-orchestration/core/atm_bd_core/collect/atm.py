@@ -42,7 +42,7 @@ def task_events(runner, task_ids):
                         raise ValueError("start time lacks timezone")
                     last_start = int(value.timestamp())
                     reminders = 0
-                elif event["event"] == "reminder" and last_start is not None:
+                elif event["event"] == "reminded" and last_start is not None:
                     reminders += 1
             facts.append(TaskEvents(task_id, reminders, last_start))
         except (OSError, ValueError, KeyError, TypeError) as error:

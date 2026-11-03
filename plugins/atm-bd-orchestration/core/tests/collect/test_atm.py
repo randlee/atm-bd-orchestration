@@ -26,7 +26,7 @@ def test_tasks_success_and_failure():
 def test_events_success_and_failure():
     result, error = task_events(Runner({"events": [
         {"event": "started", "at": "2026-01-01T00:00:00Z"},
-        {"event": "reminder"},
+        {"event": "reminded", "outcome": "emitted"},
     ]}), ["a"])
     assert result is not None
     assert error is None and result[0].reminders_since_start == 1
