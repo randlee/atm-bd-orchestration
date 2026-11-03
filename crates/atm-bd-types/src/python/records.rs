@@ -14,7 +14,7 @@ use crate::framework::{
 };
 use crate::plugin::{
     Action, Ancestry, AssignVars, CollectError, Merged, ParamValue, Params, PhaseFacts, PrBase,
-    Profile, RemoteBranch, ReviewTarget, StackFact, TaskEvents, TaskFact, TopChecks,
+    Profile, RemoteBranch, ReviewTarget, Sha, StackFact, TaskEvents, TaskFact, TopChecks,
 };
 
 /// A record constructor's arguments, matched to its fields by position, then by name.
@@ -88,7 +88,7 @@ impl<'py> RecordArgs<'py> {
 macro_rules! record {
     (
         $py:ident = $rust:ident as $name:literal in $module:literal, doc $doc:expr;
-        { $($field:ident : $ty:ty $(= $default:expr => $stub_default:literal)?),+ $(,)? }
+        { $($field:ident : $ty:ty $(=> $stub_type:literal)? $(= $default:expr => $stub_default:literal)?),+ $(,)? }
     ) => {
         #[pyclass(eq, frozen, from_py_object, name = $name, module = $module)]
         #[derive(Clone, Debug, PartialEq)]
@@ -99,7 +99,7 @@ macro_rules! record {
         impl $py {
             /// This record's stub text.
             pub(crate) fn stub() -> String {
-                record_stub($name, $doc, &[$((stringify!($field), <$ty as Conv>::py_type(), None $(.or(Some($stub_default)))?)),+])
+                record_stub($name, $doc, &[$((stringify!($field), record_field_py_type!($ty $(, $stub_type)?), None $(.or(Some($stub_default)))?)),+])
             }
         }
 
@@ -123,6 +123,15 @@ macro_rules! record {
 
             fn __repr__(&self) -> String { format!("{:?}", self.0) }
         }
+    };
+}
+
+macro_rules! record_field_py_type {
+    ($ty:ty) => {
+        <$ty as Conv>::py_type()
+    };
+    ($ty:ty, $stub_type:literal) => {
+        $stub_type.to_owned()
     };
 }
 
@@ -189,7 +198,7 @@ record! {
 
 record! {
     PyMerged = Merged as "Merged" in "atm_bd_types", doc None;
-    { sha: String }
+    { sha: Sha => "str" }
 }
 
 record! {

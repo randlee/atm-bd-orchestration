@@ -232,10 +232,8 @@ impl HookRequest {
         let [raw] = blocks.as_slice() else {
             return Err(invalid());
         };
-        Sha::parse(&raw.merged).ok_or_else(invalid)?;
-        Ok(Merged {
-            sha: raw.merged.clone(),
-        })
+        let sha = Sha::parse(&raw.merged).ok_or_else(invalid)?;
+        Ok(Merged { sha })
     }
 }
 
@@ -261,7 +259,6 @@ impl CloseTransition {
 pub enum CloseVars {
     Layer(Layer),
     Sha { sha: Sha },
-    MergedSha { sha: String },
     ShaIds { sha: Sha, ids: Vec<String> },
     Reason { reason: String },
 }
@@ -275,7 +272,7 @@ impl From<&Evidence> for CloseVars {
                 sha: f.sha.clone(),
                 ids: f.findings.iter().map(|x| x.id.clone()).collect(),
             },
-            Evidence::Merged(m) => CloseVars::MergedSha { sha: m.sha.clone() },
+            Evidence::Merged(m) => CloseVars::Sha { sha: m.sha.clone() },
         }
     }
 }
@@ -545,13 +542,16 @@ mod tests {
             Ok(CloseTransition::Land)
         );
         let merged = req.merged().unwrap();
-        assert_eq!(merged.sha, SHA);
+        let merged_sha: &Sha = &merged.sha;
+        assert_eq!(merged_sha.as_str(), SHA);
         let template = TemplateFile {
             path: "land".into(),
             root: "/r".into(),
             bytes: b"ok".to_vec(),
         };
-        let action = HookAction::close(&req, &template, CloseVars::from(&Evidence::Merged(merged)));
+        let vars = CloseVars::from(&Evidence::Merged(merged));
+        assert!(matches!(&vars, CloseVars::Sha { sha } if sha.as_str() == SHA));
+        let action = HookAction::close(&req, &template, vars);
         let body = serde_json::to_value(action).unwrap();
         assert_eq!(
             body["request"]["message_source"]["Template"]["var_file_values"]["sha"],

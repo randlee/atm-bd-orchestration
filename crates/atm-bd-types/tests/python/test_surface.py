@@ -18,6 +18,7 @@ from atm_bd_types import (
     HookAction,
     HookReply,
     HookRequest,
+    Merged,
     Notify,
     Params,
     PhaseFacts,
@@ -91,6 +92,13 @@ def test_verdicts() -> None:
     assert [(f.id, f.blocking) for f in fail.findings] == [("f1", True)]
     wrong = req.qa_pass()
     assert isinstance(wrong, Refusal) and wrong.id == ErrorId.QA_VERDICT
+
+
+def test_merged_sha_keeps_string_python_surface_and_validates_constructor() -> None:
+    merged = Merged(sha=SHA)
+    assert merged.sha == SHA
+    with pytest.raises(ValueError, match="not a 40-hex commit id"):
+        Merged(sha="bad")
 
 
 def test_bead_patch_guards_the_snapshot() -> None:

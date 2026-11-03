@@ -638,7 +638,7 @@ pub(crate) fn patch_json(patch: PyRef<'_, PyBeadPatch>) -> String {
                     serde_json::json!({"kind": "qa_fail", "sha": fail.sha.as_str(), "findings": fail.findings.iter().map(|f| serde_json::json!({"id": f.id, "blocking": f.blocking})).collect::<Vec<_>>()})
                 }
                 Evidence::Merged(merged) => {
-                    serde_json::json!({"kind": "merged", "sha": merged.sha})
+                    serde_json::json!({"kind": "merged", "sha": merged.sha.as_str()})
                 }
             };
             ("close", guard, value)

@@ -245,7 +245,7 @@ pub struct QaFail {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Merged {
-    pub sha: String,
+    pub sha: Sha,
 }
 
 /// What a close records on the bead (T-CLOSE-02..04).
