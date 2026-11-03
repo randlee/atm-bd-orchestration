@@ -38,6 +38,4 @@ jobs:
       - name: Test gate fixtures
         run: uv run --no-project --with pytest --with 'pydantic>=2' --with pyyaml --with 'sc-compose>=1.7.0,<2' python -m pytest -q tests/lite-gate-fixtures/test_gate.py
       - name: Check each declared hook against its spec
-        env:
-          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
         run: uv run --no-project --with 'pydantic>=2' --with pyyaml --with 'sc-compose>=1.7.0,<2' python plugins/atm-bd-orchestration/core/gate/run-plugin-gates.py

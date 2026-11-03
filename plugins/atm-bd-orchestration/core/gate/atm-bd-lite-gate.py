@@ -11,12 +11,14 @@ Deterministic checks run first and fail before Jev: rows == Transition arms (ANC
 beads write and no create/claim/release (ANC-064), stack_bead only read (ANC-065), no subprocess/bd/gh
 (ANC-066), <= 100 lines (ANC-070). Then one Jev request with two question sets: every Transitions row
 is implemented by exactly one arm with no additional check or write (ANC-053); every arm and reply site
-is listed as a row or an Errors entry (ANC-054). Jev's answers and errors are advisory; only deterministic
-failures block. Writes the run JSON; exits 1 on a deterministic failure and 3 for invalid usage.
+is listed as a row or an Errors entry (ANC-054). CI reads a Jev answer record keyed by the hook, spec,
+and question-set bytes. Missing records and recorded "no" answers fail closed; run
+record-plugin-gates.py after changing a hook or spec to ask Jev once and write its sample. CI never calls Jev.
 """
-import ast, dataclasses, hashlib, json, sys
+import ast, dataclasses, hashlib, json, os, subprocess, sys
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Callable, TypedDict
+from unittest.mock import patch
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PLUGIN_ROOT / "skills/atm-bd-orchestration/scripts"))
@@ -30,6 +32,8 @@ CLI_ADAPTERS, OS_SPAWN, CLI_TOOLS = {"BdCli", "GitCli", "AtmCli"}, ("system", "p
 REPLIES = {"pass_through", "not_applicable", "handled"}  # plus refused(Refusal(ErrorId.X, ...)) (§B.1)
 MAX_LINES = 100
 QUESTION_SET_SCHEMA = "plan-anchoring/questions/1"
+RECORD_SCHEMA = "atm-bd-gate/jev-record/1"
+RECORDS_DIR = Path(__file__).with_name("jev-records")
 
 
 class Question(TypedDict):
@@ -87,12 +91,32 @@ def load_question_set(path: Path) -> QuestionSet:
     return QuestionSet(templates)
 
 
-def check(state: JsonObject, questions: dict[str, Question]) -> JevReply:
+def keychain(service: str) -> str:
+    """Read the macOS Keychain entry named for the variable; never print or log its value."""
+    try:
+        done = subprocess.run(["security", "find-generic-password", "-a", os.environ.get("USER", ""),
+                               "-s", service, "-w"], capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def api_key(lookup: Callable[[str], str] = keychain) -> str:
+    """Prefer the environment, then the Keychain entry with the same name."""
+    return os.environ.get("TYPESAFE_API_KEY", "").strip() or lookup("TYPESAFE_API_KEY").strip()
+
+
+def check(state: JsonObject, questions: dict[str, Question], *, key_lookup: Callable[[str], str] = keychain) -> JevReply:
+    key = api_key(key_lookup)
+    if not key:
+        raise JevError("SANITY.JEV_UNAVAILABLE", "TYPESAFE_API_KEY is missing; no Jev evaluation ran")
     question_values: JsonObject = {}
-    for key, question in questions.items():
-        question_values[key] = {"type": question["type"], "instructions": question["instructions"],
-                                "criteria": dict(question["criteria"])}
-    response = evaluate({"model": MODEL, "state": state, "questions": question_values})
+    for question_id, question in questions.items():
+        question_values[question_id] = {"type": question["type"], "instructions": question["instructions"],
+                                        "criteria": dict(question["criteria"])}
+    # The surviving client reads its key from the environment; scope this handoff and restore it afterward.
+    with patch.dict(os.environ, {"TYPESAFE_API_KEY": key}):
+        response = evaluate({"model": MODEL, "state": state, "questions": question_values}, max_attempts=1)
     answers = response.get("answers")
     if not is_json_object(answers):
         raise JevError("SANITY.JEV_RESPONSE_INVALID", "Missing or unexpected answer IDs")
@@ -104,6 +128,50 @@ def check(state: JsonObject, questions: dict[str, Question]) -> JevReply:
     usage = response.get("usage")
     tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
     return JevReply(parsed_answers, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) else None)
+
+
+def input_sha256(src: str, spec_md: str, question_set: str) -> str:
+    """Hash the three exact text inputs with JSON framing so their boundaries are unambiguous."""
+    payload = json.dumps([src, spec_md, question_set], ensure_ascii=False, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def record_path(digest: str, records_dir: Path | None = None) -> Path:
+    return (records_dir or RECORDS_DIR) / f"{digest}.json"
+
+
+def load_record(path: Path, digest: str, questions: dict[str, Question]
+                ) -> tuple[dict[str, JsonObject] | None, int | None, str | None]:
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, None, f"missing Jev record for hook input sha256 {digest}"
+    except (OSError, ValueError):
+        return None, None, f"invalid Jev record for hook input sha256 {digest}"
+    if (not isinstance(record, dict) or record.get("schema") != RECORD_SCHEMA
+            or record.get("input_sha256") != digest):
+        return None, None, f"invalid Jev record for hook input sha256 {digest}"
+    answers = record.get("answers")
+    if not isinstance(answers, dict) or set(answers) != set(questions):
+        return None, None, f"invalid Jev record for hook input sha256 {digest}"
+    parsed: dict[str, JsonObject] = {}
+    for key, answer in answers.items():
+        if (not is_json_object(answer) or answer.get("choice") not in questions[key]["criteria"]
+                or answer.get("type") != "choice"):
+            return None, None, f"invalid Jev record for hook input sha256 {digest}"
+        parsed[key] = answer
+    tokens = record.get("input_tokens")
+    return parsed, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) else None, None
+
+
+def write_record(path: Path, digest: str, answers: dict[str, JsonObject], input_tokens: int | None) -> None:
+    """Write one immutable sample for an input hash; never replace it with another vote."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"schema": RECORD_SCHEMA, "input_sha256": digest, "answers": answers,
+               "input_tokens": input_tokens}
+    with path.open("x", encoding="utf-8") as stream:
+        json.dump(payload, stream, indent=2, ensure_ascii=False)
+        stream.write("\n")
 
 
 def input_record(state: Any, questions: dict[str, Question], input_tokens: int | None,
@@ -235,26 +303,33 @@ def main(argv: list[str]) -> int:
     hook, spec = Path(argv[0]), Path(argv[1])
     out = Path(argv[3])
     src, spec_md = hook.read_text(), spec.read_text()
+    question_set = QUESTIONS.read_text(encoding="utf-8")
+    digest = input_sha256(src, spec_md, question_set)
     rows = table(spec_md, "Transitions")
     f = facts(src)
     run = {"hook": str(hook), "spec": str(spec), "lines": len(src.splitlines()), "rows": [r[:2] for r in rows],
-           "facts": f, "deterministic_failures": deterministic(src, f, rows), "jev": None}
+           "facts": f, "input_sha256": digest, "deterministic_failures": deterministic(src, f, rows), "jev": None}
     if not run["deterministic_failures"]:
         state: JsonObject = {"hook": src, "spec": spec_md}
         qs = questions(f, rows)
-        try:
-            reply = check(state, qs)
-        except JevError as exc:
-            run["jev_error"] = {"code": exc.code, "message": str(exc)}
+        answers, input_tokens, error = load_record(record_path(digest), digest, qs)
+        if error:
+            hook_name = hook.relative_to(PLUGIN_ROOT) if hook.is_relative_to(PLUGIN_ROOT) else hook.name
+            run["jev_error"] = {"code": "JEV_RECORD_MISSING" if error.startswith("missing") else "JEV_RECORD_INVALID",
+                                "message": f"{hook_name}: {error}"}
         else:
-            answers = reply.answers
+            assert answers is not None
             run["jev"] = {"answers": answers, "findings": findings(answers, f),
-                          "input": dataclasses.asdict(input_record(state, qs, reply.input_tokens, None, 0)),
+                          "input": dataclasses.asdict(input_record(state, qs, input_tokens, None, 0)),
                           "no": sorted(k for k, a in answers.items() if a.get("choice") != "yes")}
-    run["pass"] = not run["deterministic_failures"]
+    run["pass"] = not run["deterministic_failures"] and run["jev"] is not None and not run["jev"]["no"]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(run, indent=2) + "\n")
+    if run["jev"] is not None and run["jev"]["no"]:
+        hook_name = hook.relative_to(PLUGIN_ROOT) if hook.is_relative_to(PLUGIN_ROOT) else hook.name
+        print(f"GATE.JEV_NO: {hook_name} sha256={digest}: {run['jev']['no']}", file=sys.stderr)
     print(json.dumps({"pass": run["pass"], "out": str(out), "deterministic_failures": run["deterministic_failures"],
+                      "hook": hook.name, "input_sha256": digest,
                       "jev_no": run["jev"] and run["jev"]["no"], "jev_error": run.get("jev_error")}, indent=2))
     return 0 if run["pass"] else 1
 
