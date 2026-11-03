@@ -10,11 +10,11 @@ import os
 import re
 import stat
 import subprocess
-import sys
 import tomllib
 from pathlib import Path
 
 import install
+import pytest
 
 PKG = Path(__file__).resolve().parents[1]
 SCRIPTS = sorted(p for p in PKG.glob("skills/*/scripts/*") if p.is_file() and p.read_bytes().startswith(b"#!")
@@ -22,6 +22,25 @@ SCRIPTS = sorted(p for p in PKG.glob("skills/*/scripts/*") if p.is_file() and p.
 EXECUTABLES = [*SCRIPTS, PKG / "install.py"]
 DOCUMENTS = sorted(p for p in PKG.rglob("*") if p.suffix in {".md", ".j2", ".yaml", ".json"}
                    and p.is_file() and "CHANGELOG" not in p.name and ".pytest_cache" not in p.parts)
+PROBE_TIMEOUT_SECONDS = 30
+
+
+def _captured_text(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    return output.decode(errors="replace") if isinstance(output, bytes) else output
+
+
+def _run_uv_probe(command: list[str], *, env: dict[str, str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(command, capture_output=True, text=True, env=env, cwd=cwd,
+                              timeout=PROBE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(
+            f"command {command!r} timed out after {PROBE_TIMEOUT_SECONDS}s\n"
+            f"partial stdout:\n{_captured_text(exc.stdout)}\n"
+            f"partial stderr:\n{_captured_text(exc.stderr)}"
+        ) from exc
 
 
 def test_the_header_is_pep_723_metadata_pinning_the_manifest_sc_compose_range():
@@ -58,7 +77,7 @@ def test_no_document_runs_a_script_through_python3():
 
 
 def test_a_script_runs_on_python_3_11_whatever_python3_is_on_path(tmp_path):
-    """The real runtime: `uv run --script` resolves 3.11 and the wheel with a 3.14 `python3` first on PATH."""
+    """The real runtime: `uv run --python 3.11` works with a 3.14 `python3` first on PATH."""
     fake = tmp_path / "bin"
     fake.mkdir()
     (fake / "python3").write_text("#!/bin/sh\necho 'Python 3.14.7'\n")
@@ -67,7 +86,23 @@ def test_a_script_runs_on_python_3_11_whatever_python3_is_on_path(tmp_path):
     probe.write_text(install.SCRIPT_HEADER + "import sys, sc_compose, pydantic, yaml\nprint(sys.version_info[:2])\n")
     probe.chmod(0o755)
     env = {**os.environ, "PATH": f"{fake}{os.pathsep}{os.environ['PATH']}"}
-    run = subprocess.run([str(probe)], capture_output=True, text=True, env=env, cwd=tmp_path)
-    assert run.returncode == 0, run.stderr
+    command = ["uv", "run", "--offline", "--python", "3.11", "--script", str(probe)]
+    run = _run_uv_probe(command, env=env, cwd=tmp_path)
+    assert run.returncode == 0, f"stdout:\n{run.stdout}\nstderr:\n{run.stderr}"
     assert run.stdout.strip() == "(3, 11)"
-    assert sys.version_info[:2] == (3, 11)  # the suite's own interpreter, so the comparison is not vacuous
+
+
+def test_uv_probe_timeout_reports_partial_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def expire(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert kwargs["timeout"] == PROBE_TIMEOUT_SECONDS
+        raise subprocess.TimeoutExpired(command, PROBE_TIMEOUT_SECONDS, output=b"partial stdout", stderr=b"partial stderr")
+
+    monkeypatch.setattr(subprocess, "run", expire)
+    command = ["uv", "run", "--offline", "--python", "3.11", "--script", "probe.py"]
+    with pytest.raises(AssertionError) as raised:
+        _run_uv_probe(command, env={}, cwd=tmp_path)
+
+    message = str(raised.value)
+    assert "uv" in message
+    assert "partial stdout" in message
+    assert "partial stderr" in message
