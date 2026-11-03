@@ -72,11 +72,29 @@ def test_one_jev_check_and_typed_outage(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert json.loads(out.read_text())["pass"] is True
 
     def unavailable(_state, _questions):
-        raise gate.JevCheckError("JEV_UNAVAILABLE", "test outage")
+        raise gate.JevError("SANITY.JEV_UNAVAILABLE", "test outage")
 
     monkeypatch.setattr(gate, "check", unavailable)
     assert gate.main([str(hook), str(SPEC_PATH), "--out", str(out)]) == 2
-    assert json.loads(out.read_text())["jev_error"]["code"] == "JEV_UNAVAILABLE"
+    assert json.loads(out.read_text())["jev_error"]["code"] == "SANITY.JEV_UNAVAILABLE"
+
+
+def test_gate_uses_the_shared_jev_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = []
+
+    def controlled_evaluate(request):
+        seen.append(request)
+        return {"answers": {"implemented:T-1": {"choice": "yes"}},
+                "usage": {"input_tokens": 7}}
+
+    monkeypatch.setattr(gate, "evaluate", controlled_evaluate)
+    questions = {"implemented:T-1": {"type": "choice", "instructions": "check",
+                                    "criteria": {"yes": "yes", "no": "no"}}}
+    reply = gate.check({"hook": "source"}, questions)
+
+    assert seen == [{"model": gate.MODEL, "state": {"hook": "source"}, "questions": questions}]
+    assert reply.answers == {"implemented:T-1": {"choice": "yes"}}
+    assert reply.input_tokens == 7
 
 
 @pytest.mark.parametrize("flag", ["-h", "--help"])

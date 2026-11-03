@@ -1,9 +1,7 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["jev-check"]
-# [tool.uv.sources]
-# jev-check = { path = "jev-check", editable = true }
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
 # ///
 """atm-bd-lite gate: hold one hook file to its hooks/*.md spec (fenix-brief.md §B).
 
@@ -16,10 +14,13 @@ is implemented by exactly one arm with no additional check or write (ANC-053); e
 is listed as a row or an Errors entry (ANC-054). Writes the run JSON; exits 1 on any failure or "no",
 2 when Jev cannot be asked, and 3 for invalid usage.
 """
-import ast, dataclasses, json, sys
+import ast, dataclasses, hashlib, json, sys
 from pathlib import Path
-from jev_check import JevCheckError, Question, check, load_question_set
-from jev_check.checks import input_record
+from typing import Any, TypedDict
+
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PLUGIN_ROOT / "skills/atm-bd-orchestration/scripts"))
+from jev_client import MODEL, JevError, JsonObject, evaluate, is_json_object
 
 QUESTIONS = Path(__file__).with_name("gate-questions.json")
 # Write detection recognizes only receivers named beads, cache, or store; aliases are not tracked.
@@ -28,6 +29,90 @@ READS = {("beads", "show"), ("cache", "get")}
 CLI_ADAPTERS, OS_SPAWN, CLI_TOOLS = {"BdCli", "GitCli", "AtmCli"}, ("system", "popen", "exec", "spawn"), {"gh", "bd", "git"}
 REPLIES = {"pass_through", "not_applicable", "handled"}  # plus refused(Refusal(ErrorId.X, ...)) (§B.1)
 MAX_LINES = 100
+QUESTION_SET_SCHEMA = "plan-anchoring/questions/1"
+
+
+class Question(TypedDict):
+    type: str
+    instructions: str
+    criteria: dict[str, str]
+
+
+@dataclasses.dataclass(frozen=True)
+class QuestionSet:
+    templates: dict[str, Question]
+
+    def expand(self, template: str, subjects: dict[str, str]) -> dict[str, Question]:
+        if template not in self.templates:
+            raise JevError("VALIDATION.INPUT", f"question set has no template {template}")
+        question = self.templates[template]
+        return {f"{template}:{key}": {"type": "choice",
+                "instructions": question["instructions"].replace("{subject}", subject),
+                "criteria": dict(question["criteria"])} for key, subject in subjects.items()}
+
+
+@dataclasses.dataclass(frozen=True)
+class JevReply:
+    answers: dict[str, JsonObject]
+    input_tokens: int | None
+
+
+@dataclasses.dataclass(frozen=True)
+class InputRecord:
+    prompt_sha256: str
+    input_tokens: int | None
+    prompt_tokens: int | None
+    leak: int | None
+    commands: int
+    equal: bool
+
+
+def load_question_set(path: Path) -> QuestionSet:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise JevError("VALIDATION.INPUT", f"cannot read question set {path}: {exc}") from None
+    questions = raw.get("questions") if isinstance(raw, dict) and raw.get("schema") == QUESTION_SET_SCHEMA else None
+    if not isinstance(questions, dict):
+        raise JevError("VALIDATION.INPUT", f"{path} is not a {QUESTION_SET_SCHEMA} question set")
+    templates: dict[str, Question] = {}
+    for key, value in questions.items():
+        criteria = value.get("criteria") if isinstance(value, dict) else None
+        instructions = value.get("instructions") if isinstance(value, dict) else None
+        if (not isinstance(value, dict) or value.get("type") != "choice" or not isinstance(instructions, str)
+                or not isinstance(criteria, dict) or len(criteria) < 2):
+            raise JevError("VALIDATION.INPUT", f"{path}: question {key} is not a choice question")
+        templates[key] = {"type": "choice", "instructions": instructions,
+                          "criteria": {name: str(text) for name, text in criteria.items()}}
+    return QuestionSet(templates)
+
+
+def check(state: JsonObject, questions: dict[str, Question]) -> JevReply:
+    question_values: JsonObject = {}
+    for key, question in questions.items():
+        question_values[key] = {"type": question["type"], "instructions": question["instructions"],
+                                "criteria": dict(question["criteria"])}
+    response = evaluate({"model": MODEL, "state": state, "questions": question_values})
+    answers = response.get("answers")
+    if not is_json_object(answers):
+        raise JevError("SANITY.JEV_RESPONSE_INVALID", "Missing or unexpected answer IDs")
+    parsed_answers: dict[str, JsonObject] = {}
+    for key, answer in answers.items():
+        if not is_json_object(answer):
+            raise JevError("SANITY.JEV_RESPONSE_INVALID", "Answer must be an object")
+        parsed_answers[key] = answer
+    usage = response.get("usage")
+    tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
+    return JevReply(parsed_answers, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) else None)
+
+
+def input_record(state: Any, questions: dict[str, Question], input_tokens: int | None,
+                 prompt_tokens: int | None, commands: int) -> InputRecord:
+    if prompt_tokens is not None or commands != 0:
+        raise ValueError("input_record accepts only Jev usage; prompt_tokens must be None and commands must be zero")
+    payload = json.dumps({"questions": questions, "state": state}, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=False).encode()
+    return InputRecord(hashlib.sha256(payload).hexdigest(), input_tokens, None, None, 0, True)
 
 
 def table(spec: str, heading: str) -> list[list[str]]:
@@ -155,10 +240,11 @@ def main(argv: list[str]) -> int:
     run = {"hook": str(hook), "spec": str(spec), "lines": len(src.splitlines()), "rows": [r[:2] for r in rows],
            "facts": f, "deterministic_failures": deterministic(src, f, rows), "jev": None}
     if not run["deterministic_failures"]:
-        state, qs = {"hook": src, "spec": spec_md}, questions(f, rows)
+        state: JsonObject = {"hook": src, "spec": spec_md}
+        qs = questions(f, rows)
         try:
             reply = check(state, qs)
-        except JevCheckError as exc:
+        except JevError as exc:
             run["jev_error"] = {"code": exc.code, "message": str(exc)}
         else:
             answers = reply.answers
