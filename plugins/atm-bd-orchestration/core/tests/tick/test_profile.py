@@ -101,10 +101,12 @@ def test_bad_cron_script_refuses_profile_mismatch(tmp_path, script):
 
 def test_host_source_names_no_profile():
     package = Path(__file__).resolve().parents[2] / "atm_bd_core"
-    for name in ("tick.py", "execute.py", "profile.py"):
-        text = (package / name).read_text(encoding="utf-8").lower()
+    paths = [package / name for name in ("tick.py", "execute.py", "profile.py")]
+    paths += [path for name in ("collect", "store") for path in (package / name).rglob("*.py")]
+    for path in paths:
+        text = path.read_text(encoding="utf-8").lower()
         for profile in ("lite", "orchestration", "quality-mgr", "qa_agent", "qa_template"):
-            assert profile not in text, f"{name} names {profile!r}"
+            assert profile not in text, f"{path.relative_to(package)} names {profile!r}"
 
 
 def test_shipped_lite_profile_loads():

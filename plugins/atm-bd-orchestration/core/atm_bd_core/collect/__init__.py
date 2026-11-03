@@ -1,4 +1,4 @@
-"""Read a phase snapshot without making orchestration decisions."""
+"""Read a phase snapshot without making plug-in decisions."""
 
 from itertools import pairwise
 
