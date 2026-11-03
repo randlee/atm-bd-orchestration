@@ -217,7 +217,7 @@ impl HookRequest {
                 })
             })
             .collect::<Option<Vec<_>>>()
-            .ok_or_else(bad_verdict)?;
+            .ok_or_else(|| bad_verdict("invalid finding bead id"))?;
         match raw.verdict.as_str() {
             "PASS" => Ok(Verdict::Pass(QaPass { sha })),
             "FINDINGS" => Ok(Verdict::Findings(QaFail { sha, findings })),
