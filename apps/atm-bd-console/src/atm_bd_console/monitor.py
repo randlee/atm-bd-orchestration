@@ -80,9 +80,10 @@ class TodayMonitor:
 
 def route(repo_root, args, command, step):
     """Select once from the phase file; old phases retain the existing runner."""
-    import re
     import tomllib
     from pathlib import Path
+
+    from . import atm_bd
 
     phase = args.phase
 
@@ -132,8 +133,8 @@ def route(repo_root, args, command, step):
 
     if phase is None:
         return today()
-    if re.fullmatch(r"[a-z0-9]+", phase) is None:
-        return policy({"_route_error": "invalid phase id"})
+    if not atm_bd.PHASE_ID.fullmatch(phase):
+        return today()
     path = Path(repo_root) / ".atm-bd" / f"phase-{phase}.toml"
     try:
         with path.open("rb") as source:

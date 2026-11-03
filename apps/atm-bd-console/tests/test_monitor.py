@@ -57,6 +57,18 @@ def test_route_selects_profile_or_existing_runner(tmp_path):
     assert isinstance(monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None).monitor, monitor.PolicyMonitor)
 
 
+def test_route_leaves_invalid_phase_ids_to_today_validation(tmp_path):
+    calls = []
+    args = monitor.MonitorArgs("queues", phase="bad-phase")
+    selected = monitor.route(
+        tmp_path, args, lambda actual: calls.append(actual) or 0, lambda *items: None
+    ).monitor
+
+    assert isinstance(selected, monitor.TodayMonitor)
+    assert selected.queues(args) == monitor.Exit.OK
+    assert calls == [args]
+
+
 def test_missing_path_and_mismatched_profile_are_refused(tmp_path):
     _phase(tmp_path, 'profile="lite"\nlead="lead"\n')
     selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None).monitor
