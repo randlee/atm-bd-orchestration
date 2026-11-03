@@ -356,3 +356,29 @@ def test_cli_accepts_a_third_monitor_without_concrete_dispatch(monkeypatch, tmp_
     assert reads == ["custom-root"]
     source = Path(cli.__file__).read_text(encoding="utf-8")
     assert "PolicyMonitor" not in source and "TodayMonitor" not in source
+
+
+def test_today_config_is_loaded_once_by_route_for_each_mode(tmp_path, monkeypatch):
+    from atm_bd_console.result import Err, NotFound
+
+    monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
+    calls = []
+    error = NotFound("not_found", "phase", "fix")
+    def load(root, phase, **options):
+        calls.append((root, phase, options))
+        return Err(error)
+    monkeypatch.setattr(cli.config_source, "load_config", load)
+    for mode in ("console", "snapshot", "cron"):
+        calls.clear()
+        assert cli.main([mode, "--phase", "zz"]) == 3
+        assert len(calls) == 1
+        root, phase, options = calls[0]
+        assert (root, phase) == (tmp_path, "zz")
+        assert options["interval_s"] == (cli.config_source.CRON_CADENCE_S if mode == "cron" else None)
+        assert options["dry_run"] == (mode == "snapshot")
+    calls.clear()
+    assert cli.main(["cron", "--phase", "zz", "--interval", "42", "--md-table"]) == 3
+    assert len(calls) == 1 and calls[0][2]["interval_s"] == 42 and calls[0][2]["dry_run"]
+    tree = ast.parse(Path(cli.__file__).read_text(encoding="utf-8"))
+    assert not any(isinstance(node, ast.Attribute) and node.attr == "load_config" for node in ast.walk(tree))
+    assert not any(isinstance(node, ast.FunctionDef) and node.name == "_cadence" for node in ast.walk(tree))

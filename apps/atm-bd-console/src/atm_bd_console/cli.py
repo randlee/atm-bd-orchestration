@@ -24,14 +24,6 @@ def now() -> datetime:
     return datetime.now(UTC)
 
 
-def _cadence(args: argparse.Namespace) -> int | None:
-    # The liveness window is judged from the interval a tick records, so a cron tick records its schedule
-    # unless --interval says otherwise; without this a 15-minute cron recorded 60 s and read as stopped.
-    if args.interval is None and args.command == "cron":
-        return config_source.CRON_CADENCE_S
-    return args.interval
-
-
 def _error_text(error: Error) -> str:
     if isinstance(error, IoFailed):
         return f"{error.kind}: {error.path}: {error.message}: {error.fix}"
@@ -143,12 +135,7 @@ def _run_today(args, selected_route, startup_error=None) -> int:
         return 2
     md_table = getattr(args, "md_table", False)
     preloaded = selected_route.config
-    loaded = (preloaded if isinstance(preloaded, Err) else Ok(preloaded) if preloaded is not None else
-              config_source.load_config(repo_root, args.phase, github=args.github, interval_s=_cadence(args),
-                                        github_poll_interval_s=args.github_poll_interval,
-                                        github_quota_threshold=args.github_quota_threshold,
-                                        dry_run=getattr(args, "dry_run", False) or args.command == "snapshot" or md_table,
-                                        no_fetch=args.no_fetch))
+    loaded = preloaded if isinstance(preloaded, Err) else Ok(preloaded)
     if isinstance(loaded, Err): print(f"{invocation}: {error_message(asdict(loaded.error))}"); return 3
     if args.command != "console":
         ready, _ = _startup_checks(loaded.value, invocation, notification=False)
