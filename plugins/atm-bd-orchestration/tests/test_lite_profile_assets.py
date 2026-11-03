@@ -146,14 +146,15 @@ def test_policy_parameters_are_text_and_every_named_template_is_shipped() -> Non
         assert target.is_file(), f"{source} points to missing template {path}"
 
 
-def test_skill_registers_each_profile_hook_once() -> None:
+def test_skill_documents_profile_installer() -> None:
     profile = tomllib.loads((SKILL / "profile.toml").read_text())
     skill = (SKILL / "SKILL.md").read_text()
     assert profile["stages"] == ["dev", "qa", "land"]
-    commands = [line for line in skill.splitlines() if line.startswith("atm hook register ")]
-    assert len(commands) == len(profile["hooks"]) == 3
-    for hook, script in profile["hooks"].items():
-        assert sum(hook in command and f"--module .claude/skills/atm-bd-lite/{script}" in command for command in commands) == 1
+    assert set(profile["hooks"]) == {"task.assign", "task.start", "task.close"}
+    assert "python -m atm_bd_core.install" in skill
+    assert "atm-bd-lite/profile.toml" in skill
+    assert "--checkout <checkout> --repo <owner/repo>" in skill
+    assert "atm hook register" not in skill
     assert "followed by QA" in skill
     assert "does not add a sanity stage" in skill
 
@@ -176,12 +177,6 @@ def test_subprocess_timeout_failure_includes_command_and_partial_output(monkeypa
 
 def test_registered_profile_modules_declare_one_timeout_within_registrar_cap() -> None:
     profile = tomllib.loads((SKILL / "profile.toml").read_text())
-    skill = (SKILL / "SKILL.md").read_text()
-    registration_lines = [line for line in skill.splitlines() if line.startswith("atm hook register ")]
-    registered = [line.split("--module ", 1)[1].split()[0].rsplit("/", 1)[-1] for line in registration_lines]
-    hook_names = [Path(script).name for script in profile["hooks"].values()]
-    assert registered == hook_names
-
     modules = [SKILL / script for script in profile["hooks"].values()] + [SKILL / profile["cron"]]
     for module in modules:
         values = []
