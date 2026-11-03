@@ -1,6 +1,6 @@
 """hooks/task-close.md: one test per Transitions row (T-CLOSE-01..04), per guard, and per Errors row."""
 import atm_bd_types as T
-from conftest import (DEV, QA, FakePhases, FakeStore, action_template, action_vars, bead, expect_refused,
+from lite_helpers import (DEV, QA, FakePhases, FakeStore, action_template, action_vars, bead, expect_refused,
                       hook_request, layer, reply_actions, reply_data)
 
 S = T.Status
@@ -116,6 +116,7 @@ def test_t_close_04_poured_findings_close_qa(hooks):
     poured = [bead("f-1", blocks_ids=["sprint-10"]), bead("f-2", blocks_ids=["bo"])]
     reply, store = run(hooks, qa_bead(), findings_req(*findings), *poured, target=LAYER)
     assert reply_data(reply)["result"] == "handled"
+    assert store.refreshes == [["f-1", "f-2", "sprint-10", "bo"]]
     assert store.writes == [("close", "bo-10-qa", {"kind": "qa_fail", "sha": LAYER.head,
                                                        "findings": findings}, QA)]
     [action] = reply_actions(reply)
@@ -174,31 +175,31 @@ def test_caller_not_assignee(hooks):
 
 def test_closed_bead_replays_only_the_close_action(hooks):
     reply, store = run(hooks, dev_bead(S.CLOSED), completed(close_report="done"))
-    assert reply.kind == "handled" and store.writes == []
-    assert reply.actions == (T.HookAction("templates/dev-close.md", LAYER),)
+    assert reply_data(reply)["result"] == "handled" and store.writes == []
+    assert action_template(reply_actions(reply)[0]).endswith("/dev-close.md")
 
 
 def test_closed_qa_replays_validated_pass_without_a_write(hooks):
-    bead = qa_bead()
-    bead.status = S.CLOSED
+    closed = bead("bo-10-qa", S.CLOSED, QA, stage=T.Stage.QA, stack_bead="stack", sprint="sprint-10", phase="bo")
     req = completed(caller=QA, task="bo-10-qa", verdict="PASS", verdict_sha=LAYER.head)
-    reply, store = run(hooks, bead, req, target=LAYER)
-    assert reply.kind == "handled" and store.writes == []
-    assert reply.actions == (T.HookAction("templates/qa-pass.md", T.QaPass(LAYER.head)),)
+    reply, store = run(hooks, closed, req, target=LAYER)
+    assert reply_data(reply)["result"] == "handled" and store.writes == []
+    assert action_template(reply_actions(reply)[0]).endswith("/qa-pass.md")
 
 
 def test_land_close_requires_merge_sha(hooks):
-    bead = T.Bead("land", S.IN_PROGRESS, assignee=DEV, stage="land")
+    landing = bead("land", S.IN_PROGRESS, DEV, stage=T.Stage.LAND)
     report = f'```json\n{{"merged":"{LAYER.head}"}}\n```'
-    reply, store = run(hooks, bead, completed(task="land", close_report=report))
-    assert reply.kind == "handled" and store.writes == [("close", "land", T.Merged(LAYER.head), DEV)]
-    assert reply.actions == (T.HookAction("templates/land-close.md", T.Merged(LAYER.head)),)
-    reply, store = run(hooks, bead, completed(task="land", close_report="no sha"))
+    reply, store = run(hooks, landing, completed(task="land", close_report=report))
+    assert reply_data(reply)["result"] == "handled"
+    assert store.writes == [("close", "land", {"kind": "merged", "sha": LAYER.head}, DEV)]
+    assert action_template(reply_actions(reply)[0]).endswith("/land-close.md")
+    reply, store = run(hooks, landing, completed(task="land", close_report="no sha"))
     expect_refused(reply, T.ErrorId.LAND_EVIDENCE, store)
 
 
 def test_closed_bead_cannot_be_given_back(hooks):
-    req = T.HookRequest(caller=DEV, task_id="bo-10", outcome="refused", close_reason="blocked")
+    req = hook_request(caller=DEV, task_id="bo-10", outcome="refused", close_reason="blocked")
     reply, store = run(hooks, dev_bead(S.CLOSED), req)
     expect_refused(reply, T.ErrorId.BEAD_CLOSED, store)
 

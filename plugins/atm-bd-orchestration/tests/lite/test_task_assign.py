@@ -1,6 +1,6 @@
 """hooks/task-assign.md: one test per Transitions row (T-ASSIGN-01..04) and per Errors row."""
 import atm_bd_types as T
-from conftest import DEV, LEAD, FakePhases, FakeStore, bead, expect_refused, hook_request, reply_data
+from lite_helpers import DEV, LEAD, FakePhases, FakeStore, bead, expect_refused, hook_request, reply_data
 
 S = T.Status
 
