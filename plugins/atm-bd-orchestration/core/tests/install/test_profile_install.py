@@ -156,7 +156,7 @@ def test_cron_stop_only_when_root_bead_is_closed(monkeypatch, tmp_path):
     assert cron_entry.handle(request) == {"stop": False}
 
 
-def test_reinstall_reuses_venv_and_identical_active_cron(tmp_path, monkeypatch):
+def test_reinstall_reuses_venv_and_identical_active_hooks_and_cron(tmp_path, monkeypatch):
     phase_dir = tmp_path / ".atm-bd"
     phase_dir.mkdir()
     (phase_dir / "phase-sample.toml").write_text('profile = "lite"\n', encoding="utf-8")
@@ -167,7 +167,7 @@ def test_reinstall_reuses_venv_and_identical_active_cron(tmp_path, monkeypatch):
 
     def run(argv, **kwargs):
         calls.append(argv)
-        if argv[:3] == ["atm", "cron", "start"]:
+        if argv[:3] in (["atm", "hook", "register"], ["atm", "cron", "start"]):
             raise subprocess.CalledProcessError(3, argv)
         return list_response(argv, calls, tmp_path)
 
@@ -329,3 +329,32 @@ def test_install_fails_when_registered_hook_is_absent(tmp_path, monkeypatch):
     assert any(argv[:3] == ["atm", "cron", "start"] for argv in calls)
     assert any(argv[:3] == ["atm", "hook", "list"] for argv in calls)
     assert any(argv[:3] == ["atm", "cron", "list"] for argv in calls)
+
+
+@pytest.mark.parametrize("mismatch", ["missing", "inactive", "phase", "hook", "module_path", "cwd", "timeout_ms", "custom"])
+def test_reinstall_does_not_mask_nonmatching_hook_registration(tmp_path, monkeypatch, mismatch):
+    phase_dir = tmp_path / ".atm-bd"
+    phase_dir.mkdir()
+    (phase_dir / "phase-sample.toml").write_text('profile = "lite"\n', encoding="utf-8")
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv[:3] == ["atm", "hook", "register"]:
+            raise subprocess.CalledProcessError(3, argv)
+        response = list_response(argv, calls, tmp_path)
+        if argv[:3] == ["atm", "hook", "list"]:
+            rows = json.loads(response.stdout)
+            if mismatch == "missing":
+                rows.pop(0)
+            elif mismatch == "inactive":
+                rows[0]["active"] = False
+            else:
+                rows[0][mismatch] = (1 if mismatch == "timeout_ms" else {"unexpected": True} if mismatch == "custom" else "other")
+            return SimpleNamespace(stdout=json.dumps(rows))
+        return response
+
+    monkeypatch.setattr(installer.subprocess, "run", run)
+    with pytest.raises(subprocess.CalledProcessError):
+        installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
+    assert not any(argv[:3] == ["atm", "cron", "start"] for argv in calls)

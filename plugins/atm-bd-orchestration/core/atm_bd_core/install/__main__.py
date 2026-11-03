@@ -118,6 +118,13 @@ def list_registrations(kind: str, phase: str) -> list[dict]:
     return rows
 
 
+def hook_matches(row: dict, phase: str, hook: str, module: Path, primary: Path,
+                 limit: int | None = None) -> bool:
+    return (row.get("active") is True and row.get("phase") == phase and row.get("hook") == hook
+            and row.get("module_path") == str(module) and row.get("cwd") == str(primary)
+            and (limit is None or (row.get("timeout_ms") == limit and row.get("custom") == {})))
+
+
 def cron_matches(row: dict, phase: str, entry: Path, primary: Path, expression: str, args: list[str]) -> bool:
     stop = row.get("stop")
     return (row.get("active") is True and row.get("phase") == phase and row.get("name") == "profile"
@@ -132,8 +139,7 @@ def verify_registrations(phase: str, primary: Path, hooks: dict[str, Path], entr
     if schedules is None:
         schedules = list_registrations("cron", phase)
     for hook, module in hooks.items():
-        if not any(row.get("active") is True and row.get("phase") == phase and row.get("hook") == hook
-                   and row.get("module_path") == str(module) and row.get("cwd") == str(primary) for row in rows):
+        if not any(hook_matches(row, phase, hook, module, primary) for row in rows):
             raise RuntimeError(f"active hook {hook} for {phase} is missing or does not match {module}")
     if not any(cron_matches(row, phase, entry, primary, expression, cron_args) for row in schedules):
         raise RuntimeError(f"active profile cron for {phase} is missing or does not match {entry}")
@@ -171,10 +177,16 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
         module = installed.path(relative)
         hook_name = hook.name.lower().replace("_", ".")
         entry = target / f"{hook_name}.py"
-        launcher(entry, python, module, timeout(module, "TIMEOUT_MS"))
+        limit = timeout(module, "TIMEOUT_MS")
+        launcher(entry, python, module, limit)
         hooks[hook_name] = entry
-        subprocess.run(["atm", "hook", "register", hook_name, "--module", str(entry), "--phase", phase,
-                        "--cwd", str(primary)], check=True)
+        try:
+            subprocess.run(["atm", "hook", "register", hook_name, "--module", str(entry), "--phase", phase,
+                            "--cwd", str(primary)], check=True)
+        except subprocess.CalledProcessError:
+            rows = list_registrations("hook", phase)
+            if not any(hook_matches(row, phase, hook_name, entry, primary, limit) for row in rows):
+                raise
     cron_source = core / "atm_bd_core/cron_entry.py"
     cron_module = target / "cron_entry.py"
     shutil.copy2(cron_source, cron_module)
