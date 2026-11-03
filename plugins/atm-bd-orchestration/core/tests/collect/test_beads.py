@@ -1,0 +1,47 @@
+from types import SimpleNamespace
+
+from atm_bd_core.collect.beads import beads, ready, stack
+from atm_bd_types import FactKind
+
+
+class Cache:
+    def list(self, phase):
+        return []
+
+    def ready(self, phase):
+        raise OSError("offline")
+
+
+def test_bead_reads():
+    assert beads(Cache(), "phase") == ([], None)
+    value, error = ready(Cache(), "phase")
+    assert value is None and error.kind == FactKind.READY
+
+
+def test_stack_fails_when_no_stack_bead():
+    value, error = stack([], SimpleNamespace(key=lambda key: "main"), lambda bead: None)
+    assert value is None and error.kind == FactKind.STACK
+
+
+def test_stack_success(monkeypatch):
+    from atm_bd_core.collect import beads as module
+    from atm_bd_types import Stage
+
+    bead = SimpleNamespace(stage=Stage.STACK)
+    ledger = object()
+    monkeypatch.setattr(module, "StackFact", lambda bead, stack, trunk, since: (bead, stack, trunk, since))
+    value, error = stack([bead], SimpleNamespace(key=lambda key: "main"), lambda item: ledger)
+    assert error is None and value == (bead, ledger, "main", None)
+
+
+def test_ready_success_and_bead_failure():
+    class OtherCache:
+        def ready(self, phase):
+            return []
+
+        def list(self, phase):
+            raise OSError("offline")
+
+    assert ready(OtherCache(), "phase") == ([], None)
+    value, error = beads(OtherCache(), "phase")
+    assert value is None and error.kind == FactKind.BEADS

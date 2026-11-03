@@ -1,0 +1,11 @@
+[gh]
+hosts = ["github.com"]
+checks = ["gh", "pr", "view", "{pr}", "--json", "statusCheckRollup", "--jq", "[.statusCheckRollup[] | .conclusion // .state // .status]"]
+base = ["gh", "pr", "view", "{pr}", "--json", "baseRefName", "--jq", ".baseRefName"]
+head = ["gh", "pr", "view", "{pr}", "--json", "headRefOid", "--jq", ".headRefOid"]
+
+[az]
+hosts = ["dev.azure.com", "visualstudio.com"]
+checks = ["az", "repos", "pr", "status", "list", "--id", "{pr}", "--query", "[].state", "--output", "json"]
+base = ["az", "repos", "pr", "show", "--id", "{pr}", "--query", "targetRefName", "--output", "tsv"]
+head = ["az", "repos", "pr", "show", "--id", "{pr}", "--query", "lastMergeSourceCommit.commitId", "--output", "tsv"]
