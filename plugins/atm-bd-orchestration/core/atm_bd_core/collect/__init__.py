@@ -1,5 +1,7 @@
 """Read a phase snapshot without making orchestration decisions."""
 
+from itertools import pairwise
+
 from atm_bd_types import CollectError, FactKind, PhaseFacts, TaskFact
 
 from . import atm, beads, git, provider, reported
@@ -50,7 +52,7 @@ def collect(phase, phase_file, ports, now, state_dir):
     else:
         layers = stack.stack.layers
         refs = [stack.trunk, *(layer.branch for layer in layers)]
-        ancestry = take(git.ancestry(ports.runner, [(f"origin/{a}", f"origin/{b}") for a, b in zip(refs, refs[1:])]))
+        ancestry = take(git.ancestry(ports.runner, [(f"origin/{a}", f"origin/{b}") for a, b in pairwise(refs)]))
         selected, issue = provider.resolve_provider(ports.runner, phase_file.key("provider"))
         if issue:
             checks = bases = None

@@ -7,9 +7,9 @@ def _cache_read(cache, method, phase, kind):
     try:
         value = getattr(cache, method)(phase)
         if isinstance(value, Refusal):
-            raise ValueError(str(value))
+            raise TypeError(str(value))
         if not isinstance(value, list):
-            raise ValueError("cache did not return a list")
+            raise TypeError("cache did not return a list")
         return value, None
     except (OSError, ValueError, TypeError) as error:
         return None, CollectError(kind, [], str(error), "Check the beads cache and phase configuration.")

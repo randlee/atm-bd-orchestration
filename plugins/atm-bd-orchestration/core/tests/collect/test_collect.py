@@ -1,8 +1,9 @@
 from types import SimpleNamespace
 
-from atm_bd_core.collect import collect
 from atm_bd_types import FactKind
 from atm_bd_types._native import _phase_file
+
+from atm_bd_core.collect import collect
 
 
 def test_failed_reads_remain_unknown(tmp_path):

@@ -2,8 +2,8 @@
 
 import json
 import tomllib
-from urllib.parse import urlsplit
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from atm_bd_types import CheckState, CollectError, FactKind, PrBase, TopChecks
 
@@ -14,7 +14,10 @@ def _table():
 
 
 def resolve_provider(runner, configured):
-    table = _table()
+    try:
+        table = _table()
+    except (OSError, ValueError) as error:
+        return None, f"Cannot load provider command table: {error}"
     if configured:
         if configured in table:
             return table[configured], None
@@ -50,6 +53,9 @@ def top_checks(runner, provider, layer):
             raise ValueError(f"pull request head {head!r} differs from recorded head {layer.head}")
         argv = [part.replace("{pr}", str(layer.pr)) for part in provider["checks"]]
         states = json.loads(_run(runner, provider["checks"], layer.pr))
+        argv = [part.replace("{pr}", str(layer.pr)) for part in provider["head"]]
+        if _run(runner, provider["head"], layer.pr).strip().lower() != layer.head.lower():
+            raise ValueError("pull request head changed during check collection")
         if not isinstance(states, list) or any(not isinstance(state, str) for state in states):
             raise ValueError("expected list of check states")
         states = [state.lower() for state in states]

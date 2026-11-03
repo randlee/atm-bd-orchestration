@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
-from atm_bd_core.collect.beads import beads, ready, stack
 from atm_bd_types import FactKind
+
+from atm_bd_core.collect.beads import beads, ready, stack
 
 
 class Cache:
@@ -15,17 +16,20 @@ class Cache:
 def test_bead_reads():
     assert beads(Cache(), "phase") == ([], None)
     value, error = ready(Cache(), "phase")
+    assert error is not None
     assert value is None and error.kind == FactKind.READY
 
 
 def test_stack_fails_when_no_stack_bead():
     value, error = stack([], SimpleNamespace(key=lambda key: "main"), lambda bead: None)
+    assert error is not None
     assert value is None and error.kind == FactKind.STACK
 
 
 def test_stack_success(monkeypatch):
-    from atm_bd_core.collect import beads as module
     from atm_bd_types import Stage
+
+    from atm_bd_core.collect import beads as module
 
     bead = SimpleNamespace(stage=Stage.STACK)
     ledger = object()
@@ -44,4 +48,5 @@ def test_ready_success_and_bead_failure():
 
     assert ready(OtherCache(), "phase") == ([], None)
     value, error = beads(OtherCache(), "phase")
+    assert error is not None
     assert value is None and error.kind == FactKind.BEADS

@@ -18,7 +18,7 @@ def tasks(runner):
     try:
         raw = _read(runner, argv)
         if not isinstance(raw, list):
-            raise ValueError("expected task list")
+            raise TypeError("expected task list")
         states = {"assigned": TaskState.ASSIGNED, "active": TaskState.ACTIVE, "complete": TaskState.COMPLETE}
         return [TaskFact(item["task_id"], item["assignee"], states[item["state"]], item.get("bead_id")) for item in raw], None
     except (OSError, ValueError, KeyError, TypeError) as error:
@@ -32,12 +32,12 @@ def task_events(runner, task_ids):
         try:
             events = _read(runner, argv)["events"]
             if not isinstance(events, list):
-                raise ValueError("expected events list")
+                raise TypeError("expected events list")
             last_start = None
             reminders = 0
             for event in events:
                 if event["event"] == "started":
-                    value = datetime.fromisoformat(event["at"].replace("Z", "+00:00"))
+                    value = datetime.fromisoformat(event["at"])
                     if value.tzinfo is None:
                         raise ValueError("start time lacks timezone")
                     last_start = int(value.timestamp())
