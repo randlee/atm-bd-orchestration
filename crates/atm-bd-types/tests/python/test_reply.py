@@ -64,7 +64,7 @@ def test_reply_handled() -> None:
     assert isinstance(req, HookRequest)
     verdict = req.qa_pass()
     assert isinstance(verdict, QaPass)
-    templates = [(f"/r/t/{n}.md.j2", "/r/t", b"ok") for n in ("refuse", "dev-close", "qa-pass", "qa-findings")]
+    templates = [(f"/r/t/{n}.md.j2", "/r/t", b"ok") for n in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close")]
     phase = _phase_file("lite", "lead", templates, [])
     reply = HookReply.handled([HookAction.close(phase.template(Template.QA_PASS), verdict)])
     assert reply.to_json() == (

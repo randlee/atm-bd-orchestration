@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
+import re
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 from atm_bd_types import Refusal
@@ -27,7 +30,22 @@ def launcher(path: Path, python: Path, module: Path, limit: int, *, cron: bool =
                     f"[{str(python)!r}, {str(module)!r}, *sys.argv[1:]])\n", encoding="utf-8")
 
 
-def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expression: str) -> None:
+def set_repo(primary: Path, phase: str, repo: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        raise ValueError("--repo must be owner/name")
+    path = primary / ".atm-bd" / f"phase-{phase}.toml"
+    source = path.read_text(encoding="utf-8")
+    tomllib.loads(source)
+    parts = re.split(r"(?m)^(?=\s*\[)", source, maxsplit=1)
+    prefix = re.sub(r"(?m)^\s*repo\s*=.*\n?", "", parts[0])
+    updated = f"repo = {json.dumps(repo)}\n" + prefix + "".join(parts[1:])
+    tomllib.loads(updated)
+    temp = path.with_suffix(".toml.tmp")
+    temp.write_text(updated, encoding="utf-8")
+    temp.replace(path)
+
+
+def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expression: str, repo: str) -> None:
     loaded = load_profile(profile_path)
     if isinstance(loaded, Refusal):
         raise RuntimeError(str(loaded))
@@ -36,6 +54,7 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
     if not phase or phase in {".", ".."} or Path(phase).name != phase:
         raise ValueError("phase must be a single path component")
     primary = primary.resolve()
+    set_repo(primary, phase, repo)
     target = primary / ".atm-bd" / "install" / phase
     target.mkdir(parents=True, exist_ok=True)
     python = target / "venv" / "bin" / "python"
@@ -45,6 +64,7 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
     subprocess.run(["uv", "pip", "install", "--python", str(python), str(types), str(core),
                     ("bd-cache-rs @ git+https://github.com/randlee/beads-cache@"
                      "f57859f5c01fa463eb57ef11679e00118532c993#subdirectory=crates/bd-cache-py")], check=True)
+    subprocess.run([str(python), "-m", "atm_bd_core.install.sync", str(primary), phase], check=True)
     skill = target / "profile"
     shutil.copytree(loaded.root, skill, dirs_exist_ok=True)
     installed = load_profile(skill / profile_path.name)
@@ -73,9 +93,10 @@ def main() -> None:
     parser.add_argument("primary", type=Path)
     parser.add_argument("phase")
     parser.add_argument("--checkout", required=True, type=Path)
+    parser.add_argument("--repo", required=True, help="provider repository in owner/name form")
     parser.add_argument("--cron", default="0 * * * * *")
     args = parser.parse_args()
-    install(args.profile.resolve(), args.primary, args.phase, args.checkout.resolve(), args.cron)
+    install(args.profile.resolve(), args.primary, args.phase, args.checkout.resolve(), args.cron, args.repo)
 
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ def test_stack_from_embedded_cache(tmp_path, monkeypatch, recorded_runner):
         store = CacheStore(cache, "bo")
         entries, error = beads(store, "bo")
         assert entries is not None and error is None
-        templates = [(f"/r/{i}", "/r", b"ok") for i in range(4)]
+        templates = [(f"/r/{i}", "/r", b"ok") for i in range(5)]
         phase_file = _phase_file("lite", "lead", templates, [("integration_branch", "main")])
         fact, error = stack(entries, phase_file, stack_of)
         assert fact is not None and error is None

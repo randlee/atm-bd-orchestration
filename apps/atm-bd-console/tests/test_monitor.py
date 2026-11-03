@@ -30,7 +30,7 @@ def _lite(root):
     (root / "templates").mkdir()
     lines = ['profile="lite"', 'profile_path="skill/profile.toml"', 'lead="lead"',
              'root="atm-phase-zz"', '[templates]']
-    for name in ("refuse", "dev-close", "qa-pass", "qa-findings"):
+    for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close"):
         (root / "templates" / name).write_text("body", encoding="utf-8")
         lines.append(f'{name}="templates/{name}"')
     _phase(root, "\n".join(lines))
@@ -148,6 +148,7 @@ def test_cli_routes_profile_queues_once(tmp_path, monkeypatch, capsys):
 
 
 def test_cron_dry_run_never_sends_and_live_tick_sends_only_decided_action(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ATM_TEAM", "test-team")
     from atm_bd_types._core import CommandResult
 
     _lite(tmp_path)
@@ -180,7 +181,8 @@ def test_cron_dry_run_never_sends_and_live_tick_sends_only_decided_action(tmp_pa
     assert selected.cron(monitor.MonitorArgs("cron", phase="zz", md_table=True)) == monitor.Exit.OK
     assert calls == [] and "| sprint |" in capsys.readouterr().out
     assert selected.cron(monitor.MonitorArgs("cron", phase="zz")) == monitor.Exit.OK
-    assert calls == [(["atm", "send", "lead", "--stdin"], "[q] hello")]
+    assert calls == [(["env", "ATM_IDENTITY=lead", "atm", "send", "lead@test-team", "--as", "atm-bd", "--team",
+                       "tool", "--stdin"], "[q] hello")]
     assert json.loads(capsys.readouterr().out)["outcome"] == "SENT"
 
 

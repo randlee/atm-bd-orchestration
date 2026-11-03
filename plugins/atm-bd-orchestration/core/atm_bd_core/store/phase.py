@@ -24,7 +24,7 @@ class PhaseFilesCli:
                 raise ValueError("missing phase lead")
             root = file.parent.parent
             values = []
-            for name in ("refuse", "dev-close", "qa-pass", "qa-findings"):
+            for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close"):
                 template = templates[name]
                 if not isinstance(template, str) or not template:
                     raise ValueError(f"invalid template {name}")

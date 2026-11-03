@@ -7,8 +7,8 @@ import pytest
 
 from atm_bd_core.execute import RETRY_LIMIT
 from atm_bd_core.tick import tick
-from atm_bd_types import Assign, CollectError, ErrorId, FactKind, PhaseFacts, Refusal
-from atm_bd_types._core import OutcomeKind, TickResult
+from atm_bd_types import Assign, CollectError, ErrorId, FactKind, PhaseFacts, Refusal, TaskFact, TaskState
+from atm_bd_types._core import OutcomeKind, Ports, TickResult
 
 from .helpers import LEAD, QA, Collector, Runner, make_primary, make_profile, ports, qa_bead
 
@@ -36,8 +36,10 @@ def test_released_qa_bead_is_assigned_once_and_deduped_next_tick(tmp_path):
     argv, stdin = runner.calls[0]
     assert stdin is not None
     template = str((tmp_path / "skill/templates/qa.xml.j2").resolve())
-    assert argv == ["atm", "task", "assign", QA, "--task-id", "tst-1.qa", "--template", template, "--vars", "-"]
-    assert json.loads(stdin) == {"task_id": "tst-1.qa", "phase": "bo", "profile": "lite"}
+    assert argv == ["env", f"ATM_IDENTITY={LEAD}", "atm", "task", "assign", QA, "--as", LEAD, "--task-id",
+                    "tst-1.qa", "--template", template, "--vars", "-"]
+    assert json.loads(stdin) == {"task_id": "tst-1.qa", "phase": "bo", "profile": "lite", "repo": "owner/repo",
+                                 "pr_number": 42, "branch": "branch-tst-1.qa", "commit": "a" * 40}
     assert first.view.actions[0].outcome == OutcomeKind.SENT
 
     second = run(tmp_path, runner, collector)
@@ -64,7 +66,7 @@ def test_completed_assign_is_persisted_before_a_later_command_raises(tmp_path):
     resumed = Runner()
     result = run(tmp_path, resumed, collector)
     assert [action.bead_id for action in result.decision.actions] == ["tst-2.qa"]
-    assert [call[0][5] for call in resumed.calls] == ["tst-2.qa"]
+    assert [argv[argv.index("--task-id") + 1] for argv, _ in resumed.calls] == ["tst-2.qa"]
 
 
 def test_a_key_decide_stops_returning_is_forgotten_and_assigned_again_when_re_released(tmp_path):
@@ -73,9 +75,11 @@ def test_a_key_decide_stops_returning_is_forgotten_and_assigned_again_when_re_re
     runner, collector = Runner(), Collector([qa_bead()])
     run(tmp_path, runner, collector)
     collector.ready = [qa_bead(assignee=QA)]  # the assign landed: decide returns nothing
+    collector.tasks = [TaskFact("tst-1.qa", QA, TaskState.ASSIGNED, "tst-1.qa")]
     run(tmp_path, runner, collector)
     assert state(tmp_path)["sent"] == []
     collector.ready = [qa_bead()]  # released again (reopened)
+    collector.tasks = []
     run(tmp_path, runner, collector)
     assert len(runner.calls) == 2
 
@@ -99,7 +103,36 @@ def test_degraded_ready_facts_preserve_sent_keys_and_failure_counts(tmp_path):
     assert isinstance(result, TickResult)
     assert state(tmp_path) == before
     run(tmp_path, runner, collector)
-    assert [call[0][5] for call in runner.calls] == ["tst-1.qa", "tst-2.qa", "tst-2.qa"]
+    assert [argv[argv.index("--task-id") + 1] for argv, _ in runner.calls] == ["tst-1.qa", "tst-2.qa", "tst-2.qa"]
+
+
+def test_tick_drains_before_collection_and_reports_escalated_race(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATM_TEAM", "test-team")
+    make_profile(tmp_path)
+    make_primary(tmp_path)
+    events = []
+
+    class Cache:
+        def drain(self):
+            events.append("drain")
+            return [{"seq": 7, "bead": "tst-1", "last_error": "BD_CACHE.PRECONDITION: stale"}]
+
+        def mark_announced(self, seq):
+            events.append(("announced", seq))
+
+    collector = Collector()
+
+    def collect_after_drain(*args):
+        assert events == ["drain"]
+        events.append("collect")
+        return collector(*args)
+
+    runner = Runner()
+    result = tick(tmp_path / "skill/profile.toml", "bo", tmp_path / "primary", ports=Ports(runner, Cache()),
+                  now=NOW, collector=collect_after_drain)
+    assert isinstance(result, TickResult)
+    assert events == ["drain", "collect", ("announced", 7)]
+    assert len(runner.calls) == 1 and "BEAD_RACED" in (runner.calls[0][1] or "")
 
 
 def test_failed_assign_is_retried_next_tick_then_reported_with_its_error_id(tmp_path):
@@ -157,21 +190,23 @@ def test_dry_run_executes_nothing_and_writes_no_state(tmp_path):
     assert not (tmp_path / "primary/.atm-bd/state").exists()
 
 
-def test_missing_params_report_goes_to_the_lead_once_then_stays_a_row(tmp_path):
+def test_missing_params_report_goes_to_the_lead_once_then_stays_a_row(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATM_TEAM", "test-team")
     make_profile(tmp_path, policy='[params]\nqa_agent = "qa-agent"\n')
     make_primary(tmp_path)
     runner, collector = Runner(), Collector([qa_bead()])
     first = run(tmp_path, runner, collector)
     assert [o.kind for o in first.outcomes] == [OutcomeKind.SENT]
-    assert runner.calls[0][0] == ["atm", "send", LEAD, "--stdin"]
+    assert runner.calls[0][0] == ["env", f"ATM_IDENTITY={LEAD}", "atm", "send", f"{LEAD}@test-team", "--as",
+                                  "atm-bd", "--team", "tool", "--stdin"]
     assert "qa_template" in (runner.calls[0][1] or "")
     keys = tmp_path / "primary/.atm-bd/state/phase-bo/reported-keys.json"
-    assert json.loads(keys.read_text(encoding="utf-8")) == ["cron:params"]
+    assert json.loads(keys.read_text(encoding="utf-8")) == ["cron:params:tst-1.qa"]
 
     second = run(tmp_path, runner, collector)
     assert len(runner.calls) == 1
-    assert second.decision.actions == [] and [r.key for r in second.decision.rows] == ["cron:params"]
-    assert [r.key for r in second.view.rows] == ["cron:params"]
+    assert second.decision.actions == [] and [r.key for r in second.decision.rows] == ["cron:params:tst-1.qa"]
+    assert [r.key for r in second.view.rows] == ["cron:params:tst-1.qa"]
 
 
 def test_unreadable_reported_keys_hold_reports_instead_of_resending(tmp_path):

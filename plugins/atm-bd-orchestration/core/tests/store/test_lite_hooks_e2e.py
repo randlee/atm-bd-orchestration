@@ -54,8 +54,8 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     config = tmp_path / ".atm-bd"
     config.mkdir()
     (config / "phase-bo.toml").write_text('profile="lite"\nlead="lead"\n[templates]\n' +
-        ''.join(f'{name}="{name}.j2"\n' for name in ("refuse", "dev-close", "qa-pass", "qa-findings")))
-    for name in ("refuse", "dev-close", "qa-pass", "qa-findings"):
+        ''.join(f'{name}="{name}.j2"\n' for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close")))
+    for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close"):
         (tmp_path / f"{name}.j2").write_text("fixed template")
     monkeypatch.chdir(tmp_path)
     store = CacheStore(cache, "bo")
@@ -73,8 +73,8 @@ def real_db_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     config = tmp_path / ".atm-bd"
     config.mkdir()
     (config / "phase-bo.toml").write_text('profile="lite"\nlead="lead"\n[templates]\n' +
-        ''.join(f'{name}="{name}.j2"\n' for name in ("refuse", "dev-close", "qa-pass", "qa-findings")))
-    for name in ("refuse", "dev-close", "qa-pass", "qa-findings"):
+        ''.join(f'{name}="{name}.j2"\n' for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close")))
+    for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close"):
         (tmp_path / f"{name}.j2").write_text("fixed template")
     monkeypatch.chdir(tmp_path)
     if os.path.isabs(binary):
@@ -104,6 +104,9 @@ class ControlledCache:
 
     def get(self, bead_id: str) -> dict:
         return {"row": {"bead": self.rows[bead_id], "blocked": []}}
+
+    def refresh(self, ids, timeout):
+        return [self.get(bead_id)["row"] for bead_id in ids]
 
     def list(self, _phase: str) -> dict:
         return {"rows": [{"bead": row} for row in self.rows.values()]}
@@ -141,6 +144,14 @@ def test_real_embedded_bd_wires_cache_store(real_db_setup):
     assert bead.id == "tst-1" and bead.branch == "work"
     assert stack.id == "tst-stack" and stack_of(stack).layers[0].head == SHA
     assert json.loads(bd(root, "show", "tst-1", "--json"))[0]["id"] == "tst-1"
+
+
+def test_stack_read_refreshes_external_ledger_change(real_db_setup):
+    root, store = real_db_setup
+    newer = "a" * 40
+    layers = {"layers": [{"branch": "work", "head": newer, "pr": 8, "base": "main"}]}
+    bd(root, "update", "tst-stack", "--metadata", json.dumps(layers))
+    assert stack_of(store.show("tst-stack")).layers[0].head == newer
 
 
 def test_three_hooks_assign_start_and_close_with_controlled_cache(setup):
@@ -189,9 +200,8 @@ def test_bd_helper_bounds_the_process_and_reports_timeout(tmp_path: Path, monkey
     assert observed["timeout"] == beads_db_helpers.BD_TIMEOUT_SECONDS
 
 
-def test_stale_snapshot_is_a_typed_race(setup):
-    _, store = setup
-    store.cache.outcomes = [("applied", []), ("failed", [{"seq": 2, "reason": "BD_CACHE.PRECONDITION: stale"}])]
+def test_stale_snapshot_is_a_typed_race(real_db_setup):
+    _, store = real_db_setup
     snapshot = store.show("tst-1")
     assert store.update(BeadPatch.assign(snapshot, "dev"), "lead") is None
     error = store.update(BeadPatch.start(snapshot), "dev")
@@ -209,12 +219,12 @@ def test_phase_failures_are_typed(setup):
     assert 'add profile = "lite" to .atm-bd/no-profile.toml' in repr(error)
 
 
-def test_backend_race_is_not_reported_as_success(setup):
-    _, store = setup
-    store.cache.outcomes = [("failed", [{"seq": 1, "reason": "BD_CACHE.PRECONDITION: stale"}])]
+def test_journaled_update_is_visible_before_drain(real_db_setup):
+    _, store = real_db_setup
     snapshot = store.show("tst-1")
-    error = store.update(BeadPatch.start(snapshot), "dev")
-    assert isinstance(error, Refusal) and error.id == ErrorId.BEAD_RACED
+    assert store.update(BeadPatch.assign(snapshot, "dev"), "lead") is None
+    assert store.cache.get("tst-1")["pending"] == 1
+    assert store.show("tst-1").assignee == "dev"
 
 
 def test_qa_target_and_ready_views(setup):
@@ -227,7 +237,7 @@ def test_qa_target_and_ready_views(setup):
     assert "tst-1" in {b.id for b in store.ready("bo")}
 
 
-def test_pending_journal_warning_names_late_write(setup, monkeypatch):
+def test_hook_update_journals_without_draining(setup, monkeypatch):
     _, store = setup
     snapshot = store.show("tst-1")
 
@@ -236,7 +246,7 @@ def test_pending_journal_warning_names_late_write(setup, monkeypatch):
             return {"seq": 1}
 
         def drain(self, *_args):
-            return {"escalated": []}
+            pytest.fail("hook must not drain")
 
         def entry(self, _seq):
             return {"state": "pending"}
@@ -245,9 +255,7 @@ def test_pending_journal_warning_names_late_write(setup, monkeypatch):
             pass
 
     monkeypatch.setattr(store, "cache", PendingCache())
-    result = store.update(BeadPatch.start(snapshot), "dev")
-    assert isinstance(result, Refusal) and result.id == ErrorId.CACHE_UNAVAILABLE
-    assert "write journaled; may still apply; re-check bead tst-1 before retrying" in repr(result)
+    assert store.update(BeadPatch.start(snapshot), "dev") is None
 
 
 def test_missing_cache_root_names_the_working_directory(tmp_path, monkeypatch):

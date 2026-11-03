@@ -100,7 +100,7 @@ def test_shipped_lite_profile_loads():
     assert cron is not None and not isinstance(cron, Refusal)
 
 
-TEMPLATES = [(f"/r/{n}", "/r", b"ok") for n in range(4)]
+TEMPLATES = [(f"/r/{n}", "/r", b"ok") for n in range(5)]
 
 
 @pytest.mark.parametrize("body", ["return None", "return ['assign']"], ids=["not-a-list", "not-an-action"])

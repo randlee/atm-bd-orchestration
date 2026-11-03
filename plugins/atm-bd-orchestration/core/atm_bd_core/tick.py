@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import subprocess
 import time
+import os
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 
-from atm_bd_types import Action, Assign, Bead, ErrorId, Notify, PhaseFacts, PhaseFile, Refusal, Status
+from atm_bd_types import Action, Assign, Bead, ErrorId, Notify, PhaseFacts, PhaseFile, Refusal, Report, Status
 from atm_bd_types._core import (ActionKind, ActionOutcome, CommandResult, Decision, PhaseView, Ports, TickResult,
                                 ViewAction, ViewSprint, ViewStep, ViewTask)
 
@@ -26,9 +28,13 @@ Collector = Callable[[str, PhaseFile, Ports, int, Path], PhaseFacts]
 class SubprocessRunner:
     """The production CommandRunner: runs argv with stdin and captures text output."""
 
+    def __init__(self, identity: str):
+        self.identity = identity
+
     def run(self, argv: list[str], stdin: str | None) -> CommandResult:
+        environment = {**os.environ, "ATM_IDENTITY": self.identity}
         done = subprocess.run(argv, input=stdin, capture_output=True, text=True, check=False,
-                              timeout=COMMAND_TIMEOUT_SECONDS)
+                              timeout=COMMAND_TIMEOUT_SECONDS, env=environment)
         return CommandResult(done.returncode, done.stdout, done.stderr)
 
 
@@ -38,9 +44,9 @@ def phase_paths(primary: Path, phase: str) -> tuple[Path, Path]:
     return base / f"phase-{phase}.toml", base / "state" / f"phase-{phase}"
 
 
-def default_ports(phase: str) -> Ports | Refusal:
+def default_ports(phase: str, identity: str) -> Ports | Refusal:
     cache = CacheStore.for_phase(phase)
-    return cache if isinstance(cache, Refusal) else Ports(SubprocessRunner(), cache)
+    return cache if isinstance(cache, Refusal) else Ports(SubprocessRunner(identity), cache)
 
 
 def tick(profile_path: Path, phase: str, primary: Path, *, ports: Ports | None = None, now: int | None = None,
@@ -62,10 +68,17 @@ def tick(profile_path: Path, phase: str, primary: Path, *, ports: Ports | None =
     ledger = Ledger.load(state_dir)
     if isinstance(ledger, Refusal):
         return ledger
-    resolved = default_ports(phase) if ports is None else ports
+    resolved = default_ports(phase, phase_file.lead) if ports is None else ports
     if isinstance(resolved, Refusal):
         return resolved
 
+    escalations: list[dict[str, Any]] = []
+    drain = getattr(resolved.cache, "drain", None)
+    if not dry_run and callable(drain):
+        try:
+            escalations = cast(list[dict[str, Any]], drain())
+        except Exception as exc:
+            return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=phase, reason=f"journal drain failed: {exc}")
     facts = collector(phase, phase_file, resolved, int(time.time()) if now is None else now, state_dir)
     decided: list[Action] = []
     if cron is not None:
@@ -73,10 +86,19 @@ def tick(profile_path: Path, phase: str, primary: Path, *, ports: Ports | None =
             decided = cron.decide(facts, policy.params)
         except Exception as exc:  # plug-in code and its result validation can fail arbitrarily
             return Refusal(ErrorId.PROFILE_MISMATCH, script=str(cron.script), error=f"{type(exc).__name__}: {exc}")
+    for item in escalations:
+        reason = item.get("last_error") or "journal write escalated"
+        error = "BEAD_RACED" if reason.startswith("BD_CACHE.PRECONDITION:") else "CACHE_UNAVAILABLE"
+        decided.append(Report(f"cache:escalation:{item['seq']}", "cache", item["bead"], f"{error}: {reason}"))
     reported = None if facts.reported_keys is None else list(facts.reported_keys)
     decision = dedupe(decided, reported, ledger)
     executor = Executor(resolved.runner, state_dir, loaded.root, phase_file.lead, policy.notify_template)
     outcomes = executor.run(decision, decided, reported, ledger, dry_run, facts_complete=not facts.errors)
+    delivered = {action_key(o.action) for o in outcomes if o.kind.name == "SENT"}
+    for item in escalations:
+        key = f"cache:escalation:{item['seq']}"
+        if key in delivered or (reported is not None and key in reported):
+            resolved.cache.mark_announced(item["seq"])
     root_id = phase_file.key("root") or ""
     return TickResult(facts, decision, view(facts, decision, outcomes, root_id), outcomes)
 

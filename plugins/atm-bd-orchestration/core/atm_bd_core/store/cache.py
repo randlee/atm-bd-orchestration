@@ -49,7 +49,8 @@ class CacheStore:
         status = {"open": Status.OPEN, "in_progress": Status.IN_PROGRESS, "blocked": Status.BLOCKED,
                   "deferred": Status.DEFERRED, "closed": Status.CLOSED}[row["status"]]
         stage_name = next((x[6:] for x in labels if x.startswith("stage:")), "other")
-        stage = {"dev": Stage.DEV, "fix": Stage.FIX, "qa": Stage.QA, "stack": Stage.STACK}.get(stage_name, Stage.OTHER)
+        stage = {"dev": Stage.DEV, "fix": Stage.FIX, "qa": Stage.QA, "land": Stage.LAND,
+                 "stack": Stage.STACK}.get(stage_name, Stage.OTHER)
         view = self.cache.get(row["id"])["row"]
         open_blockers = view["blocked"]
         blocks_ids = [other["bead"]["id"] for other in self.cache.list(self.phase)["rows"]
@@ -67,7 +68,11 @@ class CacheStore:
 
     def show(self, bead_id: str):
         try:
-            return self._convert(self._row(bead_id))
+            row = self._row(bead_id)
+            if "stage:stack" in (row.get("labels") or []):
+                self.cache.refresh([bead_id], 20)
+                row = self._row(bead_id)
+            return self._convert(row)
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
             return _refusal(exc, self.phase, bead_id)
 
@@ -111,23 +116,18 @@ class CacheStore:
         args = {"assign": {"assignee": value.get("agent")}, "start": {"status": "in_progress"},
                 "reopen": {"status": "open", "assignee": ""},
                 "close": {"reason": json.dumps(value, sort_keys=True, separators=(",", ":"))}}[operation]
-        journaled = False
         try:
-            written = self.cache.write(data["id"], "close" if operation == "close" else "update", args,
+            self.cache.write(data["id"], "close" if operation == "close" else "update", args,
                              {"status": data["status"], "assignee": data["assignee"] or ""},
                              str(uuid.uuid4()), actor)
-            journaled = True
-            report = self.cache.drain(20, 25)
-            entry = self.cache.entry(written["seq"])
-            if entry["state"] == "applied":
-                return None
-            if any(item["seq"] == written["seq"] and item.get("reason", "").startswith("BD_CACHE.PRECONDITION:")
-                   for item in report["escalated"]):
-                return Refusal(ErrorId.BEAD_RACED, bead=data["id"])
-            return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=self.phase, bead=data["id"],
-                           reason=f"write journaled; may still apply; re-check bead {data['id']} before retrying")
+            return None
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
-            if journaled:
-                return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=self.phase, bead=data["id"],
-                               reason=f"write journaled; may still apply; re-check bead {data['id']} before retrying: {exc}")
             return _refusal(exc, self.phase, data["id"])
+
+    def drain(self):
+        """Apply pending writes and return this phase's unannounced escalations."""
+        self.cache.drain(20, 25)
+        return [item for item in self.cache.unannounced_escalations() if item.get("phase") == self.phase]
+
+    def mark_announced(self, seq: int):
+        self.cache.mark_announced(seq)

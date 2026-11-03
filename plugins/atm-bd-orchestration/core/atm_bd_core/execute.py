@@ -117,21 +117,34 @@ class Executor:
 
     def argv(self, action: Action) -> tuple[list[str], str]:
         if isinstance(action, Assign):
-            variables = {"task_id": action.vars.task_id, "phase": action.vars.phase,
-                         "profile": action.vars.profile}
-            return (["atm", "task", "assign", action.to, "--task-id", action.bead_id,
+            variables: dict[str, str | int] = {"task_id": action.vars.task_id, "phase": action.vars.phase,
+                                                "profile": action.vars.profile}
+            if (review := action.vars.review) is not None:
+                variables.update(repo=review.repo, pr_number=review.pr_number, branch=review.branch,
+                                 commit=review.commit)
+            return (["atm", "task", "assign", action.to, "--as", self.lead, "--task-id", action.bead_id,
                      "--template", str((self.root / action.template).resolve()), "--vars", "-"],
                     json.dumps(variables))
         if isinstance(action, Report):
             bead = f" ({action.bead_id})" if action.bead_id else ""
-            return ["atm", "send", self.lead, "--stdin"], f"[{action.queue}]{bead} {action.text}"
+            return ["atm", "send", self.recipient(self.lead), "--as", "atm-bd", "--team", "tool", "--stdin"], \
+                f"[{action.queue}]{bead} {action.text}"
         if isinstance(action, Notify):
             if self.notify_template:
-                return (["atm", "send", action.to, "--template",
+                return (["atm", "send", self.recipient(action.to), "--as", "atm-bd", "--team", "tool", "--template",
                          str((self.root / self.notify_template).resolve()), "--vars", "-"],
                         json.dumps({"keys": list(action.keys)}))
-            return ["atm", "send", action.to, "--stdin"], "\n".join(action.keys)
+            return ["atm", "send", self.recipient(action.to), "--as", "atm-bd", "--team", "tool", "--stdin"], \
+                "\n".join(action.keys)
         raise TypeError(f"not an Assign, Report or Notify: {action!r}")
+
+    def recipient(self, address: str) -> str:
+        if "@" in address:
+            return address
+        team = os.environ.get("ATM_TEAM")
+        if not team:
+            raise ValueError("ATM_TEAM is required to address a phase recipient")
+        return f"{address}@{team}"
 
     def run(self, decision: Decision, decided: list[Action], reported_keys: list[str] | None,
             ledger: Ledger, dry_run: bool, facts_complete: bool) -> list[ActionOutcome]:
@@ -164,7 +177,7 @@ class Executor:
         if dry_run:
             return ActionOutcome(action, OutcomeKind.DRY_RUN, None)
         try:
-            result = self.runner.run(argv, stdin)
+            result = self.runner.run(["env", f"ATM_IDENTITY={self.lead}", *argv], stdin)
             code, message = result.code, (result.stderr or result.stdout).strip()
         except (OSError, SubprocessError) as exc:
             code, message = -1, f"{type(exc).__name__}: {exc}"

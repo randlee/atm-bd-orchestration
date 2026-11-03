@@ -3,7 +3,7 @@ name: lite-qa-assignment
 version: 1.0.0
 description: QA assignment for the atm-bd-lite profile.
 format: xml
-required_variables: [task_id, phase, profile]
+required_variables: [task_id, phase, profile, repo, pr_number, branch, commit]
 metadata:
   type: qa-assignment
   tags: [stage:qa, profile:lite]
@@ -12,10 +12,12 @@ metadata:
   <phase>{{ phase | string }}</phase>
   <profile>{{ profile | string }}</profile>
   <instructions>
-    Review the assigned task's layer at the current stack top. Read the task's acceptance criteria and
+    Review repository {{ repo }}, PR {{ pr_number }}, branch {{ branch }}, commit {{ commit }}.
+    Read the task's acceptance criteria and
     verify each against the exact layer contents. Run the validation required by the task and inspect the
     stack using the installed sc-gh-stack-view skill. Report concrete evidence for every criterion.
     Close the QA task with PASS only when all criteria pass and no blocking or important findings remain;
     otherwise file findings and close with FAIL. Follow task-close T-CLOSE-03 and T-CLOSE-04.
+    The task-close hook journals the bead update; never close or modify the QA bead directly.
   </instructions>
 </qa-task>

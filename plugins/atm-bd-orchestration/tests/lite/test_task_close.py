@@ -172,9 +172,38 @@ def test_caller_not_assignee(hooks):
     expect_refused(reply, T.ErrorId.TASK_NOT_ASSIGNEE, store)
 
 
-def test_status_closed_and_not_started(hooks):
-    reply, store = run(hooks, dev_bead(S.CLOSED), completed(close_report="x"))
+def test_closed_bead_replays_only_the_close_action(hooks):
+    reply, store = run(hooks, dev_bead(S.CLOSED), completed(close_report="done"))
+    assert reply.kind == "handled" and store.writes == []
+    assert reply.actions == (T.HookAction("templates/dev-close.md", LAYER),)
+
+
+def test_closed_qa_replays_validated_pass_without_a_write(hooks):
+    bead = qa_bead()
+    bead.status = S.CLOSED
+    req = completed(caller=QA, task="bo-10-qa", verdict="PASS", verdict_sha=LAYER.head)
+    reply, store = run(hooks, bead, req, target=LAYER)
+    assert reply.kind == "handled" and store.writes == []
+    assert reply.actions == (T.HookAction("templates/qa-pass.md", T.QaPass(LAYER.head)),)
+
+
+def test_land_close_requires_merge_sha(hooks):
+    bead = T.Bead("land", S.IN_PROGRESS, assignee=DEV, stage="land")
+    report = f'```json\n{{"merged":"{LAYER.head}"}}\n```'
+    reply, store = run(hooks, bead, completed(task="land", close_report=report))
+    assert reply.kind == "handled" and store.writes == [("close", "land", T.Merged(LAYER.head), DEV)]
+    assert reply.actions == (T.HookAction("templates/land-close.md", T.Merged(LAYER.head)),)
+    reply, store = run(hooks, bead, completed(task="land", close_report="no sha"))
+    expect_refused(reply, T.ErrorId.LAND_EVIDENCE, store)
+
+
+def test_closed_bead_cannot_be_given_back(hooks):
+    req = T.HookRequest(caller=DEV, task_id="bo-10", outcome="refused", close_reason="blocked")
+    reply, store = run(hooks, dev_bead(S.CLOSED), req)
     expect_refused(reply, T.ErrorId.BEAD_CLOSED, store)
+
+
+def test_not_started(hooks):
     for status in (S.OPEN, S.BLOCKED, S.DEFERRED):
         reply, store = run(hooks, dev_bead(status), completed(close_report="x"))
         expect_refused(reply, T.ErrorId.BEAD_NOT_READY, store)

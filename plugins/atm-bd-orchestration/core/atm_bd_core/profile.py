@@ -19,7 +19,7 @@ from atm_bd_types._core import Policy
 
 HOOKS = {"task.assign": Hook.TASK_ASSIGN, "task.start": Hook.TASK_START, "task.close": Hook.TASK_CLOSE}
 TEMPLATES = {"refuse": Template.REFUSE, "dev-close": Template.DEV_CLOSE, "qa-pass": Template.QA_PASS,
-             "qa-findings": Template.QA_FINDINGS}
+             "qa-findings": Template.QA_FINDINGS, "land-close": Template.LAND_CLOSE}
 PROFILE_KEYS = {"name", "stages", "hooks", "templates", "policy", "cron"}
 POLICY_KEYS = {"profile", "notify_template", "params"}
 

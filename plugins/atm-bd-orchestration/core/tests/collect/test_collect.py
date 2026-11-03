@@ -6,7 +6,7 @@ from atm_bd_types._native import _phase_file
 
 
 def test_failed_reads_remain_unknown(tmp_path, recorded_runner):
-    templates = [(f"/r/{n}", "/r", b"ok") for n in range(4)]
+    templates = [(f"/r/{n}", "/r", b"ok") for n in range(5)]
     phase_file = _phase_file("lite", "lead", templates, [("integration_branch", "main")])
 
     class Cache:

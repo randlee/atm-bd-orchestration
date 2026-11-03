@@ -38,7 +38,7 @@ from atm_bd_types._native import _bead, _phase_file
 from conftest import SHA, pass_report, request_json
 
 S = Status
-TEMPLATES = [(f"/r/t/{n}.md.j2", "/r/t", b"ok") for n in ("refuse", "dev-close", "qa-pass", "qa-findings")]
+TEMPLATES = [(f"/r/t/{n}.md.j2", "/r/t", b"ok") for n in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close")]
 
 
 def parse(hook: str, report: str = "", op: dict[str, str] | None = None, to: str | None = None) -> HookRequest:
