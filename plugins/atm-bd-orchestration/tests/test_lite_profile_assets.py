@@ -7,6 +7,7 @@ from pathlib import Path
 
 import atm_bd_types as T
 import pytest
+from atm_bd_types._native import _stack
 from lite.lite_helpers import (
     FakePhases,
     FakeStore,
@@ -17,6 +18,7 @@ from lite.lite_helpers import (
     layer,
     load_hook,
     reply_actions,
+    phase_file,
 )
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "atm-bd-lite"
@@ -74,15 +76,43 @@ def _hook_close_actions() -> list[dict]:
                             verdict_sha=target.head,
                             findings=[{"id": "F-1", "blocking": True}, {"id": "F-2", "blocking": False}])
     poured = [bead("F-1", blocks_ids=["sprint-10"]), bead("F-2", blocks_ids=["bo"])]
+    land = bead("land-task", T.Status.IN_PROGRESS, assignee="dev", stage="land")
+    merged = hook_request(caller="dev", task_id="land-task", outcome="completed",
+                          close_report=f'```json\n{{"merged":"{target.head}"}}\n```')
     return [run(dev, refused), run(dev, completed), run(qa, passed, target_layer=target),
-            run(qa, findings, *poured, target_layer=target)]
+            run(qa, findings, *poured, target_layer=target), run(land, merged)]
+
+
+def _qa_assignment_action() -> T.Assign:
+    cron = load_hook("atm-bd-cron")
+    target = layer("feature/x", "a" * 40, 42, "main")
+    qa = bead("qa-task", stage=T.Stage.QA, checked_bead="dev-task")
+    dev = bead("dev-task", branch=target.branch)
+    stack = T.StackFact(bead("stack", stage=T.Stage.STACK), _stack([target]), "main", None)
+    facts = T.PhaseFacts("bo", 0, phase_file(lead="lead", repo="owner/repo"), tasks=[], beads=[dev],
+                         ready=[qa], stack=stack, top_checks=T.TopChecks(target.head, T.CheckState.PASSING))
+    params = T.Params([("qa_agent", "qa"), ("qa_template", "templates/qa.xml.j2"),
+                       ("dev_agent", "dev"), ("dev_template", "templates/dev.xml.j2"),
+                       ("lead", "lead"), ("land_template", "templates/land.xml.j2")])
+    [action] = cron.decide(facts, params)
+    assert isinstance(action, T.Assign) and action.to == "qa"
+    return action
+
+
+def _assignment_vars(action: T.Assign) -> dict[str, object]:
+    values: dict[str, object] = {"task_id": action.vars.task_id, "phase": action.vars.phase,
+                                 "profile": action.vars.profile}
+    if action.vars.review is not None:
+        review = action.vars.review
+        values.update(repo=review.repo, pr_number=review.pr_number, branch=review.branch, commit=review.commit)
+    return values
 
 
 def test_close_templates_strictly_render_vars_from_hook_actions(tmp_path: Path) -> None:
     actions = _hook_close_actions()
-    assert len(actions) == 4
+    assert len(actions) == 5
     assert [Path(action_template(action)).name for action in actions] == [
-        "refuse.md", "dev-close.md", "qa-pass.md", "qa-findings.md",
+        "refuse.md", "dev-close.md", "qa-pass.md", "qa-findings.md", "land-close.md",
     ]
 
     for action in actions:
@@ -106,20 +136,24 @@ def test_close_templates_strictly_render_vars_from_hook_actions(tmp_path: Path) 
         assert "{{" not in rendered
 
 
-def test_qa_assignment_template_strictly_renders_assign_vars() -> None:
-    template = TEMPLATES / "qa.xml.j2"
+def test_qa_assignment_template_strictly_renders_assign_vars(tmp_path: Path) -> None:
+    action = _qa_assignment_action()
+    template = SKILL / action.template
+    variables = _assignment_vars(action)
     source = template.read_text()
     match = re.search(r"^required_variables:\s*\[([^]]*)\]$", source, re.MULTILINE)
     assert match is not None
-    assert [item.strip() for item in match.group(1).split(",")] == ["task_id", "phase", "profile", "repo", "pr_number", "branch", "commit"]
+    required = {item.strip() for item in match.group(1).split(",")}
+    assert set(variables) == required
+    var_file = tmp_path / "qa-vars.json"
+    var_file.write_text(json.dumps(variables))
     rendered = _run_with_timeout(
-        ["sc-compose", "render", "--strict", "--file", str(template),
-         "--var", "task_id=bo-14-qa", "--var", "phase=bo", "--var", "profile=atm-bd-lite",
-         "--var", "repo=owner/repo", "--var", "pr_number=42", "--var", "branch=feature/x", "--var", "commit=" + "a" * 40],
+        ["sc-compose", "render", "--strict", "--file", str(template), "--var-file", str(var_file)],
         timeout=10,
         check=True,
+        cwd=SKILL.parents[1],
     ).stdout
-    assert '<qa-task id="bo-14-qa">' in rendered
+    assert '<qa-task id="qa-task">' in rendered
     assert "owner/repo" in rendered and "42" in rendered
     assert "T-CLOSE-03" in rendered and "T-CLOSE-04" in rendered
 

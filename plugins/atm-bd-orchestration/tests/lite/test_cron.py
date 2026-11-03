@@ -1,5 +1,6 @@
 """Exercise lite decisions with real wheel facts and controlled inputs."""
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -75,13 +76,18 @@ def test_land_without_target_reports(repo, layers):
 @pytest.mark.parametrize("stage", [T.Stage.QA, T.Stage.LAND])
 def test_decision_vars_strictly_render_assignment(tmp_path, stage):
     [action] = CRON.decide(facts(bead("task", stage=stage, checked_bead="dev")), PARAMS)
+    template = Path(__file__).resolve().parents[2] / "skills/atm-bd-lite" / action.template
     values = {"task_id": action.vars.task_id, "phase": action.vars.phase, "profile": action.vars.profile}
     if action.vars.review is not None:
         review = action.vars.review
         values.update(repo=review.repo, pr_number=review.pr_number, branch=review.branch, commit=review.commit)
+    source = template.read_text()
+    match = re.search(r"^required_variables:\s*\[([^]]*)\]$", source, re.MULTILINE)
+    assert match is not None
+    required = {item.strip() for item in match.group(1).split(",")}
+    assert set(values) == required
     var_file = tmp_path / "vars.json"
     var_file.write_text(json.dumps(values))
-    template = Path(__file__).resolve().parents[2] / "skills/atm-bd-lite" / action.template
     subprocess.run(["sc-compose", "render", "--root", str(template.parent), "--strict", "--file", str(template), "--var-file", str(var_file)],
                    capture_output=True, text=True, check=True, timeout=10)
 
