@@ -73,6 +73,7 @@ def test_close_select_by_outcome_stage_and_verdict() -> None:
     assert CloseTransition.select(parse("task.close", pass_report(), completed), qa) == CloseTransition.QA_PASS
     no_verdict = CloseTransition.select(parse("task.close", "no block", completed), qa)
     assert isinstance(no_verdict, Refusal) and no_verdict.id == ErrorId.QA_VERDICT
+    assert "cause=no fenced verdict block" in repr(no_verdict)
 
 
 def test_request_fields_and_bad_stdin() -> None:
@@ -82,6 +83,7 @@ def test_request_fields_and_bad_stdin() -> None:
     assert req.is_phase_task() and req.close_report == "hi" and req.close_reason == "hi"
     bad = HookRequest.parse("{")
     assert isinstance(bad, Refusal) and bad.id == ErrorId.REQUEST_INVALID
+    assert "cause=" in repr(bad)
 
 
 def test_verdicts() -> None:

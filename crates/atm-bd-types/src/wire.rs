@@ -82,8 +82,8 @@ pub struct HookRequest {
 fn invalid(field: &str) -> Refusal {
     Refusal::new(ErrorId::RequestInvalid).with("field", Ctx::One(field.to_owned()))
 }
-fn bad_verdict() -> Refusal {
-    Refusal::new(ErrorId::QaVerdict)
+fn bad_verdict(cause: impl Into<String>) -> Refusal {
+    Refusal::new(ErrorId::QaVerdict).with("cause", Ctx::One(cause.into()))
 }
 
 enum Verdict {
@@ -114,7 +114,8 @@ struct RawFinding {
 
 impl HookRequest {
     pub fn parse(stdin: &str) -> Result<Self, Refusal> {
-        let env: Envelope = serde_json::from_str(stdin).map_err(|_| invalid("request"))?;
+        let env: Envelope = serde_json::from_str(stdin)
+            .map_err(|error| invalid("request").with("cause", Ctx::One(error.to_string())))?;
         let hook = match env.hook.as_str() {
             "task.assign" => Hook::TaskAssign,
             "task.start" => Hook::TaskStart,
@@ -182,16 +183,30 @@ impl HookRequest {
 
     fn verdict(&self) -> Result<Verdict, Refusal> {
         let report = self.close_report().unwrap_or("");
+        let mut errors = Vec::new();
         let blocks: Vec<RawVerdict> = report
             .split("```")
             .skip(1)
             .step_by(2)
-            .filter_map(|b| serde_json::from_str(b.strip_prefix("json").unwrap_or(b).trim()).ok())
+            .filter_map(|block| {
+                match serde_json::from_str(block.strip_prefix("json").unwrap_or(block).trim()) {
+                    Ok(verdict) => Some(verdict),
+                    Err(error) => {
+                        errors.push(error.to_string());
+                        None
+                    }
+                }
+            })
             .collect();
         let [raw] = blocks.as_slice() else {
-            return Err(bad_verdict());
+            let cause = match (blocks.len(), errors.first()) {
+                (0, Some(error)) => format!("no valid verdict block: {error}"),
+                (0, None) => "no fenced verdict block".to_owned(),
+                (count, _) => format!("expected one verdict block, found {count}"),
+            };
+            return Err(bad_verdict(cause));
         };
-        let sha = Sha::parse(&raw.sha).ok_or_else(bad_verdict)?;
+        let sha = Sha::parse(&raw.sha).ok_or_else(|| bad_verdict("invalid verdict sha"))?;
         let findings = raw
             .findings
             .iter()
@@ -203,19 +218,19 @@ impl HookRequest {
         match raw.verdict.as_str() {
             "PASS" => Ok(Verdict::Pass(QaPass { sha })),
             "FINDINGS" => Ok(Verdict::Findings(QaFail { sha, findings })),
-            _ => Err(bad_verdict()),
+            _ => Err(bad_verdict(format!("unknown verdict {:?}", raw.verdict))),
         }
     }
     pub fn qa_pass(&self) -> Result<QaPass, Refusal> {
         match self.verdict()? {
             Verdict::Pass(p) => Ok(p),
-            Verdict::Findings(_) => Err(bad_verdict()),
+            Verdict::Findings(_) => Err(bad_verdict("expected PASS, found FINDINGS")),
         }
     }
     pub fn qa_findings(&self) -> Result<QaFail, Refusal> {
         match self.verdict()? {
             Verdict::Findings(f) => Ok(f),
-            Verdict::Pass(_) => Err(bad_verdict()),
+            Verdict::Pass(_) => Err(bad_verdict("expected FINDINGS, found PASS")),
         }
     }
 
@@ -433,6 +448,69 @@ mod tests {
                 "task_op": {"op": "close", "outcome": "completed"}, "dry_run": false}
         });
         HookRequest::parse(&stdin.to_string()).expect("fixture decodes")
+    }
+
+    fn cause(refusal: &Refusal) -> &str {
+        refusal
+            .context
+            .iter()
+            .find_map(|(key, value)| match (key.as_str(), value) {
+                ("cause", Ctx::One(text)) => Some(text.as_str()),
+                _ => None,
+            })
+            .expect("refusal has cause")
+    }
+
+    #[test]
+    fn request_parse_preserves_serde_error() {
+        let refusal = HookRequest::parse("{").expect_err("invalid JSON");
+        assert_eq!(refusal.id, ErrorId::RequestInvalid);
+        assert_eq!(
+            cause(&refusal),
+            serde_json::from_str::<Envelope>("{")
+                .err()
+                .unwrap()
+                .to_string()
+        );
+        assert!(refusal
+            .context
+            .contains(&("field".into(), Ctx::One("request".into()))));
+    }
+
+    #[test]
+    fn verdict_refusals_identify_the_failure() {
+        let malformed = close_request("```json\n{\n```").qa_pass().unwrap_err();
+        assert_eq!(malformed.id, ErrorId::QaVerdict);
+        assert!(cause(&malformed).starts_with("no valid verdict block: "));
+        assert_eq!(
+            cause(&close_request("no block").qa_pass().unwrap_err()),
+            "no fenced verdict block"
+        );
+        let block = format!("```json\n{{\"verdict\":\"PASS\",\"sha\":\"{SHA}\"}}\n```");
+        let two = format!("{block}\n{block}");
+        assert_eq!(
+            cause(&close_request(&two).qa_pass().unwrap_err()),
+            "expected one verdict block, found 2"
+        );
+        let bad_sha = "```json\n{\"verdict\":\"PASS\",\"sha\":\"bad\"}\n```";
+        assert_eq!(
+            cause(&close_request(bad_sha).qa_pass().unwrap_err()),
+            "invalid verdict sha"
+        );
+        let unknown = format!("```json\n{{\"verdict\":\"MAYBE\",\"sha\":\"{SHA}\"}}\n```");
+        assert_eq!(
+            cause(&close_request(&unknown).qa_pass().unwrap_err()),
+            "unknown verdict \"MAYBE\""
+        );
+        assert_eq!(
+            cause(&close_request(&block).qa_findings().unwrap_err()),
+            "expected FINDINGS, found PASS"
+        );
+        let findings = format!("```json\n{{\"verdict\":\"FINDINGS\",\"sha\":\"{SHA}\"}}\n```");
+        assert_eq!(
+            cause(&close_request(&findings).qa_pass().unwrap_err()),
+            "expected PASS, found FINDINGS"
+        );
     }
 
     #[test]
