@@ -47,6 +47,7 @@ class CloseTransition(enum.Enum):
     def select(req: HookRequest, bead: Bead) -> CloseTransition | Refusal:
         r"""outcome x stage (x verdict kind for QA); REQUEST_INVALID / QA_VERDICT when they do not decode."""
 
+
 class Template(enum.Enum):
     REFUSE = ...
     DEV_CLOSE = ...
@@ -232,6 +233,7 @@ _T = typing.TypeVar("_T")
 @typing.dataclass_transform(frozen_default=True)
 def _record(cls: type[_T]) -> type[_T]:
     r"""Stub-only: a frozen Rust record whose constructor takes every field in order."""
+
 
 class Hook(enum.Enum):
     r"""The ATM task hook a script is registered for."""
