@@ -1,10 +1,14 @@
 """Contract tests for the standalone atm-bd-lite profile assets."""
+import importlib.util
+import json
 import re
 import subprocess
 import sys
 import tomllib
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -38,31 +42,116 @@ def _run_with_timeout(
         ) from exc
 
 
-@pytest.mark.parametrize(
-    ("filename", "variables", "expected"),
-    [
-        ("dev-close.md.j2", {"branch": "feature/x", "head": "abc123", "pr": "#42", "base": "main"},
-         ["branch", "head", "pr", "base"]),
-        ("refuse.md.j2", {"reason": "blocked by prerequisite"}, ["reason"]),
-        ("qa-pass.md.j2", {"sha": "abc123"}, ["sha"]),
-        ("qa-findings.md.j2", {"sha": "abc123", "ids": "F-1, F-2"}, ["sha", "ids"]),
-    ],
-)
-def test_close_templates_strictly_render_exact_contract(filename: str, variables: dict[str, str], expected: list[str]) -> None:
-    template = TEMPLATES / filename
-    source = template.read_text()
-    match = re.search(r"^required_variables:\s*\[([^]]*)\]$", source, re.MULTILINE)
-    assert match is not None
-    declared = [item.strip() for item in match.group(1).split(",")]
-    assert declared == expected
-    rendered = _run_with_timeout(
-        ["sc-compose", "render", "--strict", "--file", str(template),
-         *[argument for key, value in variables.items() for argument in ("--var", f"{key}={value}")]],
-        timeout=10,
-        check=True,
-    ).stdout
-    assert rendered.strip()
-    assert "{{" not in rendered
+@dataclass(frozen=True)
+class _Layer:
+    branch: str
+    head: str
+    pr: int
+    base: str
+
+
+class _Store:
+    def __init__(self, *beads, target=None) -> None:
+        self.beads = {bead.id: bead for bead in beads}
+        self.target = target
+
+    def show(self, bead_id: str):
+        return self.beads.get(bead_id)
+
+    def target_layer(self, bead):
+        return self.target
+
+    def update(self, patch, actor: str):
+        return None
+
+
+def _load_close_hook(monkeypatch: pytest.MonkeyPatch) -> tuple[ModuleType, ModuleType]:
+    test_types_path = Path(__file__).parent / "lite" / "fake_atm_bd_types.py"
+    types_spec = importlib.util.spec_from_file_location("lite_profile_test_types", test_types_path)
+    assert types_spec and types_spec.loader
+    test_types = importlib.util.module_from_spec(types_spec)
+    monkeypatch.setitem(sys.modules, types_spec.name, test_types)
+    types_spec.loader.exec_module(test_types)
+    monkeypatch.setitem(sys.modules, "atm_bd_types", test_types)
+
+    hook_path = SKILL / "scripts" / "atm-bd-task-hook.py"
+    hook_spec = importlib.util.spec_from_file_location("lite_profile_task_close_hook", hook_path)
+    assert hook_spec and hook_spec.loader
+    hook = importlib.util.module_from_spec(hook_spec)
+    hook_spec.loader.exec_module(hook)
+    return hook, test_types
+
+
+def _close_action_vars(action) -> dict[str, object]:
+    value = action.vars
+    if isinstance(value, str):
+        return {"reason": value}
+    if hasattr(value, "findings"):
+        return {"sha": value.sha, "ids": [finding.id for finding in value.findings]}
+    if hasattr(value, "sha"):
+        return {"sha": value.sha}
+    return {name: getattr(value, name) for name in ("branch", "head", "pr", "base")}
+
+
+def _hook_close_actions(hook: ModuleType, T: ModuleType) -> list:
+    layer = _Layer("feature/x", "a" * 40, 42, "main")
+    stack = T.Bead("stack", layers={layer.branch: layer})
+    phases = type("Phases", (), {"load": lambda self, path, profile: T.PhaseFile(lead="lead")})()
+
+    def run(bead, request, *extra, target=None):
+        store = _Store(bead, stack, *extra, target=target)
+        reply = hook.hook(request, store, phases)
+        assert reply.kind == "handled", reply
+        assert len(reply.actions) == 1
+        return reply.actions[0]
+
+    dev = T.Bead("dev-task", T.Status.IN_PROGRESS, assignee="dev", branch=layer.branch,
+                 stack_bead="stack", sprint="sprint-10", phase="bo")
+    refused = T.HookRequest(caller="dev", task_id="dev-task", outcome="refused", close_reason="blocked")
+    completed = T.HookRequest(caller="dev", task_id="dev-task", outcome="completed", close_report="complete")
+    qa = T.Bead("qa-task", T.Status.IN_PROGRESS, assignee="qa", stage="qa", stack_bead="stack",
+                sprint="sprint-10", phase="bo")
+    passed = T.HookRequest(caller="qa", task_id="qa-task", outcome="completed", verdict="PASS",
+                           verdict_sha=layer.head)
+    findings = T.HookRequest(caller="qa", task_id="qa-task", outcome="completed", verdict="FINDINGS",
+                             verdict_sha=layer.head, findings=[T.Finding("F-1", True), T.Finding("F-2", False)])
+    poured = [T.Bead("F-1", blocks_ids=["sprint-10"]), T.Bead("F-2", blocks_ids=["bo"])]
+    return [
+        run(dev, refused),
+        run(dev, completed),
+        run(qa, passed, target=layer),
+        run(qa, findings, *poured, target=layer),
+    ]
+
+
+def test_close_templates_strictly_render_vars_from_hook_actions(monkeypatch: pytest.MonkeyPatch,
+                                                                 tmp_path: Path) -> None:
+    hook, test_types = _load_close_hook(monkeypatch)
+    actions = _hook_close_actions(hook, test_types)
+    assert len(actions) == 4
+    assert [Path(action.template).name for action in actions] == [
+        "refuse.md", "dev-close.md", "qa-pass.md", "qa-findings.md",
+    ]
+
+    for action in actions:
+        template = TEMPLATES / f"{Path(action.template).name}.j2"
+        variables = _close_action_vars(action)
+        source = template.read_text()
+        match = re.search(r"^required_variables:\s*\[([^]]*)\]$", source, re.MULTILINE)
+        assert match is not None
+        required = {item.strip() for item in match.group(1).split(",")}
+        assert set(variables) == required
+
+        var_file = tmp_path / f"{template.name}.json"
+        var_file.write_text(json.dumps(variables))
+        rendered = _run_with_timeout(
+            ["sc-compose", "render", "--strict", "--file", str(template), "--var-file", str(var_file)],
+            timeout=10,
+            check=True,
+            cwd=SKILL.parents[1],
+        ).stdout
+        assert rendered.strip()
+        assert "{{" not in rendered
 
 
 def test_qa_assignment_template_strictly_renders_assign_vars() -> None:
