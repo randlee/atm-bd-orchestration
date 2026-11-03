@@ -16,6 +16,8 @@ name = "atm-bd"
 version = "0.19.12"
 source = { editable = "." }
 dependencies = [
+    { name = "atm-bd-core" },
+    { name = "atm-bd-types" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -27,8 +29,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "atm-bd-core" },
-    { name = "atm-bd-types" },
     { name = "hatchling" },
     { name = "jev-check" },
     { name = "pyright" },
@@ -38,6 +38,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "atm-bd-core", editable = "../../plugins/atm-bd-orchestration/core" },
+    { name = "atm-bd-types", editable = "../../crates/atm-bd-types" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich", specifier = ">=15.0.0,<16" },
@@ -49,8 +51,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "atm-bd-core", editable = "../../plugins/atm-bd-orchestration/core" },
-    { name = "atm-bd-types", editable = "../../crates/atm-bd-types" },
     { name = "hatchling", specifier = "==1.31.0" },
     { name = "jev-check", directory = "../../plugins/atm-bd-orchestration/core/gate/jev-check" },
     { name = "pyright" },

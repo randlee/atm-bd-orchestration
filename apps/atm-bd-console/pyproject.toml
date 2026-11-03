@@ -7,7 +7,7 @@ license = "MIT"
 authors = [{ name = "Rand Lee" }]
 # sc-compose 1.7.0 ships cp311 wheels only: https://github.com/randlee/sc-compose/issues/819
 requires-python = ">=3.11,<3.12"
-dependencies = ["rich>=15.0.0,<16", "textual>=8.2.8,<9", "sc-observability>=1.5.0,<2", "pyyaml", "pydantic", "sc-compose>=1.7.0,<2", "sc-sha>=1.7.0,<2"]
+dependencies = ["rich>=15.0.0,<16", "textual>=8.2.8,<9", "sc-observability>=1.5.0,<2", "pyyaml", "pydantic", "sc-compose>=1.7.0,<2", "sc-sha>=1.7.0,<2", "atm-bd-types", "atm-bd-core"]
 
 [project.urls]
 Repository = "https://github.com/randlee/atm-bd-orchestration"
@@ -17,7 +17,7 @@ Issues = "https://github.com/randlee/atm-bd-orchestration/issues"
 atm-bd = "atm_bd_console.cli:main"
 
 [dependency-groups]
-dev = ["pytest", "ruff", "pyright", "hatchling==1.31.0", "atm-bd-types", "atm-bd-core", "jev-check"]
+dev = ["pytest", "ruff", "pyright", "hatchling==1.31.0", "jev-check"]
 
 [build-system]
 requires = ["hatchling==1.31.0", "sc-sha>=1.7.0,<2"]
