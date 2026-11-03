@@ -36,14 +36,14 @@ def _lite(root):
 
 def test_route_selects_profile_or_existing_runner(tmp_path):
     _phase(tmp_path, 'lead="lead"\n')
-    assert isinstance(monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None), monitor.TodayMonitor)
+    assert isinstance(monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0], monitor.TodayMonitor)
     _lite(tmp_path)
-    assert isinstance(monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None), monitor.PolicyMonitor)
+    assert isinstance(monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0], monitor.PolicyMonitor)
 
 
 def test_missing_path_and_mismatched_profile_are_refused(tmp_path):
     _phase(tmp_path, 'profile="lite"\nlead="lead"\n')
-    selected = monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0]
     assert isinstance(selected, monitor.PolicyMonitor)
     refusal = selected._tick(dry_run=True)
     assert isinstance(refusal, Refusal) and refusal.id == ErrorId.PHASE_UNREADABLE
@@ -51,7 +51,7 @@ def test_missing_path_and_mismatched_profile_are_refused(tmp_path):
     _lite(tmp_path)
     path = tmp_path / ".atm-bd" / "phase-zz.toml"
     path.write_text(path.read_text().replace('profile="lite"', 'profile="other"'))
-    selected = monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0]
     assert isinstance(selected, monitor.PolicyMonitor)
     refusal = selected._tick(dry_run=True)
     assert isinstance(refusal, Refusal) and refusal.id == ErrorId.PROFILE_MISMATCH
@@ -74,7 +74,7 @@ def test_lite_tick_snapshot_and_dry_step(tmp_path, monkeypatch, capsys):
         calls.append(dry_run)
         return original(path, phase, primary, dry_run=dry_run, ports=Ports(Runner(), object()), now=123, collector=collector)
     monkeypatch.setattr(tick_module, "tick", controlled)
-    selected = monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0]
     assert isinstance(selected, monitor.PolicyMonitor)
     args = monitor.MonitorArgs("queues", phase="zz", json=True)
     assert selected.queues(args) == monitor.Exit.OK
@@ -103,7 +103,7 @@ def test_cli_has_one_monitor_route_and_no_specific_profile_names():
 
 def test_refusal_snapshot_preserves_id_and_wire_message(tmp_path):
     _phase(tmp_path, 'profile="lite"\nlead="lead"\n')
-    selected = monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0]
     assert isinstance(selected, monitor.PolicyMonitor)
     refusal = selected._tick(dry_run=True)
     assert isinstance(refusal, Refusal)
@@ -147,7 +147,7 @@ def test_cron_dry_run_never_sends_and_live_tick_sends_only_decided_action(tmp_pa
     def controlled(path, phase, primary, *, dry_run):
         return original(path, phase, primary, dry_run=dry_run, ports=Ports(Runner(), object()), now=123, collector=collector)
     monkeypatch.setattr(tick_module, "tick", controlled)
-    selected = monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0]
     assert isinstance(selected, monitor.PolicyMonitor)
     assert selected.queues(monitor.MonitorArgs("queues", phase="zz", json=True)) == monitor.Exit.OK
     assert json.loads(capsys.readouterr().out)["rows"] == [{"queue": "q", "key": "k", "bead_id": None, "text": "hello"}]
@@ -166,7 +166,7 @@ def test_cron_dry_run_never_sends_and_live_tick_sends_only_decided_action(tmp_pa
 
 def test_malformed_phase_fails_closed(tmp_path):
     _phase(tmp_path, 'profile = [broken')
-    selected = monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0]
     assert isinstance(selected, monitor.PolicyMonitor)
     refusal = selected._tick(dry_run=True)
     assert isinstance(refusal, Refusal) and refusal.id == ErrorId.PHASE_UNREADABLE
@@ -208,7 +208,7 @@ def test_queue_reports_incomplete_facts(tmp_path, monkeypatch, capsys):
     def controlled(path, phase, primary, *, dry_run):
         return original(path, phase, primary, dry_run=dry_run, ports=Ports(Runner(), object()), now=123, collector=collector)
     monkeypatch.setattr(tick_module, "tick", controlled)
-    selected = monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0]
     assert isinstance(selected, monitor.PolicyMonitor)
     assert selected.queues(monitor.MonitorArgs("queues", phase="zz", json=True)) == monitor.Exit.UNAVAILABLE
     output = capsys.readouterr()
@@ -220,7 +220,7 @@ def test_failed_cron_action_returns_unavailable(tmp_path, monkeypatch, capsys):
     from types import SimpleNamespace
 
     _lite(tmp_path)
-    selected = monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0]
     assert isinstance(selected, monitor.PolicyMonitor)
     refusal = Refusal(ErrorId.BEAD_CLOSED, bead="b")
     action = SimpleNamespace(kind=SimpleNamespace(name="ASSIGN"), to="agent", bead_id="b", key="k")
@@ -237,7 +237,7 @@ def test_snapshot_holds_console_lock_and_persists_refusal(tmp_path, monkeypatch)
     from atm_bd_console.state import acquire_lock, load_snapshot
 
     _lite(tmp_path)
-    selected = monitor.route(tmp_path, "zz", lambda _: 0, lambda *args: None)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None)[0]
     assert isinstance(selected, monitor.PolicyMonitor)
     refusal = Refusal(ErrorId.PHASE_UNREADABLE, path="phase", reason="broken")
     def controlled(**kwargs):
@@ -250,3 +250,34 @@ def test_snapshot_holds_console_lock_and_persists_refusal(tmp_path, monkeypatch)
     assert isinstance(saved, Ok) and isinstance(saved.value.errors[0], ConfigInvalid)
     assert saved.value.errors[0].key == refusal.id.name
     assert saved.value.errors[0].value == json.loads(HookReply.refused(refusal).to_json())["message"]
+
+
+def test_policy_console_launches_with_monitor_step_and_config(tmp_path, monkeypatch):
+    from atm_bd_console import app
+
+    _lite(tmp_path)
+    monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
+    seen = []
+    def run(config, step, state, **kwargs):
+        seen.append((config, kwargs["runner_step"]))
+        return 0
+    monkeypatch.setattr(app, "run", run)
+    assert cli.main(["console", "--phase", "zz"]) == 0
+    config, callback = seen[0]
+    assert config.phase == "zz" and Path(config.state_dir).name == "atm-phase-zz"
+    assert isinstance(callback.__self__, monitor.PolicyMonitor)
+
+
+def test_policy_console_rejects_bad_configuration_before_launch(tmp_path, monkeypatch, capsys):
+    from atm_bd_console import app
+
+    _phase(tmp_path, 'profile="lite"\nlead="lead"\n')
+    monkeypatch.setattr(cli.config_source, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(app, "run", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("launched")))
+    assert cli.main(["console", "--phase", "zz"]) == 3
+    assert "PHASE_UNREADABLE" in capsys.readouterr().out
+    _lite(tmp_path)
+    path = tmp_path / ".atm-bd" / "phase-zz.toml"
+    path.write_text(path.read_text().replace('profile="lite"', 'profile="other"'))
+    assert cli.main(["console", "--phase", "zz"]) == 3
+    assert "PROFILE_MISMATCH" in capsys.readouterr().out

@@ -4,7 +4,10 @@ from __future__ import annotations
 import enum
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
+
+from atm_bd_types import Refusal
 
 from .closed_cache import ClosedBeads
 from .state import StateStore
@@ -62,27 +65,52 @@ class TodayMonitor:
         return Exit(self._command(args))
 
 
-def route(repo_root, phase, command, step):
+def route(repo_root, args, command, step):
     """Select once from the phase file; old phases retain the existing runner."""
     import re
     import tomllib
     from pathlib import Path
 
+    phase = args.phase
+
+    def today():
+        from . import config as config_source
+        from .result import Ok
+        selected = TodayMonitor(command, step)
+        if phase is None or args.command in ("queues", "show"):
+            return selected, None
+        cadence = config_source.CRON_CADENCE_S if args.interval is None and args.command == "cron" else args.interval
+        loaded = config_source.load_config(repo_root, phase, github=args.github, interval_s=cadence,
+                                           github_poll_interval_s=args.github_poll_interval,
+                                           github_quota_threshold=args.github_quota_threshold,
+                                           dry_run=args.dry_run or args.command == "snapshot" or args.md_table,
+                                           no_fetch=args.no_fetch)
+        return selected, loaded.value if isinstance(loaded, Ok) else loaded
+
+    def policy(data):
+        from atm_bd_types import Refusal
+        selected = PolicyMonitor(Path(repo_root), phase, data)
+        if args.command == "console":
+            profile = selected._profile_path()
+            if isinstance(profile, Refusal):
+                return selected, profile
+        return selected, selected._config(args)
+
     if phase is None:
-        return TodayMonitor(command, step)
+        return today()
     if re.fullmatch(r"[a-z0-9]+", phase) is None:
-        return PolicyMonitor(Path(repo_root), phase, {"_route_error": "invalid phase id"})
+        return policy({"_route_error": "invalid phase id"})
     path = Path(repo_root) / ".atm-bd" / f"phase-{phase}.toml"
     try:
         with path.open("rb") as source:
             phase_data = tomllib.load(source)
     except FileNotFoundError:
-        return TodayMonitor(command, step)
+        return today()
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
-        return PolicyMonitor(Path(repo_root), phase, {"_route_error": str(error)})
+        return policy({"_route_error": str(error)})
     if "profile" not in phase_data and "profile_path" not in phase_data:
-        return TodayMonitor(command, step)
-    return PolicyMonitor(Path(repo_root), phase, phase_data)
+        return today()
+    return policy(phase_data)
 
 
 class PolicyMonitor:
@@ -91,8 +119,8 @@ class PolicyMonitor:
     def __init__(self, root, phase, phase_data):
         self.root, self.phase, self.phase_data = root, phase, phase_data
 
-    def _tick(self, *, dry_run):
-        from atm_bd_core.tick import tick
+    def _profile_path(self) -> Path | Refusal:
+        from atm_bd_core.profile import LoadedProfile, load_profile
         from atm_bd_types import ErrorId, Refusal
 
         if "_route_error" in self.phase_data:
@@ -101,10 +129,23 @@ class PolicyMonitor:
         if not isinstance(path, str) or not path:
             return Refusal(ErrorId.PHASE_UNREADABLE, path=str(self.root / ".atm-bd" / f"phase-{self.phase}.toml"),
                            reason="missing profile_path")
-        from pathlib import Path
         if Path(path).is_absolute():
             return Refusal(ErrorId.PHASE_UNREADABLE, path=path, reason="profile_path must be relative to the primary checkout")
-        return tick(self.root / path, self.phase, self.root, dry_run=dry_run)
+        full_path = self.root / path
+        loaded = load_profile(full_path)
+        if not isinstance(loaded, LoadedProfile):
+            return loaded
+        if loaded.profile.name != self.phase_data.get("profile"):
+            return Refusal(ErrorId.PROFILE_MISMATCH, path=str(full_path), profile=loaded.profile.name)
+        return full_path
+
+    def _tick(self, *, dry_run):
+        from atm_bd_core.tick import tick
+
+        profile_path = self._profile_path()
+        if isinstance(profile_path, Path):
+            return tick(profile_path, self.phase, self.root, dry_run=dry_run)
+        return profile_path
 
     @property
     def root_id(self):
@@ -278,8 +319,3 @@ class PolicyMonitor:
             print(json.dumps({"kind": action.kind.name, "to": action.to, "bead_id": action.bead_id,
                               "key": action.key, "outcome": outcome.kind.name, "error": failure}))
         return Exit.UNAVAILABLE if tick.view.errors or any(outcome.kind.name == "FAILED" for outcome in tick.outcomes) else Exit.OK
-
-    def console(self, args: MonitorArgs) -> int:
-        from .app import run
-        from .types import INITIAL_STATE
-        return run(self._config(args), None, INITIAL_STATE, runner_step=self.step)

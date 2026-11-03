@@ -95,15 +95,25 @@ def main(argv: list[str] | None = None) -> int:
         interval=getattr(args, "interval", None), github_poll_interval=getattr(args, "github_poll_interval", None),
         github_quota_threshold=getattr(args, "github_quota_threshold", None),
         dry_run=getattr(args, "dry_run", False), no_fetch=getattr(args, "no_fetch", False))
-    selected = monitor_source.route(config_source.repo_root(), parsed.phase, _run_today, runner.step)
+    def today_command(values):
+        return _run_today(values, preloaded=selected_config)
+
+    selected, selected_config = monitor_source.route(config_source.repo_root(), parsed, today_command, runner.step)
     if parsed.command in ("queues", "snapshot", "cron"):
         return int(getattr(selected, parsed.command)(parsed))
     if parsed.command == "console" and isinstance(selected, monitor_source.PolicyMonitor):
-        return selected.console(parsed)
-    return _run_today(parsed, selected)
+        from atm_bd_types import HookReply, Refusal
+
+        from .app import run
+        if isinstance(selected_config, Refusal):
+            print(json.loads(HookReply.refused(selected_config).to_json())["message"])
+            return 3
+        assert isinstance(selected_config, Config)
+        return run(selected_config, None, INITIAL_STATE, runner_step=selected.step)
+    return _run_today(parsed, selected, selected_config)
 
 
-def _run_today(args, selected=None) -> int:
+def _run_today(args, selected=None, preloaded=None) -> int:
     invocation = f"{CONSOLE_NAME} {args.command}"
     if args.command == "queues":
         return queues.main(args, repo_root=config_source.repo_root())
@@ -122,7 +132,12 @@ def _run_today(args, selected=None) -> int:
         print(f"{invocation}: console is not running for phase {args.phase}{last}; start it: {CONSOLE_NAME} console --phase {args.phase}")
         return 2
     md_table = getattr(args, "md_table", False)
-    loaded = config_source.load_config(repo_root, args.phase, github=args.github, interval_s=_cadence(args), github_poll_interval_s=args.github_poll_interval, github_quota_threshold=args.github_quota_threshold, dry_run=getattr(args, "dry_run", False) or args.command == "snapshot" or md_table, no_fetch=args.no_fetch)
+    loaded = (preloaded if isinstance(preloaded, Err) else Ok(preloaded) if preloaded is not None else
+              config_source.load_config(repo_root, args.phase, github=args.github, interval_s=_cadence(args),
+                                        github_poll_interval_s=args.github_poll_interval,
+                                        github_quota_threshold=args.github_quota_threshold,
+                                        dry_run=getattr(args, "dry_run", False) or args.command == "snapshot" or md_table,
+                                        no_fetch=args.no_fetch))
     if isinstance(loaded, Err): print(f"{invocation}: {error_message(asdict(loaded.error))}"); return 3
     check = atm_bd.repo_config(loaded.value.repo_root)
     if isinstance(check, Err): print(f"{invocation}: {error_message(asdict(check.error))}"); return 3
