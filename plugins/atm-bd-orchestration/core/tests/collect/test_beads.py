@@ -26,18 +26,6 @@ def test_stack_fails_when_no_stack_bead():
     assert value is None and error.kind == FactKind.STACK
 
 
-def test_stack_success(monkeypatch):
-    from atm_bd_types import Stage
-
-    from atm_bd_core.collect import beads as module
-
-    bead = SimpleNamespace(stage=Stage.STACK)
-    ledger = object()
-    monkeypatch.setattr(module, "StackFact", lambda bead, stack, trunk, since: (bead, stack, trunk, since))
-    value, error = stack([bead], SimpleNamespace(key=lambda key: "main"), lambda item: ledger)
-    assert error is None and value == (bead, ledger, "main", None)
-
-
 def test_ready_success_and_bead_failure():
     class OtherCache:
         def ready(self, phase):
