@@ -1,8 +1,46 @@
+from pathlib import Path
 from types import SimpleNamespace
+import tomllib
 
 import pytest
 from atm_bd_core.collect.provider import pr_bases, resolve_provider, top_checks
 from atm_bd_types import CheckState, FactKind
+
+
+PROVIDERS_TOML = Path(__file__).resolve().parents[2] / "atm_bd_core" / "providers.toml"
+ALLOWED_PROVIDER_KEYS = {
+    "gh": frozenset({"repo_args", "base_prefix", "failing", "pending", "passing", "hosts", "create",
+                      "checks", "base", "head"}),
+    "az": frozenset({"base_prefix", "failing", "pending", "passing", "hosts", "create", "checks", "base",
+                      "head"}),
+}
+
+
+def _assert_provider_keys(provider_name: str, provider: dict[str, object]) -> None:
+    allowed = ALLOWED_PROVIDER_KEYS[provider_name]
+    keys = set(provider)
+    unexpected = keys - allowed
+    missing = allowed - keys
+    assert not unexpected, (
+        f"{provider_name} provider has unsupported keys {sorted(unexpected)}; "
+        "transport and payload are not supported provider fields"
+    )
+    assert not missing, f"{provider_name} provider is missing required keys {sorted(missing)}"
+
+
+def test_shipped_provider_table_has_only_allowed_keys() -> None:
+    providers = tomllib.loads(PROVIDERS_TOML.read_text(encoding="utf-8"))
+    assert set(providers) == set(ALLOWED_PROVIDER_KEYS)
+    for provider_name, provider in providers.items():
+        _assert_provider_keys(provider_name, provider)
+
+
+@pytest.mark.parametrize("forbidden_key", ["transport", "payload"])
+def test_provider_key_guard_rejects_reintroduced_transport_and_payload(forbidden_key: str) -> None:
+    providers = tomllib.loads(PROVIDERS_TOML.read_text(encoding="utf-8"))
+    mutated = {**providers["gh"], forbidden_key: {"kind": "file"}}
+    with pytest.raises(AssertionError, match=forbidden_key):
+        _assert_provider_keys("gh", mutated)
 
 
 @pytest.mark.parametrize(("remote", "head_argv", "checks_argv", "base_argv", "check_state", "base_response"), [
