@@ -530,7 +530,7 @@ impl PyHookAction {
         let action = match (context::request(), context::template(template)) {
             (None, _) => Err(invalid("request")),
             (Some(_), None) => Err(invalid("template")),
-            (Some(request), Some(file)) => Ok(HookAction::close(&request, &file, vars)),
+            (Some(request), Some(file)) => HookAction::close(&request, &file, vars),
         };
         Ok(PyHookAction(action))
     }

@@ -320,7 +320,12 @@ pub struct HookAction {
 }
 
 impl HookAction {
-    pub fn close(req: &HookRequest, template: &TemplateFile, vars: CloseVars) -> Self {
+    pub fn close(
+        req: &HookRequest,
+        template: &TemplateFile,
+        vars: CloseVars,
+    ) -> Result<Self, Refusal> {
+        let outcome = req.outcome().ok_or_else(|| invalid("outcome"))?;
         let b = &req.body;
         let source = TemplateSource {
             canonical_template_path: template.path.clone(),
@@ -331,7 +336,7 @@ impl HookAction {
             explicit_values: Empty {},
             environment_values: Empty {},
         };
-        HookAction {
+        Ok(HookAction {
             command: "task.close",
             request: CloseBody {
                 home_dir: b.home_dir.clone(),
@@ -343,12 +348,12 @@ impl HookAction {
                 requires_ack: false,
                 task_id: req.task_id.clone(),
                 task_op: TaskOp::Close {
-                    outcome: req.outcome().unwrap_or(Outcome::Completed),
+                    outcome,
                     reason: None,
                 },
                 dry_run: b.dry_run,
             },
-        }
+        })
     }
 }
 
@@ -472,7 +477,8 @@ mod tests {
             &req,
             &t,
             CloseVars::from(&Evidence::QaPass(pass)),
-        )]);
+        )
+        .expect("close request has an outcome")]);
         assert_eq!(
             reply.to_json(Some(req.hook())),
             format!(
@@ -507,7 +513,8 @@ mod tests {
             CloseVars::Reason {
                 reason: "done".into(),
             },
-        );
+        )
+        .expect("close request has an outcome");
         let body = serde_json::to_value(&action).unwrap()["request"].clone();
         let parsed: RequiredDestination = serde_json::from_value(body).unwrap();
         assert_eq!(parsed.to.agent, "lead");
@@ -518,6 +525,31 @@ mod tests {
             serde_json::from_value::<RequiredDestination>(serde_json::json!({"to": null})).is_err()
         );
         assert!(serde_json::from_value::<RequiredDestination>(serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn close_action_requires_outcome() {
+        let mut req = close_request("done");
+        req.body.task_op = None;
+        let template = TemplateFile {
+            path: "close".into(),
+            root: "/r".into(),
+            bytes: b"ok".to_vec(),
+        };
+
+        let refusal = HookAction::close(
+            &req,
+            &template,
+            CloseVars::Reason {
+                reason: "done".into(),
+            },
+        )
+        .expect_err("a missing outcome must not default to completed");
+        assert_eq!(
+            refusal,
+            invalid("outcome"),
+            "the missing outcome is a request-field refusal"
+        );
     }
 
     #[test]
@@ -551,7 +583,8 @@ mod tests {
         };
         let vars = CloseVars::from(&Evidence::Merged(merged));
         assert!(matches!(&vars, CloseVars::Sha { sha } if sha.as_str() == SHA));
-        let action = HookAction::close(&req, &template, vars);
+        let action =
+            HookAction::close(&req, &template, vars).expect("close request has an outcome");
         let body = serde_json::to_value(action).unwrap();
         assert_eq!(
             body["request"]["message_source"]["Template"]["var_file_values"]["sha"],
