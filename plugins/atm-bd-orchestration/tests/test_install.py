@@ -39,6 +39,10 @@ SPEC_VARIABLES = [
 needs_sc_compose = pytest.mark.skipif(not SC_COMPOSE, reason="sc-compose not on PATH; install not verified")
 
 
+def test_install_entrypoint_stays_below_line_limit() -> None:
+    assert len((PKG / "install.py").read_text(encoding="utf-8").splitlines()) < 1000
+
+
 @pytest.fixture(autouse=True)
 def current_installer_tools(tmp_path, monkeypatch):
     """Only direct installer tests receive fakes; installed suites inherit real PATH."""
