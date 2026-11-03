@@ -22,7 +22,7 @@ def test_resolve_provider_from_remote_and_unknown():
 
 
 def test_checks_success_and_failed_read():
-    provider, _ = resolve_provider(Runner(""), "gh")
+    provider, _ = resolve_provider(Runner("https://github.com/example/repo"), None)
     layer = SimpleNamespace(pr=5, head="a" * 40)
     class ChecksRunner:
         def run(self, argv, stdin):
@@ -38,7 +38,7 @@ def test_checks_success_and_failed_read():
 
 
 def test_bases_success_and_failed_read():
-    provider, _ = resolve_provider(Runner(""), "az")
+    provider, _ = resolve_provider(Runner("https://dev.azure.com/example/repo"), None)
     layer = SimpleNamespace(pr=5)
     result, error = pr_bases(Runner("refs/heads/main\n"), provider, [layer])
     assert result is not None
@@ -49,7 +49,7 @@ def test_bases_success_and_failed_read():
 
 
 def test_checks_rejects_head_mismatch():
-    selected, _ = resolve_provider(Runner(""), "gh")
+    selected, _ = resolve_provider(Runner("https://github.com/example/repo"), None)
     layer = SimpleNamespace(pr=5, head="a" * 40)
     value, error = top_checks(Runner("b" * 40), selected, layer)
     assert error is not None
