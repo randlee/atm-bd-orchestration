@@ -14,7 +14,7 @@ from atm_bd_types import BeadPatch, ErrorId, HookRequest, Refusal, Status
 from atm_bd_types._core import stack_of
 
 from . import beads_db as beads_db_helpers
-from .beads_db import bd, create_bead, init_db
+from .beads_db import bd, create_bead, init_db, require_test_bd_binary
 
 ROOT = Path(__file__).resolve().parents[5]
 SCRIPTS = ROOT / "crates/atm-bd-types/tests/fixtures/scripts"
@@ -46,11 +46,11 @@ def request(hook: str, actor: str, *, to=None, op=None, report=""):
 
 @pytest.fixture
 def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    init_db(tmp_path)
-    meta = json.dumps({"branch": "work", "stack_bead": "tst-stack"})
-    create_bead(tmp_path, "tst-1", "work", "phase-bo,stage:dev", json.loads(meta))
-    layers = json.dumps({"layers": [{"branch": "work", "head": SHA, "pr": 7, "base": "main"}]})
-    create_bead(tmp_path, "tst-stack", "stack", "phase-bo,stage:stack", json.loads(layers))
+    cache = ControlledCache()
+    cache.add_bead("tst-1", "work", "open", ["phase-bo", "stage:dev"],
+                   {"branch": "work", "stack_bead": "tst-stack"})
+    cache.add_bead("tst-stack", "stack", "open", ["phase-bo", "stage:stack"],
+                   {"layers": [{"branch": "work", "head": SHA, "pr": 7, "base": "main"}]})
     config = tmp_path / ".atm-bd"
     config.mkdir()
     (config / "phase-bo.toml").write_text('profile="lite"\nlead="lead"\n[templates]\n' +
@@ -58,32 +58,116 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     for name in ("refuse", "dev-close", "qa-pass", "qa-findings"):
         (tmp_path / f"{name}.j2").write_text("fixed template")
     monkeypatch.chdir(tmp_path)
-    binary = os.environ.get("ATM_TEST_BD", "bd")
-    cache = bd_cache_rs.Cache(str(tmp_path), bd_binary=binary, scopes=["bo"])
-    cache.sync("bo", 30)
-    cache.close()
+    store = CacheStore(cache, "bo")
+    yield tmp_path, store
+
+
+@pytest.fixture
+def real_db_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    binary = require_test_bd_binary()
+    init_db(tmp_path)
+    meta = {"branch": "work", "stack_bead": "tst-stack"}
+    create_bead(tmp_path, "tst-1", "work", "phase-bo,stage:dev", meta)
+    layers = {"layers": [{"branch": "work", "head": SHA, "pr": 7, "base": "main"}]}
+    create_bead(tmp_path, "tst-stack", "stack", "phase-bo,stage:stack", layers)
+    config = tmp_path / ".atm-bd"
+    config.mkdir()
+    (config / "phase-bo.toml").write_text('profile="lite"\nlead="lead"\n[templates]\n' +
+        ''.join(f'{name}="{name}.j2"\n' for name in ("refuse", "dev-close", "qa-pass", "qa-findings")))
+    for name in ("refuse", "dev-close", "qa-pass", "qa-findings"):
+        (tmp_path / f"{name}.j2").write_text("fixed template")
+    monkeypatch.chdir(tmp_path)
     if os.path.isabs(binary):
         bindir = tmp_path / "bin"
         bindir.mkdir()
         (bindir / "bd").symlink_to(binary)
         monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ.get("PATH", ""))
-    store = CacheStore.for_phase("bo")
+    cache = bd_cache_rs.Cache(str(tmp_path), bd_binary=binary, scopes=["bo"])
+    cache.sync("bo", 30)
+    store = CacheStore(cache, "bo")
     assert isinstance(store, CacheStore), store
     yield tmp_path, store
     store.cache.close()
 
 
-def test_three_hooks_assign_start_and_close_on_real_db(setup):
-    root, store = setup
+class ControlledCache:
+    def __init__(self) -> None:
+        self.rows: dict[str, dict] = {}
+        self.outcomes: list[tuple[str, list[dict]]] = []
+        self.seq = 0
+        self.state = "applied"
+        self.escalated: list[dict] = []
+
+    def add_bead(self, bead_id: str, title: str, status: str, labels: list[str], metadata: dict) -> None:
+        self.rows[bead_id] = {"id": bead_id, "title": title, "status": status, "labels": labels,
+                              "metadata": metadata, "dependencies": [], "assignee": None}
+
+    def get(self, bead_id: str) -> dict:
+        return {"row": {"bead": self.rows[bead_id], "blocked": []}}
+
+    def list(self, _phase: str) -> dict:
+        return {"rows": [{"bead": row} for row in self.rows.values()]}
+
+    def ready(self, phase: str) -> dict:
+        return {"ready": self.list(phase)["rows"]}
+
+    def write(self, bead_id: str, operation: str, args: dict, *_rest) -> dict:
+        self.seq += 1
+        self.state, self.escalated = self.outcomes.pop(0) if self.outcomes else ("applied", [])
+        if self.state == "applied":
+            row = self.rows[bead_id]
+            if operation == "close":
+                row["status"] = "closed"
+            row.update({key: value for key, value in args.items() if key in ("status", "assignee")})
+        return {"seq": self.seq}
+
+    def drain(self, *_args) -> dict:
+        return {"escalated": self.escalated}
+
+    def entry(self, _seq: int) -> dict:
+        return {"state": self.state}
+
+    def sync(self, *_args) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def test_real_embedded_bd_wires_cache_store(real_db_setup):
+    root, store = real_db_setup
+    bead = store.show("tst-1")
+    stack = store.show("tst-stack")
+    assert bead.id == "tst-1" and bead.branch == "work"
+    assert stack.id == "tst-stack" and stack_of(stack).layers[0].head == SHA
+    assert json.loads(bd(root, "show", "tst-1", "--json"))[0]["id"] == "tst-1"
+
+
+def test_three_hooks_assign_start_and_close_with_controlled_cache(setup):
+    _, store = setup
     phases = PhaseFilesCli()
-    assert 'pass-through' in load_hook("assign")(request("task.assign", "lead", to="dev"), store, phases).to_json()
+    assigned = load_hook("assign")(request("task.assign", "lead", to="dev"), store, phases)
+    assert "pass-through" in assigned.to_json()
     assert store.show("tst-1").assignee == "dev"
-    assert 'pass-through' in load_hook("start")(request("task.start", "dev"), store, phases).to_json()
+
+    started = load_hook("start")(request("task.start", "dev"), store, phases)
+    assert "pass-through" in started.to_json()
     assert store.show("tst-1").status == Status.IN_PROGRESS
-    reply = load_hook("close")(request("task.close", "dev", op={"op": "close", "outcome": "completed", "reason": "done"}, report="done"), store, phases)
-    assert 'handled' in reply.to_json(), reply.to_json()
+
+    reply = load_hook("close")(
+        request("task.close", "dev", op={"op": "close", "outcome": "completed", "reason": "done"},
+                report="done"),
+        store,
+        phases,
+    )
+    assert "handled" in reply.to_json(), reply.to_json()
     assert store.show("tst-1").status == Status.CLOSED
-    assert json.loads(bd(root, "show", "tst-1", "--json"))[0]["status"] == "closed"
+
+
+def test_real_bd_requires_the_explicit_test_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATM_TEST_BD", raising=False)
+    with pytest.raises(RuntimeError, match="ATM_TEST_BD must name the pinned embedded bd test binary"):
+        require_test_bd_binary()
 
 
 def test_bd_helper_bounds_the_process_and_reports_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,6 +191,7 @@ def test_bd_helper_bounds_the_process_and_reports_timeout(tmp_path: Path, monkey
 
 def test_stale_snapshot_is_a_typed_race(setup):
     _, store = setup
+    store.cache.outcomes = [("applied", []), ("failed", [{"seq": 2, "reason": "BD_CACHE.PRECONDITION: stale"}])]
     snapshot = store.show("tst-1")
     assert store.update(BeadPatch.assign(snapshot, "dev"), "lead") is None
     error = store.update(BeadPatch.start(snapshot), "dev")
@@ -125,18 +210,16 @@ def test_phase_failures_are_typed(setup):
 
 
 def test_backend_race_is_not_reported_as_success(setup):
-    root, store = setup
+    _, store = setup
+    store.cache.outcomes = [("failed", [{"seq": 1, "reason": "BD_CACHE.PRECONDITION: stale"}])]
     snapshot = store.show("tst-1")
-    bd(root, "update", "tst-1", "--assignee", "other", "--actor", "lead")
     error = store.update(BeadPatch.start(snapshot), "dev")
     assert isinstance(error, Refusal) and error.id == ErrorId.BEAD_RACED
 
 
 def test_qa_target_and_ready_views(setup):
     root, store = setup
-    bd(root, "create", "qa", "--id", "tst-qa", "--labels", "phase-bo,stage:qa", "--metadata",
-       json.dumps({"checked_bead": "tst-1"}))
-    store.cache.sync("bo", 30)
+    store.cache.add_bead("tst-qa", "qa", "open", ["phase-bo", "stage:qa"], {"checked_bead": "tst-1"})
     qa = store.show("tst-qa")
     assert store.target_layer(qa).head == SHA
     assert stack_of(store.show("tst-stack")).layers[0].head == SHA
@@ -177,9 +260,8 @@ def test_missing_cache_root_names_the_working_directory(tmp_path, monkeypatch):
 
 
 def test_qa_without_checked_bead_names_the_qa_bead(setup):
-    root, store = setup
-    create_bead(root, "tst-qa", "qa", "phase-bo,stage:qa", {})
-    store.cache.sync("bo", 30)
+    _, store = setup
+    store.cache.add_bead("tst-qa", "qa", "open", ["phase-bo", "stage:qa"], {})
     result = store.target_layer(store.show("tst-qa"))
     assert isinstance(result, Refusal) and result.id == ErrorId.CACHE_UNAVAILABLE
     assert "QA bead tst-qa has no checked bead or closed blocker" in repr(result)

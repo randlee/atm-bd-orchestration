@@ -7,8 +7,15 @@ import subprocess
 BD_TIMEOUT_SECONDS = 30
 
 
+def require_test_bd_binary() -> str:
+    binary = os.environ.get("ATM_TEST_BD")
+    if not binary:
+        raise RuntimeError("ATM_TEST_BD must name the pinned embedded bd test binary")
+    return binary
+
+
 def bd(root: Path, *args: str) -> str:
-    command = [os.environ.get("ATM_TEST_BD", "bd"), *args]
+    command = [require_test_bd_binary(), *args]
     try:
         result = subprocess.run(
             command,
