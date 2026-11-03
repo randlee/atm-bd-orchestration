@@ -8,12 +8,12 @@ import re
 import shutil
 import subprocess
 import tomllib
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 
 from atm_bd_types import Refusal
 
-from atm_bd_core.profile import TEMPLATES, LoadedProfile, load_profile
+from atm_bd_core.profile import LoadedProfile, load_profile
 
 
 def timeout(path: Path, name: str) -> int:
@@ -63,22 +63,18 @@ def set_repo(primary: Path, phase: str, repo: str) -> None:
     _rewrite(path, transform)
 
 
-def set_phase_paths(primary: Path, phase: str, installed: LoadedProfile, manifest: Path) -> None:
-    """Publish only existing canonical installed paths into the phase configuration."""
+def set_phase_paths(primary: Path, phase: str, manifest: Path) -> None:
+    """Publish the installed profile manifest as the phase's template source."""
     path = primary / ".atm-bd" / f"phase-{phase}.toml"
     manifest = manifest.resolve(strict=True)
-    paths = {name: installed.path(installed.profile.templates[kind]).resolve(strict=True)
-             for name, kind in TEMPLATES.items() if kind in installed.profile.templates}
-    if any(not item.is_absolute() or not item.is_file() for item in [manifest, *paths.values()]):
-        raise ValueError("installed phase paths must be absolute files")
+    if not manifest.is_file():
+        raise ValueError("installed profile path must be an absolute file")
 
     def transform(source: str) -> str:
         parts = re.split(r"(?m)^(?=\s*\[)", source, maxsplit=1)
         prefix = re.sub(r"(?m)^\s*profile_path\s*=.*\n?", "", parts[0])
         source = f"profile_path = {json.dumps(str(manifest))}\n" + prefix + "".join(parts[1:])
-        block = "[templates]\n" + "".join(f"{name} = {json.dumps(str(value))}\n" for name, value in paths.items())
-        source = re.sub(r"(?ms)^[ \t]*\[templates\][^\n]*(?:\n|\Z).*?(?=^[ \t]*\[|\Z)", "", source)
-        return source.rstrip() + "\n\n" + block
+        return re.sub(r"(?ms)^[ \t]*\[templates(?:\.[^\]]+)?\][^\n]*(?:\n|\Z).*?(?=^[ \t]*\[(?!templates(?:\.[^\]]+)?\])|\Z)", "", source)
 
     _rewrite(path, transform)
 
@@ -146,7 +142,7 @@ def verify_registrations(phase: str, primary: Path, hooks: dict[str, Path], entr
 def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expression: str, repo: str) -> None:
     loaded = load_profile(profile_path)
     if isinstance(loaded, Refusal):
-        raise RuntimeError(str(loaded))
+        raise TypeError(str(loaded))
     if not loaded.profile.cron:
         raise ValueError("profile does not declare a cron decision script")
     if not phase or phase in {".", ".."} or Path(phase).name != phase:
@@ -169,7 +165,7 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
     installed = load_profile(skill / profile_path.name)
     if isinstance(installed, Refusal):
         raise RuntimeError(str(installed))
-    set_phase_paths(primary, phase, installed, skill / profile_path.name)
+    set_phase_paths(primary, phase, skill / profile_path.name)
     hooks: dict[str, Path] = {}
     for hook, relative in installed.profile.hooks.items():
         module = installed.path(relative)

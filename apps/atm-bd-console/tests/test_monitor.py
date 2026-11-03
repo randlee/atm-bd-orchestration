@@ -38,16 +38,17 @@ def _phase(root, text):
 
 def _lite(root):
     skill = root / "skill"
-    skill.mkdir()
-    (skill / "profile.toml").write_text('name="lite"\nstages=["dev", "qa"]\npolicy="policy.toml"\n[hooks]\n[templates]\n', encoding="utf-8")
+    templates = skill / "templates"
+    templates.mkdir(parents=True)
+    names = ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close")
+    lines = ['name="lite"', 'stages=["dev", "qa"]', 'policy="policy.toml"', '[hooks]', '[templates]']
+    for name in names:
+        relative = f"templates/{name}"
+        (skill / relative).write_text("body", encoding="utf-8")
+        lines.append(f'{name}="{relative}"')
+    (skill / "profile.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (skill / "policy.toml").write_text('[params]\n', encoding="utf-8")
-    (root / "templates").mkdir()
-    lines = ['profile="lite"', 'profile_path="skill/profile.toml"', 'lead="lead"',
-             'root="atm-phase-zz"', '[templates]']
-    for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close"):
-        (root / "templates" / name).write_text("body", encoding="utf-8")
-        lines.append(f'{name}="templates/{name}"')
-    _phase(root, "\n".join(lines))
+    _phase(root, 'profile="lite"\nprofile_path="skill/profile.toml"\nlead="lead"\nroot="atm-phase-zz"')
 
 
 def test_route_selects_profile_or_existing_runner(tmp_path):

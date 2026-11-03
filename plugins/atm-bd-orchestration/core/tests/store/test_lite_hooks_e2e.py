@@ -4,12 +4,13 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
-from atm_bd_core.store._cache_binding import cache_module as bd_cache_rs
 import pytest
+from atm_bd_core.profile import TEMPLATES
 from atm_bd_core.store import CacheStore, PhaseFilesCli
+from atm_bd_core.store._cache_binding import cache_module as bd_cache_rs
 from atm_bd_types import BeadPatch, ErrorId, HookRequest, Refusal, Status
 from atm_bd_types._core import stack_of
 
@@ -44,6 +45,23 @@ def request(hook: str, actor: str, *, to=None, op=None, report=""):
     return result
 
 
+def write_profile_config(root: Path) -> None:
+    profile = root / "profile"
+    templates = profile / "templates"
+    templates.mkdir(parents=True)
+    lines = ['name = "lite"', 'stages = ["dev"]', 'policy = "policy.toml"', "[hooks]", "[templates]"]
+    for name in TEMPLATES:
+        relative = f"templates/{name}.j2"
+        (profile / relative).write_text("fixed template", encoding="utf-8")
+        lines.append(f'{name} = "{relative}"')
+    (profile / "policy.toml").write_text("[params]\n", encoding="utf-8")
+    (profile / "profile.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    config = root / ".atm-bd"
+    config.mkdir(exist_ok=True)
+    (config / "phase-bo.toml").write_text(
+        'profile="lite"\nprofile_path="profile/profile.toml"\nlead="lead"\n', encoding="utf-8")
+
+
 @pytest.fixture
 def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     cache = ControlledCache()
@@ -51,12 +69,7 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                    {"branch": "work", "stack_bead": "tst-stack"})
     cache.add_bead("tst-stack", "stack", "open", ["phase-bo", "stage:stack"],
                    {"layers": [{"branch": "work", "head": SHA, "pr": 7, "base": "main"}]})
-    config = tmp_path / ".atm-bd"
-    config.mkdir()
-    (config / "phase-bo.toml").write_text('profile="lite"\nlead="lead"\n[templates]\n' +
-        ''.join(f'{name}="{name}.j2"\n' for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close")))
-    for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close"):
-        (tmp_path / f"{name}.j2").write_text("fixed template")
+    write_profile_config(tmp_path)
     monkeypatch.chdir(tmp_path)
     store = CacheStore(cache, "bo")
     yield tmp_path, store
@@ -70,12 +83,7 @@ def real_db_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     create_bead(tmp_path, "tst-1", "work", "phase-bo,stage:dev", meta)
     layers = {"layers": [{"branch": "work", "head": SHA, "pr": 7, "base": "main"}]}
     create_bead(tmp_path, "tst-stack", "stack", "phase-bo,stage:stack", layers)
-    config = tmp_path / ".atm-bd"
-    config.mkdir()
-    (config / "phase-bo.toml").write_text('profile="lite"\nlead="lead"\n[templates]\n' +
-        ''.join(f'{name}="{name}.j2"\n' for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close")))
-    for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close"):
-        (tmp_path / f"{name}.j2").write_text("fixed template")
+    write_profile_config(tmp_path)
     monkeypatch.chdir(tmp_path)
     if os.path.isabs(binary):
         bindir = tmp_path / "bin"
@@ -228,7 +236,7 @@ def test_journaled_update_is_visible_before_drain(real_db_setup):
 
 
 def test_qa_target_and_ready_views(setup):
-    root, store = setup
+    _root, store = setup
     store.cache.add_bead("tst-qa", "qa", "open", ["phase-bo", "stage:qa"], {"checked_bead": "tst-1"})
     qa = store.show("tst-qa")
     assert store.target_layer(qa).head == SHA

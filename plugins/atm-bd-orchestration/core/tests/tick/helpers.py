@@ -7,9 +7,18 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from atm_bd_core.reported import reported_keys
 from atm_bd_core.profile import CronScript, LoadedProfile
-from atm_bd_types import Bead, ErrorId, PhaseFacts, Refusal, PhaseFile, StackFact, Stage, Status
+from atm_bd_core.reported import reported_keys
+from atm_bd_types import (
+    Bead,
+    ErrorId,
+    PhaseFacts,
+    PhaseFile,
+    Refusal,
+    StackFact,
+    Stage,
+    Status,
+)
 from atm_bd_types._core import CommandResult, Ports
 from atm_bd_types._native import _bead, _layer, _stack
 
@@ -42,11 +51,8 @@ def make_primary(root: Path, profile: str = "lite") -> Path:
     """A primary checkout with .atm-bd/phase-bo.toml naming `profile`."""
     primary = root / "primary"
     (primary / ".atm-bd").mkdir(parents=True)
-    (primary / "t").mkdir()
-    lines = [f'profile = "{profile}"', f'lead = "{LEAD}"', 'root = "atm-phase-bo"', 'repo = "owner/repo"', "[templates]"]
-    for name in ("refuse", "dev-close", "qa-pass", "qa-findings", "land-close"):
-        (primary / "t" / f"{name}.j2").write_text(name, encoding="utf-8")
-        lines.append(f'{name} = "t/{name}.j2"')
+    lines = [f'profile = "{profile}"', f'profile_path = "{root / "skill" / "profile.toml"}"',
+             f'lead = "{LEAD}"', 'root = "atm-phase-bo"', 'repo = "owner/repo"']
     (primary / ".atm-bd" / "phase-bo.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return primary
 

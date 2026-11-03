@@ -2,12 +2,11 @@
 from pathlib import Path
 
 import pytest
-
 from atm_bd_core.profile import load_cron, load_policy, load_profile
 from atm_bd_core.tick import tick
 from atm_bd_types import ErrorId, Hook, Params, PhaseFacts, Refusal, Template
-from atm_bd_types._native import _phase_file
 from atm_bd_types._core import Policy
+from atm_bd_types._native import _phase_file
 
 from .helpers import Collector, Runner, make_primary, make_profile, ports, refusal_id
 

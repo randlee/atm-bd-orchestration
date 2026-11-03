@@ -66,9 +66,9 @@ def test_registers_each_declared_hook_and_cron_with_runtime_launchers(tmp_path, 
                         "task transitions. Never write your own task bead. Run no cache commands; hooks refresh their reads.")
     config = tomllib.loads((phase_dir / "phase-sample.toml").read_text(encoding="utf-8"))
     assert config["repo"] == "owner/repo"
-    for value in [config["profile_path"], *config["templates"].values()]:
-        path = Path(value)
-        assert path.is_absolute() and path.is_file() and path == path.resolve()
+    path = Path(config["profile_path"])
+    assert path.is_absolute() and path.is_file() and path == path.resolve()
+    assert "templates" not in config
     registrations = [args for args in calls if args[:3] == ["atm", "hook", "register"]]
     sync_index = next(i for i, args in enumerate(calls) if args[1:3] == ["-m", "atm_bd_core.install.sync"])
     assert sync_index < calls.index(registrations[0])
@@ -196,17 +196,16 @@ def test_startup_uses_arbitrary_declared_policy_parameters(tmp_path):
         "worker": {"all": ["instructions"]}}
 
 
-def test_phase_paths_preserve_indented_nested_and_unrelated_tables(tmp_path):
+def test_phase_paths_remove_template_tables_and_preserve_unrelated_tables(tmp_path):
     phase_dir = tmp_path / ".atm-bd"
     phase_dir.mkdir()
     path = phase_dir / "phase-sample.toml"
     path.write_text('[templates]\nold = "obsolete"\n  [templates.sub]\nkeep = "yes"\n'
                     '[unrelated]\nvalue = 7\n', encoding="utf-8")
-    loaded = load_profile(PROFILE)
-    installer.set_phase_paths(tmp_path, "sample", loaded, PROFILE)
+    installer.set_phase_paths(tmp_path, "sample", PROFILE)
     result = tomllib.loads(path.read_text(encoding="utf-8"))
-    assert result["templates"]["sub"] == {"keep": "yes"}
-    assert "old" not in result["templates"]
+    assert "templates" not in result
+    assert result["profile_path"] == str(PROFILE.resolve())
     assert result["unrelated"] == {"value": 7}
 
 
@@ -236,13 +235,13 @@ def test_startup_preserves_indented_nested_table(tmp_path):
         "all": ["new"], "extra": {"keep": True}}
 
 
-def test_empty_final_templates_header_is_replaced(tmp_path):
+def test_empty_final_templates_header_is_removed(tmp_path):
     phase_dir = tmp_path / ".atm-bd"
     phase_dir.mkdir()
     path = phase_dir / "phase-sample.toml"
     path.write_text("[templates]", encoding="utf-8")
-    installer.set_phase_paths(tmp_path, "sample", load_profile(PROFILE), PROFILE)
-    assert tomllib.loads(path.read_text(encoding="utf-8"))["templates"]
+    installer.set_phase_paths(tmp_path, "sample", PROFILE)
+    assert "templates" not in tomllib.loads(path.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("name, source, expected", [
