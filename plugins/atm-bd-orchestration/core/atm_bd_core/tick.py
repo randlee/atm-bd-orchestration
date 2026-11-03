@@ -71,7 +71,7 @@ def tick(profile_path: Path, phase: str, primary: Path, *, ports: Ports | None =
     reported = None if facts.reported_keys is None else list(facts.reported_keys)
     decision = dedupe(decided, reported, ledger)
     executor = Executor(resolved.runner, state_dir, loaded.root, phase_file.lead, policy.notify_template)
-    outcomes = executor.run(decision, decided, reported, ledger, dry_run)
+    outcomes = executor.run(decision, decided, reported, ledger, dry_run, facts_complete=not facts.errors)
     root_id = phase_file.key("root") or ""
     return TickResult(facts, decision, view(facts, decision, outcomes, root_id), outcomes)
 

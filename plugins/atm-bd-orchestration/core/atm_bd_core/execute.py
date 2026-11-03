@@ -130,14 +130,14 @@ class Executor:
         raise TypeError(f"not an Assign, Report or Notify: {action!r}")
 
     def run(self, decision: Decision, decided: list[Action], reported_keys: list[str] | None,
-            ledger: Ledger, dry_run: bool) -> list[ActionOutcome]:
-        """Execute `decision.actions`; then keep only keys `decided` still names in the ledger and save it."""
+            ledger: Ledger, dry_run: bool, facts_complete: bool) -> list[ActionOutcome]:
+        """Execute actions and prune stale ledger keys only when the collected facts were complete."""
         outcomes = []
         for action in decision.actions:
             outcomes.append(self._one(action, reported_keys, ledger, dry_run))
             if not dry_run:
                 ledger.save(self.state_dir)
-        if not dry_run:
+        if not dry_run and facts_complete:
             live = {action_key(a) for a in decided}
             ledger.sent &= live
             ledger.failures = {k: f for k, f in ledger.failures.items() if k in live}

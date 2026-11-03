@@ -7,7 +7,7 @@ import pytest
 
 from atm_bd_core.execute import RETRY_LIMIT
 from atm_bd_core.tick import tick
-from atm_bd_types import Assign, ErrorId, Refusal
+from atm_bd_types import Assign, CollectError, ErrorId, FactKind, PhaseFacts, Refusal
 from atm_bd_types._core import OutcomeKind, TickResult
 
 from .helpers import LEAD, QA, Collector, Runner, make_primary, make_profile, ports, qa_bead
@@ -78,6 +78,28 @@ def test_a_key_decide_stops_returning_is_forgotten_and_assigned_again_when_re_re
     collector.ready = [qa_bead()]  # released again (reopened)
     run(tmp_path, runner, collector)
     assert len(runner.calls) == 2
+
+
+def test_degraded_ready_facts_preserve_sent_keys_and_failure_counts(tmp_path):
+    make_profile(tmp_path)
+    make_primary(tmp_path)
+    runner = Runner(deque([(0, ""), (1, "BEAD_NOT_READY")]))
+    collector = Collector([qa_bead("tst-1.qa"), qa_bead("tst-2.qa")])
+    run(tmp_path, runner, collector)
+    before = state(tmp_path)
+    assert before["sent"] == ["assign:tst-1.qa"]
+    assert before["failures"]["assign:tst-2.qa"]["attempts"] == 1
+
+    def degraded(phase, phase_file, ports, now, state_dir):
+        error = CollectError(FactKind.READY, [], "read failed", "retry")
+        return PhaseFacts(phase, now, phase_file, reported_keys=[], ready=None, errors=[error])
+
+    result = tick(tmp_path / "skill/profile.toml", "bo", tmp_path / "primary", ports=ports(runner), now=NOW,
+                  collector=degraded)
+    assert isinstance(result, TickResult)
+    assert state(tmp_path) == before
+    run(tmp_path, runner, collector)
+    assert [call[0][5] for call in runner.calls] == ["tst-1.qa", "tst-2.qa", "tst-2.qa"]
 
 
 def test_failed_assign_is_retried_next_tick_then_reported_with_its_error_id(tmp_path):
