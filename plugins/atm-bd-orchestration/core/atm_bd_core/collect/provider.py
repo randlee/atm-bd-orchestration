@@ -3,6 +3,7 @@
 import json
 import tomllib
 from pathlib import Path
+from subprocess import SubprocessError
 from urllib.parse import urlsplit
 
 from atm_bd_types import CheckState, CollectError, FactKind, PrBase, TopChecks
@@ -16,7 +17,7 @@ def _table():
 def resolve_provider(runner, configured):
     try:
         table = _table()
-    except (OSError, ValueError) as error:
+    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, f"Cannot load provider command table: {error}"
     if configured:
         if configured in table:
@@ -33,7 +34,7 @@ def resolve_provider(runner, configured):
             if host and any(host == item or host.endswith("." + item) for item in provider["hosts"]):
                 return provider, None
         raise ValueError(f"unrecognized remote {remote!r}")
-    except (OSError, ValueError) as error:
+    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, f"{error}; set provider in the phase file."
 
 
@@ -70,7 +71,7 @@ def top_checks(runner, provider, layer):
         else:
             raise ValueError(f"unknown check states: {states}")
         return TopChecks(layer.head, state), None
-    except (OSError, ValueError, TypeError) as error:
+    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, CollectError(FactKind.TOP_CHECKS, argv, str(error), "Check provider access and retry.")
 
 
@@ -83,6 +84,6 @@ def pr_bases(runner, provider, layers):
             if not base:
                 raise ValueError("empty pull request base")
             bases.append(PrBase(layer.pr, base))
-        except (OSError, ValueError) as error:
+        except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
             return None, CollectError(FactKind.PR_BASES, argv, str(error), "Check provider access and retry.")
     return bases, None

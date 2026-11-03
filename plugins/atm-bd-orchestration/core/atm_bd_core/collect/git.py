@@ -1,5 +1,7 @@
 """Read remote branch and ancestry facts through the command port."""
 
+from subprocess import SubprocessError
+
 from atm_bd_types import Ancestry, CollectError, FactKind, RemoteBranch
 
 
@@ -16,7 +18,7 @@ def remote_branches(runner):
                 raise ValueError(f"invalid remote branch: {line}")
             branches.append(RemoteBranch(ref.removeprefix("refs/heads/"), head))
         return branches, None
-    except (OSError, ValueError) as error:
+    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, CollectError(FactKind.REMOTE_BRANCHES, argv, str(error), "Check remote access and retry the command.")
 
 
@@ -29,6 +31,6 @@ def ancestry(runner, pairs):
             if result.code not in (0, 1):
                 raise ValueError(result.stderr or f"exit {result.code}")
             facts.append(Ancestry(below, above, result.code == 0))
-        except (OSError, ValueError) as error:
+        except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
             return None, CollectError(FactKind.ANCESTRY, argv, str(error), "Fetch the relevant refs and retry the command.")
     return facts, None

@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime
+from subprocess import SubprocessError
 
 from atm_bd_types import CollectError, FactKind, TaskEvents, TaskFact, TaskState
 
@@ -21,7 +22,7 @@ def tasks(runner):
             raise TypeError("expected task list")
         states = {"assigned": TaskState.ASSIGNED, "active": TaskState.ACTIVE, "complete": TaskState.COMPLETE}
         return [TaskFact(item["task_id"], item["assignee"], states[item["state"]], item.get("bead_id")) for item in raw], None
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, CollectError(FactKind.TASKS, argv, str(error), "Check ATM connectivity and task output.")
 
 
@@ -45,6 +46,6 @@ def task_events(runner, task_ids):
                 elif event["event"] == "reminded" and last_start is not None:
                     reminders += 1
             facts.append(TaskEvents(task_id, reminders, last_start))
-        except (OSError, ValueError, KeyError, TypeError) as error:
+        except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
             return None, CollectError(FactKind.TASK_EVENTS, argv, str(error), "Check ATM task event output.")
     return facts, None

@@ -3,7 +3,9 @@
 import importlib.util
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
+from atm_bd_core.collect import collect
 from atm_bd_core.collect.beads import beads, stack
 from atm_bd_core.store import CacheStore
 from atm_bd_core.store._cache_binding import cache_module as bd_cache_rs
@@ -35,5 +37,31 @@ def test_stack_from_embedded_cache(tmp_path, monkeypatch):
         assert fact is not None and error is None
         assert fact.stack.layers[0].head == head
         assert fact.trunk == "main"
+
+        class Runner:
+            def run(self, argv, stdin):
+                if argv[:3] == ["atm", "task", "list"]:
+                    output = "[]"
+                elif argv[:2] == ["git", "ls-remote"]:
+                    output = f"{head}\trefs/heads/work\n"
+                elif argv[:3] == ["git", "remote", "get-url"]:
+                    output = "https://github.com/example/repo.git"
+                elif argv[:2] == ["git", "merge-base"]:
+                    output = ""
+                elif "headRefOid" in argv:
+                    output = head
+                elif "baseRefName" in argv:
+                    output = "main"
+                elif "statusCheckRollup" in argv:
+                    output = '["SUCCESS"]'
+                else:
+                    raise AssertionError(f"unexpected command {argv!r}")
+                return SimpleNamespace(code=0, stdout=output, stderr="")
+
+        facts = collect("bo", phase_file, SimpleNamespace(runner=Runner(), cache=store), 123, tmp_path)
+        assert facts.errors == []
+        assert facts.stack is not None and facts.stack.stack.layers[0].head == head
+        assert facts.top_checks is not None and facts.top_checks.head == head
+        assert facts.pr_bases is not None and facts.pr_bases[0].base == "main"
     finally:
         cache.close()

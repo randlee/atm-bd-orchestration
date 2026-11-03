@@ -1,5 +1,7 @@
 """Collect read-only bead and stack facts through the cache port."""
 
+from subprocess import SubprocessError
+
 from atm_bd_types import CollectError, FactKind, Refusal, StackFact, Stage
 
 
@@ -11,7 +13,7 @@ def _cache_read(cache, method, phase, kind):
         if not isinstance(value, list):
             raise TypeError("cache did not return a list")
         return value, None
-    except (OSError, ValueError, TypeError) as error:
+    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, CollectError(kind, [], str(error), "Check the beads cache and phase configuration.")
 
 
@@ -34,5 +36,5 @@ def stack(bead_list, phase_file, stack_of):
         if ledger is None or not trunk:
             raise ValueError("stack ledger or integration branch missing")
         return StackFact(bead, ledger, trunk, None), None
-    except (OSError, ValueError, TypeError) as error:
+    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, CollectError(FactKind.STACK, [], str(error), "Check the stack bead and integration branch.")

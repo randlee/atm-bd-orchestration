@@ -33,3 +33,14 @@ def test_ancestry_distinguishes_false_from_failure():
     facts, error = ancestry(Runner(128, stderr="bad ref"), [("a", "b")])
     assert error is not None
     assert facts is None and error.kind == FactKind.ANCESTRY
+
+
+def test_runner_exception_becomes_failed_fact():
+    class FailedRunner:
+        def run(self, argv, stdin):
+            raise RuntimeError("runner unavailable")
+
+    value, error = remote_branches(FailedRunner())
+    assert value is None and error is not None
+    assert error.kind == FactKind.REMOTE_BRANCHES
+    assert "runner unavailable" in error.message
