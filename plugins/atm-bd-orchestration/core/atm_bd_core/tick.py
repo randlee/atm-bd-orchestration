@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from atm_bd_types import Action, Assign, Bead, Notify, PhaseFacts, PhaseFile, Refusal, Status
+from atm_bd_types import Action, Assign, Bead, ErrorId, Notify, PhaseFacts, PhaseFile, Refusal, Status
 from atm_bd_types._core import (ActionKind, ActionOutcome, CommandResult, Decision, PhaseView, Ports, TickResult,
                                 ViewAction, ViewSprint, ViewStep, ViewTask)
 
@@ -67,7 +67,12 @@ def tick(profile_path: Path, phase: str, primary: Path, *, ports: Ports | None =
         return resolved
 
     facts = collector(phase, phase_file, resolved, int(time.time()) if now is None else now, state_dir)
-    decided: list[Action] = [] if cron is None else list(cron.decide(facts, policy.params))
+    decided: list[Action] = []
+    if cron is not None:
+        try:
+            decided = cron.decide(facts, policy.params)
+        except Exception as exc:  # plug-in code and its result validation can fail arbitrarily
+            return Refusal(ErrorId.PROFILE_MISMATCH, script=str(cron.script), error=f"{type(exc).__name__}: {exc}")
     reported = None if facts.reported_keys is None else list(facts.reported_keys)
     decision = dedupe(decided, reported, ledger)
     executor = Executor(resolved.runner, state_dir, loaded.root, phase_file.lead, policy.notify_template)

@@ -220,3 +220,22 @@ def test_corrupt_executed_state_refuses_before_any_read(tmp_path):
     result = tick(tmp_path / "skill/profile.toml", "bo", tmp_path / "primary", ports=ports(Runner()), now=NOW,
                   collector=collector)
     assert isinstance(result, Refusal) and result.id == ErrorId.PHASE_UNREADABLE and collector.calls == 0
+
+
+@pytest.mark.parametrize(("body", "error"), [
+    ('raise ValueError("bad decision")', "ValueError: bad decision"),
+    ('return "not actions"', "TypeError:"),
+    ('return [42]', "TypeError:"),
+])
+def test_decide_failure_refuses_before_executing_or_writing_state(tmp_path, body, error):
+    make_profile(tmp_path)
+    make_primary(tmp_path)
+    script = tmp_path / "skill/scripts/atm-bd-cron.py"
+    script.write_text(f"def decide(facts, params):\n    {body}\n", encoding="utf-8")
+    runner = Runner()
+    result = tick(tmp_path / "skill/profile.toml", "bo", tmp_path / "primary", ports=ports(runner), now=NOW,
+                  collector=Collector([qa_bead()]))
+    assert isinstance(result, Refusal) and result.id == ErrorId.PROFILE_MISMATCH
+    assert str(script) in repr(result) and error in repr(result)
+    assert runner.calls == []
+    assert not (tmp_path / "primary/.atm-bd/state").exists()
