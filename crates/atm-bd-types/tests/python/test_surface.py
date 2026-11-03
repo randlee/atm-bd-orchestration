@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.metadata
-import json
 
 import pytest
 from atm_bd_types import (
@@ -36,7 +35,6 @@ from atm_bd_types import (
     Status,
     Template,
 )
-from atm_bd_types._core import ActionOutcome, Decision, OutcomeKind, ViewRow, encode_evidence
 from atm_bd_types._native import _bead, _layer, _phase_file
 from conftest import SHA, pass_report, request_json
 
@@ -96,9 +94,6 @@ def test_verdicts() -> None:
     assert [(f.id, f.blocking) for f in fail.findings] == [("f1", True)]
     closed = BeadPatch.close(_bead("b", S.OPEN, Stage.QA), fail)
     assert closed.evidence == fail
-    assert encode_evidence(fail) == json.dumps({"kind": "qa_fail", "sha": SHA,
-                                              "findings": [{"id": "f1", "blocking": True}]},
-                                             sort_keys=True, separators=(",", ":"))
     wrong = req.qa_pass()
     assert isinstance(wrong, Refusal) and wrong.id == ErrorId.QA_VERDICT
 
@@ -153,7 +148,6 @@ def test_patch_exposes_typed_snapshot_operation_and_evidence() -> None:
     assert isinstance(verdict, QaPass)
     closed = BeadPatch.close(bead, verdict)
     assert closed.kind == PatchKind.CLOSE and closed.evidence == verdict and closed.agent is None
-    assert encode_evidence(verdict) == f'{{"kind":"qa_pass","sha":"{SHA}"}}'
 
 def test_bead_blocks_accepts_an_unset_id() -> None:
     bead = _bead("b", S.OPEN, Stage.DEV, blocks_ids=["blocked"])
@@ -233,25 +227,6 @@ def test_records_construct_positionally_and_by_name() -> None:
     assert FactKind.TOP_CHECKS.name == "TOP_CHECKS"
 
 
-def test_actions_round_trip_through_the_rust_action() -> None:
-    actions = [Assign("k", "qa", "q", "t.j2", AssignVars("q", "bo", "lite")), Report("r", "config", None, "x"),
-               Notify("lead", ["r"])]
-    decision = Decision(actions, [ViewRow("config", "r", None, "x", None)])
-    assert decision.actions == actions
-    failed = ActionOutcome(actions[2], OutcomeKind.FAILED, Refusal(ErrorId.BEAD_RACED, bead="q"))
-    assert failed.failure is not None and failed.failure.id == ErrorId.BEAD_RACED and failed.action == actions[2]
-
-
 def test_wheel_is_abi3() -> None:
     wheel = importlib.metadata.distribution("atm-bd-types").read_text("WHEEL") or ""
     assert "-abi3-" in wheel, wheel
-
-
-def test_framework_stack_of_reads_ledger() -> None:
-    from atm_bd_types._core import stack_of
-    from atm_bd_types._native import _bead, _layer, _stack
-
-    layer = _layer("branch", "0123456789abcdef0123456789abcdef01234567", 2, "base")
-    bead = _bead("bo.stack", Status.OPEN, Stage.STACK, stack=_stack([layer]))
-    assert stack_of(bead).layers[0].branch == "branch"
-    assert stack_of(_bead("bo-1", Status.OPEN, Stage.DEV)) is None

@@ -64,7 +64,7 @@ def test_missing_stack_accessor_fails_module_load(monkeypatch):
 
     real_import = builtins.__import__
     def missing_accessor(name, *args, **kwargs):
-        if name == "atm_bd_types._core":
+        if name == "atm_bd_core":
             raise ImportError("missing stack accessor")
         return real_import(name, *args, **kwargs)
     monkeypatch.setattr(builtins, "__import__", missing_accessor)

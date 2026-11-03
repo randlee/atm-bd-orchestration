@@ -8,7 +8,7 @@ from pathlib import Path
 from ._cache_binding import cache_module as bd_cache_rs
 
 from atm_bd_types import ErrorId, PatchKind, Refusal, Stage, Status
-from atm_bd_types._core import encode_evidence, stack_of
+from atm_bd_core import encode_evidence, stack_of
 from atm_bd_types._native import _bead, _layer, _stack
 
 

@@ -12,7 +12,7 @@ from atm_bd_core.profile import TEMPLATES
 from atm_bd_core.store import CacheStore, PhaseFilesCli
 from atm_bd_core.store._cache_binding import cache_module as bd_cache_rs
 from atm_bd_types import BeadPatch, ErrorId, HookRequest, Refusal, Status
-from atm_bd_types._core import stack_of
+from atm_bd_core import stack_of
 
 from . import beads_db as beads_db_helpers
 from .beads_db import bd, create_bead, init_db, require_test_bd_binary

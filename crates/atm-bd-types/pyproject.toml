@@ -18,7 +18,7 @@ requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
 [tool.maturin]
-# One abi3 extension (pyo3 feature abi3-py311) behind both surfaces: atm_bd_types and atm_bd_types._core.
+# One abi3 extension (pyo3 feature abi3-py311) behind both surfaces: atm_bd_types and atm_bd_core.
 manifest-path = "Cargo.toml"
 features = ["python"]
 module-name = "atm_bd_types._native"

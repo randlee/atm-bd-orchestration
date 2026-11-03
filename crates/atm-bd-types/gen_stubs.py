@@ -6,8 +6,8 @@
 
 The text comes from `atm_bd_types._native._stub(module)`: enum and record stubs are rendered from the Rust
 declarations, method signatures from the text each binding carries. Before anything is written, every name a stub
-declares is checked against the runtime module (classes, enum members, methods, properties, record fields) and every
-name the module exports against the stub, so a stub can never describe a binding that does not exist.
+declares for the types package is checked against its runtime module. The core package tests its own
+runtime surface against the core stub without introducing a core dependency into the types package.
 """
 
 from __future__ import annotations
@@ -20,8 +20,9 @@ from types import ModuleType
 
 HERE = Path(__file__).resolve().parent
 STUBS = HERE / "stubs"
-# stub name -> the runtime module whose names it declares
-MODULES = {"atm_bd_types": "atm_bd_types", "atm_bd_core": "atm_bd_types._core"}
+# Both stubs come from Rust; only the types runtime is installed in this package.
+SURFACES = ("atm_bd_types", "atm_bd_core")
+MODULES = {"atm_bd_types": "atm_bd_types"}
 
 
 def stub_text(name: str) -> str:
@@ -76,7 +77,7 @@ def surface_mismatches(text: str, module: ModuleType) -> list[str]:
 
 def generate() -> dict[str, str]:
     """Stub name -> text; raises SystemExit naming every stub/binding mismatch."""
-    stubs = {name: stub_text(name) for name in MODULES}
+    stubs = {name: stub_text(name) for name in SURFACES}
     problems = [f"{name}.pyi: {p}" for name, mod in MODULES.items()
                 for p in surface_mismatches(stubs[name], importlib.import_module(mod))]
     if problems:

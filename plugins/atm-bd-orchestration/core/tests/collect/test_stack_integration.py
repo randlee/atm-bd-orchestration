@@ -9,7 +9,7 @@ from atm_bd_core.collect import collect
 from atm_bd_core.collect.beads import beads, stack
 from atm_bd_core.store import CacheStore
 from atm_bd_core.store._cache_binding import cache_module as bd_cache_rs
-from atm_bd_types._core import stack_of
+from atm_bd_core import stack_of
 from atm_bd_types._native import _phase_file
 
 

@@ -19,7 +19,7 @@ from atm_bd_types import (
     Stage,
     Status,
 )
-from atm_bd_types._core import CommandResult, Ports
+from atm_bd_core import CommandResult, Ports
 from atm_bd_types._native import _bead, _layer, _stack
 
 SHIPPED = Path(__file__).resolve().parents[3] / "skills" / "atm-bd-lite"

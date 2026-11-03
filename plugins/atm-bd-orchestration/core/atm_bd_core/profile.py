@@ -15,7 +15,7 @@ from collections.abc import Callable
 from types import ModuleType
 
 from atm_bd_types import Action, Assign, ErrorId, Hook, Notify, Params, PhaseFacts, Profile, Refusal, Report, Template
-from atm_bd_types._core import Policy
+from atm_bd_core import Policy
 
 HOOKS = {"task.assign": Hook.TASK_ASSIGN, "task.start": Hook.TASK_START, "task.close": Hook.TASK_CLOSE}
 TEMPLATES = {"refuse": Template.REFUSE, "dev-close": Template.DEV_CLOSE, "qa-pass": Template.QA_PASS,

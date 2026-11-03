@@ -31,7 +31,7 @@ def framework_matches_contract(contract: str, generated: str) -> bool:
     return not additions and [ast.dump(node) for node in filtered] == [ast.dump(node) for node in expected]
 
 
-@pytest.mark.parametrize("name", sorted(gen_stubs.MODULES))
+@pytest.mark.parametrize("name", sorted(gen_stubs.SURFACES))
 def test_checked_in_stub_is_generated_from_the_rust(name: str) -> None:
     assert (gen_stubs.STUBS / f"{name}.pyi").read_text(encoding="utf-8") == gen_stubs.stub_text(name), (
         "stale; run: uv run --frozen --no-editable python gen_stubs.py")

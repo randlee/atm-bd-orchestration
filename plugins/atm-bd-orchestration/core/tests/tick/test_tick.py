@@ -8,7 +8,7 @@ import pytest
 from atm_bd_core.execute import RETRY_LIMIT
 from atm_bd_core.tick import tick
 from atm_bd_types import Assign, CollectError, ErrorId, FactKind, PhaseFacts, Refusal, TaskFact, TaskState
-from atm_bd_types._core import OutcomeKind, Ports, TickResult
+from atm_bd_core import OutcomeKind, Ports, TickResult
 
 from .helpers import STARTUP_PARAMS, LEAD, QA, Collector, Runner, make_primary, make_profile, ports, qa_bead
 

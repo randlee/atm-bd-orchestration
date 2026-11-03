@@ -7,8 +7,8 @@ from typing import cast
 
 import atm_bd_core.tick as tick_module
 import pytest
+from atm_bd_core import Ports
 from atm_bd_types import ErrorId, HookReply, PhaseFacts, Refusal, Stage, Status, TaskEvents, TaskFact, TaskState
-from atm_bd_types._core import Ports
 from atm_bd_types._native import _bead
 
 from atm_bd_console import cli, monitor
@@ -235,7 +235,7 @@ def test_cli_routes_profile_queues_once(tmp_path, monkeypatch, capsys):
 
 def test_cron_dry_run_never_sends_and_live_tick_sends_only_decided_action(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ATM_TEAM", "test-team")
-    from atm_bd_types._core import CommandResult
+    from atm_bd_core import CommandResult
 
     _lite(tmp_path)
     manifest = tmp_path / "skill" / "profile.toml"

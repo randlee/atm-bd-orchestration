@@ -20,7 +20,7 @@ from pathlib import Path
 from subprocess import SubprocessError
 
 from atm_bd_types import Action, Assign, ErrorId, Notify, Refusal, Report
-from atm_bd_types._core import ActionOutcome, CommandRunner, Decision, OutcomeKind, ViewRow
+from atm_bd_core import ActionOutcome, CommandRunner, Decision, OutcomeKind, ViewRow
 
 from . import reported
 
