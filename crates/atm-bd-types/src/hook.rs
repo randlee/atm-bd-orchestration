@@ -326,8 +326,8 @@ pub struct Bead {
 }
 
 impl Bead {
-    pub fn blocks(&self, bead_id: &BeadId) -> bool {
-        self.blocks_ids.iter().any(|b| b == bead_id)
+    pub fn blocks(&self, bead_id: Option<&BeadId>) -> bool {
+        bead_id.is_some_and(|bead_id| self.blocks_ids.iter().any(|b| b == bead_id))
     }
     pub fn layer_for(&self, branch: &BranchName) -> Option<&Layer> {
         self.stack
@@ -519,7 +519,7 @@ impl BeadPatch {
 /// Reads and the one guarded write a hook makes. The beads-cache adapter implements it.
 /// Intentionally open: a plug-in may replace this hook port.
 pub trait BeadStore {
-    fn refresh(&self, bead_ids: &[BeadId]) -> Result<(), Refusal>;
+    fn refresh(&self, bead_ids: &[Option<BeadId>]) -> Result<(), Refusal>;
     fn show(&self, bead_id: Option<&BeadId>) -> Result<Bead, Refusal>;
     /// The ledger layer of the QA bead's closed dev/fix blocker, or of its `checked_bead`.
     fn target_layer(&self, qa_bead: &Bead) -> Result<Layer, Refusal>;

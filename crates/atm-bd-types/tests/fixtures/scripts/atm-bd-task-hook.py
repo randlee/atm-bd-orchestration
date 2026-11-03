@@ -60,8 +60,6 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
                 return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=""))
             if verdict.sha != target.head:
                 return HookReply.refused(Refusal(ErrorId.QA_NOT_ON_STACK, sha=verdict.sha, branch=target.branch, head=target.head))
-            if bead.sprint is None or bead.phase is None:
-                return HookReply.refused(Refusal(ErrorId.REQUEST_INVALID, field="bead scope"))
             ids = [finding.id for finding in verdict.findings] + [bead.sprint]
             if any(not finding.blocking for finding in verdict.findings):
                 ids.append(bead.phase)
@@ -71,7 +69,7 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
                 if isinstance(poured := beads.show(finding.id), Refusal):
                     return HookReply.refused(poured)
                 if not poured.blocks(bead.sprint if finding.blocking else bead.phase):
-                    return HookReply.refused(Refusal(ErrorId.FINDINGS_NOT_POURED, ids=[finding.id], sprint=bead.sprint))
+                    return HookReply.refused(Refusal(ErrorId.FINDINGS_NOT_POURED, ids=[finding.id], sprint=bead.sprint or ""))
             patch, action = BeadPatch.close(bead, verdict), HookAction.close(phase.template(Template.QA_FINDINGS), verdict)
         case Transition.LAND:  # T-CLOSE-05
             if isinstance(merged := req.merged(), Refusal):

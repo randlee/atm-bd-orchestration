@@ -155,6 +155,12 @@ def test_patch_exposes_typed_snapshot_operation_and_evidence() -> None:
     assert closed.kind == PatchKind.CLOSE and closed.evidence == verdict and closed.agent is None
     assert encode_evidence(verdict) == f'{{"kind":"qa_pass","sha":"{SHA}"}}'
 
+def test_bead_blocks_accepts_an_unset_id() -> None:
+    bead = _bead("b", S.OPEN, Stage.DEV, blocks_ids=["blocked"])
+    assert bead.blocks("blocked") is True
+    assert bead.blocks(None) is False
+
+
 def test_bead_unset_scope_is_none_and_ids_are_nonempty() -> None:
     bead = _bead("b", S.OPEN, Stage.DEV)
     assert (bead.branch, bead.stack_bead, bead.sprint, bead.phase, bead.checked_bead) == (

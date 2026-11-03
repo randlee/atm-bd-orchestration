@@ -129,8 +129,10 @@ class FakeStore:
         self.writes: list[tuple[str, str, object, str]] = []
         self.refreshes: list[list[str]] = []
 
-    def refresh(self, bead_ids: list[str]) -> T.Refusal | None:
+    def refresh(self, bead_ids: list[str | None]) -> T.Refusal | None:
         self.refreshes.append(bead_ids)
+        if any(bead_id is None for bead_id in bead_ids):
+            return T.Refusal(T.ErrorId.REQUEST_INVALID, field="bead scope")
         return None
 
     def show(self, bead_id: str | None) -> T.Bead | T.Refusal:

@@ -191,6 +191,13 @@ def test_cache_store_indexes_blocks_once_and_honors_requested_phase():
     assert cache.get_calls == ["phase-b-other"]
 
 
+def test_refresh_with_unset_scope_id_returns_request_refusal(setup):
+    _root, store = setup
+    refusal = store.refresh([None])
+    assert isinstance(refusal, Refusal)
+    assert refusal.id == ErrorId.REQUEST_INVALID
+
+
 def test_show_without_stack_id_returns_stack_refusal(setup):
     _root, store = setup
     refusal = store.show(None)

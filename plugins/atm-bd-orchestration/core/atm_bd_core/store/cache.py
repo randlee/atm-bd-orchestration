@@ -80,9 +80,11 @@ class CacheStore:
                      sprint=metadata.get("sprint_bead") or None, phase=metadata.get("phase_bead") or None,
                      checked_bead=metadata.get("checked_bead"), stack=stack)
 
-    def refresh(self, bead_ids: list[str]):
+    def refresh(self, bead_ids: list[str | None]):
+        if any(bead_id is None for bead_id in bead_ids):
+            return Refusal(ErrorId.REQUEST_INVALID, phase=self.phase, field="bead scope")
         try:
-            self.cache.refresh(bead_ids, 20)
+            self.cache.refresh([bead_id for bead_id in bead_ids if bead_id is not None], 20)
             return None
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
             return _refusal(exc, self.phase)

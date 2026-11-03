@@ -40,7 +40,7 @@ class CacheStore:
         result = core.CacheStore.for_phase(phase)
         return result if isinstance(result, Refusal) else CacheStore(result)
 
-    def refresh(self, bead_ids: list[str]) -> Any:
+    def refresh(self, bead_ids: list[str | None]) -> Any:
         return self._store.refresh(bead_ids)
 
     def show(self, bead_id: str | None) -> Any:
