@@ -356,7 +356,8 @@ def test_qa_without_checked_bead_does_not_use_a_closed_blocker(setup):
     req = request("task.close", "qa", op={"op": "close", "outcome": "completed"},
                   report=report, task_id="tst-qa")
     reply = load_hook("close")(req, store, PhaseFilesCli())
-    assert "STACK_NOT_RECORDED" in reply.to_json(Hook.TASK_CLOSE)
+    message = json.loads(reply.to_json(Hook.TASK_CLOSE))["message"]
+    assert "QA_NOTHING_TO_REVIEW" in message and "tst-qa" in message and "checked_bead" in message
     assert store.cache.seq == 0
 
 

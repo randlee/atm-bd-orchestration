@@ -27,7 +27,7 @@ flowchart TD
     V1 -- no --> R6[refused QA_VERDICT / QA_NOT_ON_STACK / QA_NOTHING_TO_REVIEW]
     V1 -- yes --> W3[if in_progress write close with sha] --> H3[handled: close --template qa-pass --vars sha]
     T -- QA_FINDINGS --> V2{verdict valid, sha matches, findings refreshed,<br/>every blocking finding poured and blocking the sprint bead,<br/>every non-blocking one blocking the phase bead?}
-    V2 -- no --> R7[refused QA_VERDICT / QA_NOT_ON_STACK / FINDINGS_NOT_POURED / CACHE_UNAVAILABLE]
+    V2 -- no --> R7[refused QA_VERDICT / QA_NOTHING_TO_REVIEW / QA_NOT_ON_STACK / FINDINGS_NOT_POURED / CACHE_UNAVAILABLE]
     V2 -- yes --> W4[if in_progress write close with sha + finding ids] --> H4[handled: close --template qa-findings --vars sha, ids]
     T -- LAND --> V3{valid merged SHA?}
     V3 -- no --> R8[refused LAND_EVIDENCE]
@@ -39,13 +39,13 @@ flowchart TD
 |---|---|---|---|---|---|---|
 | T-CLOSE-01 | GIVE_BACK | refused, cancelled | any | reason present | reopen: open, assignee '' (guarded) | `atm task close --template <refuse> --vars reason` |
 | T-CLOSE-02 | WORK_CLOSE | completed | dev, fix | report present; ledger has a layer for `work.branch` | close, evidence = layer (branch, head, pr, base) | `atm task close --template <dev-close> --vars layer` |
-| T-CLOSE-03 | QA_PASS | completed | qa, no findings | verdict sha == target layer head | close, evidence = sha | `atm task close --template <qa-pass> --vars sha` |
-| T-CLOSE-04 | QA_FINDINGS | completed | qa, findings | sha matches; each blocking finding's poured bead exists and blocks the sprint bead; each non-blocking one blocks the phase bead | close, evidence = sha + finding ids | `atm task close --template <qa-findings> --vars sha, ids` |
+| T-CLOSE-03 | QA_PASS | completed | qa, no findings | checked_bead present; verdict sha == target layer head | close, evidence = sha | `atm task close --template <qa-pass> --vars sha` |
+| T-CLOSE-04 | QA_FINDINGS | completed | qa, findings | checked_bead present; sha matches; each blocking finding's poured bead exists and blocks the sprint bead; each non-blocking one blocks the phase bead | close, evidence = sha + finding ids | `atm task close --template <qa-findings> --vars sha, ids` |
 | T-CLOSE-05 | LAND | completed | land | report contains one fenced JSON block with a 40-hex merged SHA | close, evidence = merge SHA | `atm task close --template <land-close> --vars sha` |
 
 For T-CLOSE-02 through T-CLOSE-05, an already closed bead skips the write and returns the same validated close action. T-CLOSE-01 refuses a closed bead.
 
-Target layer (T-CLOSE-03/04): the layer recorded for the bead named by the QA bead's `checked_bead`. Findings are matched to beads by the id the pour returned, listed in the QA report.
+Target layer (T-CLOSE-03/04): the layer recorded for the bead named by the QA bead's `checked_bead`. If it is missing, refuse QA_NOTHING_TO_REVIEW with the QA bead id and the missing field before looking up the checked bead. Findings are matched to beads by the id the pour returned, listed in the QA report.
 
 ## Facts
 | fact | lookup |
