@@ -133,7 +133,7 @@ class FakeStore:
         self.refreshes.append(bead_ids)
         return None
 
-    def show(self, bead_id: str) -> T.Bead | T.Refusal:
+    def show(self, bead_id: str | None) -> T.Bead | T.Refusal:
         return self.beads.get(bead_id) or T.Refusal(T.ErrorId.BEAD_NOT_FOUND, bead=bead_id)
 
     def target_layer(self, qa_bead: T.Bead) -> T.Layer | T.Refusal:

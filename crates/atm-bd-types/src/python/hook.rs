@@ -659,7 +659,7 @@ class CacheStore(BeadStore):
     @staticmethod
     def for_phase(phase: str) -> CacheStore | Refusal: ...
     def refresh(self, bead_ids: builtins.list[str]) -> Refusal | None: ...
-    def show(self, bead_id: str) -> Bead | Refusal: ...
+    def show(self, bead_id: str | None) -> Bead | Refusal: ...
     def target_layer(self, qa_bead: Bead) -> Layer | Refusal: ...
     def update(self, patch: BeadPatch, actor: str) -> Refusal | None: ...
     def list(self, phase: str) -> builtins.list[Bead] | Refusal: ...
@@ -700,6 +700,10 @@ pub(crate) fn _layer(
         pr,
         base: optional_non_empty(base, BranchName::new, "empty layer base")?,
     }))
+}
+
+fn non_empty_string(value: String) -> Option<String> {
+    (!value.is_empty()).then_some(value)
 }
 
 fn optional_non_empty<T>(
@@ -791,9 +795,13 @@ pub(crate) fn bead(
                     optional_non_empty(value.extract()?, BeadId::new, "empty stack bead id")?
             }
             "sprint" => {
-                bead.sprint = optional_non_empty(value.extract()?, Some, "empty sprint id")?
+                bead.sprint =
+                    optional_non_empty(value.extract()?, non_empty_string, "empty sprint id")?
             }
-            "phase" => bead.phase = optional_non_empty(value.extract()?, Some, "empty phase id")?,
+            "phase" => {
+                bead.phase =
+                    optional_non_empty(value.extract()?, non_empty_string, "empty phase id")?
+            }
             "checked_bead" => {
                 bead.checked_bead =
                     optional_non_empty(value.extract()?, BeadId::new, "empty checked bead id")?

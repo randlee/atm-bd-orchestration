@@ -164,6 +164,10 @@ def test_bead_unset_scope_is_none_and_ids_are_nonempty() -> None:
     assert layer.branch is None and layer.base is None
     with pytest.raises(TypeError, match="empty bead id"):
         _bead("", S.OPEN, Stage.DEV)
+    with pytest.raises(TypeError, match="empty sprint id"):
+        _bead("b", S.OPEN, Stage.DEV, sprint="")
+    with pytest.raises(TypeError, match="empty phase id"):
+        _bead("b", S.OPEN, Stage.DEV, phase="")
 
 
 def test_refused_message_uses_the_parsed_hooks_fix_table() -> None:

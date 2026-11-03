@@ -19,7 +19,7 @@ def test_lazy_store_delegates_to_framework(monkeypatch: pytest.MonkeyPatch) -> N
             assert phase == "bo"
             return Store()
 
-        def show(self, bead_id: str):
+        def show(self, bead_id: str | None):
             return bead_id
 
     class Phases:

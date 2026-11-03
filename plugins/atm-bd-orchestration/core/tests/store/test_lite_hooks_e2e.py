@@ -191,6 +191,13 @@ def test_cache_store_indexes_blocks_once_and_honors_requested_phase():
     assert cache.get_calls == ["phase-b-other"]
 
 
+def test_show_without_stack_id_returns_stack_refusal(setup):
+    _root, store = setup
+    refusal = store.show(None)
+    assert isinstance(refusal, Refusal)
+    assert refusal.id == ErrorId.STACK_NOT_RECORDED
+
+
 def test_real_embedded_bd_wires_cache_store(real_db_setup):
     root, store = real_db_setup
     bead = store.show("tst-1")

@@ -43,7 +43,7 @@ class CacheStore:
     def refresh(self, bead_ids: list[str]) -> Any:
         return self._store.refresh(bead_ids)
 
-    def show(self, bead_id: str) -> Any:
+    def show(self, bead_id: str | None) -> Any:
         return self._store.show(bead_id)
 
     def target_layer(self, qa_bead: Any) -> Any:

@@ -87,7 +87,9 @@ class CacheStore:
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
             return _refusal(exc, self.phase)
 
-    def show(self, bead_id: str):
+    def show(self, bead_id: str | None):
+        if bead_id is None:
+            return Refusal(ErrorId.STACK_NOT_RECORDED, phase=self.phase, branch="")
         try:
             view = self._view(bead_id)
             if "stage:stack" in (view["bead"].get("labels") or []):

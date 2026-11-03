@@ -36,12 +36,10 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
         case Transition.WORK_CLOSE:  # T-CLOSE-02
             if not req.close_report:
                 return HookReply.refused(Refusal(ErrorId.CLOSE_REPORT_NOT_INLINE, bead=bead.id))
-            if bead.stack_bead is None or bead.branch is None:
-                return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=bead.branch or ""))
             if isinstance(stack := beads.show(bead.stack_bead), Refusal):
                 return HookReply.refused(stack)
             if (layer := stack.layer_for(bead.branch)) is None:
-                return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=bead.branch))
+                return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=bead.branch or ""))
             patch, action = BeadPatch.close(bead, layer), HookAction.close(phase.template(Template.DEV_CLOSE), layer)
         case Transition.QA_PASS:  # T-CLOSE-03
             if isinstance(verdict := req.qa_pass(), Refusal):
