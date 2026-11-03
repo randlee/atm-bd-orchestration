@@ -19,7 +19,7 @@ LEAD, DEV, QA = "lead", "dev", "qa"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
-def layer(branch: str = "work", head: str = SHA, pr: int = 7, base: str = "main"):
+def layer(branch: str = "work", head: str = SHA, pr: int = 7, base: str | None = "main"):
     return _layer(branch, head, pr, base)
 
 
@@ -31,10 +31,10 @@ def bead(
     stage: T.Stage | str = T.Stage.DEV,
     open_blockers: list[str] | None = None,
     blocks_ids: list[str] | None = None,
-    branch: str = "",
-    stack_bead: str = "",
-    sprint: str = "",
-    phase: str = "",
+    branch: str | None = None,
+    stack_bead: str | None = None,
+    sprint: str | None = None,
+    phase: str | None = None,
     layers: dict[str, object] | None = None,
     checked_bead: str | None = None,
 ):

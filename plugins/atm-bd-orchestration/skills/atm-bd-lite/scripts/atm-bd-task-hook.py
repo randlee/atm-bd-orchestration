@@ -36,6 +36,8 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
         case Transition.WORK_CLOSE:  # T-CLOSE-02
             if not req.close_report:
                 return HookReply.refused(Refusal(ErrorId.CLOSE_REPORT_NOT_INLINE, bead=bead.id))
+            if bead.stack_bead is None or bead.branch is None:
+                return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=bead.branch or ""))
             if isinstance(stack := beads.show(bead.stack_bead), Refusal):
                 return HookReply.refused(stack)
             if (layer := stack.layer_for(bead.branch)) is None:
@@ -46,6 +48,8 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
                 return HookReply.refused(verdict)
             if isinstance(target := beads.target_layer(bead), Refusal):
                 return HookReply.refused(target)
+            if target.branch is None:
+                return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=""))
             if verdict.sha != target.head:
                 return HookReply.refused(Refusal(ErrorId.QA_NOT_ON_STACK, sha=verdict.sha, branch=target.branch, head=target.head))
             patch, action = BeadPatch.close(bead, verdict), HookAction.close(phase.template(Template.QA_PASS), verdict)
@@ -54,8 +58,12 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
                 return HookReply.refused(verdict)
             if isinstance(target := beads.target_layer(bead), Refusal):
                 return HookReply.refused(target)
+            if target.branch is None:
+                return HookReply.refused(Refusal(ErrorId.STACK_NOT_RECORDED, branch=""))
             if verdict.sha != target.head:
                 return HookReply.refused(Refusal(ErrorId.QA_NOT_ON_STACK, sha=verdict.sha, branch=target.branch, head=target.head))
+            if bead.sprint is None or bead.phase is None:
+                return HookReply.refused(Refusal(ErrorId.REQUEST_INVALID, field="bead scope"))
             ids = [finding.id for finding in verdict.findings] + [bead.sprint]
             if any(not finding.blocking for finding in verdict.findings):
                 ids.append(bead.phase)

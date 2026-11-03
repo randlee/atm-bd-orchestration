@@ -7,7 +7,7 @@ use super::enums::*;
 use super::hook::*;
 use super::records::*;
 
-const PLUGIN_HEADER: &str = r#"# atm-bd-types 0.3.0 plug-in surface: what a profile plug-in imports. The names the lite hooks use, read-only facts,
+const PLUGIN_HEADER: &str = r#"# atm-bd-types 0.4.0 plug-in surface: what a profile plug-in imports. The names the lite hooks use, read-only facts,
 # Params, the Actions the cron decide returns (Cron), and the Profile manifest. Framework names: atm_bd_core.pyi.
 import builtins
 import enum
@@ -45,7 +45,7 @@ const CRON: &str = r#"class Cron(typing.Protocol):
     def decide(self, facts: PhaseFacts, params: Params) -> list[Action]: ...
 "#;
 
-const FRAMEWORK_HEADER: &str = r#"# atm-bd-types 0.3.0 framework surface: the same for every profile. Policy loading, decision record, view,
+const FRAMEWORK_HEADER: &str = r#"# atm-bd-types 0.4.0 framework surface: the same for every profile. Policy loading, decision record, view,
 # executor outcomes, ports. The framework executes the Actions a plug-in decides; plug-ins never import this.
 import builtins
 import enum

@@ -11,8 +11,9 @@ use super::either;
 use super::enums::{PyErrorId, PyStage, PyStatus, PyTemplate};
 use super::records::PyMerged;
 use crate::plugin::{
-    Bead, BeadPatch, CloseVars, Ctx, ErrorId, Evidence, Finding, HookAction, HookReply,
-    HookRequest, Layer, PhaseFile, QaFail, QaPass, Refusal, Stack, Template, TemplateFile,
+    Bead, BeadId, BeadPatch, BranchName, CloseVars, Ctx, ErrorId, Evidence, Finding, HookAction,
+    HookReply, HookRequest, Layer, PhaseFile, QaFail, QaPass, Refusal, Stack, Template,
+    TemplateFile,
 };
 
 conv_wrapper! {
@@ -77,20 +78,20 @@ pub(crate) struct PyLayer(pub(crate) Layer);
 pub(crate) const LAYER_STUB: &str = "@typing.final
 class Layer:
     @property
-    def branch(self) -> str: ...
+    def branch(self) -> str | None: ...
     @property
     def head(self) -> Sha: ...
     @property
     def pr(self) -> int: ...
     @property
-    def base(self) -> str: ...
+    def base(self) -> str | None: ...
 ";
 
 #[pymethods]
 impl PyLayer {
     #[getter]
-    fn branch(&self) -> &str {
-        &self.0.branch
+    fn branch(&self) -> Option<&str> {
+        self.0.branch.as_ref().map(BranchName::as_str)
     }
     #[getter]
     fn head(&self) -> &str {
@@ -101,8 +102,8 @@ impl PyLayer {
         self.0.pr
     }
     #[getter]
-    fn base(&self) -> &str {
-        &self.0.base
+    fn base(&self) -> Option<&str> {
+        self.0.base.as_ref().map(BranchName::as_str)
     }
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
@@ -148,7 +149,7 @@ class Finding:
 impl PyFinding {
     #[getter]
     fn id(&self) -> &str {
-        &self.0.id
+        self.0.id.as_str()
     }
     #[getter]
     fn blocking(&self) -> bool {
@@ -227,17 +228,17 @@ class Bead:
     @property
     def open_blockers(self) -> list[str]: ...
     @property
-    def branch(self) -> str: ...
+    def branch(self) -> str | None: ...
     @property
-    def stack_bead(self) -> str: ...
+    def stack_bead(self) -> str | None: ...
     @property
-    def sprint(self) -> str: ...
+    def sprint(self) -> str | None: ...
     @property
-    def phase(self) -> str: ...
+    def phase(self) -> str | None: ...
     @property
     def checked_bead(self) -> str | None: ...
     def blocks(self, bead_id: str) -> bool: ...
-    def layer_for(self, branch: str) -> Layer | None:
+    def layer_for(self, branch: str | None) -> Layer | None:
         r"""On a stack bead: its ledger layer for `branch`."""
 "#;
 
@@ -245,7 +246,7 @@ class Bead:
 impl PyBead {
     #[getter]
     fn id(&self) -> &str {
-        &self.0.id
+        self.0.id.as_str()
     }
     #[getter]
     fn status(&self) -> PyStatus {
@@ -261,33 +262,38 @@ impl PyBead {
     }
     #[getter]
     fn open_blockers(&self) -> Vec<String> {
-        self.0.open_blockers.clone()
+        self.0
+            .open_blockers
+            .iter()
+            .map(ToString::to_string)
+            .collect()
     }
     #[getter]
-    fn branch(&self) -> &str {
-        &self.0.branch
+    fn branch(&self) -> Option<&str> {
+        self.0.branch.as_ref().map(BranchName::as_str)
     }
     #[getter]
-    fn stack_bead(&self) -> &str {
-        &self.0.stack_bead
+    fn stack_bead(&self) -> Option<&str> {
+        self.0.stack_bead.as_ref().map(BeadId::as_str)
     }
     #[getter]
-    fn sprint(&self) -> &str {
-        &self.0.sprint
+    fn sprint(&self) -> Option<&str> {
+        self.0.sprint.as_deref()
     }
     #[getter]
-    fn phase(&self) -> &str {
-        &self.0.phase
+    fn phase(&self) -> Option<&str> {
+        self.0.phase.as_deref()
     }
     #[getter]
     fn checked_bead(&self) -> Option<&str> {
-        self.0.checked_bead.as_deref()
+        self.0.checked_bead.as_ref().map(BeadId::as_str)
     }
     fn blocks(&self, bead_id: &str) -> bool {
-        self.0.blocks(bead_id)
+        BeadId::new(bead_id).is_some_and(|bead_id| self.0.blocks(&bead_id))
     }
-    fn layer_for(&self, branch: &str) -> Option<PyLayer> {
-        self.0.layer_for(branch).cloned().map(PyLayer)
+    fn layer_for(&self, branch: Option<&str>) -> Option<PyLayer> {
+        let branch = BranchName::new(branch?)?;
+        self.0.layer_for(&branch).cloned().map(PyLayer)
     }
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
@@ -656,15 +662,34 @@ pub(crate) fn patch_json(patch: PyRef<'_, PyBeadPatch>) -> String {
 
 /// Framework-only constructors for ledger snapshots.
 #[pyfunction]
-pub(crate) fn _layer(branch: String, head: &str, pr: u64, base: String) -> PyResult<PyLayer> {
+pub(crate) fn _layer(
+    branch: String,
+    head: &str,
+    pr: u64,
+    base: Option<String>,
+) -> PyResult<PyLayer> {
     let head = crate::plugin::Sha::parse(head)
         .ok_or_else(|| PyTypeError::new_err("invalid layer head"))?;
     Ok(PyLayer(Layer {
-        branch,
+        branch: optional_non_empty(
+            (!branch.is_empty()).then_some(branch),
+            BranchName::new,
+            "empty layer branch",
+        )?,
         head,
         pr,
-        base,
+        base: optional_non_empty(base, BranchName::new, "empty layer base")?,
     }))
+}
+
+fn optional_non_empty<T>(
+    value: Option<String>,
+    wrap: fn(String) -> Option<T>,
+    error: &'static str,
+) -> PyResult<Option<T>> {
+    value
+        .map(|value| wrap(value).ok_or_else(|| PyTypeError::new_err(error)))
+        .transpose()
 }
 
 #[pyfunction]
@@ -695,7 +720,7 @@ pub(crate) fn phase_file(
 /// Framework-side constructor for a `Bead` (not on the plug-in surface).
 ///
 /// `fields` sets the rest by name: `open_blockers` and `blocks_ids` take `list[str]`; `branch`, `stack_bead`,
-/// `sprint`, `phase` take `str`; `checked_bead` takes `str | None`; `stack` takes `Stack | None`.
+/// `sprint`, `phase`, `checked_bead` take `str | None`; `stack` takes `Stack | None`.
 #[pyfunction]
 #[pyo3(name = "_bead", signature = (id, status, stage, assignee=None, **fields))]
 pub(crate) fn bead(
@@ -705,6 +730,7 @@ pub(crate) fn bead(
     assignee: Option<String>,
     fields: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<PyBead> {
+    let id = BeadId::new(id).ok_or_else(|| PyTypeError::new_err("empty bead id"))?;
     let mut bead = Bead {
         id,
         status: status.into(),
@@ -712,22 +738,46 @@ pub(crate) fn bead(
         assignee,
         open_blockers: Vec::new(),
         blocks_ids: Vec::new(),
-        branch: String::new(),
-        stack_bead: String::new(),
-        sprint: String::new(),
-        phase: String::new(),
+        branch: None,
+        stack_bead: None,
+        sprint: None,
+        phase: None,
         checked_bead: None,
         stack: None,
     };
     for (key, value) in fields.into_iter().flat_map(|f| f.iter()) {
         match key.extract::<String>()?.as_str() {
-            "open_blockers" => bead.open_blockers = value.extract()?,
-            "blocks_ids" => bead.blocks_ids = value.extract()?,
-            "branch" => bead.branch = value.extract()?,
-            "stack_bead" => bead.stack_bead = value.extract()?,
-            "sprint" => bead.sprint = value.extract()?,
-            "phase" => bead.phase = value.extract()?,
-            "checked_bead" => bead.checked_bead = value.extract()?,
+            "open_blockers" => {
+                bead.open_blockers = value
+                    .extract::<Vec<String>>()?
+                    .into_iter()
+                    .map(BeadId::new)
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| PyTypeError::new_err("empty blocker bead id"))?;
+            }
+            "blocks_ids" => {
+                bead.blocks_ids = value
+                    .extract::<Vec<String>>()?
+                    .into_iter()
+                    .map(BeadId::new)
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| PyTypeError::new_err("empty blocked bead id"))?;
+            }
+            "branch" => {
+                bead.branch = optional_non_empty(value.extract()?, BranchName::new, "empty branch")?
+            }
+            "stack_bead" => {
+                bead.stack_bead =
+                    optional_non_empty(value.extract()?, BeadId::new, "empty stack bead id")?
+            }
+            "sprint" => {
+                bead.sprint = optional_non_empty(value.extract()?, Some, "empty sprint id")?
+            }
+            "phase" => bead.phase = optional_non_empty(value.extract()?, Some, "empty phase id")?,
+            "checked_bead" => {
+                bead.checked_bead =
+                    optional_non_empty(value.extract()?, BeadId::new, "empty checked bead id")?
+            }
             "stack" => bead.stack = value.extract::<Option<PyStack>>()?.map(|s| s.0),
             other => {
                 return Err(PyTypeError::new_err(format!(

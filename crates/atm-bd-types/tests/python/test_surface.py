@@ -35,7 +35,7 @@ from atm_bd_types import (
     Template,
 )
 from atm_bd_types._core import ActionOutcome, Decision, OutcomeKind, ViewRow
-from atm_bd_types._native import _bead, _phase_file
+from atm_bd_types._native import _bead, _layer, _phase_file
 from conftest import SHA, pass_report, request_json
 
 S = Status
@@ -105,7 +105,7 @@ def test_merged_sha_keeps_string_python_surface_and_validates_constructor() -> N
 
 def test_bead_patch_guards_the_snapshot() -> None:
     bead = _bead("b", S.OPEN, Stage.DEV, "dev")
-    assert "Assign { guard: Guard { bead_id: \"b\", status: Open, assignee: Some(\"dev\") }, agent: \"qa\" }" \
+    assert "Assign { guard: Guard { bead_id: BeadId(\"b\"), status: Open, assignee: Some(\"dev\") }, agent: \"qa\" }" \
         == repr(BeadPatch.assign(bead, "qa"))
     assert BeadPatch.start(bead) == BeadPatch.start(bead) != BeadPatch.reopen(bead)
     verdict = parse("task.close", pass_report(), {"op": "close", "outcome": "completed"}).qa_pass()
@@ -113,6 +113,17 @@ def test_bead_patch_guards_the_snapshot() -> None:
     assert "QaPass" in repr(BeadPatch.close(bead, verdict))
     with pytest.raises(TypeError):
         BeadPatch.close(bead, "not evidence")  # type: ignore[arg-type]
+
+
+def test_bead_unset_scope_is_none_and_ids_are_nonempty() -> None:
+    bead = _bead("b", S.OPEN, Stage.DEV)
+    assert (bead.branch, bead.stack_bead, bead.sprint, bead.phase, bead.checked_bead) == (
+        None, None, None, None, None)
+    assert bead.layer_for(None) is None
+    layer = _layer("", SHA, 7, None)
+    assert layer.branch is None and layer.base is None
+    with pytest.raises(TypeError, match="empty bead id"):
+        _bead("", S.OPEN, Stage.DEV)
 
 
 def test_refused_message_uses_the_parsed_hooks_fix_table() -> None:

@@ -210,11 +210,14 @@ impl HookRequest {
         let findings = raw
             .findings
             .iter()
-            .map(|f| Finding {
-                id: f.id.clone(),
-                blocking: f.blocking,
+            .map(|f| {
+                Some(Finding {
+                    id: BeadId::new(f.id.clone())?,
+                    blocking: f.blocking,
+                })
             })
-            .collect();
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(bad_verdict)?;
         match raw.verdict.as_str() {
             "PASS" => Ok(Verdict::Pass(QaPass { sha })),
             "FINDINGS" => Ok(Verdict::Findings(QaFail { sha, findings })),
@@ -285,7 +288,7 @@ impl From<&Evidence> for CloseVars {
             Evidence::QaPass(p) => CloseVars::Sha { sha: p.sha.clone() },
             Evidence::QaFail(f) => CloseVars::ShaIds {
                 sha: f.sha.clone(),
-                ids: f.findings.iter().map(|x| x.id.clone()).collect(),
+                ids: f.findings.iter().map(|x| x.id.to_string()).collect(),
             },
             Evidence::Merged(m) => CloseVars::Sha { sha: m.sha.clone() },
         }
@@ -634,16 +637,16 @@ mod tests {
     fn land_select_and_merged_evidence_validate_report() {
         let req = close_request(&format!("done\n```json\n{{\"merged\":\"{SHA}\"}}\n```"));
         let bead = Bead {
-            id: "bo-3".into(),
+            id: BeadId::new("bo-3").unwrap(),
             status: Status::InProgress,
             stage: Stage::Land,
             assignee: Some("qa".into()),
             open_blockers: vec![],
             blocks_ids: vec![],
-            branch: String::new(),
-            stack_bead: String::new(),
-            sprint: String::new(),
-            phase: String::new(),
+            branch: None,
+            stack_bead: None,
+            sprint: None,
+            phase: None,
             checked_bead: None,
             stack: None,
         };

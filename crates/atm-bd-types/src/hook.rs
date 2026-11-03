@@ -3,6 +3,42 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+macro_rules! string_id {
+    ($name:ident, $doc:literal) => {
+        #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+        #[serde(transparent)]
+        #[doc = $doc]
+        pub struct $name(String);
+
+        impl $name {
+            pub fn new(value: impl Into<String>) -> Option<Self> {
+                let value = value.into();
+                (!value.is_empty()).then_some(Self(value))
+            }
+
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.as_str())
+            }
+        }
+    };
+}
+
+string_id!(
+    BeadId,
+    "A bead's stable identity. Empty strings are not valid identifiers."
+);
+
+string_id!(
+    BranchName,
+    "A Git branch name. Empty strings are not valid branch names."
+);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
     Open,
@@ -212,10 +248,10 @@ mod refusal_error_tests {
 /// One stack ledger layer; also the WORK_CLOSE evidence.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Layer {
-    pub branch: String,
+    pub branch: Option<BranchName>,
     pub head: Sha,
     pub pr: u64,
-    pub base: String,
+    pub base: Option<BranchName>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -225,38 +261,38 @@ pub struct Stack {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bead {
-    pub id: String,
+    pub id: BeadId,
     pub status: Status,
     pub stage: Stage,
     pub assignee: Option<String>,
-    pub open_blockers: Vec<String>,
+    pub open_blockers: Vec<BeadId>,
     /// Ids of the beads this bead blocks.
-    pub blocks_ids: Vec<String>,
-    pub branch: String,
-    pub stack_bead: String,
-    pub sprint: String,
-    pub phase: String,
-    pub checked_bead: Option<String>,
+    pub blocks_ids: Vec<BeadId>,
+    pub branch: Option<BranchName>,
+    pub stack_bead: Option<BeadId>,
+    pub sprint: Option<String>,
+    pub phase: Option<String>,
+    pub checked_bead: Option<BeadId>,
     /// Set on the stage:stack bead only.
     pub stack: Option<Stack>,
 }
 
 impl Bead {
-    pub fn blocks(&self, bead_id: &str) -> bool {
+    pub fn blocks(&self, bead_id: &BeadId) -> bool {
         self.blocks_ids.iter().any(|b| b == bead_id)
     }
-    pub fn layer_for(&self, branch: &str) -> Option<&Layer> {
+    pub fn layer_for(&self, branch: &BranchName) -> Option<&Layer> {
         self.stack
             .as_ref()?
             .layers
             .iter()
-            .find(|l| l.branch == branch)
+            .find(|l| l.branch.as_ref() == Some(branch))
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finding {
-    pub id: String,
+    pub id: BeadId,
     pub blocking: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -371,7 +407,7 @@ impl PhaseFile {
 /// The snapshot a guarded write compares: applied only if status and assignee are unchanged, else BEAD_RACED.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Guard {
-    pub bead_id: String,
+    pub bead_id: BeadId,
     pub status: Status,
     pub assignee: Option<String>,
 }
@@ -418,8 +454,8 @@ impl BeadPatch {
 
 /// Reads and the one guarded write a hook makes. The beads-cache adapter implements it.
 pub trait BeadStore {
-    fn refresh(&self, bead_ids: &[String]) -> Result<(), Refusal>;
-    fn show(&self, bead_id: &str) -> Result<Bead, Refusal>;
+    fn refresh(&self, bead_ids: &[BeadId]) -> Result<(), Refusal>;
+    fn show(&self, bead_id: &BeadId) -> Result<Bead, Refusal>;
     /// The ledger layer of the QA bead's closed dev/fix blocker, or of its `checked_bead`.
     fn target_layer(&self, qa_bead: &Bead) -> Result<Layer, Refusal>;
     fn update(&self, patch: &BeadPatch, actor: &str) -> Result<(), Refusal>;

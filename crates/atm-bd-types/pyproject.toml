@@ -1,6 +1,6 @@
 [project]
 name = "atm-bd-types"
-version = "0.3.0"
+version = "0.4.0"
 description = "atm-bd framework contract: hook and monitor types, ATM hook wire (pyo3 bindings)"
 license = "MIT"
 authors = [{ name = "Rand Lee" }]

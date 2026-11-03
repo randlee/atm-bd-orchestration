@@ -58,12 +58,12 @@ class CacheStore:
                              for edge in other["bead"].get("dependencies", []))]
         stack = None
         if stage == Stage.STACK:
-            stack = _stack([_layer(x["branch"], x["head"], x["pr"], x["base"])
+            stack = _stack([_layer(x["branch"], x["head"], x["pr"], x.get("base") or None)
                             for x in metadata.get("layers", [])])
         return _bead(row["id"], status, stage, row.get("assignee") or None,
                      open_blockers=open_blockers, blocks_ids=blocks_ids,
-                     branch=metadata.get("branch", ""), stack_bead=metadata.get("stack_bead", ""),
-                     sprint=metadata.get("sprint_bead", ""), phase=metadata.get("phase_bead", ""),
+                     branch=metadata.get("branch") or None, stack_bead=metadata.get("stack_bead") or None,
+                     sprint=metadata.get("sprint_bead") or None, phase=metadata.get("phase_bead") or None,
                      checked_bead=metadata.get("checked_bead"), stack=stack)
 
     def refresh(self, bead_ids: list[str]):
@@ -108,6 +108,8 @@ class CacheStore:
                 return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=self.phase, bead=qa_bead.id,
                                reason=f"QA bead {qa_bead.id} has no checked bead or closed blocker")
             target = self._convert(self._row(checked))
+            if target.stack_bead is None or target.branch is None:
+                return Refusal(ErrorId.STACK_NOT_RECORDED, branch=target.branch or "")
             stack = self.show(target.stack_bead)
             if isinstance(stack, Refusal):
                 return stack

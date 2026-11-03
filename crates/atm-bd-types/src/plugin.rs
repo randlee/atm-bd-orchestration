@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 
 pub use crate::hook::{
-    AssignTransition, Bead, BeadPatch, BeadStore, CloseTransition, Ctx, ErrorId, Evidence, Finding,
-    Guard, Hook, Layer, Merged, PhaseFile, PhaseFiles, QaFail, QaPass, Refusal, Sha, Stack, Stage,
-    StartTransition, Status, Template, TemplateFile,
+    AssignTransition, Bead, BeadId, BeadPatch, BeadStore, BranchName, CloseTransition, Ctx,
+    ErrorId, Evidence, Finding, Guard, Hook, Layer, Merged, PhaseFile, PhaseFiles, QaFail, QaPass,
+    Refusal, Sha, Stack, Stage, StartTransition, Status, Template, TemplateFile,
 };
 pub use crate::wire::{CloseVars, HookAction, HookReply, HookRequest, Outcome};
 
