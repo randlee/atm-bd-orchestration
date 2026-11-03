@@ -301,7 +301,7 @@ def test_report_deduplication_uses_same_ledger_when_filename_changes(tmp_path, m
     first = run(tmp_path, runner, collector)
     assert [outcome.kind for outcome in first.outcomes] == [OutcomeKind.SENT]
     ledger = tmp_path / "primary/.atm-bd/state/phase-bo/renamed-reports.json"
-    assert json.loads(ledger.read_text(encoding="utf-8")) == ["cron:params"]
+    assert json.loads(ledger.read_text(encoding="utf-8")) == ["cron:params:tst-1.qa"]
     second = run(tmp_path, runner, collector)
     assert len(runner.calls) == 1
-    assert second.decision.actions == [] and [row.key for row in second.decision.rows] == ["cron:params"]
+    assert second.decision.actions == [] and [row.key for row in second.decision.rows] == ["cron:params:tst-1.qa"]
