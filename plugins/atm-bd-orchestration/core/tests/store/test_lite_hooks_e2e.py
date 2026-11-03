@@ -98,6 +98,10 @@ def test_phase_failures_are_typed(setup):
     phases = PhaseFilesCli()
     assert phases.load(".atm-bd/phase-bo.toml", "other").id == ErrorId.PROFILE_MISMATCH
     assert phases.load(".atm-bd/missing.toml", "lite").id == ErrorId.PHASE_UNREADABLE
+    Path(".atm-bd/no-profile.toml").write_text('lead="lead"\n')
+    error = phases.load(".atm-bd/no-profile.toml", "lite")
+    assert error.id == ErrorId.PROFILE_MISMATCH
+    assert 'add profile = "lite" to .atm-bd/no-profile.toml' in repr(error)
 
 
 def test_backend_race_is_not_reported_as_success(setup):

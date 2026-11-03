@@ -12,7 +12,10 @@ class PhaseFilesCli:
             file = Path(path).resolve()
             with file.open("rb") as source:
                 config = tomllib.load(source)
-            actual = config.get("profile", "full")
+            actual = config.get("profile")
+            if actual is None:
+                return Refusal(ErrorId.PROFILE_MISMATCH, path=path, profile=profile,
+                               reason=f'add profile = "{profile}" to {path}')
             if actual != profile:
                 return Refusal(ErrorId.PROFILE_MISMATCH, path=path, profile=profile)
             lead = config["lead"]
