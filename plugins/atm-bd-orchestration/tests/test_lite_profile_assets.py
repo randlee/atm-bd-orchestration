@@ -157,13 +157,28 @@ def test_dev_assignment_uses_provider_create_command(create_command: str, expect
     assert "--repo \"$REPO\"" not in rendered
 
 
-def test_policy_parameters_are_text_and_point_to_qa_template() -> None:
+def test_policy_parameters_are_text_and_every_named_template_is_shipped() -> None:
+    profile = tomllib.loads((SKILL / "profile.toml").read_text())
     policy = tomllib.loads((SKILL / "policy.toml").read_text())
     params = policy["params"]
     assert params["qa_agent"] == "quality-mgr"
     assert params["qa_template"] == "templates/qa.xml.j2"
     assert all(isinstance(value, str) for value in params.values())
-    assert (SKILL / params["qa_template"]).is_file()
+
+    named_templates = [
+        (f"profile.toml templates.{name}", path)
+        for name, path in profile["templates"].items()
+    ]
+    named_templates.extend(
+        (f"policy.toml params.{name}", path)
+        for name, path in params.items()
+        if name.endswith("_template")
+    )
+    assert named_templates
+    for source, path in named_templates:
+        target = (SKILL / path).resolve()
+        assert target.is_relative_to(SKILL.resolve()), f"{source} escapes the lite profile: {path}"
+        assert target.is_file(), f"{source} points to missing template {path}"
 
 
 def test_skill_registers_each_profile_hook_once() -> None:
