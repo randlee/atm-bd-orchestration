@@ -294,6 +294,8 @@ def test_decide_failure_refuses_before_executing_or_writing_state(tmp_path, body
 def test_report_deduplication_uses_same_ledger_when_filename_changes(tmp_path, monkeypatch):
     from atm_bd_core import reported
 
+    monkeypatch.setenv("ATM_TEAM", "test-team")
+
     monkeypatch.setattr(reported, "REPORTED_KEYS", "renamed-reports.json")
     make_profile(tmp_path, policy='[params]\nqa_agent = "qa-agent"\n')
     make_primary(tmp_path)

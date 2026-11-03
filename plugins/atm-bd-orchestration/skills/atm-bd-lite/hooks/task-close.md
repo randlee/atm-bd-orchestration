@@ -1,6 +1,6 @@
 # task.close — `atm-bd-task-hook.py`
 
-Closes the caller's own bead with evidence, or gives it back. At most one write. A completed re-close of an already closed bead revalidates the transition and returns only its close action, without a bead write; ATM checks that the task remains active. Reads: phase file, the bead, the ledger (stack bead), poured finding beads. Writes nothing to the ledger; assigns nothing; creates nothing.
+Closes the caller's own bead with evidence, or gives it back. At most one write. A completed re-close of an already closed bead revalidates the transition and returns only its close action, without a bead write; ATM checks that the task remains active. Reads: phase file, the bead, the ledger (stack bead), poured finding beads; refreshes the finding beads first. Writes nothing to the ledger; assigns nothing; creates nothing.
 
 What the agent did before calling close is in its template's fenced blocks (dev: stack block; QA: pour block). The hook verifies the result of those blocks; it never performs them.
 
@@ -26,8 +26,8 @@ flowchart TD
     T -- QA_PASS --> V1{verdict valid, sha == target head?}
     V1 -- no --> R6[refused QA_VERDICT / QA_NOT_ON_STACK / QA_NOTHING_TO_REVIEW]
     V1 -- yes --> W3[if in_progress write close with sha] --> H3[handled: close --template qa-pass --vars sha]
-    T -- QA_FINDINGS --> V2{verdict valid, sha matches,<br/>every blocking finding poured and blocking the sprint bead?}
-    V2 -- no --> R7[refused QA_VERDICT / QA_NOT_ON_STACK / FINDINGS_NOT_POURED]
+    T -- QA_FINDINGS --> V2{verdict valid, sha matches, findings refreshed,<br/>every blocking finding poured and blocking the sprint bead,<br/>every non-blocking one blocking the phase bead?}
+    V2 -- no --> R7[refused QA_VERDICT / QA_NOT_ON_STACK / FINDINGS_NOT_POURED / CACHE_UNAVAILABLE]
     V2 -- yes --> W4[if in_progress write close with sha + finding ids] --> H4[handled: close --template qa-findings --vars sha, ids]
     T -- LAND --> V3{valid merged SHA?}
     V3 -- no --> R8[refused LAND_EVIDENCE]
@@ -53,7 +53,7 @@ Target layer (T-CLOSE-03/04): the layer recorded for the QA bead's closed dev/fi
 | profile, templates | phase file |
 | bead status, assignee, stage, work.branch, stack_bead, blockers, checked_bead | cache.get(bead) |
 | ledger layers | cache.get(stack_bead) |
-| poured finding beads and their blocks | cache.get(id) per finding id in the report |
+| poured finding beads and their blocks | cache.refresh once (finding ids + sprint bead, + phase bead if any finding is non-blocking), then cache.get(id) per finding id in the report |
 | outcome, report, reason, verdict | ATM request |
 
 ## Errors
