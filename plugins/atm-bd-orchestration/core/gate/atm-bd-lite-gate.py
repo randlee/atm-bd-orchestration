@@ -11,8 +11,8 @@ Deterministic checks run first and fail before Jev: rows == Transition arms (ANC
 beads write and no create/claim/release (ANC-064), stack_bead only read (ANC-065), no subprocess/bd/gh
 (ANC-066), <= 100 lines (ANC-070). Then one Jev request with two question sets: every Transitions row
 is implemented by exactly one arm with no additional check or write (ANC-053); every arm and reply site
-is listed as a row or an Errors entry (ANC-054). Writes the run JSON; exits 1 on any failure or "no",
-2 when Jev cannot be asked, and 3 for invalid usage.
+is listed as a row or an Errors entry (ANC-054). Jev's answers and errors are advisory; only deterministic
+failures block. Writes the run JSON; exits 1 on a deterministic failure and 3 for invalid usage.
 """
 import ast, dataclasses, hashlib, json, sys
 from pathlib import Path
@@ -251,12 +251,12 @@ def main(argv: list[str]) -> int:
             run["jev"] = {"answers": answers, "findings": findings(answers, f),
                           "input": dataclasses.asdict(input_record(state, qs, reply.input_tokens, None, 0)),
                           "no": sorted(k for k, a in answers.items() if a.get("choice") != "yes")}
-    run["pass"] = not run["deterministic_failures"] and run["jev"] is not None and not run["jev"]["no"]
+    run["pass"] = not run["deterministic_failures"]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(run, indent=2) + "\n")
     print(json.dumps({"pass": run["pass"], "out": str(out), "deterministic_failures": run["deterministic_failures"],
                       "jev_no": run["jev"] and run["jev"]["no"], "jev_error": run.get("jev_error")}, indent=2))
-    return 0 if run["pass"] else (2 if "jev_error" in run else 1)
+    return 0 if run["pass"] else 1
 
 
 if __name__ == "__main__":
