@@ -15,20 +15,10 @@ CONTRACT = CRATE / "tests" / "fixtures" / "contract"  # documented approved-cont
 
 
 def framework_matches_contract(contract: str, generated: str) -> bool:
-    """Preserve every contract AST node; permit only the approved framework functions."""
-    expected = ast.parse(contract).body
-    actual = ast.parse(generated).body
-    additions = {"stack_of"}
-    filtered = []
-    for node in actual:
-        if isinstance(node, ast.FunctionDef) and node.name in additions:
-            additions.remove(node.name)
-            continue
-        if isinstance(node, ast.ImportFrom) and node.module == "atm_bd_types":
-            allowed = {"Stack"}
-            node.names = [name for name in node.names if name.name not in allowed]
-        filtered.append(node)
-    return not additions and [ast.dump(node) for node in filtered] == [ast.dump(node) for node in expected]
+    """Require the entire parsed framework surface to match the contract."""
+    contract_lines = [line.strip() for line in contract.splitlines() if line.strip()]
+    generated_lines = [line.strip() for line in generated.splitlines() if line.strip()]
+    return contract_lines == generated_lines and ast.dump(ast.parse(contract)) == ast.dump(ast.parse(generated))
 
 
 @pytest.mark.parametrize("name", sorted(gen_stubs.SURFACES))
@@ -47,7 +37,7 @@ def test_plugin_stub_equals_contract_exactly() -> None:
     assert (gen_stubs.STUBS / "atm_bd_types.pyi").read_bytes() == (CONTRACT / "atm_bd_types.pyi").read_bytes()
 
 
-def test_framework_stub_contains_unchanged_contract() -> None:
+def test_framework_stub_equals_contract() -> None:
     contract = (CONTRACT / "atm_bd_core.pyi").read_text(encoding="utf-8")
     generated = (gen_stubs.STUBS / "atm_bd_core.pyi").read_text(encoding="utf-8")
     assert framework_matches_contract(contract, generated)
@@ -58,6 +48,11 @@ def test_framework_comparison_rejects_contract_changes_and_unapproved_additions(
     generated = (gen_stubs.STUBS / "atm_bd_core.pyi").read_text(encoding="utf-8")
     assert not framework_matches_contract(contract, generated.replace("class Ports:", "class ChangedPorts:"))
     assert not framework_matches_contract(contract, generated + "\ndef unexpected() -> None: ...\n")
+    assert not framework_matches_contract(contract, generated.replace("framework surface", "other surface", 1))
+    assert not framework_matches_contract(contract, generated.replace(
+        "def stack_of(bead: Bead) -> Stack | None: ...\n", ""))
+    assert not framework_matches_contract(contract, generated.replace(
+        "def stack_of(bead: Bead) -> Stack | None:", "def stack_of(bead: Bead) -> Stack:"))
     assert not framework_matches_contract(contract, generated.replace("    cache: BeadsCache", "    cache: str"))
 
 
