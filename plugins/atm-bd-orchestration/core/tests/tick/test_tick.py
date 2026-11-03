@@ -3,6 +3,8 @@ import json
 from collections import deque
 from pathlib import Path
 
+import pytest
+
 from atm_bd_core.execute import RETRY_LIMIT
 from atm_bd_core.tick import tick
 from atm_bd_types import Assign, ErrorId, Refusal
@@ -42,6 +44,27 @@ def test_released_qa_bead_is_assigned_once_and_deduped_next_tick(tmp_path):
     assert len(runner.calls) == 1, "second tick executed a command"
     assert second.decision.actions == [] and second.outcomes == []
     assert state(tmp_path)["sent"] == ["assign:tst-1.qa"]
+
+
+def test_completed_assign_is_persisted_before_a_later_command_raises(tmp_path):
+    class InterruptedRunner(Runner):
+        def run(self, argv, stdin):
+            if len(self.calls) == 1:
+                raise RuntimeError("interrupted second command")
+            return super().run(argv, stdin)
+
+    make_profile(tmp_path)
+    make_primary(tmp_path)
+    runner = InterruptedRunner()
+    collector = Collector([qa_bead("tst-1.qa"), qa_bead("tst-2.qa")])
+    with pytest.raises(RuntimeError, match="interrupted second command"):
+        run(tmp_path, runner, collector)
+    assert state(tmp_path)["sent"] == ["assign:tst-1.qa"]
+
+    resumed = Runner()
+    result = run(tmp_path, resumed, collector)
+    assert [action.bead_id for action in result.decision.actions] == ["tst-2.qa"]
+    assert [call[0][5] for call in resumed.calls] == ["tst-2.qa"]
 
 
 def test_a_key_decide_stops_returning_is_forgotten_and_assigned_again_when_re_released(tmp_path):

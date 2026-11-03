@@ -132,7 +132,11 @@ class Executor:
     def run(self, decision: Decision, decided: list[Action], reported_keys: list[str] | None,
             ledger: Ledger, dry_run: bool) -> list[ActionOutcome]:
         """Execute `decision.actions`; then keep only keys `decided` still names in the ledger and save it."""
-        outcomes = [self._one(action, reported_keys, ledger, dry_run) for action in decision.actions]
+        outcomes = []
+        for action in decision.actions:
+            outcomes.append(self._one(action, reported_keys, ledger, dry_run))
+            if not dry_run:
+                ledger.save(self.state_dir)
         if not dry_run:
             live = {action_key(a) for a in decided}
             ledger.sent &= live
