@@ -71,6 +71,23 @@ Through `sc-install` (synaptic-canvas): `sc-install install atm-bd-orchestration
 hook, with `--set` values in `options["args"]`. `prepare()` makes every check
 below and writes nothing; `complete()` places, renders and records the files.
 
+## Profile installer timeout contract
+
+For a profile installed by `python -m atm_bd_core.install`, every Python hook
+script named in `profile.toml` must contain a top-level assignment of a
+positive integer literal, in milliseconds, such as `TIMEOUT_MS = 2500`.
+The installer parses the source without importing or executing it and uses
+the first matching positive integer literal to write the ATM launcher. An
+annotated assignment or computed value is not supported. If no suitable
+assignment is found, or a matching value cannot be parsed as a literal,
+installation fails. ATM limits task-hook timeouts to 2,500 ms.
+
+The cron launcher runs the framework's `atm_bd_core/cron_entry.py`, not the
+profile's decision script. That framework adapter declares the top-level
+positive integer literal `CRON_TIMEOUT_MS`, which the installer copies to the
+cron launcher. ATM limits cron timeouts to 30,000 ms. These declarations belong
+to the source scripts; they are not fields in `profile.toml`.
+
 ## Phase cron
 
 The `atm-bd cron` command runs one tick and exits. It shares the

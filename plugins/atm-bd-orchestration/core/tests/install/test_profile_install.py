@@ -223,3 +223,23 @@ def test_empty_final_templates_header_is_replaced(tmp_path):
     path.write_text("[templates]", encoding="utf-8")
     installer.set_phase_paths(tmp_path, "sample", load_profile(PROFILE), PROFILE)
     assert tomllib.loads(path.read_text(encoding="utf-8"))["templates"]
+
+
+@pytest.mark.parametrize("name, source, expected", [
+    ("TIMEOUT_MS", "TIMEOUT_MS = 1234\n", 1234),
+    ("CRON_TIMEOUT_MS", "CRON_TIMEOUT_MS = 30000\n", 30000),
+])
+def test_timeout_reads_literal_without_executing_module(tmp_path, name, source, expected):
+    module = tmp_path / "hook.py"
+    module.write_text(source + "raise RuntimeError('must not execute')\n", encoding="utf-8")
+    assert installer.timeout(module, name) == expected
+
+
+@pytest.mark.parametrize("source", ["", "TIMEOUT_MS = 0\n", "TIMEOUT_MS = -1\n",
+                                    "TIMEOUT_MS = True\n", "TIMEOUT_MS: int = 50\n",
+                                    "TIMEOUT_MS = int('50')\n"])
+def test_timeout_rejects_missing_or_invalid_declarations(tmp_path, source):
+    module = tmp_path / "hook.py"
+    module.write_text(source, encoding="utf-8")
+    with pytest.raises(ValueError):
+        installer.timeout(module, "TIMEOUT_MS")
