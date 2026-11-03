@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from . import atm_bd, atm_source, queues, render, runner, status_table
 from . import config as config_source
+from . import monitor as monitor_source
 from .build import identity
 from .codec import snapshot_stale, to_json
 from .log import error_message
@@ -86,6 +87,23 @@ def main(argv: list[str] | None = None) -> int:
     # Help-only: `skill` is dispatched above, before this parser reads its options, so this entry never parses.
     commands.add_parser("skill", help="install or list atm-bd-orchestration skills; `skill --help` lists its options")
     args = parser.parse_args(argv)
+    parsed = monitor_source.MonitorArgs(
+        command=args.command, phase=getattr(args, "phase", None), root=getattr(args, "root", None),
+        all=getattr(args, "all", False), stack=getattr(args, "stack", False), json=getattr(args, "json", False),
+        min_age=getattr(args, "min_age", 10), state_file=getattr(args, "state_file", None),
+        md_table=getattr(args, "md_table", False), github=getattr(args, "github", None),
+        interval=getattr(args, "interval", None), github_poll_interval=getattr(args, "github_poll_interval", None),
+        github_quota_threshold=getattr(args, "github_quota_threshold", None),
+        dry_run=getattr(args, "dry_run", False), no_fetch=getattr(args, "no_fetch", False))
+    selected = monitor_source.route(config_source.repo_root(), parsed.phase, _run_today, runner.step)
+    if parsed.command in ("queues", "snapshot", "cron"):
+        return int(getattr(selected, parsed.command)(parsed))
+    if parsed.command == "console" and isinstance(selected, monitor_source.PolicyMonitor):
+        return selected.console(parsed)
+    return _run_today(parsed, selected)
+
+
+def _run_today(args, selected=None) -> int:
     invocation = f"{CONSOLE_NAME} {args.command}"
     if args.command == "queues":
         return queues.main(args, repo_root=config_source.repo_root())
@@ -93,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{invocation}: --phase <phase> is required; name the phase to run")
         return 3
     repo_root = config_source.repo_root()
-    root_id = f"atm-phase-{args.phase}"
+    root_id = selected.root_id if isinstance(selected, monitor_source.PolicyMonitor) else f"atm-phase-{args.phase}"
     if args.command == "show":
         snapshot = load_snapshot(repo_root, root_id)
         if isinstance(snapshot, Ok) and (snapshot.value.stopped is not None or not snapshot_stale(snapshot.value, now())):
@@ -151,4 +169,4 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     from .app import run
 
-    return run(loaded.value, None, INITIAL_STATE, _notification_startup_error(loaded.value), runner_step=runner.step)
+    return run(loaded.value, None, INITIAL_STATE, _notification_startup_error(loaded.value), runner_step=selected.step if selected is not None else runner.step)
