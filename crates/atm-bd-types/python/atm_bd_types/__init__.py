@@ -1,6 +1,8 @@
-"""atm-bd-types plug-in surface: what a profile plug-in imports (stub: stubs/atm_bd_types.pyi).
+"""atm-bd-types plug-in runtime surface (stub: stubs/atm_bd_types.pyi).
 
-Every class is the Rust binding in `atm_bd_types._native`; the protocols and aliases are defined here.
+Every class is the Rust binding in `atm_bd_types._native`, except the runtime protocols and aliases
+needed by Python callers. Their static signatures are owned by `src/python/stub.rs`; `test_stubs.py`
+checks that this runtime surface matches the generated stub.
 """
 
 import builtins

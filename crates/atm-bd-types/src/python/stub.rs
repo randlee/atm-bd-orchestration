@@ -1,7 +1,8 @@
 //! Assembles the two `.pyi` surfaces in contract order from the stub text each binding generates or carries.
 //!
-//! The protocols and aliases below are defined by the wheel's Python package (`atm_bd_types/__init__.py`,
-//! `atm_bd_types/_core.py`); their text lives here so one place renders each whole stub.
+//! This module owns the exact static signatures for the protocols and aliases. The Python package keeps
+//! runtime protocol objects in `atm_bd_types/__init__.py` and `atm_bd_types/_core.py`; `test_stubs.py`
+//! checks those runtime surfaces against the generated `.pyi` files.
 use super::enums::*;
 use super::hook::*;
 use super::records::*;

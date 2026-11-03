@@ -11,7 +11,7 @@ from conftest import CRATE
 
 import gen_stubs
 
-CONTRACT = CRATE / "tests" / "fixtures" / "contract"  # copies of atm-core docs/plans/phase-bo/contract/*.pyi
+CONTRACT = CRATE / "tests" / "fixtures" / "contract"  # documented approved-contract snapshots; see README.md
 
 
 def framework_matches_contract(contract: str, generated: str) -> bool:
@@ -76,5 +76,6 @@ def test_surface_check_catches_a_missing_member() -> None:
 
 
 def test_contract_copies_are_present() -> None:
-    assert sorted(p.name for p in CONTRACT.iterdir()) == ["atm_bd_core.pyi", "atm_bd_types.pyi"]
+    assert sorted(p.name for p in CONTRACT.iterdir()) == ["README.md", "atm_bd_core.pyi", "atm_bd_types.pyi"]
+    assert "not an editable implementation" in (CONTRACT / "README.md").read_text(encoding="utf-8")
     assert Path(CRATE / "stubs").is_dir()

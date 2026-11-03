@@ -1,6 +1,8 @@
-"""atm-bd framework surface (stub: stubs/atm_bd_core.pyi), published by the `atm_bd_core` package.
+"""atm-bd framework runtime surface (stub: stubs/atm_bd_core.pyi), published by `atm_bd_core`.
 
-Every class is the Rust binding in `atm_bd_types._native`; the two ports are protocols defined here.
+Every class is the Rust binding in `atm_bd_types._native`, except the two runtime port protocols.
+Their static signatures are owned by `src/python/stub.rs`; `test_stubs.py` checks this runtime
+surface against the generated stub.
 """
 
 import builtins
