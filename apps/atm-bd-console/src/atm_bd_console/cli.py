@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from . import atm_bd, atm_source, queues, render, runner, status_table
 from . import config as config_source
+from . import monitor as monitor_source
 from .build import identity
 from .codec import snapshot_stale, to_json
 from .log import error_message
@@ -21,14 +22,6 @@ from .types import INITIAL_STATE, Config
 
 def now() -> datetime:
     return datetime.now(UTC)
-
-
-def _cadence(args: argparse.Namespace) -> int | None:
-    # The liveness window is judged from the interval a tick records, so a cron tick records its schedule
-    # unless --interval says otherwise; without this a 15-minute cron recorded 60 s and read as stopped.
-    if args.interval is None and args.command == "cron":
-        return config_source.CRON_CADENCE_S
-    return args.interval
 
 
 def _error_text(error: Error) -> str:
@@ -48,6 +41,18 @@ def _notification_startup_error(config: Config) -> Error | None:
     if not any(member.name == sender for member in members.value):
         return NotFound("not_found", config.notification_sender, fix)
     return None
+
+
+def _startup_checks(config: Config, invocation: str, *, notification: bool) -> tuple[bool, Error | None]:
+    check = atm_bd.repo_config(config.repo_root)
+    if isinstance(check, Err):
+        print(f"{invocation}: {error_message(asdict(check.error))}")
+        return False, None
+    for command in ("bd", "atm", "git"):
+        if shutil.which(command) is None:
+            print(f"{invocation}: not_found: install {command} and retry")
+            return False, None
+    return True, _notification_startup_error(config) if notification else None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,6 +91,31 @@ def main(argv: list[str] | None = None) -> int:
     # Help-only: `skill` is dispatched above, before this parser reads its options, so this entry never parses.
     commands.add_parser("skill", help="install or list atm-bd-orchestration skills; `skill --help` lists its options")
     args = parser.parse_args(argv)
+    parsed = monitor_source.MonitorArgs(
+        command=args.command, phase=getattr(args, "phase", None), root=getattr(args, "root", None),
+        all=getattr(args, "all", False), stack=getattr(args, "stack", False), json=getattr(args, "json", False),
+        min_age=getattr(args, "min_age", 10), state_file=getattr(args, "state_file", None),
+        md_table=getattr(args, "md_table", False), github=getattr(args, "github", None),
+        interval=getattr(args, "interval", None), github_poll_interval=getattr(args, "github_poll_interval", None),
+        github_quota_threshold=getattr(args, "github_quota_threshold", None),
+        dry_run=getattr(args, "dry_run", False), no_fetch=getattr(args, "no_fetch", False))
+    startup_error = None
+    def today_command(values):
+        return _run_today(values, selected_route, startup_error)
+
+    selected_route = monitor_source.route(config_source.repo_root(), parsed, today_command, runner.step)
+    if parsed.command in ("queues", "snapshot", "cron"):
+        return int(getattr(selected_route.monitor, parsed.command)(parsed))
+    if parsed.command == "console":
+        if isinstance(selected_route.config, Config):
+            ready, startup_error = _startup_checks(selected_route.config, f"{CONSOLE_NAME} console", notification=True)
+            if not ready:
+                return 3
+        return selected_route.launch(startup_error)
+    return _run_today(parsed, selected_route)
+
+
+def _run_today(args, selected_route, startup_error=None) -> int:
     invocation = f"{CONSOLE_NAME} {args.command}"
     if args.command == "queues":
         return queues.main(args, repo_root=config_source.repo_root())
@@ -93,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{invocation}: --phase <phase> is required; name the phase to run")
         return 3
     repo_root = config_source.repo_root()
-    root_id = f"atm-phase-{args.phase}"
+    root_id = selected_route.root_id
     if args.command == "show":
         snapshot = load_snapshot(repo_root, root_id)
         if isinstance(snapshot, Ok) and (snapshot.value.stopped is not None or not snapshot_stale(snapshot.value, now())):
@@ -104,13 +134,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{invocation}: console is not running for phase {args.phase}{last}; start it: {CONSOLE_NAME} console --phase {args.phase}")
         return 2
     md_table = getattr(args, "md_table", False)
-    loaded = config_source.load_config(repo_root, args.phase, github=args.github, interval_s=_cadence(args), github_poll_interval_s=args.github_poll_interval, github_quota_threshold=args.github_quota_threshold, dry_run=getattr(args, "dry_run", False) or args.command == "snapshot" or md_table, no_fetch=args.no_fetch)
+    preloaded = selected_route.config
+    loaded = preloaded if isinstance(preloaded, Err) else Ok(preloaded)
     if isinstance(loaded, Err): print(f"{invocation}: {error_message(asdict(loaded.error))}"); return 3
-    check = atm_bd.repo_config(loaded.value.repo_root)
-    if isinstance(check, Err): print(f"{invocation}: {error_message(asdict(check.error))}"); return 3
-    for command in ("bd", "atm", "git"):
-        if shutil.which(command) is None:
-            print(f"{invocation}: not_found: install {command} and retry")
+    if args.command != "console":
+        ready, _ = _startup_checks(loaded.value, invocation, notification=False)
+        if not ready:
             return 3
     if args.command in ("cron", "snapshot"):
         lock = acquire_lock(loaded.value.repo_root, root_id)
@@ -151,4 +180,4 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     from .app import run
 
-    return run(loaded.value, None, INITIAL_STATE, _notification_startup_error(loaded.value), runner_step=runner.step)
+    return run(loaded.value, None, INITIAL_STATE, startup_error, runner_step=selected_route.step)

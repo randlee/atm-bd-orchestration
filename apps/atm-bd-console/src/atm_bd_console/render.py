@@ -38,6 +38,12 @@ _STATUSES = {
     "idle": ("·", "dim"),
     "unknown": ("?", "yellow"),
 }
+_STEP_KINDS = frozenset(("dev", "sanity", "qa", "fix"))
+
+
+def step_kind_label(kind: str) -> str:
+    """Keep unfamiliar lifecycle stages visible with the generic fallback label."""
+    return kind if kind in _STEP_KINDS else "other"
 
 
 def _fit(line: Text, width: int) -> Text:
@@ -209,7 +215,7 @@ def dashboard(snapshot: Snapshot, width: int, height: int, health: PollHealth | 
             status_glyph, status_style = icon(step.status)
             bead_line.append(status_glyph, style=status_style or "")
             bead_line.append(" ")
-            bead_line.append(f"{step.status:<12} {step.kind}")
+            bead_line.append(f"{step.status:<12} {step_kind_label(step.kind)}")
             lines.append(bead_line)
     if snapshot.stopped is not None and snapshot.prs:
         lines.extend((Text(), Text(f"== PRs ({len(snapshot.prs)})")))

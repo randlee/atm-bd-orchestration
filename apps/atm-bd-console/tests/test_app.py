@@ -30,7 +30,6 @@ from atm_bd_console.app import (
     ConsoleApp,
     run,
 )
-from atm_bd_console.build import display_identity
 from atm_bd_console.enums import SprintState
 from atm_bd_console.error_text import error_text
 from atm_bd_console.held import Held
@@ -377,13 +376,16 @@ def test_diagnostic_line_uses_local_clock_and_preserves_message(monkeypatch) -> 
         time.tzset()
 
 
-def test_build_line_sits_right_justified_on_the_tab_header_row_and_never_covers_a_tab() -> None:
+def test_build_line_sits_right_justified_on_the_tab_header_row_and_never_covers_a_tab(monkeypatch) -> None:
+    identity = "0.0.0+g01234567"
+    monkeypatch.setattr(console, "display_identity", lambda: identity)
+
     async def scenario() -> None:
         app = ConsoleApp(CONFIG, FakeStep(RUNNING), STATE)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
             build = app.query_one("#build")
-            text = f"atm-bd console {display_identity()}"
+            text = f"atm-bd console {identity}"
             assert text_of(build.render()).plain == text and build.display
             assert build.region.y == 0 and build.region.right == 120
             tabs_right = max(tab.region.right for tab in app.query("ContentTab"))
@@ -403,7 +405,7 @@ def test_build_line_sits_right_justified_on_the_tab_header_row_and_never_covers_
             await settle(pilot)
             assert app.query_one("TabbedContent", TabbedContent).active == "diagnostics"
             shown = text_of(app.query_one("#diagnostics-text").render()).plain
-            assert f"Build: {display_identity()}" in shown
+            assert f"Build: {identity}" in shown
             assert "Agents: ·arch-ctm" in shown
             await pilot.resize_terminal(120, 40)
             await settle(pilot)

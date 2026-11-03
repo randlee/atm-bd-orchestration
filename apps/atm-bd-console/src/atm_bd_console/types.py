@@ -261,7 +261,7 @@ class Inputs:
 class Row:
     task_id: str
     state: Literal["running", "queued"]
-    kind: Literal["dev", "fix", "sprint_qa", "fix_qa", "other"]
+    kind: str
     difficulty: Literal["hard", "normal", "fast"] | None
     tag: str
     marker: Literal["red", "yellow"] | None
@@ -299,7 +299,7 @@ class Section:
 @dataclass(frozen=True)
 class StepView:
     bead_id: str
-    kind: StepKind
+    kind: str
     status: SprintState
     assignee: str | None
 
