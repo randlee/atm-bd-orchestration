@@ -86,9 +86,28 @@ def test_missing_path_and_mismatched_profile_are_refused(tmp_path):
     assert isinstance(refusal, Refusal) and refusal.id == ErrorId.PROFILE_MISMATCH
 
 
+def test_profile_path_check_does_not_load_profile(tmp_path, monkeypatch):
+    from atm_bd_core import profile as profile_module
+
+    _lite(tmp_path)
+    selected = monitor.PolicyMonitor(tmp_path, "zz", {"profile": "lite", "profile_path": "skill/profile.toml"})
+    monkeypatch.setattr(profile_module, "load_profile", lambda *_: pytest.fail("profile should load in tick"))
+
+    assert selected._profile_path() == tmp_path / "skill/profile.toml"
+
+
 def test_lite_tick_snapshot_and_dry_step(tmp_path, monkeypatch, capsys):
     _lite(tmp_path)
     calls = []
+    profile_loads = []
+    original_load_profile = tick_module.load_profile
+
+    def load_profile(path):
+        profile_loads.append(path)
+        return original_load_profile(path)
+
+    monkeypatch.setattr(tick_module, "load_profile", load_profile)
+
     class Runner:
         def run(self, argv, stdin):
             raise AssertionError(f"unexpected external command: {argv}")
@@ -99,9 +118,15 @@ def test_lite_tick_snapshot_and_dry_step(tmp_path, monkeypatch, capsys):
         return PhaseFacts(phase, now, phase_file, [task], [TaskEvents("b", 2, 120)], [], [], [],
                           [sprint, bead], [], None, None, [], [])
     original = tick_module.tick
+    loads_per_tick = []
+
     def controlled(path, phase, primary, *, dry_run):
         calls.append(dry_run)
-        return original(path, phase, primary, dry_run=dry_run, ports=Ports(Runner(), object()), now=123, collector=collector)
+        before = len(profile_loads)
+        result = original(path, phase, primary, dry_run=dry_run, ports=Ports(Runner(), object()), now=123,
+                          collector=collector)
+        loads_per_tick.append(len(profile_loads) - before)
+        return result
     monkeypatch.setattr(tick_module, "tick", controlled)
     selected = monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None).monitor
     assert isinstance(selected, monitor.PolicyMonitor)
@@ -117,6 +142,7 @@ def test_lite_tick_snapshot_and_dry_step(tmp_path, monkeypatch, capsys):
     assert selected.snapshot(monitor.MonitorArgs("snapshot", phase="zz")) == monitor.Exit.OK
     assert list(tmp_path.rglob("snapshot.json"))
     assert calls == [True, True, True]
+    assert loads_per_tick == [1, 1, 1]
 
 
 def test_policy_snapshot_preserves_non_profile_stage_kind(tmp_path):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import enum
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,20 +70,20 @@ class TodayMonitor:
         self.step = step
 
     def queues(self, args: MonitorArgs) -> Exit:
-        return Exit(self._command(args))
+        return self._delegate(args)
 
     def snapshot(self, args: MonitorArgs) -> Exit:
-        return Exit(self._command(args))
+        return self._delegate(args)
 
     def cron(self, args: MonitorArgs) -> Exit:
+        return self._delegate(args)
+
+    def _delegate(self, args: MonitorArgs) -> Exit:
         return Exit(self._command(args))
 
 
 def route(repo_root, args, command, step):
     """Select once from the phase file; old phases retain the existing runner."""
-    import tomllib
-    from pathlib import Path
-
     from . import atm_bd
 
     phase = args.phase
@@ -155,7 +156,6 @@ class PolicyMonitor:
         self.root, self.phase, self.phase_data = root, phase, phase_data
 
     def _profile_path(self) -> Path | Refusal:
-        from atm_bd_core.profile import LoadedProfile, load_profile
         from atm_bd_types import ErrorId, Refusal
 
         if "_route_error" in self.phase_data:
@@ -167,11 +167,16 @@ class PolicyMonitor:
         if Path(path).is_absolute():
             return Refusal(ErrorId.PHASE_UNREADABLE, path=path, reason="profile_path must be relative to the primary checkout")
         full_path = self.root / path
-        loaded = load_profile(full_path)
-        if not isinstance(loaded, LoadedProfile):
-            return loaded
-        if loaded.profile.name != self.phase_data.get("profile"):
-            return Refusal(ErrorId.PROFILE_MISMATCH, path=str(full_path), profile=loaded.profile.name)
+        try:
+            with full_path.open("rb") as source:
+                profile_data = tomllib.load(source)
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+            return Refusal(ErrorId.PROFILE_MISMATCH, path=str(full_path),
+                           reason=f"{type(error).__name__}: {error}")
+        profile_name = profile_data.get("name")
+        if not isinstance(profile_name, str) or profile_name != self.phase_data.get("profile"):
+            return Refusal(ErrorId.PROFILE_MISMATCH, path=str(full_path),
+                           profile=profile_name if isinstance(profile_name, str) else "")
         return full_path
 
     def _tick(self, *, dry_run):
