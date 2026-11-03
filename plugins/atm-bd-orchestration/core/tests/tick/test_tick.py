@@ -132,6 +132,21 @@ def test_failure_without_an_error_id_is_request_invalid_and_success_clears_the_c
     assert state(tmp_path) == {"sent": ["assign:tst-1.qa"], "failures": {}}
 
 
+@pytest.mark.parametrize("message", [
+    "failed path=/tmp/xBEAD_NOT_READY.log",
+    "failed path=/tmp/BEAD_NOT_READY_extra.log",
+])
+def test_error_id_substring_inside_larger_token_is_not_typed(tmp_path, message):
+    make_profile(tmp_path)
+    make_primary(tmp_path)
+    runner, collector = Runner(deque([(1, message)])), Collector([qa_bead()])
+
+    [outcome] = run(tmp_path, runner, collector).outcomes
+
+    assert outcome.kind == OutcomeKind.FAILED
+    assert outcome.failure.id == ErrorId.REQUEST_INVALID
+
+
 def test_dry_run_executes_nothing_and_writes_no_state(tmp_path):
     make_profile(tmp_path)
     make_primary(tmp_path)

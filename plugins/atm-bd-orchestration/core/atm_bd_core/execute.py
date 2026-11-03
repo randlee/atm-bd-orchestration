@@ -1,5 +1,7 @@
 """Dedupe and execute the Actions a plug-in decided. The same for every profile; names no profile.
 
+Failure output types an ErrorId only when it contains a delimited whole token.
+
 State, under the phase's state directory:
 - reported-keys.json: JSON list of Report keys already sent (append-only; collect reads it as REPORTED_KEYS).
 - executed.json: Assign/Notify keys sent while the plug-in still decides them, and per-key failure counts.
@@ -12,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from subprocess import SubprocessError
@@ -172,7 +175,8 @@ class Executor:
             else:
                 ledger.sent.add(key)
             return ActionOutcome(action, OutcomeKind.SENT, None)
-        error = next((name for name in ERROR_IDS if name in message), "REQUEST_INVALID")
+        error = next((match.group(0) for match in re.finditer(r"\b[A-Z][A-Z0-9_]*\b", message)
+                      if match.group(0) in ERROR_IDS), "REQUEST_INVALID")
         attempts = (previous.attempts if previous else 0) + 1
         ledger.failures[key] = Failure(attempts, error, message or f"exit {code}")
         return ActionOutcome(action, OutcomeKind.FAILED, Refusal(
