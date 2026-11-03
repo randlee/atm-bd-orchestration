@@ -1,0 +1,37 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "atm-bd-core"
+version = "0.3.0"
+source = { editable = "." }
+dependencies = [
+    { name = "atm-bd-types" },
+    { name = "bd-cache-rs" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "atm-bd-types", editable = "../../../crates/atm-bd-types" },
+    { name = "bd-cache-rs", git = "https://github.com/randlee/beads-cache?subdirectory=crates%2Fbd-cache-py&rev=f57859f5c01fa463eb57ef11679e00118532c993" },
+]
+
+[[package]]
+name = "atm-bd-types"
+version = "0.4.0"
+source = { editable = "../../../crates/atm-bd-types" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", extras = ["nodejs"], specifier = "==1.1.414" },
+    { name = "pytest", specifier = "==9.1.1" },
+    { name = "ruff", specifier = "==0.17.0" },
+]
+
+[[package]]
+name = "bd-cache-rs"
+version = "0.1.0"
+source = { git = "https://github.com/randlee/beads-cache?subdirectory=crates%2Fbd-cache-py&rev=f57859f5c01fa463eb57ef11679e00118532c993#f57859f5c01fa463eb57ef11679e00118532c993" }

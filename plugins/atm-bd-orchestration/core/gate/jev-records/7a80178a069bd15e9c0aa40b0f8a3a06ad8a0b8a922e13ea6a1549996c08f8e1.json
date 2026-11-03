@@ -1,0 +1,187 @@
+{
+  "schema": "atm-bd-gate/jev-record/1",
+  "input_sha256": "7a80178a069bd15e9c0aa40b0f8a3a06ad8a0b8a922e13ea6a1549996c08f8e1",
+  "answers": {
+    "implemented:T-START-01": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.82,
+      "probabilities": {
+        "yes": 0.91,
+        "no": 0.09
+      }
+    },
+    "implemented:T-START-02": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.96,
+      "probabilities": {
+        "yes": 0.98,
+        "no": 0.02
+      }
+    },
+    "implemented:T-START-03": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.94,
+      "probabilities": {
+        "yes": 0.97,
+        "no": 0.03
+      }
+    },
+    "implemented:T-START-04": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.92,
+      "probabilities": {
+        "yes": 0.96,
+        "no": 0.04
+      }
+    },
+    "listed:L28:0": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.94,
+      "probabilities": {
+        "yes": 0.97,
+        "no": 0.03
+      }
+    },
+    "listed:L30:1": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.96,
+      "probabilities": {
+        "yes": 0.98,
+        "no": 0.02
+      }
+    },
+    "listed:L32:2": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.98,
+      "probabilities": {
+        "yes": 0.99,
+        "no": 0.01
+      }
+    },
+    "listed:L34:3": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.98,
+      "probabilities": {
+        "yes": 0.99,
+        "no": 0.01
+      }
+    },
+    "listed:L39:4": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.96,
+      "probabilities": {
+        "yes": 0.98,
+        "no": 0.02
+      }
+    },
+    "listed:L17:5": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.54,
+      "probabilities": {
+        "yes": 0.77,
+        "no": 0.23
+      }
+    },
+    "listed:L19:6": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.94,
+      "probabilities": {
+        "yes": 0.97,
+        "no": 0.03
+      }
+    },
+    "listed:L21:7": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.84,
+      "probabilities": {
+        "yes": 0.92,
+        "no": 0.08
+      }
+    },
+    "listed:L23:8": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 1.0,
+      "probabilities": {
+        "yes": 1.0,
+        "no": 0.0
+      }
+    },
+    "listed:L25:9": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.98,
+      "probabilities": {
+        "yes": 0.99,
+        "no": 0.01
+      }
+    },
+    "listed:L38:10": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 1.0,
+      "probabilities": {
+        "yes": 1.0,
+        "no": 0.0
+      }
+    },
+    "listed:L31:11": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.96,
+      "probabilities": {
+        "yes": 0.98,
+        "no": 0.02
+      }
+    },
+    "listed:L33:12": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 1.0,
+      "probabilities": {
+        "yes": 1.0,
+        "no": 0.0
+      }
+    },
+    "listed:L35:13": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.98,
+      "probabilities": {
+        "yes": 0.99,
+        "no": 0.01
+      }
+    },
+    "listed:L45:14": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.9,
+      "probabilities": {
+        "yes": 0.95,
+        "no": 0.05
+      }
+    },
+    "listed:L47:15": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.76,
+      "probabilities": {
+        "yes": 0.88,
+        "no": 0.12
+      }
+    }
+  },
+  "input_tokens": 7059
+}

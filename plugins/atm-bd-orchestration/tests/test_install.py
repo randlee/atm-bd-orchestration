@@ -24,6 +24,8 @@ import yaml
 
 import gen_manifest
 import install
+import installer_common
+import installer_execution
 from subprocess_helpers import run_command
 
 PKG = Path(__file__).resolve().parents[1]
@@ -35,6 +37,10 @@ SPEC_VARIABLES = [
     "policy_path", "reviewers_round1",
 ]
 needs_sc_compose = pytest.mark.skipif(not SC_COMPOSE, reason="sc-compose not on PATH; install not verified")
+
+
+def test_install_entrypoint_stays_below_line_limit() -> None:
+    assert len((PKG / "install.py").read_text(encoding="utf-8").splitlines()) < 1000
 
 
 @pytest.fixture(autouse=True)
@@ -90,7 +96,7 @@ def test_provision_failure_stops_install_before_writes_and_is_reported(tmp_path,
     repo = tmp_path / "consumer"
     repo.mkdir()
     plan = SimpleNamespace(repo_root=repo)
-    monkeypatch.setattr(install, "provision_tool_identity", lambda _root: (_ for _ in ()).throw(install.InstallError("provision failed")))
+    monkeypatch.setattr(installer_execution, "provision_tool_identity", lambda _root: (_ for _ in ()).throw(install.InstallError("provision failed")))
     with pytest.raises(install.InstallError, match="provision failed"):
         install.apply_plan(cast(install.Plan, plan), "1.0")
     assert list(repo.iterdir()) == []
@@ -319,7 +325,7 @@ def _intercept_atm(monkeypatch, fake: FakeAtm) -> FakeAtm:
         return real(argv, *args, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", run)
-    monkeypatch.setattr(install, "provision_tool_identity", lambda _root: True)
+    monkeypatch.setattr(installer_execution, "provision_tool_identity", lambda _root: True)
     return fake
 
 
@@ -589,7 +595,7 @@ def test_manifest_declares_every_installer_verified_cli():
 
 def test_manifest_rejects_requirements_without_a_verifier(monkeypatch):
     manifest = install.load_manifest()
-    monkeypatch.setattr(install, "load_manifest", lambda _pkg_dir=install.PKG_DIR: {
+    monkeypatch.setattr(installer_common, "load_manifest", lambda _pkg_dir=install.PKG_DIR: {
         **manifest,
         "requires": [*manifest["requires"], "unverified-tool >= 1.0"],
     })

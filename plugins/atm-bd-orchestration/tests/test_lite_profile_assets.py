@@ -1,0 +1,231 @@
+"""Contract tests for the standalone atm-bd-lite profile assets."""
+import json
+import re
+import subprocess
+import tomllib
+from pathlib import Path
+
+import atm_bd_types as T
+import pytest
+from atm_bd_types._native import _stack
+from lite.lite_helpers import (
+    FakePhases,
+    FakeStore,
+    action_template,
+    action_vars,
+    bead,
+    hook_request,
+    layer,
+    load_hook,
+    reply_actions,
+    phase_file,
+)
+
+SKILL = Path(__file__).resolve().parents[1] / "skills" / "atm-bd-lite"
+TEMPLATES = SKILL / "templates"
+
+
+def _captured_text(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    return output.decode(errors="replace") if isinstance(output, bytes) else output
+
+
+def _run_with_timeout(
+    command: list[str],
+    *,
+    timeout: float,
+    capture_output: bool = True,
+    check: bool = False,
+    text: bool = True,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(command, capture_output=capture_output, check=check, text=text, cwd=cwd,
+                              timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(
+            f"command {command!r} timed out after {timeout:g}s\n"
+            f"partial stdout:\n{_captured_text(exc.stdout)}\n"
+            f"partial stderr:\n{_captured_text(exc.stderr)}"
+        ) from exc
+
+
+def _hook_close_actions() -> list[dict]:
+    hook = load_hook("atm-bd-task-hook")
+    target = layer("feature/x", "a" * 40, 42, "main")
+    stack = bead("stack", layers={target.branch: target})
+    phases = FakePhases()
+
+    work = bead("dev-task", T.Status.CLOSED, branch=target.branch, stack_bead="stack")
+
+    def run(item, request, *extra, target_layer=None):
+        reply = hook.hook(request, FakeStore(stack, work, item, *extra, target=target_layer), phases)
+        actions = reply_actions(reply)
+        assert len(actions) == 1, reply.to_json(None)
+        return actions[0]
+
+    dev = bead("dev-task", T.Status.IN_PROGRESS, assignee="dev", branch=target.branch,
+               stack_bead="stack", sprint="sprint-10", phase="bo")
+    refused = hook_request(caller="dev", task_id="dev-task", outcome="refused", close_reason="blocked")
+    completed = hook_request(caller="dev", task_id="dev-task", outcome="completed", close_report="complete")
+    qa = bead("qa-task", T.Status.IN_PROGRESS, assignee="qa", stage="qa", stack_bead="stack",
+              sprint="sprint-10", phase="bo", checked_bead="dev-task")
+    passed = hook_request(caller="qa", task_id="qa-task", outcome="completed", verdict="PASS", verdict_sha=target.head)
+    findings = hook_request(caller="qa", task_id="qa-task", outcome="completed", verdict="FINDINGS",
+                            verdict_sha=target.head,
+                            findings=[{"id": "F-1", "blocking": True}, {"id": "F-2", "blocking": False}])
+    poured = [bead("F-1", blocks_ids=["sprint-10"]), bead("F-2", blocks_ids=["bo"])]
+    land = bead("land-task", T.Status.IN_PROGRESS, assignee="dev", stage="land")
+    merged = hook_request(caller="dev", task_id="land-task", outcome="completed",
+                          close_report=f'```json\n{{"merged":"{target.head}"}}\n```')
+    return [run(dev, refused), run(dev, completed), run(qa, passed, target_layer=target),
+            run(qa, findings, *poured, target_layer=target), run(land, merged)]
+
+
+def _qa_assignment_action() -> T.Assign:
+    cron = load_hook("atm-bd-cron")
+    target = layer("feature/x", "a" * 40, 42, "main")
+    qa = bead("qa-task", stage=T.Stage.QA, checked_bead="dev-task")
+    dev = bead("dev-task", branch=target.branch)
+    stack = T.StackFact(bead("stack", stage=T.Stage.STACK), _stack([target]), "main", None)
+    facts = T.PhaseFacts("bo", 0, phase_file(lead="lead", repo="owner/repo"), tasks=[], beads=[dev],
+                         ready=[qa], stack=stack, top_checks=T.TopChecks(target.head, T.CheckState.PASSING))
+    params = T.Params([("qa_agent", "qa"), ("qa_template", "templates/qa.xml.j2"),
+                       ("dev_agent", "dev"), ("dev_template", "templates/dev.xml.j2"),
+                       ("lead", "lead"), ("land_template", "templates/land.xml.j2")])
+    [action] = cron.decide(facts, params)
+    assert isinstance(action, T.Assign) and action.to == "qa"
+    return action
+
+
+def _assignment_vars(action: T.Assign) -> dict[str, object]:
+    values: dict[str, object] = {"task_id": action.vars.task_id, "phase": action.vars.phase,
+                                 "profile": action.vars.profile}
+    if action.vars.review is not None:
+        review = action.vars.review
+        values.update(repo=review.repo, pr_number=review.pr_number, branch=review.branch, commit=review.commit)
+    return values
+
+
+def test_close_templates_strictly_render_vars_from_hook_actions(tmp_path: Path) -> None:
+    actions = _hook_close_actions()
+    assert len(actions) == 5
+    assert [Path(action_template(action)).name for action in actions] == [
+        "refuse.md", "dev-close.md", "qa-pass.md", "qa-findings.md", "land-close.md",
+    ]
+
+    for action in actions:
+        template = TEMPLATES / f"{Path(action_template(action)).name}.j2"
+        variables = action_vars(action)
+        source = template.read_text()
+        match = re.search(r"^required_variables:\s*\[([^]]*)\]$", source, re.MULTILINE)
+        assert match is not None
+        required = {item.strip() for item in match.group(1).split(",")}
+        assert set(variables) == required
+
+        var_file = tmp_path / f"{template.name}.json"
+        var_file.write_text(json.dumps(variables))
+        rendered = _run_with_timeout(
+            ["sc-compose", "render", "--strict", "--file", str(template), "--var-file", str(var_file)],
+            timeout=10,
+            check=True,
+            cwd=SKILL.parents[1],
+        ).stdout
+        assert rendered.strip()
+        assert "{{" not in rendered
+
+
+def test_qa_assignment_template_strictly_renders_assign_vars(tmp_path: Path) -> None:
+    action = _qa_assignment_action()
+    template = SKILL / action.template
+    variables = _assignment_vars(action)
+    source = template.read_text()
+    match = re.search(r"^required_variables:\s*\[([^]]*)\]$", source, re.MULTILINE)
+    assert match is not None
+    required = {item.strip() for item in match.group(1).split(",")}
+    assert set(variables) == required
+    var_file = tmp_path / "qa-vars.json"
+    var_file.write_text(json.dumps(variables))
+    rendered = _run_with_timeout(
+        ["sc-compose", "render", "--strict", "--file", str(template), "--var-file", str(var_file)],
+        timeout=10,
+        check=True,
+        cwd=SKILL.parents[1],
+    ).stdout
+    assert '<qa-task id="qa-task">' in rendered
+    assert "owner/repo" in rendered and "42" in rendered
+    assert "T-CLOSE-03" in rendered and "T-CLOSE-04" in rendered
+
+
+def test_policy_parameters_are_text_and_every_named_template_is_shipped() -> None:
+    profile = tomllib.loads((SKILL / "profile.toml").read_text())
+    policy = tomllib.loads((SKILL / "policy.toml").read_text())
+    params = policy["params"]
+    assert params["qa_agent"] == "quality-mgr"
+    assert params["qa_template"] == "templates/qa.xml.j2"
+    assert all(isinstance(value, str) for value in params.values())
+
+    named_templates = [
+        (f"profile.toml templates.{name}", path)
+        for name, path in profile["templates"].items()
+    ]
+    named_templates.extend(
+        (f"policy.toml params.{name}", path)
+        for name, path in params.items()
+        if name.endswith("_template")
+    )
+    assert named_templates
+    for source, path in named_templates:
+        target = (SKILL / path).resolve()
+        assert target.is_relative_to(SKILL.resolve()), f"{source} escapes the lite profile: {path}"
+        assert target.is_file(), f"{source} points to missing template {path}"
+
+
+def test_skill_documents_profile_installer() -> None:
+    profile = tomllib.loads((SKILL / "profile.toml").read_text())
+    skill = (SKILL / "SKILL.md").read_text()
+    assert profile["stages"] == ["dev", "qa", "land"]
+    assert set(profile["hooks"]) == {"task.assign", "task.start", "task.close"}
+    assert "python -m atm_bd_core.install" in skill
+    assert "atm-bd-lite/profile.toml" in skill
+    assert "--checkout <checkout> --repo <owner/repo>" in skill
+    assert "atm hook register" not in skill
+    assert "followed by QA" in skill
+    assert "does not add a sanity stage" in skill
+
+
+def test_subprocess_timeout_failure_includes_command_and_partial_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    def expire(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert kwargs["timeout"] == 0.25
+        raise subprocess.TimeoutExpired(command, 0.25, output=b"partial stdout", stderr=b"partial stderr")
+
+    monkeypatch.setattr(subprocess, "run", expire)
+    with pytest.raises(AssertionError) as raised:
+        _run_with_timeout(["sc-compose", "render", "--strict"], timeout=0.25)
+
+    message = str(raised.value)
+    assert "sc-compose" in message
+    assert "partial stdout" in message
+    assert "partial stderr" in message
+
+
+
+def test_registered_profile_modules_declare_one_timeout_within_registrar_cap() -> None:
+    profile = tomllib.loads((SKILL / "profile.toml").read_text())
+    modules = [SKILL / script for script in profile["hooks"].values()] + [SKILL / profile["cron"]]
+    for module in modules:
+        values = []
+        for line in module.read_text().splitlines():
+            if not line.startswith("TIMEOUT_MS"):
+                continue
+            tail = line[len("TIMEOUT_MS"):].lstrip(" \t")
+            if tail.startswith(": int"):
+                tail = tail[len(": int"):].lstrip(" \t")
+            if not tail.startswith("="):
+                continue
+            value = tail[1:].split("#", 1)[0].strip()
+            assert value.isascii() and value.isdecimal(), f"invalid TIMEOUT_MS in {module}: {line}"
+            values.append(int(value))
+        assert len(values) == 1, f"expected exactly one TIMEOUT_MS in {module}, found {values}"
+        assert 0 < values[0] <= 2500, f"TIMEOUT_MS exceeds registrar cap in {module}: {values[0]}"

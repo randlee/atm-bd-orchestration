@@ -82,3 +82,14 @@ def test_copied_release_verifier_fails_closed(tmp_path, mode, expected):
                                  "REQUIRED_ASSET_PATTERNS": r"\.whl$", "GITHUB_OUTPUT": str(tmp_path / "outputs")},
                             text=True, capture_output=True, timeout=30, check=False)
     assert result.returncode == expected, result.stderr
+
+
+def test_tests_workflow_runs_each_pr_head_once():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/tests.yml").read_text())
+    triggers = workflow[True]  # PyYAML reads the bare `on:` key as boolean True
+    assert triggers["push"] == {"branches": ["develop", "main", "integrate/**"]}
+    assert triggers["pull_request"] is None
+    assert workflow["concurrency"] == {
+        "group": "tests-${{ github.event_name }}-${{ github.head_ref || github.ref }}",
+        "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+    }

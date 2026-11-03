@@ -1,0 +1,19 @@
+[project]
+name = "atm-bd-core"
+version = "0.3.0"
+description = "atm-bd framework: the same for every profile (stores, collectors, executor, cron host)"
+license = "MIT"
+authors = [{ name = "Rand Lee" }]
+requires-python = ">=3.11"
+dependencies = ["atm-bd-types==0.4.0", "bd-cache-rs==0.1.0"]
+
+[build-system]
+requires = ["hatchling==1.31.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["atm_bd_core"]
+
+[tool.uv.sources]
+atm-bd-types = { path = "../../../crates/atm-bd-types", editable = true }
+bd-cache-rs = { git = "https://github.com/randlee/beads-cache", rev = "f57859f5c01fa463eb57ef11679e00118532c993", subdirectory = "crates/bd-cache-py" }

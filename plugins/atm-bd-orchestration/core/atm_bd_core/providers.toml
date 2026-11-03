@@ -1,0 +1,22 @@
+[gh]
+repo_args = ["--repo", "{repo}"]
+base_prefix = ""
+failing = ["failure", "error", "cancelled", "timed_out", "action_required"]
+pending = ["pending", "queued", "in_progress", "expected", "waiting", "requested", ""]
+passing = ["success", "neutral", "skipped"]
+hosts = ["github.com"]
+create = "gh pr create --base '{base}' --head '{head}' --title '{title}' --body-file '{body_file}'"
+checks = ["gh", "pr", "view", "{pr}", "--json", "statusCheckRollup", "--jq", "[.statusCheckRollup[] | .conclusion // .state // .status]"]
+base = ["gh", "pr", "view", "{pr}", "--json", "baseRefName", "--jq", ".baseRefName"]
+head = ["gh", "pr", "view", "{pr}", "--json", "headRefOid", "--jq", ".headRefOid"]
+
+[az]
+base_prefix = "refs/heads/"
+failing = ["failed", "error"]
+pending = ["notset", "pending", "inprogress"]
+passing = ["succeeded"]
+hosts = ["dev.azure.com", "visualstudio.com"]
+create = "az repos pr create --source-branch '{head}' --target-branch '{base}' --title '{title}' --description @{body_file} --output json"
+checks = ["az", "repos", "pr", "status", "list", "--id", "{pr}", "--query", "[].state", "--output", "json"]
+base = ["az", "repos", "pr", "show", "--id", "{pr}", "--query", "targetRefName", "--output", "tsv"]
+head = ["az", "repos", "pr", "show", "--id", "{pr}", "--query", "lastMergeSourceCommit.commitId", "--output", "tsv"]
