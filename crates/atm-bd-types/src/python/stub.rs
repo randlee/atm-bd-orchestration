@@ -111,6 +111,8 @@ pub(crate) fn plugin() -> String {
         PyPrBase::stub(),
         PyCollectError::stub(),
         PyPhaseFacts::stub(),
+        PyReviewTarget::stub(),
+        PyMerged::stub(),
         PyAssignVars::stub(),
         PyAssign::stub(),
         PyReport::stub(),

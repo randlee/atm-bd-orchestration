@@ -75,7 +75,7 @@ py_enum! {
 
 py_enum! {
     PyStage = Stage as "Stage" in "atm_bd_types", doc Some("The bead's stage label; unknown labels are OTHER."), stub "";
-    { Dev = "DEV", Fix = "FIX", Qa = "QA", Stack = "STACK", Other = "OTHER" }
+    { Dev = "DEV", Fix = "FIX", Qa = "QA", Land = "LAND", Stack = "STACK", Other = "OTHER" }
 }
 
 py_enum! {
@@ -109,7 +109,7 @@ py_enum! {
         "    @staticmethod\n    def select(req: HookRequest, bead: Bead) -> CloseTransition | Refusal:\n",
         "        r\"\"\"outcome x stage (x verdict kind for QA); REQUEST_INVALID / QA_VERDICT when they do not decode.\"\"\"\n",
     );
-    { GiveBack = "GIVE_BACK", WorkClose = "WORK_CLOSE", QaPass = "QA_PASS", QaFindings = "QA_FINDINGS" }
+    { GiveBack = "GIVE_BACK", WorkClose = "WORK_CLOSE", QaPass = "QA_PASS", QaFindings = "QA_FINDINGS", Land = "LAND" }
 
     /// `CloseTransition::select`: a transition, or the refusal when outcome or verdict do not decode.
     #[staticmethod]
@@ -122,7 +122,7 @@ py_enum! {
 
 py_enum! {
     PyTemplate = Template as "Template" in "atm_bd_types", doc None, stub "";
-    { Refuse = "REFUSE", DevClose = "DEV_CLOSE", QaPass = "QA_PASS", QaFindings = "QA_FINDINGS" }
+    { Refuse = "REFUSE", DevClose = "DEV_CLOSE", QaPass = "QA_PASS", QaFindings = "QA_FINDINGS", LandClose = "LAND_CLOSE" }
 }
 
 py_enum! {
@@ -134,7 +134,7 @@ py_enum! {
         TaskNotAssignee = "TASK_NOT_ASSIGNEE", CloseReasonEmpty = "CLOSE_REASON_EMPTY",
         CloseReportNotInline = "CLOSE_REPORT_NOT_INLINE", StackNotRecorded = "STACK_NOT_RECORDED",
         QaVerdict = "QA_VERDICT", QaNotOnStack = "QA_NOT_ON_STACK", QaNothingToReview = "QA_NOTHING_TO_REVIEW",
-        FindingsNotPoured = "FINDINGS_NOT_POURED", PolicyBadParams = "POLICY_BAD_PARAMS",
+        FindingsNotPoured = "FINDINGS_NOT_POURED", PolicyBadParams = "POLICY_BAD_PARAMS", LandEvidence = "LAND_EVIDENCE",
     }
 }
 

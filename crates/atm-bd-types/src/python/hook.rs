@@ -9,6 +9,7 @@ use super::context;
 use super::conv::conv_wrapper;
 use super::either;
 use super::enums::{PyErrorId, PyStage, PyStatus, PyTemplate};
+use super::records::PyMerged;
 use crate::plugin::{
     Bead, BeadPatch, CloseVars, Ctx, ErrorId, Evidence, Finding, HookAction, HookReply,
     HookRequest, Layer, PhaseFile, QaFail, QaPass, Refusal, Stack, Template, TemplateFile,
@@ -233,6 +234,8 @@ class Bead:
     def sprint(self) -> str: ...
     @property
     def phase(self) -> str: ...
+    @property
+    def checked_bead(self) -> str | None: ...
     def blocks(self, bead_id: str) -> bool: ...
     def layer_for(self, branch: str) -> Layer | None:
         r"""On a stack bead: its ledger layer for `branch`."""
@@ -275,6 +278,10 @@ impl PyBead {
     #[getter]
     fn phase(&self) -> &str {
         &self.0.phase
+    }
+    #[getter]
+    fn checked_bead(&self) -> Option<&str> {
+        self.0.checked_bead.as_deref()
     }
     fn blocks(&self, bead_id: &str) -> bool {
         self.0.blocks(bead_id)
@@ -357,11 +364,14 @@ class BeadPatch:
     @staticmethod
     def reopen(snapshot: Bead) -> BeadPatch: ...
     @staticmethod
-    def close(snapshot: Bead, evidence: Layer | QaPass | QaFail) -> BeadPatch: ...
+    def close(snapshot: Bead, evidence: Layer | QaPass | QaFail | Merged) -> BeadPatch: ...
 "#;
 
 /// `Layer | QaPass | QaFail` as `Evidence`; `None` for any other value.
 fn evidence(value: &Bound<'_, PyAny>) -> Option<Evidence> {
+    if let Ok(merged) = value.extract::<PyMerged>() {
+        return Some(Evidence::Merged(merged.0));
+    }
     if let Ok(layer) = value.extract::<PyLayer>() {
         return Some(Evidence::Layer(layer.0));
     }
@@ -426,6 +436,7 @@ class HookRequest:
     def close_reason(self) -> str | None: ...
     def qa_pass(self) -> QaPass | Refusal: ...
     def qa_findings(self) -> QaFail | Refusal: ...
+    def merged(self) -> Merged | Refusal: ...
 ";
 
 #[pymethods]
@@ -476,6 +487,9 @@ impl PyHookRequest {
     fn qa_findings<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         either(py, self.0.qa_findings().map(PyQaFail))
     }
+    fn merged<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        either(py, self.0.merged().map(PyMerged))
+    }
     fn __repr__(&self) -> String {
         format!(
             "HookRequest(hook={:?}, phase={:?}, task_id={:?})",
@@ -494,7 +508,7 @@ pub(crate) struct PyHookAction(pub(crate) Result<HookAction, Refusal>);
 pub(crate) const HOOK_ACTION_STUB: &str = r#"@typing.final
 class HookAction:
     @staticmethod
-    def close(template: str, vars: Layer | QaPass | QaFail | str) -> HookAction:
+    def close(template: str, vars: Layer | QaPass | QaFail | Merged | str) -> HookAction:
         r"""atm task close --template <template> --vars <vars>; str is the give-back reason."""
 "#;
 
@@ -622,6 +636,9 @@ pub(crate) fn patch_json(patch: PyRef<'_, PyBeadPatch>) -> String {
                 Evidence::QaFail(fail) => {
                     serde_json::json!({"kind": "qa_fail", "sha": fail.sha.as_str(), "findings": fail.findings.iter().map(|f| serde_json::json!({"id": f.id, "blocking": f.blocking})).collect::<Vec<_>>()})
                 }
+                Evidence::Merged(merged) => {
+                    serde_json::json!({"kind": "merged", "sha": merged.sha})
+                }
             };
             ("close", guard, value)
         }
@@ -662,7 +679,7 @@ pub(crate) fn _stack(layers: Vec<PyLayer>) -> PyStack {
 pub(crate) fn phase_file(
     profile: String,
     lead: String,
-    templates: [(String, String, Vec<u8>); 4],
+    templates: [(String, String, Vec<u8>); 5],
     keys: Vec<(String, String)>,
 ) -> PyPhaseFile {
     let templates = templates.map(|(path, root, bytes)| TemplateFile { path, root, bytes });

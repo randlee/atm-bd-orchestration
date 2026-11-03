@@ -13,8 +13,8 @@ use crate::framework::{
     ViewSprint, ViewStep, ViewTask,
 };
 use crate::plugin::{
-    Action, Ancestry, AssignVars, CollectError, ParamValue, Params, PhaseFacts, PrBase, Profile,
-    RemoteBranch, StackFact, TaskEvents, TaskFact, TopChecks,
+    Action, Ancestry, AssignVars, CollectError, Merged, ParamValue, Params, PhaseFacts, PrBase,
+    Profile, RemoteBranch, ReviewTarget, StackFact, TaskEvents, TaskFact, TopChecks,
 };
 
 /// A record constructor's arguments, matched to its fields by position, then by name.
@@ -188,8 +188,18 @@ record! {
 }
 
 record! {
+    PyMerged = Merged as "Merged" in "atm_bd_types", doc None;
+    { sha: String }
+}
+
+record! {
+    PyReviewTarget = ReviewTarget as "ReviewTarget" in "atm_bd_types", doc None;
+    { repo: String, pr_number: u64, branch: String, commit: String }
+}
+
+record! {
     PyAssignVars = AssignVars as "AssignVars" in "atm_bd_types", doc None;
-    { task_id: String, phase: String, profile: String }
+    { task_id: String, phase: String, profile: String, review: Option<ReviewTarget> = None => "None" }
 }
 
 /// `Action::Assign`'s fields, as the `Assign` record.

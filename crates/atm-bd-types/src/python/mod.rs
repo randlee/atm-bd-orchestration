@@ -105,6 +105,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPrBase>()?;
     m.add_class::<PyCollectError>()?;
     m.add_class::<PyPhaseFacts>()?;
+    m.add_class::<PyReviewTarget>()?;
+    m.add_class::<PyMerged>()?;
     m.add_class::<PyAssignVars>()?;
     m.add_class::<PyAssign>()?;
     m.add_class::<PyReport>()?;

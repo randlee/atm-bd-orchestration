@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 pub use crate::hook::{
     AssignTransition, Bead, BeadPatch, BeadStore, CloseTransition, Ctx, ErrorId, Evidence, Finding,
-    Guard, Hook, Layer, PhaseFile, PhaseFiles, QaFail, QaPass, Refusal, Sha, Stack, Stage,
+    Guard, Hook, Layer, Merged, PhaseFile, PhaseFiles, QaFail, QaPass, Refusal, Sha, Stack, Stage,
     StartTransition, Status, Template, TemplateFile,
 };
 pub use crate::wire::{CloseVars, HookAction, HookReply, HookRequest, Outcome};
@@ -130,10 +130,19 @@ pub struct PhaseFacts {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewTarget {
+    pub repo: String,
+    pub pr_number: u64,
+    pub branch: String,
+    pub commit: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssignVars {
     pub task_id: String,
     pub phase: String,
     pub profile: String,
+    pub review: Option<ReviewTarget>,
 }
 
 /// `key` dedupes: a Report whose key is in REPORTED_KEYS stays a view row only.

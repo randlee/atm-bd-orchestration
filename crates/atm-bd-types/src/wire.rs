@@ -30,9 +30,15 @@ enum Source {
     Template(IgnoredAny),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Address {
     agent: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host: Option<String>,
 }
 
 /// The fields of ATM's task write request (`send::WriteRequest`) a hook reads or echoes.
@@ -92,6 +98,12 @@ struct RawVerdict {
     sha: String,
     #[serde(default)]
     findings: Vec<RawFinding>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMerged {
+    merged: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -206,6 +218,25 @@ impl HookRequest {
             Verdict::Pass(_) => Err(bad_verdict()),
         }
     }
+
+    pub fn merged(&self) -> Result<Merged, Refusal> {
+        let invalid = || Refusal::new(ErrorId::LandEvidence);
+        let blocks: Vec<RawMerged> = self
+            .close_report()
+            .unwrap_or("")
+            .split("```")
+            .skip(1)
+            .step_by(2)
+            .filter_map(|b| serde_json::from_str(b.strip_prefix("json").unwrap_or(b).trim()).ok())
+            .collect();
+        let [raw] = blocks.as_slice() else {
+            return Err(invalid());
+        };
+        Sha::parse(&raw.merged).ok_or_else(invalid)?;
+        Ok(Merged {
+            sha: raw.merged.clone(),
+        })
+    }
 }
 
 impl CloseTransition {
@@ -218,6 +249,7 @@ impl CloseTransition {
                 Verdict::Pass(_) => Ok(Self::QaPass),
                 Verdict::Findings(_) => Ok(Self::QaFindings),
             },
+            (Outcome::Completed, Stage::Land) => Ok(Self::Land),
             (Outcome::Completed, Stage::Stack | Stage::Other) => Err(invalid("stage")),
         }
     }
@@ -229,6 +261,7 @@ impl CloseTransition {
 pub enum CloseVars {
     Layer(Layer),
     Sha { sha: Sha },
+    MergedSha { sha: String },
     ShaIds { sha: Sha, ids: Vec<String> },
     Reason { reason: String },
 }
@@ -242,6 +275,7 @@ impl From<&Evidence> for CloseVars {
                 sha: f.sha.clone(),
                 ids: f.findings.iter().map(|x| x.id.clone()).collect(),
             },
+            Evidence::Merged(m) => CloseVars::MergedSha { sha: m.sha.clone() },
         }
     }
 }
@@ -272,6 +306,8 @@ struct CloseBody {
     current_dir: String,
     caller_identity: String,
     caller_team: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to: Option<Address>,
     message_source: MessageSource,
     requires_ack: bool,
     task_id: String,
@@ -305,6 +341,7 @@ impl HookAction {
                 current_dir: b.current_dir.clone(),
                 caller_identity: req.caller.clone(),
                 caller_team: b.caller_team.clone(),
+                to: b.to.clone(),
                 message_source: MessageSource::Template(source),
                 requires_ack: false,
                 task_id: req.task_id.clone(),
@@ -389,7 +426,8 @@ mod tests {
             "schema_version": "1.0.0", "hook": "task.close", "team": "t", "phase": "bo",
             "caller": {"identity": "qa", "team": "t", "host": null}, "custom": {},
             "request": {"home_dir": "/h", "current_dir": "/r", "caller_identity": "qa", "caller_team": "t",
-                "to": null, "message_source": {"Inline": report}, "requires_ack": false, "task_id": "bo-3",
+                "to": {"agent":"lead", "chat_id":"chat", "team":"t", "host":"host"},
+                "message_source": {"Inline": report}, "requires_ack": false, "task_id": "bo-3",
                 "task_op": {"op": "close", "outcome": "completed"}, "dry_run": false}
         });
         HookRequest::parse(&stdin.to_string()).expect("fixture decodes")
@@ -443,7 +481,7 @@ mod tests {
             format!(
                 concat!(
                     r#"{{"result":"handled","atm-action":[{{"command":"task.close","request":{{"home_dir":"/h","current_dir":"/r","#,
-                    r#""caller_identity":"qa","caller_team":"t","message_source":{{"Template":{{"canonical_template_path":"/r/t/qa-pass.md.j2","#,
+                    r#""caller_identity":"qa","caller_team":"t","to":{{"agent":"lead","chat_id":"chat","team":"t","host":"host"}},"message_source":{{"Template":{{"canonical_template_path":"/r/t/qa-pass.md.j2","#,
                     r#""canonical_template_root":"/r/t","raw_file_bytes":[111,107],"input_defaults":{{}},"var_file_values":{{"sha":"{}"}},"#,
                     r#""explicit_values":{{}},"environment_values":{{}}}}}},"requires_ack":false,"task_id":"bo-3","#,
                     r#""task_op":{{"op":"close","outcome":"completed"}},"dry_run":false}}}}]}}"#
@@ -451,5 +489,80 @@ mod tests {
                 SHA
             )
         );
+    }
+
+    #[test]
+    fn close_action_preserves_destination_for_atm_write() {
+        // The ATM write pipeline requires a non-null `to` address.
+        #[derive(Deserialize)]
+        struct RequiredDestination {
+            to: Address,
+        }
+        let req = close_request("done");
+        let template = TemplateFile {
+            path: "/r/t/dev-close.md.j2".into(),
+            root: "/r/t".into(),
+            bytes: b"ok".to_vec(),
+        };
+        let action = HookAction::close(
+            &req,
+            &template,
+            CloseVars::Reason {
+                reason: "done".into(),
+            },
+        );
+        let body = serde_json::to_value(&action).unwrap()["request"].clone();
+        let parsed: RequiredDestination = serde_json::from_value(body).unwrap();
+        assert_eq!(parsed.to.agent, "lead");
+        assert_eq!(parsed.to.chat_id.as_deref(), Some("chat"));
+        assert_eq!(parsed.to.team.as_deref(), Some("t"));
+        assert_eq!(parsed.to.host.as_deref(), Some("host"));
+        assert!(
+            serde_json::from_value::<RequiredDestination>(serde_json::json!({"to": null})).is_err()
+        );
+        assert!(serde_json::from_value::<RequiredDestination>(serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn land_select_and_merged_evidence_validate_report() {
+        let req = close_request(&format!("done\n```json\n{{\"merged\":\"{SHA}\"}}\n```"));
+        let bead = Bead {
+            id: "bo-3".into(),
+            status: Status::InProgress,
+            stage: Stage::Land,
+            assignee: Some("qa".into()),
+            open_blockers: vec![],
+            blocks_ids: vec![],
+            branch: String::new(),
+            stack_bead: String::new(),
+            sprint: String::new(),
+            phase: String::new(),
+            checked_bead: None,
+            stack: None,
+        };
+        assert_eq!(
+            CloseTransition::select(&req, &bead),
+            Ok(CloseTransition::Land)
+        );
+        let merged = req.merged().unwrap();
+        assert_eq!(merged.sha, SHA);
+        let template = TemplateFile {
+            path: "land".into(),
+            root: "/r".into(),
+            bytes: b"ok".to_vec(),
+        };
+        let action = HookAction::close(&req, &template, CloseVars::from(&Evidence::Merged(merged)));
+        let body = serde_json::to_value(action).unwrap();
+        assert_eq!(
+            body["request"]["message_source"]["Template"]["var_file_values"]["sha"],
+            SHA
+        );
+        for report in [
+            "missing",
+            "```json\n{\"merged\":\"bad\"}\n```",
+            "```json\n{\"merged\":\"0123456789abcdef0123456789abcdef01234567\",\"extra\":1}\n```",
+        ] {
+            assert!(close_request(report).merged().is_err());
+        }
     }
 }
