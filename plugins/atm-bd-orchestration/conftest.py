@@ -7,4 +7,4 @@ for path in (PKG, PKG / "tests", PKG / "skills/atm-bd-orchestration/scripts/test
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-collect_ignore = ["skills", "agents"]
+collect_ignore = ["skills", "agents", "tests/lite"]

@@ -1,6 +1,7 @@
 """Contract tests for the standalone atm-bd-lite profile assets."""
 import re
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -73,3 +74,17 @@ def test_skill_registers_each_profile_hook_once() -> None:
         assert sum(hook in command and f"--module .claude/skills/atm-bd-lite/{script}" in command for command in commands) == 1
     assert "followed by QA" in skill
     assert "does not add a sanity stage" in skill
+
+
+def test_copied_behavior_suite_runs_isolated_and_reports_67_passes() -> None:
+    suite = Path(__file__).resolve().parent / "lite"
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-c", "/dev/null", "--rootdir", ".", "--confcutdir", ".", "."],
+        cwd=suite,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    details = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode == 0, details
+    assert re.search(r"(?m)^67 passed in \d+(?:\.\d+)?s$", result.stdout), details
