@@ -131,8 +131,10 @@ def test_stores_refuse_without_framework(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(_stores, "import_module", missing)
     store = CacheStore.for_phase("bo")
     assert isinstance(store, Refusal) and store.id == ErrorId.CACHE_UNAVAILABLE
+    assert "atm_bd_core package is missing" in repr(store) and "`uv add atm-bd-core`" in repr(store)
     phase = PhaseFilesCli().load(".atm-bd/phase-bo.toml", "lite")
     assert isinstance(phase, Refusal) and phase.id == ErrorId.PHASE_UNREADABLE
+    assert "atm_bd_core package is missing" in repr(phase) and "`uv add atm-bd-core`" in repr(phase)
 
 
 def test_params_delegate() -> None:

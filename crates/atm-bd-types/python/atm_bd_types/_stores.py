@@ -8,7 +8,7 @@ from atm_bd_types._native import ErrorId, Refusal
 
 
 def _unavailable(error: ErrorId, **context: str) -> Refusal:
-    return Refusal(error, reason="the store adapters land in sprint bo-10", **context)
+    return Refusal(error, reason="the atm_bd_core package is missing; install it with `uv add atm-bd-core`", **context)
 
 
 def _core() -> Any:
