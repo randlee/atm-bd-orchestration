@@ -40,10 +40,28 @@ class CacheStore:
         except (bd_cache_rs.CacheError, OSError, RuntimeError, ValueError) as exc:
             return _refusal(exc, phase)
 
-    def _row(self, bead_id: str):
-        return self.cache.get(bead_id)["row"]["bead"]
+    def _view(self, bead_id: str):
+        return self.cache.get(bead_id)["row"]
 
-    def _convert(self, row):
+    def _row(self, bead_id: str):
+        return self._view(bead_id)["bead"]
+
+    def _views(self, phase: str):
+        rows = self.cache.list(phase)["rows"]
+        return [self._view(row["bead"]["id"]) for row in rows]
+
+    @staticmethod
+    def _blocks_index(views):
+        index: dict[str, list[str]] = {}
+        for view in views:
+            bead = view["bead"]
+            for edge in bead.get("dependencies", []):
+                if edge.get("type") == "blocks":
+                    index.setdefault(edge.get("depends_on_id"), []).append(bead["id"])
+        return index
+
+    def _convert(self, view, blocks_index):
+        row = view["bead"]
         metadata = row.get("metadata") or {}
         labels = row.get("labels") or []
         status = {"open": Status.OPEN, "in_progress": Status.IN_PROGRESS, "blocked": Status.BLOCKED,
@@ -51,11 +69,8 @@ class CacheStore:
         stage_name = next((x[6:] for x in labels if x.startswith("stage:")), "other")
         stage = {"dev": Stage.DEV, "fix": Stage.FIX, "qa": Stage.QA, "land": Stage.LAND,
                  "stack": Stage.STACK}.get(stage_name, Stage.OTHER)
-        view = self.cache.get(row["id"])["row"]
         open_blockers = view["blocked"]
-        blocks_ids = [other["bead"]["id"] for other in self.cache.list(self.phase)["rows"]
-                      if any(edge.get("type") == "blocks" and edge.get("depends_on_id") == row["id"]
-                             for edge in other["bead"].get("dependencies", []))]
+        blocks_ids = blocks_index.get(row["id"], [])
         stack = None
         if stage == Stage.STACK:
             stack = _stack([_layer(x["branch"], x["head"], x["pr"], x.get("base") or None)
@@ -75,24 +90,31 @@ class CacheStore:
 
     def show(self, bead_id: str):
         try:
-            row = self._row(bead_id)
-            if "stage:stack" in (row.get("labels") or []):
+            view = self._view(bead_id)
+            if "stage:stack" in (view["bead"].get("labels") or []):
                 if (error := self.refresh([bead_id])) is not None:
                     return error
-                row = self._row(bead_id)
-            return self._convert(row)
+                view = self._view(bead_id)
+            views = self._views(self.phase)
+            return self._convert(view, self._blocks_index(views))
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
             return _refusal(exc, self.phase, bead_id)
 
     def list(self, phase: str):
         try:
-            return [self._convert(view["bead"]) for view in self.cache.list(phase)["rows"]]
+            views = self._views(phase)
+            blocks_index = self._blocks_index(views)
+            return [self._convert(view, blocks_index) for view in views]
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
             return _refusal(exc, phase)
 
     def ready(self, phase: str):
         try:
-            return [self._convert(view["bead"]) for view in self.cache.ready(phase)["ready"]]
+            ready = self.cache.ready(phase)["ready"]
+            views = self._views(phase)
+            blocks_index = self._blocks_index(views)
+            views_by_id = {view["bead"]["id"]: view for view in views}
+            return [self._convert(views_by_id[row["bead"]["id"]], blocks_index) for row in ready]
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
             return _refusal(exc, phase)
 
@@ -107,7 +129,9 @@ class CacheStore:
             if checked is None:
                 return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=self.phase, bead=qa_bead.id,
                                reason=f"QA bead {qa_bead.id} has no checked bead or closed blocker")
-            target = self._convert(self._row(checked))
+            target_view = self._view(checked)
+            blocks_index = self._blocks_index(self._views(self.phase))
+            target = self._convert(target_view, blocks_index)
             if target.stack_bead is None or target.branch is None:
                 return Refusal(ErrorId.STACK_NOT_RECORDED, branch=target.branch or "")
             stack = self.show(target.stack_bead)

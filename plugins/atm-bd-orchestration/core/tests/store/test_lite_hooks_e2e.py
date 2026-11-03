@@ -145,6 +145,52 @@ class ControlledCache:
         pass
 
 
+class InstrumentedCache(ControlledCache):
+    def __init__(self) -> None:
+        super().__init__()
+        self.get_calls: list[str] = []
+        self.list_phases: list[str] = []
+        self.ready_phases: list[str] = []
+
+    def get(self, bead_id: str) -> dict:
+        self.get_calls.append(bead_id)
+        return super().get(bead_id)
+
+    def list(self, phase: str) -> dict:
+        self.list_phases.append(phase)
+        return {"rows": [{"bead": row, "blocked": []} for row in self.rows.values()
+                         if phase in row["labels"]]}
+
+    def ready(self, phase: str) -> dict:
+        self.ready_phases.append(phase)
+        return {"ready": self.list(phase)["rows"]}
+
+
+def test_cache_store_indexes_blocks_once_and_honors_requested_phase():
+    cache = InstrumentedCache()
+    cache.add_bead("phase-a-target", "target", "open", ["phase-a", "stage:dev"], {})
+    cache.add_bead("phase-a-blocker", "blocker", "open", ["phase-a", "stage:fix"], {})
+    cache.rows["phase-a-blocker"]["dependencies"] = [
+        {"type": "blocks", "depends_on_id": "phase-a-target"},
+    ]
+    cache.add_bead("phase-b-other", "other", "open", ["phase-b", "stage:dev"], {})
+    store = CacheStore(cache, "bo")
+
+    listed = store.list("phase-a")
+    assert [bead.id for bead in listed] == ["phase-a-target", "phase-a-blocker"]
+    assert listed[0].blocks("phase-a-blocker")
+    assert cache.list_phases == ["phase-a"]
+    assert cache.get_calls == ["phase-a-target", "phase-a-blocker"]
+
+    cache.get_calls.clear()
+    cache.list_phases.clear()
+    ready = store.ready("phase-b")
+    assert [bead.id for bead in ready] == ["phase-b-other"]
+    assert cache.ready_phases == ["phase-b"]
+    assert cache.list_phases == ["phase-b", "phase-b"]
+    assert cache.get_calls == ["phase-b-other"]
+
+
 def test_real_embedded_bd_wires_cache_store(real_db_setup):
     root, store = real_db_setup
     bead = store.show("tst-1")
