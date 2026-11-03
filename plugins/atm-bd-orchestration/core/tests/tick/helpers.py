@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from atm_bd_core.collect.reported import reported_keys
-from atm_bd_types import Bead, PhaseFacts, PhaseFile, Stage, Status
+from atm_bd_core.profile import CronScript, LoadedProfile
+from atm_bd_types import Bead, ErrorId, PhaseFacts, Refusal, PhaseFile, Stage, Status
 from atm_bd_types._core import CommandResult, Ports
 from atm_bd_types._native import _bead
 
@@ -78,6 +79,13 @@ class Collector:
         keys, _ = reported_keys(state_dir)
         return PhaseFacts(phase, now, phase_file, [], [], keys, None, None, list(self.ready), list(self.ready),
                           None, None, None, [])
+
+
+def refusal_id(value: LoadedProfile | CronScript | Refusal | None) -> ErrorId | None:
+    """The ErrorId of a loader refusal; None when the loader returned a value."""
+    if value is None or isinstance(value, (LoadedProfile, CronScript)):
+        return None
+    return value.id
 
 
 def ports(runner: Runner) -> Ports:

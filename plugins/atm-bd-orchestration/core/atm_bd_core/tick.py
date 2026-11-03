@@ -19,6 +19,7 @@ from .execute import Executor, Ledger, action_key, dedupe
 from .profile import load_cron, load_policy, load_profile
 from .store import CacheStore, PhaseFilesCli
 
+COMMAND_TIMEOUT_SECONDS = 120
 Collector = Callable[[str, PhaseFile, Ports, int, Path], PhaseFacts]
 
 
@@ -26,7 +27,8 @@ class SubprocessRunner:
     """The production CommandRunner: runs argv with stdin and captures text output."""
 
     def run(self, argv: list[str], stdin: str | None) -> CommandResult:
-        done = subprocess.run(argv, input=stdin, capture_output=True, text=True, check=False)
+        done = subprocess.run(argv, input=stdin, capture_output=True, text=True, check=False,
+                              timeout=COMMAND_TIMEOUT_SECONDS)
         return CommandResult(done.returncode, done.stdout, done.stderr)
 
 
@@ -60,17 +62,15 @@ def tick(profile_path: Path, phase: str, primary: Path, *, ports: Ports | None =
     ledger = Ledger.load(state_dir)
     if isinstance(ledger, Refusal):
         return ledger
-    if ports is None:
-        made = default_ports(phase)
-        if isinstance(made, Refusal):
-            return made
-        ports = made
+    resolved = default_ports(phase) if ports is None else ports
+    if isinstance(resolved, Refusal):
+        return resolved
 
-    facts = collector(phase, phase_file, ports, int(time.time()) if now is None else now, state_dir)
+    facts = collector(phase, phase_file, resolved, int(time.time()) if now is None else now, state_dir)
     decided: list[Action] = [] if cron is None else list(cron.decide(facts, policy.params))
     reported = None if facts.reported_keys is None else list(facts.reported_keys)
     decision = dedupe(decided, reported, ledger)
-    executor = Executor(ports.runner, state_dir, loaded.root, phase_file.lead, policy.notify_template)
+    executor = Executor(resolved.runner, state_dir, loaded.root, phase_file.lead, policy.notify_template)
     outcomes = executor.run(decision, decided, reported, ledger, dry_run)
     root_id = phase_file.key("root") or ""
     return TickResult(facts, decision, view(facts, decision, outcomes, root_id), outcomes)

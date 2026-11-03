@@ -5,10 +5,11 @@ import pytest
 
 from atm_bd_core.profile import load_cron, load_policy, load_profile
 from atm_bd_core.tick import tick
-from atm_bd_types import ErrorId, Hook, Refusal, Template
+from atm_bd_types import ErrorId, Hook, Params, PhaseFacts, Refusal, Template
+from atm_bd_types._native import _phase_file
 from atm_bd_types._core import Policy
 
-from .helpers import Collector, Runner, make_primary, make_profile, ports
+from .helpers import Collector, Runner, make_primary, make_profile, ports, refusal_id
 
 
 def test_contract_profile_loads_with_typed_hooks_and_templates(tmp_path):
@@ -36,8 +37,7 @@ def test_contract_profile_loads_with_typed_hooks_and_templates(tmp_path):
 def test_bad_profile_refuses_profile_mismatch(tmp_path, edit):
     path = make_profile(tmp_path)
     edit(path)
-    refused = load_profile(path)
-    assert isinstance(refused, Refusal) and refused.id == ErrorId.PROFILE_MISMATCH
+    assert refusal_id(load_profile(path)) == ErrorId.PROFILE_MISMATCH
 
 
 @pytest.mark.parametrize("policy", [
@@ -79,8 +79,7 @@ def test_bad_cron_script_refuses_profile_mismatch(tmp_path, script):
     (path.parent / "scripts/atm-bd-cron.py").write_text(script, encoding="utf-8")
     loaded = load_profile(path)
     assert not isinstance(loaded, Refusal)
-    refused = load_cron(loaded)
-    assert isinstance(refused, Refusal) and refused.id == ErrorId.PROFILE_MISMATCH
+    assert refusal_id(load_cron(loaded)) == ErrorId.PROFILE_MISMATCH
 
 
 def test_host_source_names_no_profile():
@@ -89,3 +88,28 @@ def test_host_source_names_no_profile():
         text = (package / name).read_text(encoding="utf-8").lower()
         for profile in ("lite", "orchestration", "quality-mgr", "qa_agent", "qa_template"):
             assert profile not in text, f"{name} names {profile!r}"
+
+
+def test_shipped_lite_profile_loads():
+    skill = Path(__file__).resolve().parents[3] / "skills/atm-bd-lite/profile.toml"
+    loaded = load_profile(skill)
+    assert not isinstance(loaded, Refusal), loaded
+    policy = load_policy(loaded)
+    assert isinstance(policy, Policy) and policy.params.text("qa_agent") == "quality-mgr"
+    cron = load_cron(loaded)
+    assert cron is not None and not isinstance(cron, Refusal)
+
+
+TEMPLATES = [(f"/r/{n}", "/r", b"ok") for n in range(4)]
+
+
+@pytest.mark.parametrize("body", ["return None", "return ['assign']"], ids=["not-a-list", "not-an-action"])
+def test_decide_returning_non_actions_raises(tmp_path, body):
+    path = make_profile(tmp_path)
+    (path.parent / "scripts/atm-bd-cron.py").write_text(f"def decide(facts, params):\n    {body}\n", encoding="utf-8")
+    loaded = load_profile(path)
+    assert not isinstance(loaded, Refusal)
+    cron = load_cron(loaded)
+    assert cron is not None and not isinstance(cron, Refusal)
+    with pytest.raises(TypeError, match="decide returned"):
+        cron.decide(PhaseFacts("bo", 0, _phase_file("lite", "lead", TEMPLATES, [])), Params([]))

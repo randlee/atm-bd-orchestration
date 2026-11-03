@@ -32,6 +32,7 @@ def test_released_qa_bead_is_assigned_once_and_deduped_next_tick(tmp_path):
     assert [o.kind for o in first.outcomes] == [OutcomeKind.SENT]
     assert len(runner.calls) == 1
     argv, stdin = runner.calls[0]
+    assert stdin is not None
     template = str((tmp_path / "skill/templates/qa.xml.j2").resolve())
     assert argv == ["atm", "task", "assign", QA, "--task-id", "tst-1.qa", "--template", template, "--vars", "-"]
     assert json.loads(stdin) == {"task_id": "tst-1.qa", "phase": "bo", "profile": "lite"}
@@ -103,7 +104,7 @@ def test_missing_params_report_goes_to_the_lead_once_then_stays_a_row(tmp_path):
     first = run(tmp_path, runner, collector)
     assert [o.kind for o in first.outcomes] == [OutcomeKind.SENT]
     assert runner.calls[0][0] == ["atm", "send", LEAD, "--stdin"]
-    assert "qa_template" in runner.calls[0][1]
+    assert "qa_template" in (runner.calls[0][1] or "")
     keys = tmp_path / "primary/.atm-bd/state/phase-bo/reported-keys.json"
     assert json.loads(keys.read_text(encoding="utf-8")) == ["cron:params"]
 

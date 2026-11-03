@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import importlib.util
 import tomllib
+import typing
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
 from types import ModuleType
 
-from atm_bd_types import Action, ErrorId, Hook, Params, PhaseFacts, Profile, Refusal, Template
+from atm_bd_types import Action, Assign, ErrorId, Hook, Notify, Params, PhaseFacts, Profile, Refusal, Report, Template
 from atm_bd_types._core import Policy
 
 HOOKS = {"task.assign": Hook.TASK_ASSIGN, "task.start": Hook.TASK_START, "task.close": Hook.TASK_CLOSE}
@@ -25,9 +26,21 @@ POLICY_KEYS = {"profile", "notify_template", "params"}
 
 @dataclass(frozen=True)
 class CronScript:
-    """The plug-in's `decide`, imported from its cron script."""
+    """The plug-in's `decide`, imported from its cron script; its result must be a list of Actions."""
 
-    decide: Callable[[PhaseFacts, Params], list[Action]]
+    script: Path
+    function: Callable[[PhaseFacts, Params], object]
+
+    def decide(self, facts: PhaseFacts, params: Params) -> list[Action]:
+        result = self.function(facts, params)
+        if not isinstance(result, list):
+            raise TypeError(f"{self.script}: decide returned {type(result).__name__}, not a list of Actions")
+        actions: list[Action] = []
+        for item in typing.cast(list[object], result):
+            if not isinstance(item, (Assign, Report, Notify)):
+                raise TypeError(f"{self.script}: decide returned {item!r}, not an Assign, Report or Notify")
+            actions.append(item)
+        return actions
 
 
 @dataclass(frozen=True)
@@ -124,6 +137,6 @@ def load_cron(loaded: LoadedProfile) -> CronScript | None | Refusal:
         decide = getattr(module, "decide", None)
         if not callable(decide):
             raise ImportError(f"{path} defines no decide(facts, params)")
-        return CronScript(decide)
+        return CronScript(path, decide)
     except Exception as exc:  # a plug-in script may fail to import in any way; each is a typed refusal
         return Refusal(ErrorId.PROFILE_MISMATCH, path=str(path), reason=f"{type(exc).__name__}: {exc}")

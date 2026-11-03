@@ -112,23 +112,22 @@ class Executor:
     notify_template: str
 
     def argv(self, action: Action) -> tuple[list[str], str]:
-        match action:
-            case Assign():
-                variables = {"task_id": action.vars.task_id, "phase": action.vars.phase,
-                             "profile": action.vars.profile}
-                return (["atm", "task", "assign", action.to, "--task-id", action.bead_id,
-                         "--template", str((self.root / action.template).resolve()), "--vars", "-"],
-                        json.dumps(variables))
-            case Report():
-                bead = f" ({action.bead_id})" if action.bead_id else ""
-                return ["atm", "send", self.lead, "--stdin"], f"[{action.queue}]{bead} {action.text}"
-            case Notify() if self.notify_template:
+        if isinstance(action, Assign):
+            variables = {"task_id": action.vars.task_id, "phase": action.vars.phase,
+                         "profile": action.vars.profile}
+            return (["atm", "task", "assign", action.to, "--task-id", action.bead_id,
+                     "--template", str((self.root / action.template).resolve()), "--vars", "-"],
+                    json.dumps(variables))
+        if isinstance(action, Report):
+            bead = f" ({action.bead_id})" if action.bead_id else ""
+            return ["atm", "send", self.lead, "--stdin"], f"[{action.queue}]{bead} {action.text}"
+        if isinstance(action, Notify):
+            if self.notify_template:
                 return (["atm", "send", action.to, "--template",
                          str((self.root / self.notify_template).resolve()), "--vars", "-"],
                         json.dumps({"keys": list(action.keys)}))
-            case Notify():
-                return ["atm", "send", action.to, "--stdin"], "\n".join(action.keys)
-        raise TypeError(f"not an Action: {action!r}")
+            return ["atm", "send", action.to, "--stdin"], "\n".join(action.keys)
+        raise TypeError(f"not an Assign, Report or Notify: {action!r}")
 
     def run(self, decision: Decision, decided: list[Action], reported_keys: list[str] | None,
             ledger: Ledger, dry_run: bool) -> list[ActionOutcome]:
