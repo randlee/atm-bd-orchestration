@@ -5,7 +5,7 @@ description = "atm-bd framework: the same for every profile (stores, collectors,
 license = "MIT"
 authors = [{ name = "Rand Lee" }]
 requires-python = ">=3.11"
-dependencies = ["atm-bd-types==0.3.0", "bd-cache-rs==0.1.0"]
+dependencies = ["atm-bd-types==0.4.0", "bd-cache-rs==0.1.0"]
 
 [build-system]
 requires = ["hatchling==1.31.0"]

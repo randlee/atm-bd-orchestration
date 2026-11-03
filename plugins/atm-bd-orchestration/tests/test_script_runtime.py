@@ -95,10 +95,10 @@ def test_no_document_runs_a_script_through_python3():
     assert hits == []
 
 
-def test_a_script_runs_on_python_3_11_whatever_python3_is_on_path(tmp_path):
-    """The real runtime: `uv run --python 3.11` works with a 3.14 `python3` first on PATH."""
+def _run_python311_probe(tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    """Run the actual script probe using the controlled environment rooted in tmp_path."""
     fake = tmp_path / "bin"
-    fake.mkdir()
+    fake.mkdir(parents=True)
     (fake / "python3").write_text("#!/bin/sh\necho 'Python 3.14.7'\n")
     (fake / "python3").chmod(0o755)
     probe = tmp_path / "probe.py"
@@ -106,12 +106,34 @@ def test_a_script_runs_on_python_3_11_whatever_python3_is_on_path(tmp_path):
     probe.chmod(0o755)
     env = {**os.environ, "PATH": f"{fake}{os.pathsep}{os.environ['PATH']}"}
     command = ["uv", "run", "--offline", "--python", "3.11", "--script", str(probe)]
-    run = _run_uv_probe(command, env=env, cwd=tmp_path)
+    return _run_uv_probe(command, env=env, cwd=tmp_path)
+
+
+def _assert_python311_probe_passes(run: subprocess.CompletedProcess[str]) -> None:
     assert run.returncode == 0, (
         f"stdout:\n{run.stdout}\nstderr:\n{run.stderr}\n"
         "If the Python 3.11 script environment is missing, run `just warm-py311` before the offline test."
     )
     assert run.stdout.strip() == "(3, 11)"
+
+
+def test_a_script_runs_on_python_3_11_whatever_python3_is_on_path(tmp_path: Path) -> None:
+    """The real runtime: `uv run --python 3.11` works with a 3.14 `python3` first on PATH."""
+    _assert_python311_probe_passes(_run_python311_probe(tmp_path))
+
+
+def test_empty_uv_cache_failure_names_warm_recipe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cache = tmp_path / "empty-uv-cache"
+    cache.mkdir()
+    monkeypatch.setenv("UV_CACHE_DIR", str(cache))
+
+    run = _run_python311_probe(tmp_path / "cold-cache")
+    with pytest.raises(AssertionError) as raised:
+        _assert_python311_probe_passes(run)
+
+    message = str(raised.value)
+    assert "pydantic was not found in the cache" in message
+    assert "run `just warm-py311`" in message
 
 
 def test_uv_probe_timeout_reports_partial_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -125,7 +125,7 @@ def route(repo_root, args, command, step):
                 print(config.error)
                 return int(Exit.CONFIG)
             if isinstance(config, Refusal):
-                print(json.loads(HookReply.refused(config).to_json())["message"])
+                print(json.loads(HookReply.refused(config).to_json(None))["message"])
                 return int(Exit.CONFIG)
             assert isinstance(config, Config)
             return run(config, None, INITIAL_STATE, startup_error, runner_step=selected.step)
@@ -238,7 +238,7 @@ class PolicyMonitor:
         now = datetime.now(UTC)
         if isinstance(result, Refusal):
             import json
-            message = json.loads(HookReply.refused(result).to_json())["message"]
+            message = json.loads(HookReply.refused(result).to_json(None))["message"]
             error = ConfigInvalid("config_invalid", result.id.name, message, message)
             return Snapshot(1, now, self.phase, False, None, (), (), (), (error,), Metrics(0, 0, 0, 0),
                             GhStatus("off", None, None, None, False), None, None, "graph TD", (),
@@ -316,7 +316,7 @@ class PolicyMonitor:
         import json
 
         from atm_bd_types import HookReply
-        print(json.loads(HookReply.refused(refusal).to_json())["message"])
+        print(json.loads(HookReply.refused(refusal).to_json(None))["message"])
 
     def snapshot(self, args: MonitorArgs) -> Exit:
         from atm_bd_types import Refusal
@@ -376,7 +376,7 @@ class PolicyMonitor:
         for error in tick.view.errors:
             print(f"{error.kind.name}: {error.message}; {error.fix}", file=sys.stderr)
         for action, outcome in zip(tick.view.actions, tick.outcomes):
-            failure = (json.loads(HookReply.refused(outcome.failure).to_json())["message"]
+            failure = (json.loads(HookReply.refused(outcome.failure).to_json(None))["message"]
                        if outcome.failure is not None else None)
             print(json.dumps({"kind": action.kind.name, "to": action.to, "bead_id": action.bead_id,
                               "key": action.key, "outcome": outcome.kind.name, "error": failure}))

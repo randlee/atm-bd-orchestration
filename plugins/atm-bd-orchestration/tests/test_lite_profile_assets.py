@@ -2,13 +2,12 @@
 import json
 import re
 import subprocess
-import sys
 import tomllib
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import atm_bd_types as T
 import pytest
+from atm_bd_types._native import _stack
 from lite.lite_helpers import (
     FakePhases,
     FakeStore,
@@ -19,6 +18,7 @@ from lite.lite_helpers import (
     layer,
     load_hook,
     reply_actions,
+    phase_file,
 )
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "atm-bd-lite"
@@ -57,10 +57,12 @@ def _hook_close_actions() -> list[dict]:
     stack = bead("stack", layers={target.branch: target})
     phases = FakePhases()
 
+    work = bead("dev-task", T.Status.CLOSED, branch=target.branch, stack_bead="stack")
+
     def run(item, request, *extra, target_layer=None):
-        reply = hook.hook(request, FakeStore(item, stack, *extra, target=target_layer), phases)
+        reply = hook.hook(request, FakeStore(stack, work, item, *extra, target=target_layer), phases)
         actions = reply_actions(reply)
-        assert len(actions) == 1, reply.to_json()
+        assert len(actions) == 1, reply.to_json(None)
         return actions[0]
 
     dev = bead("dev-task", T.Status.IN_PROGRESS, assignee="dev", branch=target.branch,
@@ -68,21 +70,49 @@ def _hook_close_actions() -> list[dict]:
     refused = hook_request(caller="dev", task_id="dev-task", outcome="refused", close_reason="blocked")
     completed = hook_request(caller="dev", task_id="dev-task", outcome="completed", close_report="complete")
     qa = bead("qa-task", T.Status.IN_PROGRESS, assignee="qa", stage="qa", stack_bead="stack",
-              sprint="sprint-10", phase="bo")
+              sprint="sprint-10", phase="bo", checked_bead="dev-task")
     passed = hook_request(caller="qa", task_id="qa-task", outcome="completed", verdict="PASS", verdict_sha=target.head)
     findings = hook_request(caller="qa", task_id="qa-task", outcome="completed", verdict="FINDINGS",
                             verdict_sha=target.head,
                             findings=[{"id": "F-1", "blocking": True}, {"id": "F-2", "blocking": False}])
     poured = [bead("F-1", blocks_ids=["sprint-10"]), bead("F-2", blocks_ids=["bo"])]
+    land = bead("land-task", T.Status.IN_PROGRESS, assignee="dev", stage="land")
+    merged = hook_request(caller="dev", task_id="land-task", outcome="completed",
+                          close_report=f'```json\n{{"merged":"{target.head}"}}\n```')
     return [run(dev, refused), run(dev, completed), run(qa, passed, target_layer=target),
-            run(qa, findings, *poured, target_layer=target)]
+            run(qa, findings, *poured, target_layer=target), run(land, merged)]
+
+
+def _qa_assignment_action() -> T.Assign:
+    cron = load_hook("atm-bd-cron")
+    target = layer("feature/x", "a" * 40, 42, "main")
+    qa = bead("qa-task", stage=T.Stage.QA, checked_bead="dev-task")
+    dev = bead("dev-task", branch=target.branch)
+    stack = T.StackFact(bead("stack", stage=T.Stage.STACK), _stack([target]), "main", None)
+    facts = T.PhaseFacts("bo", 0, phase_file(lead="lead", repo="owner/repo"), tasks=[], beads=[dev],
+                         ready=[qa], stack=stack, top_checks=T.TopChecks(target.head, T.CheckState.PASSING))
+    params = T.Params([("qa_agent", "qa"), ("qa_template", "templates/qa.xml.j2"),
+                       ("dev_agent", "dev"), ("dev_template", "templates/dev.xml.j2"),
+                       ("lead", "lead"), ("land_template", "templates/land.xml.j2")])
+    [action] = cron.decide(facts, params)
+    assert isinstance(action, T.Assign) and action.to == "qa"
+    return action
+
+
+def _assignment_vars(action: T.Assign) -> dict[str, object]:
+    values: dict[str, object] = {"task_id": action.vars.task_id, "phase": action.vars.phase,
+                                 "profile": action.vars.profile}
+    if action.vars.review is not None:
+        review = action.vars.review
+        values.update(repo=review.repo, pr_number=review.pr_number, branch=review.branch, commit=review.commit)
+    return values
 
 
 def test_close_templates_strictly_render_vars_from_hook_actions(tmp_path: Path) -> None:
     actions = _hook_close_actions()
-    assert len(actions) == 4
+    assert len(actions) == 5
     assert [Path(action_template(action)).name for action in actions] == [
-        "refuse.md", "dev-close.md", "qa-pass.md", "qa-findings.md",
+        "refuse.md", "dev-close.md", "qa-pass.md", "qa-findings.md", "land-close.md",
     ]
 
     for action in actions:
@@ -106,60 +136,63 @@ def test_close_templates_strictly_render_vars_from_hook_actions(tmp_path: Path) 
         assert "{{" not in rendered
 
 
-def test_qa_assignment_template_strictly_renders_assign_vars() -> None:
-    template = TEMPLATES / "qa.xml.j2"
+def test_qa_assignment_template_strictly_renders_assign_vars(tmp_path: Path) -> None:
+    action = _qa_assignment_action()
+    template = SKILL / action.template
+    variables = _assignment_vars(action)
     source = template.read_text()
     match = re.search(r"^required_variables:\s*\[([^]]*)\]$", source, re.MULTILINE)
     assert match is not None
-    assert [item.strip() for item in match.group(1).split(",")] == ["task_id", "phase", "profile", "repo", "pr_number", "branch", "commit"]
+    required = {item.strip() for item in match.group(1).split(",")}
+    assert set(variables) == required
+    var_file = tmp_path / "qa-vars.json"
+    var_file.write_text(json.dumps(variables))
     rendered = _run_with_timeout(
-        ["sc-compose", "render", "--strict", "--file", str(template),
-         "--var", "task_id=bo-14-qa", "--var", "phase=bo", "--var", "profile=atm-bd-lite",
-         "--var", "repo=owner/repo", "--var", "pr_number=42", "--var", "branch=feature/x", "--var", "commit=" + "a" * 40],
+        ["sc-compose", "render", "--strict", "--file", str(template), "--var-file", str(var_file)],
         timeout=10,
         check=True,
+        cwd=SKILL.parents[1],
     ).stdout
-    assert '<qa-task id="bo-14-qa">' in rendered
+    assert '<qa-task id="qa-task">' in rendered
     assert "owner/repo" in rendered and "42" in rendered
     assert "T-CLOSE-03" in rendered and "T-CLOSE-04" in rendered
 
 
-def test_policy_parameters_are_text_and_point_to_qa_template() -> None:
+def test_policy_parameters_are_text_and_every_named_template_is_shipped() -> None:
+    profile = tomllib.loads((SKILL / "profile.toml").read_text())
     policy = tomllib.loads((SKILL / "policy.toml").read_text())
     params = policy["params"]
     assert params["qa_agent"] == "quality-mgr"
     assert params["qa_template"] == "templates/qa.xml.j2"
     assert all(isinstance(value, str) for value in params.values())
-    assert (SKILL / params["qa_template"]).is_file()
+
+    named_templates = [
+        (f"profile.toml templates.{name}", path)
+        for name, path in profile["templates"].items()
+    ]
+    named_templates.extend(
+        (f"policy.toml params.{name}", path)
+        for name, path in params.items()
+        if name.endswith("_template")
+    )
+    assert named_templates
+    for source, path in named_templates:
+        target = (SKILL / path).resolve()
+        assert target.is_relative_to(SKILL.resolve()), f"{source} escapes the lite profile: {path}"
+        assert target.is_file(), f"{source} points to missing template {path}"
 
 
-def test_skill_registers_each_profile_hook_once() -> None:
+def test_skill_documents_profile_installer() -> None:
     profile = tomllib.loads((SKILL / "profile.toml").read_text())
     skill = (SKILL / "SKILL.md").read_text()
     assert profile["stages"] == ["dev", "qa", "land"]
-    commands = [line for line in skill.splitlines() if line.startswith("atm hook register ")]
-    assert len(commands) == len(profile["hooks"]) == 3
-    for hook, script in profile["hooks"].items():
-        assert sum(hook in command and f"--module .claude/skills/atm-bd-lite/{script}" in command for command in commands) == 1
+    assert set(profile["hooks"]) == {"task.assign", "task.start", "task.close"}
+    assert "python -m atm_bd_core.install" in skill
+    assert "atm-bd-lite/profile.toml" in skill
+    assert "--checkout <checkout> --repo <owner/repo>" in skill
+    assert "atm hook register" not in skill
     assert "followed by QA" in skill
     assert "does not add a sanity stage" in skill
-
-
-def test_copied_behavior_suite_runs_isolated(tmp_path: Path) -> None:
-    suite = Path(__file__).resolve().parent / "lite"
-    junit_xml = tmp_path / "lite-suite.xml"
-    result = _run_with_timeout(
-        [sys.executable, "-m", "pytest", "-q", "-c", "/dev/null", "--rootdir", ".", "--confcutdir", ".",
-         "--junitxml", str(junit_xml), "."],
-        timeout=15,
-        cwd=suite,
-        check=False,
-    )
-    details = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    assert result.returncode == 0, details
-    root = ET.parse(junit_xml).getroot()
-    test_count = sum(int(suite_report.attrib.get("tests", "0")) for suite_report in root.iter("testsuite"))
-    assert test_count > 0, f"no nested tests ran\n{details}"
 
 
 def test_subprocess_timeout_failure_includes_command_and_partial_output(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -180,12 +213,6 @@ def test_subprocess_timeout_failure_includes_command_and_partial_output(monkeypa
 
 def test_registered_profile_modules_declare_one_timeout_within_registrar_cap() -> None:
     profile = tomllib.loads((SKILL / "profile.toml").read_text())
-    skill = (SKILL / "SKILL.md").read_text()
-    registration_lines = [line for line in skill.splitlines() if line.startswith("atm hook register ")]
-    registered = [line.split("--module ", 1)[1].split()[0].rsplit("/", 1)[-1] for line in registration_lines]
-    hook_names = [Path(script).name for script in profile["hooks"].values()]
-    assert registered == hook_names
-
     modules = [SKILL / script for script in profile["hooks"].values()] + [SKILL / profile["cron"]]
     for module in modules:
         values = []

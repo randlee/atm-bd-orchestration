@@ -95,7 +95,7 @@ def hook_request(
 
 
 def reply_data(reply) -> dict:
-    return json.loads(reply.to_json())
+    return json.loads(reply.to_json(None))
 
 
 def reply_actions(reply) -> list[dict]:
@@ -126,6 +126,7 @@ class FakeStore:
     def __init__(self, *beads: T.Bead, target: T.Layer | T.Refusal | None = None, race: bool = False) -> None:
         self.beads = {item.id: item for item in beads}
         self.target, self.race = target, race
+        self.target_requests: list[str] = []
         self.writes: list[tuple[str, str, object, str]] = []
         self.refreshes: list[list[str]] = []
 
@@ -136,10 +137,13 @@ class FakeStore:
         return None
 
     def show(self, bead_id: str | None) -> T.Bead | T.Refusal:
+        if bead_id is None:
+            return T.Refusal(T.ErrorId.STACK_NOT_RECORDED, branch="")
         return self.beads.get(bead_id) or T.Refusal(T.ErrorId.BEAD_NOT_FOUND, bead=bead_id)
 
-    def target_layer(self, qa_bead: T.Bead) -> T.Layer | T.Refusal:
-        return self.target if self.target is not None else T.Refusal(T.ErrorId.QA_NOTHING_TO_REVIEW, bead=qa_bead.id)
+    def target_layer(self, checked_bead: T.Bead) -> T.Layer | T.Refusal:
+        self.target_requests.append(checked_bead.id)
+        return self.target if self.target is not None else T.Refusal(T.ErrorId.QA_NOTHING_TO_REVIEW, bead=checked_bead.id)
 
     def update(self, patch: T.BeadPatch, actor: str) -> T.Refusal | None:
         argument = patch.agent if patch.kind == T.PatchKind.ASSIGN else patch.evidence

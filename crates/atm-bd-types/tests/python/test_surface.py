@@ -172,17 +172,17 @@ def test_bead_unset_scope_is_none_and_ids_are_nonempty() -> None:
 
 def test_refused_message_uses_the_parsed_hooks_fix_table() -> None:
     parse("task.assign")
-    assert HookReply.refused(Refusal(ErrorId.ASSIGN_NOT_LEAD, lead="fenix")).to_json() == (
+    assert HookReply.refused(Refusal(ErrorId.ASSIGN_NOT_LEAD, lead="fenix")).to_json(Hook.TASK_ASSIGN) == (
         '{"result":"refused","message":"ASSIGN_NOT_LEAD: Only the lead (fenix) assigns. Ask the lead."}')
 
 
 def test_give_back_reason_and_unknown_template() -> None:
-    parse("task.close", "", {"op": "close", "outcome": "refused", "reason": "blocked"})
+    req = parse("task.close", "", {"op": "close", "outcome": "refused", "reason": "blocked"})
     phase = _phase_file("lite", "lead", TEMPLATES, [("root", "atm-phase-bo")])
     assert phase.key("root") == "atm-phase-bo" and phase.key("nope") is None
-    reply = HookReply.handled([HookAction.close(phase.template(Template.REFUSE), "blocked")]).to_json()
+    reply = HookReply.handled([HookAction.close(req, phase, phase.template(Template.REFUSE), "blocked")]).to_json(None)
     assert '"var_file_values":{"reason":"blocked"}' in reply and '"outcome":"refused"' in reply
-    unknown = HookReply.handled([HookAction.close("/elsewhere.j2", "blocked")]).to_json()
+    unknown = HookReply.handled([HookAction.close(req, phase, "/elsewhere.j2", "blocked")]).to_json(Hook.TASK_CLOSE)
     assert unknown == (
         '{"result":"refused","message":"REQUEST_INVALID: Not yours to fix: field=template. The lead has it."}')
 

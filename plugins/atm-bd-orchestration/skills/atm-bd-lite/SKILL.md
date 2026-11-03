@@ -10,12 +10,15 @@ The lite profile provides the minimal ATM Beads workflow: task assignment, task 
 hooks, followed by QA. It does not add a sanity stage. The profile manifest is `profile.toml`; hook
 implementations and their behavior tests are kept under this skill.
 
-Register the three hooks for a phase from the repository root, replacing `<phase>` with the phase name:
+Install the profile for a phase using a checkout of this repository. Replace `<checkout>` with that checkout,
+`<primary>` with the phase repository, `<phase>` with the phase name, and `<owner/repo>` with its provider repository:
 
 ```sh
-atm hook register task.assign --phase <phase> --cwd . --module .claude/skills/atm-bd-lite/scripts/atm-bd-task-assign-hook.py
-atm hook register task.start --phase <phase> --cwd . --module .claude/skills/atm-bd-lite/scripts/atm-bd-task-start-hook.py
-atm hook register task.close --phase <phase> --cwd . --module .claude/skills/atm-bd-lite/scripts/atm-bd-task-hook.py
+uv run --project <checkout>/plugins/atm-bd-orchestration/core python -m atm_bd_core.install \
+  <checkout>/plugins/atm-bd-orchestration/skills/atm-bd-lite/profile.toml <primary> <phase> \
+  --checkout <checkout> --repo <owner/repo>
 ```
+
+The installer registers all three hooks and the phase cron using generated launchers and verifies the registrations.
 
 The profile policy routes QA to `quality-mgr` with `templates/qa.xml.j2`.

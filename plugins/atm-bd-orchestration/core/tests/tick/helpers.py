@@ -26,11 +26,13 @@ SHIPPED = Path(__file__).resolve().parents[3] / "skills" / "atm-bd-lite"
 LEAD = "lead-agent"
 QA = "qa-agent"
 STARTUP_PARAMS = 'dev_agent = "dev-agent"\nlead = "lead-agent"\ndev_startup = "dev instructions"\nqa_startup = "qa instructions"\nlead_startup = "lead instructions"\n'
-POLICY = '[params]\nqa_agent = "qa-agent"\nqa_template = "templates/qa.xml.j2"\n' + STARTUP_PARAMS
+POLICY = ('[params]\nqa_agent = "qa-agent"\nqa_template = "templates/qa.xml.j2"\n'
+          'dev_template = "templates/dev.xml.j2"\nland_template = "templates/land.xml.j2"\n' + STARTUP_PARAMS)
 HOOK_FILES = ["scripts/atm-bd-task-assign-hook.py", "scripts/atm-bd-task-start-hook.py",
               "scripts/atm-bd-task-hook.py"]
 TEMPLATE_FILES = ["templates/refuse.md.j2", "templates/dev-close.md.j2", "templates/qa-pass.md.j2",
-                  "templates/qa-findings.md.j2", "templates/land-close.md.j2", "templates/qa.xml.j2"]
+                  "templates/qa-findings.md.j2", "templates/land-close.md.j2", "templates/qa.xml.j2",
+                  "templates/dev.xml.j2"]
 
 
 def make_profile(root: Path, policy: str | None = POLICY) -> Path:
@@ -41,18 +43,24 @@ def make_profile(root: Path, policy: str | None = POLICY) -> Path:
     shutil.copy(SHIPPED / "profile.toml", skill / "profile.toml")
     shutil.copy(SHIPPED / "scripts" / "atm-bd-cron.py", skill / "scripts" / "atm-bd-cron.py")
     for name in [*HOOK_FILES, *TEMPLATE_FILES]:
-        (skill / name).write_text("x\n", encoding="utf-8")
+        target = skill / name
+        if name == "templates/dev.xml.j2" and (SHIPPED / name).is_file():
+            shutil.copy(SHIPPED / name, target)
+        else:
+            target.write_text("x\n", encoding="utf-8")
     if policy is not None:
         (skill / "policy.toml").write_text(policy, encoding="utf-8")
     return skill / "profile.toml"
 
 
-def make_primary(root: Path, profile: str = "lite") -> Path:
+def make_primary(root: Path, profile: str = "lite", provider: str | None = None) -> Path:
     """A primary checkout with .atm-bd/phase-bo.toml naming `profile`."""
     primary = root / "primary"
     (primary / ".atm-bd").mkdir(parents=True)
     lines = [f'profile = "{profile}"', f'profile_path = "{root / "skill" / "profile.toml"}"',
              f'lead = "{LEAD}"', 'root = "atm-phase-bo"', 'repo = "owner/repo"']
+    if provider is not None:
+        lines.append(f'provider = "{provider}"')
     (primary / ".atm-bd" / "phase-bo.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return primary
 
@@ -60,6 +68,10 @@ def make_primary(root: Path, profile: str = "lite") -> Path:
 def qa_bead(bead_id: str = "tst-1.qa", assignee: str | None = None) -> Bead:
     return _bead(bead_id, Status.OPEN, Stage.QA, assignee, sprint="tst-1", phase="bo",
                  checked_bead=f"dev-{bead_id}")
+
+
+def dev_bead(bead_id: str = "tst-1.dev") -> Bead:
+    return _bead(bead_id, Status.OPEN, Stage.DEV, None, sprint="tst-1", phase="bo")
 
 
 @dataclass

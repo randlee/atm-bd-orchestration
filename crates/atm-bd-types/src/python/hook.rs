@@ -6,10 +6,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::IntoPyObjectExt;
 
-use super::context;
 use super::conv::conv_wrapper;
 use super::either;
-use super::enums::{PyErrorId, PyPatchKind, PyStage, PyStatus, PyTemplate};
+use super::enums::{PyErrorId, PyHook, PyPatchKind, PyStage, PyStatus, PyTemplate};
 use super::records::PyMerged;
 use crate::plugin::{
     Bead, BeadId, BeadPatch, BranchName, CloseVars, Ctx, ErrorId, Evidence, Finding, HookAction,
@@ -335,11 +334,9 @@ impl PyPhaseFile {
     fn lead(&self) -> &str {
         &self.0.lead
     }
-    /// The template's path; `HookAction.close` resolves the path back to this template's bytes.
+    /// The template path; close resolves it within this phase file.
     fn template(&self, which: PyTemplate) -> String {
-        let file = self.0.template(Template::from(which));
-        context::add_template(file);
-        file.path.clone()
+        self.0.template(Template::from(which)).path.clone()
     }
     fn key(&self, name: &str) -> Option<&str> {
         self.0.key(name)
@@ -498,14 +495,10 @@ class HookRequest:
 
 #[pymethods]
 impl PyHookRequest {
-    /// `HookRequest::parse`; a decoded request becomes the one this process answers.
+    /// Parse an independent request.
     #[staticmethod]
     fn parse<'py>(py: Python<'py>, stdin: &str) -> PyResult<Bound<'py, PyAny>> {
-        let parsed = HookRequest::parse(stdin);
-        if let Ok(request) = &parsed {
-            context::set_request(request);
-        }
-        either(py, parsed.map(PyHookRequest))
+        either(py, HookRequest::parse(stdin).map(PyHookRequest))
     }
     fn is_phase_task(&self) -> bool {
         self.0.is_phase_task()
@@ -557,7 +550,7 @@ impl PyHookRequest {
     }
 }
 
-/// One `atm-action` close, or the refusal that it could not be built (no parsed request, unknown template).
+/// One `atm-action` close, or the refusal that it could not be built.
 #[pyclass(frozen, from_py_object, name = "HookAction", module = "atm_bd_types")]
 #[derive(Clone, Debug)]
 pub(crate) struct PyHookAction(pub(crate) Result<HookAction, Refusal>);
@@ -565,7 +558,7 @@ pub(crate) struct PyHookAction(pub(crate) Result<HookAction, Refusal>);
 pub(crate) const HOOK_ACTION_STUB: &str = r#"@typing.final
 class HookAction:
     @staticmethod
-    def close(template: str, vars: Layer | QaPass | QaFail | Merged | str) -> HookAction:
+    def close(request: HookRequest, phase: PhaseFile, template: str, vars: Layer | QaPass | QaFail | Merged | str) -> HookAction:
         r"""atm task close --template <template> --vars <vars>; str is the give-back reason."""
 "#;
 
@@ -575,20 +568,27 @@ fn invalid(field: &str) -> Refusal {
 
 #[pymethods]
 impl PyHookAction {
-    /// `HookAction::close` for the parsed request and the template `PhaseFile.template` returned as `template`.
+    /// Build a close action using only the supplied request and phase template.
     #[staticmethod]
-    fn close(template: &str, vars: &Bound<'_, PyAny>) -> PyResult<Self> {
+    fn close(
+        request: PyRef<'_, PyHookRequest>,
+        phase: PyRef<'_, PyPhaseFile>,
+        template: &str,
+        vars: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
         let vars = match vars.extract::<String>() {
             Ok(reason) => CloseVars::Reason { reason },
             Err(_) => evidence(vars).map(|e| CloseVars::from(&e)).ok_or_else(|| {
                 PyTypeError::new_err("HookAction.close vars must be Layer, QaPass, QaFail or str")
             })?,
         };
-        let action = match (context::request(), context::template(template)) {
-            (None, _) => Err(invalid("request")),
-            (Some(_), None) => Err(invalid("template")),
-            (Some(request), Some(file)) => HookAction::close(&request, &file, vars),
-        };
+        let action = phase
+            .0
+            .templates
+            .iter()
+            .find(|file| file.path == template)
+            .ok_or_else(|| invalid("template"))
+            .and_then(|file| HookAction::close(&request.0, file, vars));
         Ok(PyHookAction(action))
     }
     fn __repr__(&self) -> String {
@@ -611,7 +611,7 @@ class HookReply:
     def refused(refusal: Refusal) -> HookReply: ...
     @staticmethod
     def handled(actions: list[HookAction]) -> HookReply: ...
-    def to_json(self) -> str: ...
+    def to_json(self, hook: Hook | None) -> str: ...
 ";
 
 #[pymethods]
@@ -640,9 +640,9 @@ impl PyHookReply {
             Err(refusal) => PyHookReply(HookReply::refused(refusal)),
         }
     }
-    /// `HookReply::to_json` with the parsed request's hook selecting the fix table.
-    fn to_json(&self) -> String {
-        self.0.to_json(context::hook())
+    /// Serialize with the explicitly selected hook fix table.
+    fn to_json(&self, hook: Option<PyHook>) -> String {
+        self.0.to_json(hook.map(Into::into))
     }
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
@@ -658,11 +658,12 @@ class PhaseFilesCli(PhaseFiles):
 pub(crate) const CACHE_STORE_STUB: &str = r#"@typing.final
 class CacheStore(BeadStore):
     r"""The beads-cache adapter the hooks' entry points construct; the framework's BeadsCache port."""
+    def __init__(self, store: typing.Any) -> None: ...
     @staticmethod
     def for_phase(phase: str) -> CacheStore | Refusal: ...
     def refresh(self, bead_ids: builtins.list[str | None]) -> Refusal | None: ...
     def show(self, bead_id: str | None) -> Bead | Refusal: ...
-    def target_layer(self, qa_bead: Bead) -> Layer | Refusal: ...
+    def target_layer(self, checked_bead: Bead) -> Layer | Refusal: ...
     def update(self, patch: BeadPatch, actor: str) -> Refusal | None: ...
     def list(self, phase: str) -> builtins.list[Bead] | Refusal: ...
     def ready(self, phase: str) -> builtins.list[Bead] | Refusal: ...
@@ -676,8 +677,8 @@ pub(crate) fn stack_of(bead: PyRef<'_, PyBead>) -> Option<PyStack> {
 
 /// Encode typed close evidence at the framework's journal boundary.
 #[pyfunction]
-pub(crate) fn encode_evidence(value: &Bound<'_, PyAny>) -> PyResult<String> {
-    let evidence = evidence(value)
+pub(crate) fn encode_evidence(evidence: &Bound<'_, PyAny>) -> PyResult<String> {
+    let evidence = self::evidence(evidence)
         .ok_or_else(|| PyTypeError::new_err("evidence must be Layer, QaPass, QaFail or Merged"))?;
     Ok(crate::framework::encode_evidence(&evidence))
 }

@@ -121,30 +121,18 @@ class CacheStore:
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
             return _refusal(exc, phase)
 
-    def target_layer(self, qa_bead):
+    def target_layer(self, checked_bead):
         try:
-            row = self._row(qa_bead.id)
-            meta = row.get("metadata") or {}
-            checked = meta.get("checked_bead")
-            if not checked:
-                checked = next((edge["depends_on_id"] for edge in row.get("dependencies", [])
-                                if edge.get("type") == "blocks" and self._row(edge["depends_on_id"])["status"] == "closed"), None)
-            if checked is None:
-                return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=self.phase, bead=qa_bead.id,
-                               reason=f"QA bead {qa_bead.id} has no checked bead or closed blocker")
-            target_view = self._view(checked)
-            blocks_index = self._blocks_index(self._views(self.phase))
-            target = self._convert(target_view, blocks_index)
-            if target.stack_bead is None or target.branch is None:
-                return Refusal(ErrorId.STACK_NOT_RECORDED, branch=target.branch or "")
-            stack = self.show(target.stack_bead)
+            if checked_bead.stack_bead is None or checked_bead.branch is None:
+                return Refusal(ErrorId.STACK_NOT_RECORDED, branch=checked_bead.branch or "")
+            stack = self.show(checked_bead.stack_bead)
             if isinstance(stack, Refusal):
                 return stack
             ledger = stack_of(stack)
-            layer = next((x for x in ledger.layers if x.branch == target.branch), None) if ledger else None
-            return layer or Refusal(ErrorId.STACK_NOT_RECORDED, branch=target.branch)
+            layer = next((x for x in ledger.layers if x.branch == checked_bead.branch), None) if ledger else None
+            return layer or Refusal(ErrorId.STACK_NOT_RECORDED, branch=checked_bead.branch)
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
-            return _refusal(exc, self.phase, qa_bead.id)
+            return _refusal(exc, self.phase, checked_bead.id)
 
     def update(self, patch, actor: str):
         try:

@@ -45,7 +45,7 @@ flowchart TD
 
 For T-CLOSE-02 through T-CLOSE-05, an already closed bead skips the write and returns the same validated close action. T-CLOSE-01 refuses a closed bead.
 
-Target layer (T-CLOSE-03/04): the layer recorded for the QA bead's closed dev/fix blocker, or the lead's `checked_bead` if set. Findings are matched to beads by the id the pour returned, listed in the QA report.
+Target layer (T-CLOSE-03/04): the layer recorded for the bead named by the QA bead's `checked_bead`. Findings are matched to beads by the id the pour returned, listed in the QA report.
 
 ## Facts
 | fact | lookup |

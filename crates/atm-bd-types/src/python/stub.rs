@@ -20,8 +20,8 @@ r"""40-hex commit id (Rust `Sha`)."""
 const BEAD_STORE: &str = r#"class BeadStore(typing.Protocol):
     def refresh(self, bead_ids: list[str | None]) -> Refusal | None: ...
     def show(self, bead_id: str | None) -> Bead | Refusal: ...
-    def target_layer(self, qa_bead: Bead) -> Layer | Refusal:
-        r"""The ledger layer of the QA bead's closed dev/fix blocker, or of its checked_bead."""
+    def target_layer(self, checked_bead: Bead) -> Layer | Refusal:
+        r"""The ledger layer for the supplied checked bead's branch."""
     def update(self, patch: BeadPatch, actor: str) -> Refusal | None: ...
 "#;
 

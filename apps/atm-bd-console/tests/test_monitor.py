@@ -76,7 +76,7 @@ def test_missing_path_and_mismatched_profile_are_refused(tmp_path):
     assert isinstance(selected, monitor.PolicyMonitor)
     refusal = selected._tick(dry_run=True)
     assert isinstance(refusal, Refusal) and refusal.id == ErrorId.PHASE_UNREADABLE
-    assert "profile_path" in json.loads(HookReply.refused(refusal).to_json())["message"]
+    assert "profile_path" in json.loads(HookReply.refused(refusal).to_json(None))["message"]
     _lite(tmp_path)
     path = tmp_path / ".atm-bd" / "phase-zz.toml"
     path.write_text(path.read_text().replace('profile="lite"', 'profile="other"'))
@@ -213,7 +213,7 @@ def test_refusal_snapshot_preserves_id_and_wire_message(tmp_path):
     assert isinstance(selected, monitor.PolicyMonitor)
     refusal = selected._tick(dry_run=True)
     assert isinstance(refusal, Refusal)
-    expected = json.loads(HookReply.refused(refusal).to_json())["message"]
+    expected = json.loads(HookReply.refused(refusal).to_json(None))["message"]
     snapshot = selected._snapshot(refusal, selected._config(monitor.MonitorArgs("snapshot", phase="zz")))
     error = snapshot.errors[0]
     assert isinstance(error, ConfigInvalid)
@@ -359,7 +359,7 @@ def test_snapshot_holds_console_lock_and_persists_refusal(tmp_path, monkeypatch)
     saved = load_snapshot(tmp_path, "atm-phase-zz")
     assert isinstance(saved, Ok) and isinstance(saved.value.errors[0], ConfigInvalid)
     assert saved.value.errors[0].key == refusal.id.name
-    assert saved.value.errors[0].value == json.loads(HookReply.refused(refusal).to_json())["message"]
+    assert saved.value.errors[0].value == json.loads(HookReply.refused(refusal).to_json(None))["message"]
 
 
 def test_policy_console_launches_with_monitor_step_and_config(tmp_path, monkeypatch):

@@ -1,16 +1,19 @@
 """bo-12 acceptance: one tick with the contract's lite cron script against fake PhaseFacts."""
 import json
+import subprocess
+import tomllib
 from collections import deque
 from pathlib import Path
 
 import pytest
 
-from atm_bd_core.execute import RETRY_LIMIT
+from atm_bd_core.execute import RETRY_LIMIT, Executor, Ledger
+from atm_bd_core.collect.provider import resolve_provider
 from atm_bd_core.tick import tick
-from atm_bd_types import Assign, CollectError, ErrorId, FactKind, PhaseFacts, Refusal, TaskFact, TaskState
-from atm_bd_core import OutcomeKind, Ports, TickResult
+from atm_bd_types import Assign, CollectError, ErrorId, FactKind, Notify, PhaseFacts, Refusal, Report, TaskFact, TaskState
+from atm_bd_core import Decision, OutcomeKind, Ports, TickResult
 
-from .helpers import STARTUP_PARAMS, LEAD, QA, Collector, Runner, make_primary, make_profile, ports, qa_bead
+from .helpers import STARTUP_PARAMS, LEAD, QA, Collector, Runner, dev_bead, make_primary, make_profile, ports, qa_bead
 
 NOW = 1_700_000_000
 
@@ -46,6 +49,42 @@ def test_released_qa_bead_is_assigned_once_and_deduped_next_tick(tmp_path):
     assert len(runner.calls) == 1, "second tick executed a command"
     assert second.decision.actions == [] and second.outcomes == []
     assert state(tmp_path)["sent"] == ["assign:tst-1.qa"]
+
+
+@pytest.mark.parametrize("provider_name", ["gh", "az"])
+def test_dev_assignment_renders_provider_command_from_real_table(tmp_path, monkeypatch, provider_name):
+    monkeypatch.setenv("ATM_TEAM", "test-team")
+    make_profile(tmp_path)
+    make_primary(tmp_path, provider=provider_name)
+    runner, collector = Runner(), Collector([dev_bead()])
+    result = run(tmp_path, runner, collector)
+    assert len(result.decision.actions) == 1
+    assert len(runner.calls) == 1
+    argv, stdin = runner.calls[0]
+    assert stdin is not None
+    variables = json.loads(stdin)
+    provider, issue = resolve_provider(runner, provider_name)
+    assert provider is not None and issue is None
+    assert variables["provider"] == {"create": provider["create"]}
+    assert variables["task_id"] == "tst-1.dev"
+    table = tomllib.loads((Path(__file__).resolve().parents[2] / "atm_bd_core" / "providers.toml").read_text())
+    assert variables["provider"]["create"] == table[provider_name]["create"]
+
+    template = Path(argv[argv.index("--template") + 1])
+    var_file = tmp_path / "assignment-vars.json"
+    var_file.write_text(json.dumps(variables), encoding="utf-8")
+    rendered = subprocess.run(
+        ["sc-compose", "render", "--root", str(template.parent), "--strict", "--file", str(template),
+         "--var-file", str(var_file)],
+        capture_output=True, text=True, check=True, timeout=10,
+    ).stdout
+    command = (provider["create"].replace("'{base}'", "<top>").replace("'{head}'", "<branch>")
+               .replace("'{title}'", "<one-line title>")
+               .replace("'{body_file}'", "<scratch>/tst-1.dev-pr-body.md")
+               .replace("{body_file}", "<scratch>/tst-1.dev-pr-body.md"))
+    assert command in rendered
+    if provider_name == "az":
+        assert "gh pr create" not in rendered
 
 
 def test_completed_assign_is_persisted_before_a_later_command_raises(tmp_path):
@@ -188,6 +227,35 @@ def test_dry_run_executes_nothing_and_writes_no_state(tmp_path):
     assert [o.kind for o in result.outcomes] == [OutcomeKind.DRY_RUN]
     assert runner.calls == []
     assert not (tmp_path / "primary/.atm-bd/state").exists()
+
+
+@pytest.mark.parametrize("action", [Report("report", "queue", None, "text"), Notify("recipient", ["key"])])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_missing_team_returns_typed_failure_without_running_command(tmp_path, monkeypatch, action, dry_run):
+    monkeypatch.delenv("ATM_TEAM", raising=False)
+    runner, ledger = Runner(), Ledger()
+    executor = Executor(runner, tmp_path / "state", tmp_path, "lead", "")
+
+    [outcome] = executor.run(Decision([action], []), [action], [], ledger, dry_run, True)
+
+    assert outcome.kind == OutcomeKind.FAILED
+    assert outcome.failure.id == ErrorId.REQUEST_INVALID
+    assert "ATM_TEAM" in repr(outcome.failure)
+    assert runner.calls == []
+    if dry_run:
+        assert not ledger.failures and not (tmp_path / "state").exists()
+    else:
+        assert next(iter(ledger.failures.values())).attempts == 1
+
+
+def test_qualified_recipient_does_not_require_team(tmp_path, monkeypatch):
+    monkeypatch.delenv("ATM_TEAM", raising=False)
+    runner = Runner()
+    action = Notify("recipient@example", ["key"])
+    executor = Executor(runner, tmp_path / "state", tmp_path, "lead", "")
+    [outcome] = executor.run(Decision([action], []), [action], [], Ledger(), False, True)
+    assert outcome.kind == OutcomeKind.SENT
+    assert "recipient@example" in runner.calls[0][0]
 
 
 def test_missing_params_report_goes_to_the_lead_once_then_stays_a_row(tmp_path, monkeypatch):

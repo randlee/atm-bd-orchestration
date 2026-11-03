@@ -3,13 +3,16 @@ name: lite-dev-assignment
 version: 1.0.0
 description: Lite development and stack task.
 format: xml
-required_variables: [task_id, phase, profile]
+required_variables: [provider, provider.create, task_id, phase, profile]
 metadata:
   type: dev-assignment
 ---
 <dev-task id="{{ task_id }}">
   <phase>{{ phase }}</phase>
   <profile>{{ profile }}</profile>
+  <provider-commands>
+    <create><![CDATA[{{ provider.create | replace("'{base}'", "<top>") | replace("'{head}'", "<branch>") | replace("'{title}'", "<one-line title>") | replace("'{body_file}'", "<scratch>/" ~ task_id ~ "-pr-body.md") | replace("{body_file}", "<scratch>/" ~ task_id ~ "-pr-body.md") | cdata_escape }}]]></create>
+  </provider-commands>
   <instructions><![CDATA[
 Read your own bead with `bd show {{ task_id }} --json` for the work and metadata. Start with `atm task start {{ task_id }}`.
 Never write your own task bead: only the task hooks do that. Run no cache commands; hooks refresh what they read. The only `bd` writes below are to the stack bead.
@@ -52,8 +55,12 @@ TOP=$(printf '%s' "$META" | jq -er '.layers[-1].branch // .trunk')
 git -C "$WORKTREE" fetch origin "$TOP"
 git -C "$WORKTREE" rebase "origin/$TOP"
 git -C "$WORKTREE" push --force-with-lease origin "$BRANCH"
-PR=$(gh pr view "$BRANCH" --repo "$REPO" --json number --jq .number 2>/dev/null || gh pr create --repo "$REPO" --base "$TOP" --head "$BRANCH" --title "$TASK_ID" --body 'Lite development layer' | sed 's|.*/||')
-gh pr edit "$PR" --repo "$REPO" --base "$TOP"
+```
+
+Write `Lite development layer` to `<scratch>/{{ task_id }}-pr-body.md`, create the pull request against `$TOP` with the provider command above, then record its number in `PR` before continuing:
+
+```bash
+PR='<created pull request number>'
 HEAD=$(git -C "$WORKTREE" rev-parse HEAD)
 UPDATED=$(printf '%s' "$META" | jq --arg branch "$BRANCH" --arg head "$HEAD" --arg base "$TOP" --argjson pr "$PR" '.layers += [{branch:$branch,head:$head,pr:$pr,base:$base}]')
 bd update "$STACK" --if-assignee "$ATM_IDENTITY" --metadata "$UPDATED"

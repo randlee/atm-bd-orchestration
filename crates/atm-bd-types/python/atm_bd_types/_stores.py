@@ -46,8 +46,8 @@ class CacheStore:
     def show(self, bead_id: str | None) -> Any:
         return self._store.show(bead_id)
 
-    def target_layer(self, qa_bead: Any) -> Any:
-        return self._store.target_layer(qa_bead)
+    def target_layer(self, checked_bead: Any) -> Any:
+        return self._store.target_layer(checked_bead)
 
     def update(self, patch: Any, actor: str) -> Any:
         return self._store.update(patch, actor)

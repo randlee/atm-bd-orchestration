@@ -5,6 +5,7 @@
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
+use std::ffi::CString;
 
 use super::conv::{conv_wrapper, Conv};
 use super::record_stub;
@@ -105,6 +106,16 @@ macro_rules! record {
 
         #[pymethods]
         impl $py {
+            /// Public constructor signature, derived from the same fields that parse its arguments.
+            #[classattr]
+            fn __signature__(py: Python<'_>) -> PyResult<Py<PyAny>> {
+                let args = vec![$(format!("{}{}", stringify!($field), record_signature_default!($($stub_default)?))),+].join(", ");
+                let expression = CString::new(format!("lambda {args}: None"))
+                    .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+                let function = py.eval(expression.as_c_str(), None, None)?;
+                Ok(py.import("inspect")?.getattr("signature")?.call1((function,))?.unbind())
+            }
+
             /// Takes every field in order, positionally or by name, like a frozen dataclass.
             #[new]
             #[pyo3(signature = (*args, **kwargs))]
@@ -123,6 +134,15 @@ macro_rules! record {
 
             fn __repr__(&self) -> String { format!("{:?}", self.0) }
         }
+    };
+}
+
+macro_rules! record_signature_default {
+    () => {
+        String::new()
+    };
+    ($value:literal) => {
+        format!("={}", if $value == "..." { "[]" } else { $value })
     };
 }
 

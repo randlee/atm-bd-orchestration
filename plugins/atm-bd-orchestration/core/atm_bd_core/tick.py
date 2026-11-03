@@ -17,6 +17,7 @@ from atm_bd_core import (ActionKind, ActionOutcome, CommandResult, Decision, Pha
                                 ViewAction, ViewSprint, ViewStep, ViewTask)
 
 from .collect import collect
+from .collect.provider import resolve_provider
 from .execute import Executor, Ledger, action_key, dedupe
 from .profile import load_cron, load_policy, load_profile
 from .store import CacheStore, PhaseFilesCli
@@ -92,7 +93,16 @@ def tick(profile_path: Path, phase: str, primary: Path, *, ports: Ports | None =
         decided.append(Report(f"cache:escalation:{item['seq']}", "cache", item["bead"], f"{error}: {reason}"))
     reported = None if facts.reported_keys is None else list(facts.reported_keys)
     decision = dedupe(decided, reported, ledger)
-    executor = Executor(resolved.runner, state_dir, loaded.root, phase_file.lead, policy.notify_template)
+    provider_create = None
+    dev_template = policy.params.text("dev_template")
+    if any(isinstance(action, Assign) and action.template == dev_template for action in decision.actions):
+        selected_provider, _issue = resolve_provider(
+            resolved.runner, phase_file.key("provider"), phase_file.key("repo"))
+        if selected_provider is not None:
+            command = selected_provider.get("create")
+            provider_create = command if isinstance(command, str) and command else None
+    executor = Executor(resolved.runner, state_dir, loaded.root, phase_file.lead, policy.notify_template,
+                        provider_create)
     outcomes = executor.run(decision, decided, reported, ledger, dry_run, facts_complete=not facts.errors)
     delivered = {action_key(o.action) for o in outcomes if o.kind.name == "SENT"}
     for item in escalations:

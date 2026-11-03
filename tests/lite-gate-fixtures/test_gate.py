@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,18 @@ spec.loader.exec_module(gate)
 def failures(name: str) -> list[str]:
     source = (FIXTURES / name).read_text(encoding="utf-8")
     return gate.deterministic(source, gate.facts(source), gate.table(SPEC_PATH.read_text(), "Transitions"))
+
+
+def record_answers(questions, no=()):
+    return {key: {"type": "choice", "choice": "no" if key in no else "yes", "confidence": 1.0,
+                  "probabilities": {choice: float(choice == ("no" if key in no else "yes"))
+                                    for choice in question["criteria"]}}
+            for key, question in questions.items()}
+
+
+def fixture_digest(hook: Path, spec_text: str) -> str:
+    return gate.input_sha256(hook.read_text(encoding="utf-8"), spec_text,
+                             gate.QUESTIONS.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize(("bad", "rule"), [
@@ -54,29 +67,89 @@ def test_jev_no_answers_map_to_the_specific_row_and_site() -> None:
     assert gate.findings({key: {"choice": "yes"} for key in answers}, facts) == []
 
 
-def test_one_jev_check_and_typed_outage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_missing_record_and_recorded_no_fail_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys) -> None:
     hook = FIXTURES / "start-clean.py"
     out = tmp_path / "result.json"
-    calls = []
+    spec_text = SPEC_PATH.read_text(encoding="utf-8")
+    digest = fixture_digest(hook, spec_text)
+    monkeypatch.setattr(gate, "RECORDS_DIR", tmp_path / "missing-records")
 
-    def accept(state, questions):
-        calls.append((state, questions))
-        class Reply:
-            answers = {key: {"choice": "yes"} for key in questions}
-            input_tokens = 1
-        return Reply()
+    def unexpected_live_call(*_args, **_kwargs):
+        raise AssertionError("CI must never call Jev")
 
-    monkeypatch.setattr(gate, "check", accept)
+    monkeypatch.setattr(gate, "check", unexpected_live_call)
+    assert gate.main([str(hook), str(SPEC_PATH), "--out", str(out)]) == 1
+    missing = json.loads(out.read_text(encoding="utf-8"))
+    assert missing["jev_error"]["code"] == "JEV_RECORD_MISSING"
+    assert digest in missing["jev_error"]["message"] and "start-clean.py" in missing["jev_error"]["message"]
+
+    facts = gate.facts(hook.read_text(encoding="utf-8"))
+    questions = gate.questions(facts, gate.table(spec_text, "Transitions"))
+    expected_no = sorted(questions)[:1]
+    monkeypatch.setattr(gate, "RECORDS_DIR", tmp_path / "no-records")
+    gate.write_record(gate.record_path(digest), digest, record_answers(questions, expected_no), 7)
+    assert gate.main([str(hook), str(SPEC_PATH), "--out", str(out)]) == 1
+    no_result = json.loads(out.read_text(encoding="utf-8"))
+    assert no_result["jev"]["no"] == expected_no
+    diagnostic = capsys.readouterr().err
+    assert digest in diagnostic and "start-clean.py" in diagnostic
+
+    monkeypatch.setattr(gate, "RECORDS_DIR", tmp_path / "yes-records")
+    gate.write_record(gate.record_path(digest), digest, record_answers(questions), 7)
     assert gate.main([str(hook), str(SPEC_PATH), "--out", str(out)]) == 0
-    assert len(calls) == 1
-    assert json.loads(out.read_text())["pass"] is True
+    assert json.loads(out.read_text(encoding="utf-8"))["pass"] is True
 
-    def unavailable(_state, _questions):
-        raise gate.JevCheckError("JEV_UNAVAILABLE", "test outage")
 
-    monkeypatch.setattr(gate, "check", unavailable)
-    assert gate.main([str(hook), str(SPEC_PATH), "--out", str(out)]) == 2
-    assert json.loads(out.read_text())["jev_error"]["code"] == "JEV_UNAVAILABLE"
+def test_gate_uses_env_then_injected_keychain_and_one_client_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    lookups = []
+    seen = []
+
+    def lookup(name):
+        lookups.append(name)
+        return "injected-secret"
+
+    def controlled_evaluate(request, *, max_attempts):
+        seen.append((request, max_attempts, gate.os.environ.get("TYPESAFE_API_KEY")))
+        return {"answers": {"implemented:T-1": {"type": "choice", "choice": "yes"}},
+                "usage": {"input_tokens": 7}}
+
+    monkeypatch.setattr(gate, "evaluate", controlled_evaluate)
+    questions = {"implemented:T-1": {"type": "choice", "instructions": "check",
+                                    "criteria": {"yes": "yes", "no": "no"}}}
+    reply = gate.check({"hook": "source"}, questions, key_lookup=lookup)
+
+    assert lookups == ["TYPESAFE_API_KEY"]
+    assert seen == [({"model": gate.MODEL, "state": {"hook": "source"}, "questions": questions},
+                    1, "injected-secret")]
+    assert gate.os.environ.get("TYPESAFE_API_KEY") is None
+    assert reply.answers == {"implemented:T-1": {"type": "choice", "choice": "yes"}}
+    assert reply.input_tokens == 7
+
+
+def test_gate_prefers_environment_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TYPESAFE_API_KEY", "environment-secret")
+    seen = []
+
+    def no_lookup(_name):
+        raise AssertionError("Keychain must not be queried when the environment has a key")
+
+    def controlled_evaluate(_request, *, max_attempts):
+        seen.append((gate.os.environ["TYPESAFE_API_KEY"], max_attempts))
+        return {"answers": {"implemented:T-1": {"type": "choice", "choice": "yes"}}}
+
+    monkeypatch.setattr(gate, "evaluate", controlled_evaluate)
+    questions = {"implemented:T-1": {"type": "choice", "instructions": "check",
+                                    "criteria": {"yes": "yes", "no": "no"}}}
+    gate.check({"hook": "source"}, questions, key_lookup=no_lookup)
+    assert seen == [("environment-secret", 1)]
+
+
+def test_record_hash_includes_hook_spec_and_question_set() -> None:
+    baseline = gate.input_sha256("hook", "spec", "questions")
+    assert baseline != gate.input_sha256("changed hook", "spec", "questions")
+    assert baseline != gate.input_sha256("hook", "changed spec", "questions")
+    assert baseline != gate.input_sha256("hook", "spec", "changed questions")
 
 
 @pytest.mark.parametrize("flag", ["-h", "--help"])
@@ -106,7 +179,7 @@ def test_empty_spec_is_rejected() -> None:
     assert any(item.startswith("ANC-052") for item in gate.deterministic(source, gate.facts(source), []))
 
 
-def test_profile_runner_checks_each_hook_once_and_fails_missing_spec(monkeypatch, tmp_path):
+def test_profile_runner_checks_each_hook_once_and_fails_missing_spec(monkeypatch, tmp_path, capsys):
     runner_path = GATE_PATH.with_name("run-plugin-gates.py")
     runner_spec = importlib.util.spec_from_file_location("gate_runner", runner_path)
     assert runner_spec is not None and runner_spec.loader is not None
@@ -124,8 +197,9 @@ def test_profile_runner_checks_each_hook_once_and_fails_missing_spec(monkeypatch
     monkeypatch.setattr(runner, "__file__", str(gate_file))
     calls = []
 
-    def run(argv, *, check):
+    def run(argv, *, check, timeout):
         assert check is False
+        assert timeout == runner.GATE_TIMEOUT_SECONDS
         calls.append(argv)
         class Result:
             returncode = 0
@@ -139,6 +213,16 @@ def test_profile_runner_checks_each_hook_once_and_fails_missing_spec(monkeypatch
     (skill / "hooks/task-start.md").unlink()
     assert runner.main() == 2
     assert len(calls) == 1
+
+    def timed_out(argv, *, check, timeout):
+        raise subprocess.TimeoutExpired(argv, timeout)
+
+    monkeypatch.setattr(runner.subprocess, "run", timed_out)
+    (skill / "hooks/task-start.md").write_text("spec")
+    assert runner.main() == 2
+    errors = capsys.readouterr().err
+    assert "GATE.TIMEOUT: sample task.assign exceeded 180s" in errors
+    assert "GATE.TIMEOUT: sample task.start exceeded 180s" in errors
 
 
 def test_deterministic_failure_never_calls_jev(monkeypatch, tmp_path):
@@ -160,28 +244,44 @@ def test_close_fixtures_match_controlled_jev_outcomes(monkeypatch, tmp_path):
         hook = FIXTURES / f"{name}.py"
         output = tmp_path / f"{name}.json"
         expected_no = contract["expected_no"]
-        calls = []
-
-        def controlled_reply(state, questions):
-            calls.append((state, questions))
-            assert state["spec"] == spec_text
-            assert set(expected_no) <= set(questions)
-
-            class Reply:
-                answers = {
-                    key: {"choice": "no" if key in expected_no else "yes"}
-                    for key in questions
-                }
-                input_tokens = 1
-
-            return Reply()
-
-        monkeypatch.setattr(gate, "check", controlled_reply)
+        digest = fixture_digest(hook, spec_text)
+        facts = gate.facts(hook.read_text(encoding="utf-8"))
+        questions = gate.questions(facts, gate.table(spec_text, "Transitions"))
+        assert set(expected_no) <= set(questions)
+        records = tmp_path / name
+        monkeypatch.setattr(gate, "RECORDS_DIR", records)
+        gate.write_record(gate.record_path(digest), digest, record_answers(questions, expected_no), 1)
         result = gate.main([str(hook), str(TASK_CLOSE_SPEC_PATH), "--out", str(output)])
         actual = json.loads(output.read_text(encoding="utf-8"))
 
         assert result == (1 if expected_no else 0)
-        assert len(calls) == 1
         assert actual["deterministic_failures"] == []
         assert actual["jev"]["no"] == expected_no
         assert actual["pass"] is (not expected_no)
+
+
+def test_recorder_writes_one_sample_per_hash(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    recorder_path = GATE_PATH.with_name("record-plugin-gates.py")
+    recorder_spec = importlib.util.spec_from_file_location("gate_recorder", recorder_path)
+    assert recorder_spec is not None and recorder_spec.loader is not None
+    recorder = importlib.util.module_from_spec(recorder_spec)
+    recorder_spec.loader.exec_module(recorder)
+    hook = FIXTURES / "start-clean.py"
+    calls = []
+
+    def controlled_reply(_state, questions, **_kwargs):
+        calls.append(questions)
+        class Reply:
+            answers = record_answers(questions)
+            input_tokens = 9
+        return Reply()
+
+    monkeypatch.setattr(gate, "check", controlled_reply)
+    spec_text = SPEC_PATH.read_text(encoding="utf-8")
+    digest = fixture_digest(hook, spec_text)
+    assert recorder.record_hook(gate, hook, SPEC_PATH, tmp_path)
+    assert recorder.record_hook(gate, hook, SPEC_PATH, tmp_path)
+    assert len(calls) == 1
+    assert gate.load_record(gate.record_path(digest, tmp_path), digest,
+                            gate.questions(gate.facts(hook.read_text()),
+                                           gate.table(spec_text, "Transitions")))[2] is None
