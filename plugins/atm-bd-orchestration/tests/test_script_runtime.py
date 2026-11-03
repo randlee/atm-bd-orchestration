@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import runpy
 import stat
 import subprocess
 import tomllib
@@ -17,8 +18,12 @@ import install
 import pytest
 
 PKG = Path(__file__).resolve().parents[1]
+def _profile_script(path: Path) -> bool:
+    return (path.parent.parent / "profile.toml").is_file()
+
+
 SCRIPTS = sorted(p for p in PKG.glob("skills/*/scripts/*") if p.is_file() and p.read_bytes().startswith(b"#!")
-                 and not p.read_bytes().startswith(b"#!/bin/sh") and p.parent.parent.name != "atm-bd-lite")  # profile hooks retain their approved source headers
+                 and not p.read_bytes().startswith(b"#!/bin/sh") and not _profile_script(p))  # profile hooks retain their approved source headers
 EXECUTABLES = [*SCRIPTS, PKG / "install.py"]
 DOCUMENTS = sorted(p for p in PKG.rglob("*") if p.suffix in {".md", ".j2", ".yaml", ".json"}
                    and p.is_file() and "CHANGELOG" not in p.name and ".pytest_cache" not in p.parts)
@@ -43,6 +48,20 @@ def _run_uv_probe(command: list[str], *, env: dict[str, str], cwd: Path) -> subp
         ) from exc
 
 
+def test_profile_exemptions_follow_manifests_and_suite_names(tmp_path):
+    for name in ("alpha", "beta"):
+        skill = tmp_path / "skills" / f"custom-{name}"
+        (skill / "scripts").mkdir(parents=True)
+        (skill / "profile.toml").write_text(f'name = "{name}"\n', encoding="utf-8")
+        (tmp_path / "tests" / name).mkdir(parents=True)
+        assert _profile_script(skill / "scripts" / "hook.py")
+    ordinary = tmp_path / "skills" / "ordinary" / "scripts" / "script.py"
+    ordinary.parent.mkdir(parents=True)
+    assert not _profile_script(ordinary)
+    suites = runpy.run_path(str(PKG / "conftest.py"))["_profile_suites"](tmp_path)
+    assert set(suites) == {"tests/alpha", "tests/beta"}
+
+
 def test_the_header_is_pep_723_metadata_pinning_the_manifest_sc_compose_range():
     lines = install.SCRIPT_HEADER.splitlines()
     assert lines[0] == "#!/usr/bin/env -S uv run --script"
@@ -65,7 +84,7 @@ def test_every_executable_script_starts_with_the_header_and_is_executable():
 
 def test_library_modules_carry_no_shebang():
     for path in PKG.glob("skills/*/scripts/*.py"):
-        if path not in SCRIPTS and path.parent.parent.name != "atm-bd-lite":
+        if path not in SCRIPTS and not _profile_script(path):
             assert not path.read_text(encoding="utf-8").startswith("#!"), path
 
 
