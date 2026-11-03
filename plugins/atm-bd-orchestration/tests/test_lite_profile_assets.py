@@ -124,6 +124,39 @@ def test_qa_assignment_template_strictly_renders_assign_vars() -> None:
     assert "T-CLOSE-03" in rendered and "T-CLOSE-04" in rendered
 
 
+@pytest.mark.parametrize(
+    ("create_command", "expected"),
+    [
+        ("gh pr create --base '{base}' --head '{head}' --title '{title}' --body-file '{body_file}'",
+         "gh pr create --base <top> --head <branch> --title <one-line title> --body-file <scratch>/bo-14-pr-body.md"),
+        ("az repos pr create --source-branch '{head}' --target-branch '{base}' --title '{title}' --description @{body_file} --output json",
+         "az repos pr create --source-branch <branch> --target-branch <top> --title <one-line title> --description @<scratch>/bo-14-pr-body.md --output json"),
+    ],
+)
+def test_dev_assignment_uses_provider_create_command(create_command: str, expected: str, tmp_path: Path) -> None:
+    template = TEMPLATES / "dev.xml.j2"
+    variables = {
+        "provider": {"create": create_command},
+        "task_id": "bo-14",
+        "phase": "bo",
+        "profile": "atm-bd-lite",
+    }
+    var_file = tmp_path / "dev-vars.json"
+    var_file.write_text(json.dumps(variables))
+    rendered = _run_with_timeout(
+        ["sc-compose", "render", "--strict", "--file", str(template), "--var-file", str(var_file)],
+        timeout=10,
+        check=True,
+        cwd=SKILL.parents[1],
+    ).stdout
+    assert expected in rendered
+    if create_command.startswith("az "):
+        assert "gh pr create" not in rendered
+    else:
+        assert "gh pr create" in rendered
+    assert "--repo \"$REPO\"" not in rendered
+
+
 def test_policy_parameters_are_text_and_point_to_qa_template() -> None:
     policy = tomllib.loads((SKILL / "policy.toml").read_text())
     params = policy["params"]

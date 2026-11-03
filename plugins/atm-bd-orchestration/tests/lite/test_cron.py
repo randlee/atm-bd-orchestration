@@ -69,6 +69,10 @@ def test_land_without_target_reports(repo, layers):
 def test_decision_vars_strictly_render_assignment(tmp_path, stage):
     [action] = CRON.decide(facts(bead("task", stage=stage, checked_bead="dev")), PARAMS)
     values = {"task_id": action.vars.task_id, "phase": action.vars.phase, "profile": action.vars.profile}
+    if stage is T.Stage.DEV:
+        values["provider"] = {
+            "create": "gh pr create --base '{base}' --head '{head}' --title '{title}' --body-file '{body_file}'"
+        }
     if action.vars.review is not None:
         review = action.vars.review
         values.update(repo=review.repo, pr_number=review.pr_number, branch=review.branch, commit=review.commit)
