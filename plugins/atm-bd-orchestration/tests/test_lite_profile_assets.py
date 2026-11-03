@@ -1,16 +1,25 @@
 """Contract tests for the standalone atm-bd-lite profile assets."""
-import importlib.util
 import json
 import re
 import subprocess
 import sys
 import tomllib
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
 
+import atm_bd_types as T
 import pytest
+from lite.conftest import (
+    FakePhases,
+    FakeStore,
+    action_template,
+    action_vars,
+    bead,
+    hook_request,
+    layer,
+    load_hook,
+    reply_actions,
+)
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "atm-bd-lite"
 TEMPLATES = SKILL / "templates"
@@ -42,100 +51,43 @@ def _run_with_timeout(
         ) from exc
 
 
-@dataclass(frozen=True)
-class _Layer:
-    branch: str
-    head: str
-    pr: int
-    base: str
+def _hook_close_actions() -> list[dict]:
+    hook = load_hook("atm-bd-task-hook")
+    target = layer("feature/x", "a" * 40, 42, "main")
+    stack = bead("stack", layers={target.branch: target})
+    phases = FakePhases()
+
+    def run(item, request, *extra, target_layer=None):
+        reply = hook.hook(request, FakeStore(item, stack, *extra, target=target_layer), phases)
+        actions = reply_actions(reply)
+        assert len(actions) == 1, reply.to_json()
+        return actions[0]
+
+    dev = bead("dev-task", T.Status.IN_PROGRESS, assignee="dev", branch=target.branch,
+               stack_bead="stack", sprint="sprint-10", phase="bo")
+    refused = hook_request(caller="dev", task_id="dev-task", outcome="refused", close_reason="blocked")
+    completed = hook_request(caller="dev", task_id="dev-task", outcome="completed", close_report="complete")
+    qa = bead("qa-task", T.Status.IN_PROGRESS, assignee="qa", stage="qa", stack_bead="stack",
+              sprint="sprint-10", phase="bo")
+    passed = hook_request(caller="qa", task_id="qa-task", outcome="completed", verdict="PASS", verdict_sha=target.head)
+    findings = hook_request(caller="qa", task_id="qa-task", outcome="completed", verdict="FINDINGS",
+                            verdict_sha=target.head,
+                            findings=[{"id": "F-1", "blocking": True}, {"id": "F-2", "blocking": False}])
+    poured = [bead("F-1", blocks_ids=["sprint-10"]), bead("F-2", blocks_ids=["bo"])]
+    return [run(dev, refused), run(dev, completed), run(qa, passed, target_layer=target),
+            run(qa, findings, *poured, target_layer=target)]
 
 
-class _Store:
-    def __init__(self, *beads, target=None) -> None:
-        self.beads = {bead.id: bead for bead in beads}
-        self.target = target
-
-    def show(self, bead_id: str):
-        return self.beads.get(bead_id)
-
-    def target_layer(self, bead):
-        return self.target
-
-    def update(self, patch, actor: str):
-        return None
-
-
-def _load_close_hook(monkeypatch: pytest.MonkeyPatch) -> tuple[ModuleType, ModuleType]:
-    test_types_path = Path(__file__).parent / "lite" / "fake_atm_bd_types.py"
-    types_spec = importlib.util.spec_from_file_location("lite_profile_test_types", test_types_path)
-    assert types_spec and types_spec.loader
-    test_types = importlib.util.module_from_spec(types_spec)
-    monkeypatch.setitem(sys.modules, types_spec.name, test_types)
-    types_spec.loader.exec_module(test_types)
-    monkeypatch.setitem(sys.modules, "atm_bd_types", test_types)
-
-    hook_path = SKILL / "scripts" / "atm-bd-task-hook.py"
-    hook_spec = importlib.util.spec_from_file_location("lite_profile_task_close_hook", hook_path)
-    assert hook_spec and hook_spec.loader
-    hook = importlib.util.module_from_spec(hook_spec)
-    hook_spec.loader.exec_module(hook)
-    return hook, test_types
-
-
-def _close_action_vars(action) -> dict[str, object]:
-    value = action.vars
-    if isinstance(value, str):
-        return {"reason": value}
-    if hasattr(value, "findings"):
-        return {"sha": value.sha, "ids": [finding.id for finding in value.findings]}
-    if hasattr(value, "sha"):
-        return {"sha": value.sha}
-    return {name: getattr(value, name) for name in ("branch", "head", "pr", "base")}
-
-
-def _hook_close_actions(hook: ModuleType, T: ModuleType) -> list:
-    layer = _Layer("feature/x", "a" * 40, 42, "main")
-    stack = T.Bead("stack", layers={layer.branch: layer})
-    phases = type("Phases", (), {"load": lambda self, path, profile: T.PhaseFile(lead="lead")})()
-
-    def run(bead, request, *extra, target=None):
-        store = _Store(bead, stack, *extra, target=target)
-        reply = hook.hook(request, store, phases)
-        assert reply.kind == "handled", reply
-        assert len(reply.actions) == 1
-        return reply.actions[0]
-
-    dev = T.Bead("dev-task", T.Status.IN_PROGRESS, assignee="dev", branch=layer.branch,
-                 stack_bead="stack", sprint="sprint-10", phase="bo")
-    refused = T.HookRequest(caller="dev", task_id="dev-task", outcome="refused", close_reason="blocked")
-    completed = T.HookRequest(caller="dev", task_id="dev-task", outcome="completed", close_report="complete")
-    qa = T.Bead("qa-task", T.Status.IN_PROGRESS, assignee="qa", stage="qa", stack_bead="stack",
-                sprint="sprint-10", phase="bo")
-    passed = T.HookRequest(caller="qa", task_id="qa-task", outcome="completed", verdict="PASS",
-                           verdict_sha=layer.head)
-    findings = T.HookRequest(caller="qa", task_id="qa-task", outcome="completed", verdict="FINDINGS",
-                             verdict_sha=layer.head, findings=[T.Finding("F-1", True), T.Finding("F-2", False)])
-    poured = [T.Bead("F-1", blocks_ids=["sprint-10"]), T.Bead("F-2", blocks_ids=["bo"])]
-    return [
-        run(dev, refused),
-        run(dev, completed),
-        run(qa, passed, target=layer),
-        run(qa, findings, *poured, target=layer),
-    ]
-
-
-def test_close_templates_strictly_render_vars_from_hook_actions(monkeypatch: pytest.MonkeyPatch,
-                                                                 tmp_path: Path) -> None:
-    hook, test_types = _load_close_hook(monkeypatch)
-    actions = _hook_close_actions(hook, test_types)
+def test_close_templates_strictly_render_vars_from_hook_actions(tmp_path: Path) -> None:
+    actions = _hook_close_actions()
     assert len(actions) == 4
-    assert [Path(action.template).name for action in actions] == [
+    assert [Path(action_template(action)).name for action in actions] == [
         "refuse.md", "dev-close.md", "qa-pass.md", "qa-findings.md",
     ]
 
     for action in actions:
-        template = TEMPLATES / f"{Path(action.template).name}.j2"
-        variables = _close_action_vars(action)
+        template = TEMPLATES / f"{Path(action_template(action)).name}.j2"
+        variables = action_vars(action)
         source = template.read_text()
         match = re.search(r"^required_variables:\s*\[([^]]*)\]$", source, re.MULTILINE)
         assert match is not None
