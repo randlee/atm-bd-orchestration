@@ -59,6 +59,10 @@ def surface_mismatches(text: str, module: ModuleType) -> list[str]:
                 out.append(f"{node.name}: in the stub, not in {module.__name__}")
                 continue
             out += _class_mismatches(node, cls)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
+            declared.add(node.name)
+            if not callable(getattr(module, node.name, None)):
+                out.append(f"{node.name}: in the stub, not callable in {module.__name__}")
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             declared.add(node.target.id)
             if not hasattr(module, node.target.id):

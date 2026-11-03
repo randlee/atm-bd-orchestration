@@ -4,7 +4,7 @@ import builtins
 import enum
 import typing
 
-from atm_bd_types import (Action, Bead, BeadStore, CheckState, CollectError, Params, PhaseFacts, Refusal, Stage, Status,
+from atm_bd_types import (Action, Bead, BeadPatch, BeadStore, CheckState, CollectError, Params, PhaseFacts, Refusal, Stack, Stage, Status,
                           TaskState)
 
 _T = typing.TypeVar("_T")
@@ -12,7 +12,6 @@ _T = typing.TypeVar("_T")
 @typing.dataclass_transform(frozen_default=True)
 def _record(cls: type[_T]) -> type[_T]:
     r"""Stub-only: a frozen Rust record whose constructor takes every field in order."""
-
 
 class ActionKind(enum.Enum):
     ASSIGN = ...
@@ -124,3 +123,7 @@ class BeadsCache(BeadStore, typing.Protocol):
 class Ports:
     runner: CommandRunner
     cache: BeadsCache
+
+def patch_json(patch: BeadPatch) -> str: ...
+
+def stack_of(bead: Bead) -> Stack | None: ...

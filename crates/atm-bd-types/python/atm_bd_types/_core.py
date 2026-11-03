@@ -22,6 +22,12 @@ from atm_bd_types._native import (
     ViewSprint,
     ViewStep,
     ViewTask,
+    patch_json,
+    stack_of,
+    _bead,
+    _layer,
+    _phase_file,
+    _stack,
 )
 
 
@@ -51,4 +57,6 @@ __all__ = [
     "ViewSprint",
     "ViewStep",
     "ViewTask",
+    "patch_json",
+    "stack_of",
 ]

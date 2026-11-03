@@ -92,8 +92,6 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHookRequest>()?;
     m.add_class::<PyHookAction>()?;
     m.add_class::<PyHookReply>()?;
-    m.add_class::<PyPhaseFilesCli>()?;
-    m.add_class::<PyCacheStore>()?;
     m.add_class::<PyHook>()?;
     m.add_class::<PyFactKind>()?;
     m.add_class::<PyTaskState>()?;
@@ -129,6 +127,10 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCommandResult>()?;
     m.add_class::<PyPorts>()?;
 
+    m.add_function(wrap_pyfunction!(patch_json, m)?)?;
+    m.add_function(wrap_pyfunction!(stack_of, m)?)?;
+    m.add_function(wrap_pyfunction!(_layer, m)?)?;
+    m.add_function(wrap_pyfunction!(_stack, m)?)?;
     m.add_function(wrap_pyfunction!(phase_file, m)?)?;
     m.add_function(wrap_pyfunction!(bead, m)?)?;
     m.add_function(wrap_pyfunction!(stub_text, m)?)?;

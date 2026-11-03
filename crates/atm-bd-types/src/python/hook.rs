@@ -578,43 +578,11 @@ impl PyHookReply {
     }
 }
 
-/// The `PhaseFiles` adapter over `.atm-bd/phase-<x>.toml`.
-#[pyclass(frozen, name = "PhaseFilesCli", module = "atm_bd_types")]
-#[derive(Clone, Debug, Default)]
-pub(crate) struct PyPhaseFilesCli;
-
 pub(crate) const PHASE_FILES_CLI_STUB: &str = "@typing.final
 class PhaseFilesCli(PhaseFiles):
     def __new__(cls) -> PhaseFilesCli: ...
     def load(self, path: str, profile: str) -> PhaseFile | Refusal: ...
 ";
-
-/// Why the store adapters refuse: they are sprint bo-10's deliverable, not this crate's yet.
-const STORES_PENDING: &str = "the store adapters land in sprint bo-10";
-
-#[pymethods]
-impl PyPhaseFilesCli {
-    #[new]
-    fn new() -> Self {
-        PyPhaseFilesCli
-    }
-    /// Refuses PHASE_UNREADABLE until bo-10 implements the loader.
-    fn load(&self, path: &str, profile: &str) -> PyRefusal {
-        PyRefusal(
-            Refusal::new(ErrorId::PhaseUnreadable)
-                .with("path", Ctx::One(path.to_owned()))
-                .with("profile", Ctx::One(profile.to_owned()))
-                .with("reason", Ctx::One(STORES_PENDING.to_owned())),
-        )
-    }
-}
-
-/// The beads-cache adapter.
-#[pyclass(frozen, name = "CacheStore", module = "atm_bd_types")]
-#[derive(Clone, Debug)]
-pub(crate) struct PyCacheStore {
-    phase: String,
-}
 
 pub(crate) const CACHE_STORE_STUB: &str = r#"@typing.final
 class CacheStore(BeadStore):
@@ -628,51 +596,64 @@ class CacheStore(BeadStore):
     def ready(self, phase: str) -> builtins.list[Bead] | Refusal: ...
 "#;
 
-fn cache_unavailable(phase: &str) -> PyRefusal {
-    PyRefusal(
-        Refusal::new(ErrorId::CacheUnavailable)
-            .with("phase", Ctx::One(phase.to_owned()))
-            .with("reason", Ctx::One(STORES_PENDING.to_owned())),
-    )
+/// The framework's read-only view of a stack bead's ledger.
+#[pyfunction]
+pub(crate) fn stack_of(bead: PyRef<'_, PyBead>) -> Option<PyStack> {
+    bead.0.stack.clone().map(PyStack)
 }
 
-impl PyRefusal {
-    /// Adds one named text value to the refusal's context.
-    fn with(self, key: &str, value: &str) -> Self {
-        PyRefusal(self.0.with(key, Ctx::One(value.to_owned())))
-    }
+/// Framework-only serialization of the guarded write selected by the plug-in.
+#[pyfunction]
+pub(crate) fn patch_json(patch: PyRef<'_, PyBeadPatch>) -> String {
+    let (operation, guard, value) = match &patch.0 {
+        BeadPatch::Assign { guard, agent } => {
+            ("assign", guard, serde_json::json!({"agent": agent}))
+        }
+        BeadPatch::Start { guard } => ("start", guard, serde_json::json!({})),
+        BeadPatch::Reopen { guard } => ("reopen", guard, serde_json::json!({})),
+        BeadPatch::Close { guard, evidence } => {
+            let value = match evidence {
+                Evidence::Layer(layer) => {
+                    serde_json::json!({"kind": "layer", "branch": layer.branch, "head": layer.head.as_str(), "pr": layer.pr, "base": layer.base})
+                }
+                Evidence::QaPass(pass) => {
+                    serde_json::json!({"kind": "qa_pass", "sha": pass.sha.as_str()})
+                }
+                Evidence::QaFail(fail) => {
+                    serde_json::json!({"kind": "qa_fail", "sha": fail.sha.as_str(), "findings": fail.findings.iter().map(|f| serde_json::json!({"id": f.id, "blocking": f.blocking})).collect::<Vec<_>>()})
+                }
+            };
+            ("close", guard, value)
+        }
+    };
+    let status = match guard.status {
+        crate::plugin::Status::Open => "open",
+        crate::plugin::Status::InProgress => "in_progress",
+        crate::plugin::Status::Blocked => "blocked",
+        crate::plugin::Status::Deferred => "deferred",
+        crate::plugin::Status::Closed => "closed",
+    };
+    serde_json::json!({"operation": operation, "id": guard.bead_id, "status": status, "assignee": guard.assignee, "value": value}).to_string()
 }
 
-#[pymethods]
-impl PyCacheStore {
-    /// Refuses CACHE_UNAVAILABLE until bo-10 implements the adapter.
-    #[staticmethod]
-    fn for_phase(phase: &str) -> PyRefusal {
-        cache_unavailable(phase)
-    }
-    fn show(&self, bead_id: &str) -> PyRefusal {
-        cache_unavailable(&self.phase).with("bead", bead_id)
-    }
-    fn target_layer(&self, qa_bead: PyRef<'_, PyBead>) -> PyRefusal {
-        cache_unavailable(&self.phase).with("bead", &qa_bead.0.id)
-    }
-    fn update(&self, patch: PyRef<'_, PyBeadPatch>, actor: &str) -> PyRefusal {
-        let bead = match &patch.0 {
-            BeadPatch::Assign { guard, .. }
-            | BeadPatch::Start { guard }
-            | BeadPatch::Reopen { guard }
-            | BeadPatch::Close { guard, .. } => guard.bead_id.clone(),
-        };
-        cache_unavailable(&self.phase)
-            .with("bead", &bead)
-            .with("actor", actor)
-    }
-    fn list(&self, phase: &str) -> PyRefusal {
-        cache_unavailable(phase)
-    }
-    fn ready(&self, phase: &str) -> PyRefusal {
-        cache_unavailable(phase)
-    }
+/// Framework-only constructors for ledger snapshots.
+#[pyfunction]
+pub(crate) fn _layer(branch: String, head: &str, pr: u64, base: String) -> PyResult<PyLayer> {
+    let head = crate::plugin::Sha::parse(head)
+        .ok_or_else(|| PyTypeError::new_err("invalid layer head"))?;
+    Ok(PyLayer(Layer {
+        branch,
+        head,
+        pr,
+        base,
+    }))
+}
+
+#[pyfunction]
+pub(crate) fn _stack(layers: Vec<PyLayer>) -> PyStack {
+    PyStack(Stack {
+        layers: layers.into_iter().map(|layer| layer.0).collect(),
+    })
 }
 
 /// Framework-side constructor for a `PhaseFile` (not on the plug-in surface): templates in `Template` order.

@@ -13,7 +13,6 @@ from atm_bd_types._native import (
     AssignVars,
     Bead,
     BeadPatch,
-    CacheStore,
     CheckState,
     CloseTransition,
     CollectError,
@@ -29,7 +28,6 @@ from atm_bd_types._native import (
     Params,
     PhaseFacts,
     PhaseFile,
-    PhaseFilesCli,
     PrBase,
     Profile,
     QaFail,
@@ -48,6 +46,8 @@ from atm_bd_types._native import (
     Template,
     TopChecks,
 )
+
+from atm_bd_types._stores import CacheStore, PhaseFilesCli
 
 Sha: typing.TypeAlias = str
 Action: typing.TypeAlias = Assign | Report | Notify

@@ -4,7 +4,7 @@ import builtins
 import enum
 import typing
 
-from atm_bd_types import (Action, Bead, BeadStore, CheckState, CollectError, Params, PhaseFacts, Refusal, Stage, Status,
+from atm_bd_types import (Action, Bead, BeadPatch, BeadStore, CheckState, CollectError, Params, PhaseFacts, Refusal, Stack, Stage, Status,
                           TaskState)
 
 _T = typing.TypeVar("_T")
@@ -123,3 +123,7 @@ class BeadsCache(BeadStore, typing.Protocol):
 class Ports:
     runner: CommandRunner
     cache: BeadsCache
+
+def patch_json(patch: BeadPatch) -> str: ...
+
+def stack_of(bead: Bead) -> Stack | None: ...
