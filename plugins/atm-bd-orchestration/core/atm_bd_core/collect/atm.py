@@ -21,7 +21,8 @@ def tasks(runner):
         if not isinstance(raw, list):
             raise TypeError("expected task list")
         states = {"assigned": TaskState.ASSIGNED, "active": TaskState.ACTIVE, "complete": TaskState.COMPLETE}
-        return [TaskFact(item["task_id"], item["assignee"], states[item["state"]], item.get("bead_id")) for item in raw], None
+        # collect() associates tasks with phase beads after the cache read.
+        return [TaskFact(item["task_id"], item["assignee"], states[item["state"]], None) for item in raw], None
     except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
         return None, CollectError(FactKind.TASKS, argv, str(error), "Check ATM connectivity and task output.")
 

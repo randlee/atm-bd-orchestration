@@ -3,6 +3,7 @@
 from itertools import pairwise
 
 from atm_bd_types import CollectError, FactKind, PhaseFacts, TaskFact
+from atm_bd_types._core import stack_of
 
 from . import atm, beads, git, provider, reported
 
@@ -38,11 +39,7 @@ def collect(phase, phase_file, ports, now, state_dir):
     if bead_list is None:
         errors.append(CollectError(FactKind.STACK, [], "beads unavailable", "Restore the beads cache."))
     else:
-        try:
-            from atm_bd_types._core import stack_of
-            stack = take(beads.stack(bead_list, phase_file, stack_of))
-        except ImportError as error:
-            errors.append(CollectError(FactKind.STACK, [], str(error), "Install the framework stack accessor."))
+        stack = take(beads.stack(bead_list, phase_file, stack_of))
     if stack is None:
         ancestry = None
         checks = None
