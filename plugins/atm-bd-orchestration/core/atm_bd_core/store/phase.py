@@ -3,7 +3,7 @@ from pathlib import Path
 import tomllib
 
 from atm_bd_types import ErrorId, Refusal
-from atm_bd_types._core import _phase_file
+from atm_bd_types._native import _phase_file
 
 
 class PhaseFilesCli:

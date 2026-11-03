@@ -37,7 +37,8 @@ cache-keys = [
 
 [tool.uv.sources]
 # The framework package skeleton (plugins/atm-bd-orchestration/core): tests import atm_bd_core beside the wheel.
-atm-bd-core = { path = "../../plugins/atm-bd-orchestration/core" }
+atm-bd-core = { path = "../../plugins/atm-bd-orchestration/core", editable = true }
+bd-cache-rs = { git = "https://github.com/randlee/beads-cache", rev = "f57859f5c01fa463eb57ef11679e00118532c993", subdirectory = "crates/bd-cache-py" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

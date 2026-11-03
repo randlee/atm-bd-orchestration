@@ -1,6 +1,7 @@
 """Lazy composition of framework stores without a types-to-core dependency."""
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any
 
 from atm_bd_types._native import ErrorId, Refusal
@@ -12,12 +13,11 @@ def _unavailable(error: ErrorId, **context: str) -> Refusal:
 
 def _core() -> Any:
     try:
-        from atm_bd_core import store
+        return import_module("atm_bd_core.store")
     except ModuleNotFoundError as exc:
         if exc.name not in ("atm_bd_core", "atm_bd_core.store"):
             raise
         return None
-    return store
 
 
 class PhaseFilesCli:

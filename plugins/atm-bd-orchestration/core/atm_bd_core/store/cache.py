@@ -5,10 +5,11 @@ import json
 import uuid
 from pathlib import Path
 
-import bd_cache_rs
+from ._cache_binding import cache_module as bd_cache_rs
 
 from atm_bd_types import ErrorId, Refusal, Stage, Status
-from atm_bd_types._core import _bead, _layer, _stack, patch_json, stack_of
+from atm_bd_types._core import patch_json, stack_of
+from atm_bd_types._native import _bead, _layer, _stack
 
 
 def _refusal(exc, phase: str, bead: str = ""):
@@ -41,18 +42,17 @@ class CacheStore:
                   "deferred": Status.DEFERRED, "closed": Status.CLOSED}[row["status"]]
         stage_name = next((x[6:] for x in labels if x.startswith("stage:")), "other")
         stage = {"dev": Stage.DEV, "fix": Stage.FIX, "qa": Stage.QA, "stack": Stage.STACK}.get(stage_name, Stage.OTHER)
-        edges = [x for x in row.get("dependencies", []) if x.get("type") == "blocks"]
-        open_blockers = []
-        for edge in edges:
-            blocker = edge["depends_on_id"]
-            if self._row(blocker)["status"] != "closed":
-                open_blockers.append(blocker)
+        view = self.cache.get(row["id"])["row"]
+        open_blockers = view["blocked"]
+        blocks_ids = [other["bead"]["id"] for other in self.cache.list(self.phase)["rows"]
+                      if any(edge.get("type") == "blocks" and edge.get("depends_on_id") == row["id"]
+                             for edge in other["bead"].get("dependencies", []))]
         stack = None
         if stage == Stage.STACK:
             stack = _stack([_layer(x["branch"], x["head"], x["pr"], x["base"])
                             for x in metadata.get("layers", [])])
         return _bead(row["id"], status, stage, row.get("assignee") or None,
-                     open_blockers=open_blockers, blocks_ids=[x["depends_on_id"] for x in edges],
+                     open_blockers=open_blockers, blocks_ids=blocks_ids,
                      branch=metadata.get("branch", ""), stack_bead=metadata.get("stack_bead", ""),
                      sprint=metadata.get("sprint_bead", ""), phase=metadata.get("phase_bead", ""),
                      checked_bead=metadata.get("checked_bead"), stack=stack)
@@ -101,9 +101,17 @@ class CacheStore:
                 "reopen": {"status": "open", "assignee": ""},
                 "close": {"reason": json.dumps(value, sort_keys=True, separators=(",", ":"))}}[operation]
         try:
-            self.cache.write(data["id"], "close" if operation == "close" else "update", args,
+            written = self.cache.write(data["id"], "close" if operation == "close" else "update", args,
                              {"status": data["status"], "assignee": data["assignee"] or ""},
                              str(uuid.uuid4()), actor)
-            return None
+            report = self.cache.drain(20, 25)
+            entry = self.cache.entry(written["seq"])
+            if entry["state"] == "applied":
+                return None
+            if any(item["seq"] == written["seq"] and item.get("reason", "").startswith("BD_CACHE.PRECONDITION:")
+                   for item in report["escalated"]):
+                return Refusal(ErrorId.BEAD_RACED, bead=data["id"])
+            return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=self.phase, bead=data["id"],
+                           reason=f"guarded write is {entry['state']}")
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
             return _refusal(exc, self.phase, data["id"])

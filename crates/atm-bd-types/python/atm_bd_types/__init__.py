@@ -46,7 +46,6 @@ from atm_bd_types._native import (
     Template,
     TopChecks,
 )
-
 from atm_bd_types._stores import CacheStore, PhaseFilesCli
 
 Sha: typing.TypeAlias = str

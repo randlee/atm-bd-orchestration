@@ -128,9 +128,26 @@ jobs:
         working-directory: plugins/atm-bd-orchestration
         run: python3 tests/gen_manifest.py --check
 
+      - name: Set up Go for embedded beads
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      - name: Build pinned embedded-capable bd
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init "$RUNNER_TEMP/beads"
+          git -C "$RUNNER_TEMP/beads" remote add origin https://github.com/gastownhall/beads
+          git -C "$RUNNER_TEMP/beads" fetch --depth 1 origin 22e91788612dfe46f9d3f2ca831aa1ced6602bb1
+          git -C "$RUNNER_TEMP/beads" checkout --detach FETCH_HEAD
+          cd "$RUNNER_TEMP/beads"
+          CGO_ENABLED=1 go build -tags gms_pure_go -o "$RUNNER_TEMP/embedded-bd" ./cmd/bd
+          echo "ATM_TEST_BD=$RUNNER_TEMP/embedded-bd" >> "$GITHUB_ENV"
+
       - name: Package tests
         working-directory: plugins/atm-bd-orchestration
-        run: python3 -m pytest -q -rs
+        run: uv run --frozen --project ../../apps/atm-bd-console python -m pytest -q -rs
 
   atm-bd-types:
     name: atm-bd-types crate and wheel

@@ -168,3 +168,40 @@ def test_wheel_is_abi3_and_both_modules_import() -> None:
     wheel = importlib.metadata.distribution("atm-bd-types").read_text("WHEEL") or ""
     assert "-abi3-" in wheel, wheel
     assert atm_bd_core.__name__ == "atm_bd_core"
+
+
+def test_lazy_store_delegates_to_framework(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    class Store:
+        @staticmethod
+        def for_phase(phase: str):
+            assert phase == "bo"
+            return Store()
+
+        def show(self, bead_id: str):
+            return bead_id
+
+    class Phases:
+        def load(self, path: str, profile: str):
+            return (path, profile)
+
+    fake = types.ModuleType("atm_bd_core.store")
+    fake.CacheStore = Store  # type: ignore[attr-defined]
+    fake.PhaseFilesCli = Phases  # type: ignore[attr-defined]
+    import atm_bd_core
+    monkeypatch.setitem(sys.modules, "atm_bd_core.store", fake)
+    monkeypatch.setattr(atm_bd_core, "store", fake, raising=False)
+    assert CacheStore.for_phase("bo").show("bo-1") == "bo-1"
+    assert PhaseFilesCli().load("phase.toml", "lite") == ("phase.toml", "lite")
+
+
+def test_framework_stack_of_reads_ledger() -> None:
+    from atm_bd_types._core import stack_of
+    from atm_bd_types._native import _bead, _layer, _stack
+
+    layer = _layer("branch", "0123456789abcdef0123456789abcdef01234567", 2, "base")
+    bead = _bead("bo.stack", Status.OPEN, Stage.STACK, stack=_stack([layer]))
+    assert stack_of(bead).layers[0].branch == "branch"
+    assert stack_of(_bead("bo-1", Status.OPEN, Stage.DEV)) is None
