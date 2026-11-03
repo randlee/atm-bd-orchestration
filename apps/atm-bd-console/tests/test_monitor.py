@@ -2,6 +2,7 @@
 import ast
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import atm_bd_core.tick as tick_module
@@ -87,6 +88,24 @@ def test_lite_tick_snapshot_and_dry_step(tmp_path, monkeypatch, capsys):
     assert selected.snapshot(monitor.MonitorArgs("snapshot", phase="zz")) == monitor.Exit.OK
     assert list(tmp_path.rglob("snapshot.json"))
     assert calls == [True, True, True]
+
+
+def test_policy_snapshot_preserves_non_profile_stage_kind(tmp_path):
+    _lite(tmp_path)
+    selected = monitor.route(tmp_path, monitor.MonitorArgs("snapshot", phase="zz"),
+                             lambda _: 0, lambda *args: None)[0]
+    assert isinstance(selected, monitor.PolicyMonitor)
+    stage = SimpleNamespace(bead_id="work", stage=Stage.STACK, status=Status.OPEN, assignee="agent")
+    sprint = SimpleNamespace(id="sprint1", title="Sprint", status=Status.OPEN, depends_on=[], steps=[stage])
+    task = SimpleNamespace(task_id="work", assignee="agent", state=TaskState.ACTIVE, since=120)
+    view = SimpleNamespace(generated_at=123, sprints=[sprint], rows=[], errors=[], tasks=[task],
+                           root_id="atm-phase-zz", root_closed=False, lead="lead", top_ci=None)
+    result = SimpleNamespace(view=view, facts=SimpleNamespace(beads=[]), decision=SimpleNamespace(actions=[]))
+
+    snapshot = selected._snapshot(result, selected._config(monitor.MonitorArgs("snapshot", phase="zz")))
+
+    assert snapshot.sprints[0].steps[0].kind == "stack"
+    assert snapshot.agents[0].rows[0].kind == "stack"
 
 
 def test_cli_has_one_monitor_route_and_no_specific_profile_names():

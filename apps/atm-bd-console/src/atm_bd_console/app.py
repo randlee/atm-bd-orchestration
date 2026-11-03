@@ -42,7 +42,6 @@ from .state import acquire_lock
 from .terminal import CONSOLE_DRIVER_CLASS
 from .types import INITIAL_STATE, AgentView, Config, Snapshot, SprintView, State, StepFn, StepResult
 
-STEP_KINDS = ("dev", "sanity", "qa", "fix")
 STEPS_PLACEHOLDER = "unavailable - the phase has not been read"
 FINDINGS_PLACEHOLDER = "*Select a run to see its findings.*"
 
@@ -131,12 +130,12 @@ def _diagnostic_line(event: _DiagnosticEvent) -> str:
 def sprint_steps(sprint: SprintView, agents: tuple[AgentView, ...] = ()) -> Text:
     lines = [Text(f"{sprint.id}  {sprint.title}", no_wrap=True)]
     for step in sprint.steps:
-        if step.kind in STEP_KINDS:
-            line = Text(f"  {step.kind:<6} {step.bead_id}  {step.status}  ")
-            member = next((agent for agent in agents if agent.name == step.assignee), None)
-            line.append_text(render.render_agent(step.assignee, member))
-            line.no_wrap = True
-            lines.append(line)
+        kind = render.step_kind_label(step.kind)
+        line = Text(f"  {kind:<6} {step.bead_id}  {step.status}  ")
+        member = next((agent for agent in agents if agent.name == step.assignee), None)
+        line.append_text(render.render_agent(step.assignee, member))
+        line.no_wrap = True
+        lines.append(line)
     return Text("\n").join(lines)
 
 

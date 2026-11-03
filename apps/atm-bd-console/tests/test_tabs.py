@@ -346,6 +346,13 @@ def test_status_header_counts_the_fixture_sprints() -> None:
     assert status_header(RUNNING).plain == "sprints 0/1 · \U000f05e0 0 · \U000f051f 1 · \U000f137c 0"
 
 
+def test_sprint_steps_renders_unknown_kind_as_other() -> None:
+    sprint = SprintView("atm-bh-9", "unknown stage", SprintState.READY, (), (
+        StepView("atm-bh-9.custom", "custom", SprintState.OPEN, None),
+    ))
+    assert "other  atm-bh-9.custom" in sprint_steps(sprint).plain
+
+
 def test_anc_023_same_fixture_renders_agent_icon_before_name_on_every_surface(tmp_path) -> None:
     name = "terra-agent"
     icon_and_name = "\U000f01e7" + name

@@ -154,10 +154,10 @@ def test_nested_literal_rejection_names_the_full_path() -> None:
     assert isinstance(invalid, Err)
     assert isinstance(invalid.error, ParseFailed)
     assert invalid.error.source == "$.gh.mode"
-    invalid = from_json(Snapshot, to_json(SNAPSHOT).replace('"kind":"sprint_qa"', '"kind":"qa"'))
+    invalid = from_json(Snapshot, to_json(SNAPSHOT).replace('"state":"running"', '"state":"started"', 1))
     assert isinstance(invalid, Err)
     assert isinstance(invalid.error, ParseFailed)
-    assert invalid.error.source == "$.agents[0].rows[0].kind"
+    assert invalid.error.source == "$.agents[0].rows[0].state"
 
 
 def _contract_classes() -> set[type]:

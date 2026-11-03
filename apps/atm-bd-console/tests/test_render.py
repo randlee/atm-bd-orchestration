@@ -75,7 +75,7 @@ def pacific_test(operation) -> None:
 
 
 def row(task_id: str, state: Literal["running", "queued"],
-        kind: Literal["dev", "fix", "sprint_qa", "fix_qa", "other"],
+        kind: str,
         difficulty: Literal["hard", "normal", "fast"] | None, age_s: int,
         marker: Literal["red", "yellow"] | None = None) -> Row:
     return Row(task_id, state, kind, difficulty, "bh", marker, age_s, f"description for {task_id}")
@@ -429,6 +429,18 @@ def test_stopped_snapshot_renders_unknown_bead_status_icon() -> None:
 
     assert "bh-6.qa" in rendered
     assert "? unknown" in rendered
+
+
+def test_stopped_snapshot_renders_unknown_stage_kind_as_other() -> None:
+    decoded = from_json(Snapshot, (FIXTURES / "contract" / "snapshot-stopped-closed.json").read_text())
+    assert isinstance(decoded, Ok)
+    sprint = decoded.value.sprints[0]
+    step = replace(sprint.steps[0], kind="custom")
+    value = replace(decoded.value, sprints=(replace(sprint, steps=(step,)),))
+
+    rendered = dashboard(value, 120, 40).plain
+
+    assert "bh-6.qa" in rendered and " other" in rendered
 
 
 def _single_row_dashboard(step_value: Step, width: int) -> list[str]:

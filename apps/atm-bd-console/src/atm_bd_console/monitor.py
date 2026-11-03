@@ -222,7 +222,7 @@ class PolicyMonitor:
         view = result.view
         now = datetime.fromtimestamp(view.generated_at, UTC)
         sprints = tuple(SprintView(s.id, s.title, SprintState(s.status.name.lower()), tuple(s.depends_on),
-                                   tuple(StepView(t.bead_id, t.stage.name.lower() if t.stage.name.lower() in ("dev", "fix", "qa") else "other", SprintState(t.status.name.lower()),
+                                   tuple(StepView(t.bead_id, t.stage.name.lower(), SprintState(t.status.name.lower()),
                                                   t.assignee) for t in s.steps)) for s in view.sprints)
         groups = {}
         for row in view.rows:
@@ -241,7 +241,7 @@ class PolicyMonitor:
             since = datetime.fromtimestamp(task.since, UTC) if task.since is not None else now
             active = task.state.name == "ACTIVE"
             kind = kinds.get(task.task_id, "other")
-            row = Row(task.task_id, "running" if active else "queued", kind if kind in ("dev", "fix") else "other", None, "", None,
+            row = Row(task.task_id, "running" if active else "queued", kind, None, "", None,
                       max(0, view.generated_at - task.since) if task.since is not None else 0, task.task_id)
             task_groups.setdefault(task.assignee, []).append((row, since, active))
         agents = tuple(AgentView(name, "busy" if any(item[2] for item in entries) else "idle",

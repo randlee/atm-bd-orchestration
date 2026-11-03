@@ -79,11 +79,9 @@ LITERALS: dict[tuple[str, str], tuple[str, ...]] = {
     ("GhStatus", "mode"): GITHUB_MODE,
     ("Config", "github"): GITHUB_MODE,
     ("Row", "state"): ("running", "queued"),
-    ("Row", "kind"): ("dev", "fix", "sprint_qa", "fix_qa", "other"),
     ("Row", "difficulty"): DIFFICULTY,
     ("Row", "marker"): ("red", "yellow"),
     ("AgentView", "status"): ("busy", "stalling", "blocked", "offline", "idle", "unknown"),
-    ("StepView", "kind"): ("dev", "fix", "sanity", "qa", "finding", "plan_review", "container", "other"),
     ("Action", "kind"): ("assign", "send", "batch"),
     ("Snapshot", "stopped"): ("closed", "idle"),
     ("ActionLine", "kind"): ("assign", "send", "batch", "hold", "dry_run"),
@@ -142,6 +140,8 @@ def test_key_field_annotations() -> None:
     assert get_type_hints(types.Inputs)["phase"] == result.Result[types.Phase]
     assert get_type_hints(types.Inputs)["remotes"] == result.Result[tuple[types.RemoteRef, ...]] | None
     assert get_type_hints(result.LockHeld)["snapshot_age_s"] == int | None
+    assert get_type_hints(types.Row)["kind"] is str
+    assert get_type_hints(types.StepView)["kind"] is str
 
 
 def test_tick_context_contract_field_names_are_pinned() -> None:
