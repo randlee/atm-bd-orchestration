@@ -31,7 +31,8 @@ def test_registers_each_declared_hook_and_cron_with_runtime_launchers(tmp_path, 
     assert (tmp_path / ".atm.toml").read_text(encoding="utf-8") == startup
     entries = tomllib.loads(startup)["startup"]
     assert entries["unrelated"] == {"all": ["leave me alone"]}
-    for agent, role in (("dev", "dev"), ("quality-mgr", "qa"), ("team-lead", "lead")):
+    params = tomllib.loads((PROFILE.parent / "policy.toml").read_text(encoding="utf-8"))["params"]
+    for agent, role in ((params["dev_agent"], "dev"), (params["qa_agent"], "qa"), (params["lead"], "lead")):
         [line] = entries[agent]["all"]
         assert line == (f"Your role is {role} in the lite profile. Work only from the assigned template; "
                         "do not load the full orchestration skill. Use atm task start and atm task close as the only "
