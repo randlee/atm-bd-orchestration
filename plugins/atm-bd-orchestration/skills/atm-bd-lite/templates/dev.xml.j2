@@ -59,6 +59,6 @@ UPDATED=$(printf '%s' "$META" | jq --arg branch "$BRANCH" --arg head "$HEAD" --a
 bd update "$STACK" --if-assignee "$ATM_IDENTITY" --metadata "$UPDATED"
 ```
 
-Close only with `atm task close {{ task_id }} completed --stdin` and an inline report. Do not write the task bead.
+Close only with `atm task close {{ task_id }} completed --stdin` and an inline report. If close fails, read the error, fix its named cause, and rerun the close; do not end your turn while your ATM task is open. Do not write the task bead.
   ]]></instructions>
 </dev-task>

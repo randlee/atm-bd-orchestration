@@ -66,11 +66,19 @@ class CacheStore:
                      sprint=metadata.get("sprint_bead", ""), phase=metadata.get("phase_bead", ""),
                      checked_bead=metadata.get("checked_bead"), stack=stack)
 
+    def refresh(self, bead_ids: list[str]):
+        try:
+            self.cache.refresh(bead_ids, 20)
+            return None
+        except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
+            return _refusal(exc, self.phase)
+
     def show(self, bead_id: str):
         try:
             row = self._row(bead_id)
             if "stage:stack" in (row.get("labels") or []):
-                self.cache.refresh([bead_id], 20)
+                if (error := self.refresh([bead_id])) is not None:
+                    return error
                 row = self._row(bead_id)
             return self._convert(row)
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:

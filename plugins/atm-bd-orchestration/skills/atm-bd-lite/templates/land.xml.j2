@@ -26,5 +26,6 @@ test "$(printf '%s' "$RESULT" | jq -er '.state')" = MERGED
 MERGED=$(printf '%s' "$RESULT" | jq -er '.mergeCommit.oid')
 printf 'Merged\n```json\n{"merged":"%s"}\n```\n' "$MERGED" | atm task close '{{ task_id }}' completed --stdin
 ```
+If the task close fails, read the error, fix its named cause, and rerun the close with the same merge SHA; do not merge again or end your turn while the ATM task is open.
   ]]></instructions>
 </land-task>

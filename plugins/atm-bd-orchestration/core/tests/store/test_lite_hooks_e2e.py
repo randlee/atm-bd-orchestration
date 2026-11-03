@@ -273,3 +273,13 @@ def test_qa_without_checked_bead_names_the_qa_bead(setup):
     result = store.target_layer(store.show("tst-qa"))
     assert isinstance(result, Refusal) and result.id == ErrorId.CACHE_UNAVAILABLE
     assert "QA bead tst-qa has no checked bead or closed blocker" in repr(result)
+
+
+def test_external_poured_finding_is_visible_with_its_dependency(real_db_setup):
+    root, store = real_db_setup
+    create_bead(root, "tst-finding", "finding", "phase-bo,stage:fix", {"sprint_bead": "tst-1", "blocking": True})
+    bd(root, "dep", "add", "tst-1", "--blocked-by", "tst-finding")
+    assert store.refresh(["tst-finding", "tst-1"]) is None
+    finding = store.show("tst-finding")
+    assert not isinstance(finding, Refusal), finding
+    assert finding.blocks("tst-1")

@@ -56,6 +56,11 @@ def hook(req: HookRequest, beads: BeadStore, phases: PhaseFiles) -> HookReply:
                 return HookReply.refused(target)
             if verdict.sha != target.head:
                 return HookReply.refused(Refusal(ErrorId.QA_NOT_ON_STACK, sha=verdict.sha, branch=target.branch, head=target.head))
+            ids = [finding.id for finding in verdict.findings] + [bead.sprint]
+            if any(not finding.blocking for finding in verdict.findings):
+                ids.append(bead.phase)
+            if (failed := beads.refresh(list(dict.fromkeys(ids)))) is not None:
+                return HookReply.refused(failed)
             for finding in verdict.findings:  # each poured finding bead exists and blocks the sprint (blocking) or phase bead
                 if isinstance(poured := beads.show(finding.id), Refusal):
                     return HookReply.refused(poured)
