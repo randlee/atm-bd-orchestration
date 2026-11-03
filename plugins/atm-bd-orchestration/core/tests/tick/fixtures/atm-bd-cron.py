@@ -16,6 +16,14 @@ def decide(facts: PhaseFacts, params: Params) -> list[Action]:
     for bead in facts.ready or []:
         if bead.id in existing or bead.status != Status.OPEN or bead.stage not in (Stage.DEV, Stage.QA, Stage.LAND):
             continue
+        if bead.stage == Stage.QA and bead.checked_bead in existing:
+            continue  # bead close may have journaled before its ATM close action failed
+        if bead.stage == Stage.LAND:
+            if facts.beads is None:
+                continue  # cannot establish that QA tasks have finished
+            if any(item.stage == Stage.QA and item.sprint == bead.sprint and item.id in existing
+                   for item in facts.beads):
+                continue
         if bead.stage == Stage.QA:
             agent_key, template_key = "qa_agent", "qa_template"
         elif bead.stage == Stage.DEV:

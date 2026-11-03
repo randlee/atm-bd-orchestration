@@ -12,7 +12,7 @@ from pathlib import Path
 
 from atm_bd_types import Refusal
 
-from atm_bd_core.profile import load_profile
+from atm_bd_core.profile import TEMPLATES, LoadedProfile, load_profile
 
 
 def timeout(path: Path, name: str) -> int:
@@ -45,7 +45,29 @@ def set_repo(primary: Path, phase: str, repo: str) -> None:
     temp.replace(path)
 
 
-def set_startup(primary: Path, policy_path: Path, profile: str) -> None:
+def set_phase_paths(primary: Path, phase: str, installed: LoadedProfile, manifest: Path) -> None:
+    """Publish only existing canonical installed paths into the phase configuration."""
+    path = primary / ".atm-bd" / f"phase-{phase}.toml"
+    source = path.read_text(encoding="utf-8")
+    tomllib.loads(source)
+    manifest = manifest.resolve(strict=True)
+    paths = {name: installed.path(installed.profile.templates[kind]).resolve(strict=True)
+             for name, kind in TEMPLATES.items() if kind in installed.profile.templates}
+    if any(not item.is_absolute() or not item.is_file() for item in [manifest, *paths.values()]):
+        raise ValueError("installed phase paths must be absolute files")
+    parts = re.split(r"(?m)^(?=\s*\[)", source, maxsplit=1)
+    prefix = re.sub(r"(?m)^\s*profile_path\s*=.*\n?", "", parts[0])
+    source = f"profile_path = {json.dumps(str(manifest))}\n" + prefix + "".join(parts[1:])
+    block = "[templates]\n" + "".join(f"{name} = {json.dumps(str(value))}\n" for name, value in paths.items())
+    source = re.sub(r"(?ms)^\[templates\][^\n]*\n.*?(?=^\[|\Z)", "", source)
+    source = source.rstrip() + "\n\n" + block
+    tomllib.loads(source)
+    temp = path.with_suffix(".toml.tmp")
+    temp.write_text(source, encoding="utf-8")
+    temp.replace(path)
+
+
+def set_startup(primary: Path, policy_path: Path) -> None:
     """Install role instructions without changing unrelated configuration blocks."""
     policy = tomllib.loads(policy_path.read_text(encoding="utf-8"))
     params = policy.get("params", {})
@@ -53,7 +75,7 @@ def set_startup(primary: Path, policy_path: Path, profile: str) -> None:
     if any(not isinstance(agent, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", agent) for _, agent in roles):
         raise ValueError("policy must name dev_agent, qa_agent and lead")
     if len({agent for _, agent in roles}) != len(roles):
-        raise ValueError("lite roles must use distinct agent identities")
+        raise ValueError("roles must use distinct agent identities")
     path = primary / ".atm.toml"
     source = path.read_text(encoding="utf-8") if path.exists() else ""
     tomllib.loads(source)
@@ -61,9 +83,9 @@ def set_startup(primary: Path, policy_path: Path, profile: str) -> None:
         header = f"startup.{agent}"
         pattern = rf"(?ms)^\[{re.escape(header)}\][^\n]*\n.*?(?=^\[|\Z)"
         source = re.sub(pattern, "", source)
-        message = (f"Your role is {role} in the {profile} profile. Work only from the assigned template; "
-                   "do not load the full orchestration skill. Use atm task start and atm task close as the only "
-                   "task transitions. Never write your own task bead. Run no cache commands; hooks refresh their reads.")
+        message = params.get(f"{role}_startup")
+        if not isinstance(message, str) or not message:
+            raise ValueError(f"policy must provide {role}_startup")
         source += f"\n[{header}]\nall = [{json.dumps(message)}]\n"
     tomllib.loads(source)
     temp = path.with_suffix(".toml.tmp")
@@ -81,11 +103,12 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
         raise ValueError("phase must be a single path component")
     primary = primary.resolve()
     set_repo(primary, phase, repo)
-    set_startup(primary, loaded.path(loaded.profile.policy), loaded.profile.name)
+    set_startup(primary, loaded.path(loaded.profile.policy))
     target = primary / ".atm-bd" / "install" / phase
     target.mkdir(parents=True, exist_ok=True)
     python = target / "venv" / "bin" / "python"
-    subprocess.run(["uv", "venv", "--python", "3.11", str(python.parent.parent)], check=True)
+    if not python.is_file():
+        subprocess.run(["uv", "venv", "--python", "3.11", str(python.parent.parent)], check=True)
     core = checkout / "plugins/atm-bd-orchestration/core"
     types = checkout / "crates/atm-bd-types"
     subprocess.run(["uv", "pip", "install", "--python", str(python), str(types), str(core),
@@ -97,6 +120,7 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
     installed = load_profile(skill / profile_path.name)
     if isinstance(installed, Refusal):
         raise RuntimeError(str(installed))
+    set_phase_paths(primary, phase, installed, skill / profile_path.name)
     for hook, relative in installed.profile.hooks.items():
         module = installed.path(relative)
         hook_name = hook.name.lower().replace("_", ".")
@@ -109,9 +133,20 @@ def install(profile_path: Path, primary: Path, phase: str, checkout: Path, expre
     shutil.copy2(cron_source, cron_module)
     entry = target / "cron.py"
     launcher(entry, python, cron_module, timeout(cron_module, "CRON_TIMEOUT_MS"), cron=True)
-    subprocess.run(["atm", "cron", "start", "profile", "--cron", expression, "--module", str(entry),
-                    "--phase", phase, "--until-hook", "--cwd", str(primary),
-                    "--arg", str(skill / profile_path.name), "--arg", str(primary)], check=True)
+    cron_args = [str(skill / profile_path.name), str(primary)]
+    try:
+        subprocess.run(["atm", "cron", "start", "profile", "--cron", expression, "--module", str(entry),
+                        "--phase", phase, "--until-hook", "--cwd", str(primary),
+                        "--arg", cron_args[0], "--arg", cron_args[1]], check=True)
+    except subprocess.CalledProcessError:
+        listing = subprocess.run(["atm", "cron", "list", "--phase", phase, "--json"], check=True,
+                                 capture_output=True, text=True)
+        schedules = json.loads(listing.stdout)
+        if not any(row.get("active") and row.get("name") == "profile" and row.get("module_path") == str(entry)
+                   and row.get("cron_expr") == expression and row.get("cwd") == str(primary)
+                   and row.get("args") == cron_args and row.get("stop", {}).get("kind") == "hook"
+                   for row in schedules):
+            raise
 
 
 def main() -> None:

@@ -1,4 +1,5 @@
 """Controlled tests for profile-driven registration and the cron wire."""
+import json
 import subprocess
 import sys
 import tomllib
@@ -26,7 +27,7 @@ def test_registers_each_declared_hook_and_cron_with_runtime_launchers(tmp_path, 
     installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
     startup = (tmp_path / ".atm.toml").read_text(encoding="utf-8")
     assert startup.startswith(unrelated)
-    installer.set_startup(tmp_path, PROFILE.parent / "policy.toml", "lite")
+    installer.set_startup(tmp_path, PROFILE.parent / "policy.toml")
     assert (tmp_path / ".atm.toml").read_text(encoding="utf-8") == startup
     entries = tomllib.loads(startup)["startup"]
     assert entries["unrelated"] == {"all": ["leave me alone"]}
@@ -35,7 +36,11 @@ def test_registers_each_declared_hook_and_cron_with_runtime_launchers(tmp_path, 
         assert line == (f"Your role is {role} in the lite profile. Work only from the assigned template; "
                         "do not load the full orchestration skill. Use atm task start and atm task close as the only "
                         "task transitions. Never write your own task bead. Run no cache commands; hooks refresh their reads.")
-    assert 'repo = "owner/repo"' in (phase_dir / "phase-sample.toml").read_text(encoding="utf-8")
+    config = tomllib.loads((phase_dir / "phase-sample.toml").read_text(encoding="utf-8"))
+    assert config["repo"] == "owner/repo"
+    for value in [config["profile_path"], *config["templates"].values()]:
+        path = Path(value)
+        assert path.is_absolute() and path.is_file() and path == path.resolve()
     registrations = [args for args in calls if args[:3] == ["atm", "hook", "register"]]
     sync_index = next(i for i, args in enumerate(calls) if args[1:3] == ["-m", "atm_bd_core.install.sync"])
     assert sync_index < calls.index(registrations[0])
@@ -121,3 +126,30 @@ def test_cron_stop_only_when_root_bead_is_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(cron_entry.CacheStore, "for_phase", lambda phase: SimpleNamespace(
         show=lambda root: SimpleNamespace(status=Status.OPEN)))
     assert cron_entry.handle(request) == {"stop": False}
+
+
+def test_reinstall_reuses_venv_and_identical_active_cron(tmp_path, monkeypatch):
+    phase_dir = tmp_path / ".atm-bd"
+    phase_dir.mkdir()
+    (phase_dir / "phase-sample.toml").write_text('profile = "lite"\n', encoding="utf-8")
+    python = phase_dir / "install/sample/venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv[:3] == ["atm", "cron", "start"]:
+            raise subprocess.CalledProcessError(3, argv)
+        if argv[:3] == ["atm", "cron", "list"]:
+            cron = {"active": True, "name": "profile", "module_path": str(phase_dir / "install/sample/cron.py"),
+                    "cron_expr": "0 * * * * *", "cwd": str(tmp_path),
+                    "args": [str(phase_dir / "install/sample/profile/profile.toml"), str(tmp_path)],
+                    "stop": {"kind": "hook"}}
+            return SimpleNamespace(stdout=json.dumps([cron]))
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(installer.subprocess, "run", run)
+    installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
+    assert not any(args[:2] == ["uv", "venv"] for args in calls)
+    assert any(args[:3] == ["atm", "cron", "list"] for args in calls)
