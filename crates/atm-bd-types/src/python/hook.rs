@@ -658,6 +658,7 @@ class PhaseFilesCli(PhaseFiles):
 pub(crate) const CACHE_STORE_STUB: &str = r#"@typing.final
 class CacheStore(BeadStore):
     r"""The beads-cache adapter the hooks' entry points construct; the framework's BeadsCache port."""
+    def __init__(self, store: typing.Any) -> None: ...
     @staticmethod
     def for_phase(phase: str) -> CacheStore | Refusal: ...
     def refresh(self, bead_ids: builtins.list[str | None]) -> Refusal | None: ...
@@ -676,8 +677,8 @@ pub(crate) fn stack_of(bead: PyRef<'_, PyBead>) -> Option<PyStack> {
 
 /// Encode typed close evidence at the framework's journal boundary.
 #[pyfunction]
-pub(crate) fn encode_evidence(value: &Bound<'_, PyAny>) -> PyResult<String> {
-    let evidence = evidence(value)
+pub(crate) fn encode_evidence(evidence: &Bound<'_, PyAny>) -> PyResult<String> {
+    let evidence = self::evidence(evidence)
         .ok_or_else(|| PyTypeError::new_err("evidence must be Layer, QaPass, QaFail or Merged"))?;
     Ok(crate::framework::encode_evidence(&evidence))
 }

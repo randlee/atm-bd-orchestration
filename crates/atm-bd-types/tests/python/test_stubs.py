@@ -79,3 +79,38 @@ def test_contract_copies_are_present() -> None:
     assert sorted(p.name for p in CONTRACT.iterdir()) == ["README.md", "atm_bd_core.pyi", "atm_bd_types.pyi"]
     assert "not an editable implementation" in (CONTRACT / "README.md").read_text(encoding="utf-8")
     assert Path(CRATE / "stubs").is_dir()
+
+
+def test_surface_check_rejects_method_constructor_and_base_drift() -> None:
+    module = importlib.import_module("atm_bd_types")
+    stub = gen_stubs.stub_text("atm_bd_types")
+    method = stub.replace("def show(self, bead_id: str | None)", "def show(self, wrong: str | None)", 1)
+    assert any("BeadStore.show: signature mismatch" in item for item in gen_stubs.surface_mismatches(method, module))
+    missing_constructor = stub.replace("    def __init__(self, store: typing.Any) -> None: ...\n", "")
+    assert any("CacheStore constructor: signature mismatch" in item
+               for item in gen_stubs.surface_mismatches(missing_constructor, module))
+    bad_base = stub.replace("class CacheStore(BeadStore):", "class CacheStore(PhaseFiles):")
+    assert any("CacheStore: missing protocol member PhaseFiles.load" in item
+               for item in gen_stubs.surface_mismatches(bad_base, module))
+
+
+def test_surface_check_rejects_unavailable_signatures() -> None:
+    from types import ModuleType
+
+    module = ModuleType("opaque")
+    module.__all__ = ["Opaque"]
+    module.Opaque = type("Opaque", (), {"__signature__": "not a signature"})
+    errors = gen_stubs.surface_mismatches("class Opaque: pass", module)
+    assert any("Opaque constructor: runtime signature unavailable" in item for item in errors)
+
+
+def test_record_constructors_publish_real_field_signatures() -> None:
+    import inspect
+
+    module = importlib.import_module("atm_bd_types")
+    assert str(inspect.signature(module.Assign)) == "(key, to, bead_id, template, vars)"
+    params = inspect.signature(module.PhaseFacts).parameters
+    assert list(params)[:4] == ["phase", "now", "phase_file", "tasks"]
+    assert params["phase"].default is inspect.Parameter.empty
+    assert params["tasks"].default is None
+    assert params["errors"].default == []
