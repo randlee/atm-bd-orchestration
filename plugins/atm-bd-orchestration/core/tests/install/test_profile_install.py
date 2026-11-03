@@ -144,6 +144,7 @@ def test_cron_tick_passes_profile_phase_and_primary(monkeypatch, tmp_path):
 
 
 def test_cron_stop_only_when_root_bead_is_closed(monkeypatch, tmp_path):
+    """ADR-069 D4 pins the atm-bd schedule stop condition to phase-root closure."""
     monkeypatch.setattr(cron_entry, "load_profile", lambda path: SimpleNamespace(profile=SimpleNamespace(name="x")))
     monkeypatch.setattr(cron_entry, "PhaseFilesCli", lambda: SimpleNamespace(
         load=lambda *args: SimpleNamespace(key=lambda name: "root")))

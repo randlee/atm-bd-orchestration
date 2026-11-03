@@ -38,6 +38,7 @@ def handle(envelope: dict) -> dict:
     cache = CacheStore.for_phase(phase)
     if isinstance(cache, Refusal):
         raise RuntimeError(repr(cache))
+    # ADR-069 D4 makes the phase root's closure the mandatory atm-bd cron stop condition.
     bead = cache.show(root)
     if isinstance(bead, Refusal):
         raise RuntimeError(repr(bead))
