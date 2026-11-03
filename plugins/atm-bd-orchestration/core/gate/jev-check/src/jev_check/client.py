@@ -53,7 +53,7 @@ class JevReply:
 
 
 class JevCheckError(Exception):
-    """A typed failure; `code` is the error id (README "Errors" lists every id and when it is raised)."""
+    """A typed Jev failure; `code` identifies the failure category."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(f"{code}: {message}")
@@ -68,10 +68,7 @@ def load_config() -> Config:
 
 
 def keychain(service: str) -> str:
-    """The macOS Keychain generic password: account $USER, service = the variable name; '' if absent.
-
-    ANTHROPIC_KEYCHAIN_SERVICE renames the service looked up for ANTHROPIC_API_KEY."""
-    service = os.environ.get("ANTHROPIC_KEYCHAIN_SERVICE", service) if service == "ANTHROPIC_API_KEY" else service
+    """Read a macOS Keychain generic password named for the variable; return '' if absent."""
     try:
         done = subprocess.run(["security", "find-generic-password", "-a", os.environ.get("USER", ""), "-s", service, "-w"],
                               capture_output=True, text=True, timeout=10, check=False)
@@ -107,7 +104,7 @@ class HttpsTransport:
 
 
 def payload_bytes(state: Any, questions: dict[str, Question]) -> bytes:
-    """The {questions, state} bytes every backend gets: Jev inside its request, Haiku/Luna as the user message."""
+    """Canonical compact bytes for the state and questions in a Jev request."""
     return json.dumps({"questions": questions, "state": state}, sort_keys=True, separators=(",", ":"),
                       ensure_ascii=False).encode()
 
