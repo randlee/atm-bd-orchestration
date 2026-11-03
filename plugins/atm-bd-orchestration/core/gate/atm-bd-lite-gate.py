@@ -7,7 +7,7 @@
 # ///
 """atm-bd-lite gate: hold one hook file to its hooks/*.md spec (fenix-brief.md §B).
 
-usage: atm-bd-lite-gate.py <hook.py> <hooks/spec.md> [--out run.json]
+usage: atm-bd-lite-gate.py <hook.py> <hooks/spec.md> --out run.json
 
 Deterministic checks run first and fail before Jev: rows == Transition arms (ANC-052), at most one
 beads write and no create/claim/release (ANC-064), stack_bead only read (ANC-065), no subprocess/bd/gh
@@ -140,11 +140,11 @@ def findings(answers: dict, f: dict) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) not in (2, 4) or (len(argv) == 4 and argv[2] != "--out"):
+    if len(argv) != 4 or argv[2] != "--out" or not argv[3]:
         print(__doc__, file=sys.stderr)
         return 2
     hook, spec = Path(argv[0]), Path(argv[1])
-    out = Path(argv[3]) if len(argv) == 4 else spec.parent.parent / "anchor-runs" / "hooks" / f"{hook.stem}.json"
+    out = Path(argv[3])
     src, spec_md = hook.read_text(), spec.read_text()
     rows = table(spec_md, "Transitions")
     f = facts(src)

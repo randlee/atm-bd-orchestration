@@ -67,6 +67,15 @@ def test_one_jev_check_and_typed_outage(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert json.loads(out.read_text())["jev_error"]["code"] == "JEV_UNAVAILABLE"
 
 
+@pytest.mark.parametrize("extra", [[], ["--out"], ["--other", "result.json"], ["--out", ""]])
+def test_output_path_is_required_before_reading_or_writing(tmp_path, capsys, extra) -> None:
+    hook = tmp_path / "skill/scripts/hook.py"
+    spec_path = tmp_path / "skill/hooks/spec.md"
+    assert gate.main([str(hook), str(spec_path), *extra]) == 2
+    assert "--out run.json" in capsys.readouterr().err
+    assert not (tmp_path / "skill").exists()
+
+
 def test_sites_on_same_line_are_not_dropped() -> None:
     facts = {"arms": [("Transition.START", 4)], "replies": [("HookReply.refused(error)", 4)]}
     assert len(gate.sites(facts)) == 2
