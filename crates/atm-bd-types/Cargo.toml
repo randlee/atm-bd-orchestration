@@ -5,9 +5,7 @@ edition = "2021"
 description = "atm-bd framework contract: hook and monitor types, ATM hook wire"
 publish = false
 
-[lib]
-# rlib for Rust users and tests; cdylib is the Python extension maturin builds with `--features python`.
-crate-type = ["rlib", "cdylib"]
+# Cargo defaults to an rlib; maturin requests the cdylib for Python wheel builds.
 
 [features]
 # The pyo3 bindings behind the `atm_bd_types` wheel (maturin enables it; plain `cargo test` does not link Python).
