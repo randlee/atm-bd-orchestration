@@ -93,7 +93,7 @@ def test_lite_tick_snapshot_and_dry_step(tmp_path, monkeypatch, capsys):
 def test_policy_snapshot_preserves_non_profile_stage_kind(tmp_path):
     _lite(tmp_path)
     selected = monitor.route(tmp_path, monitor.MonitorArgs("snapshot", phase="zz"),
-                             lambda _: 0, lambda *args: None)[0]
+                             lambda _: 0, lambda *args: None).monitor
     assert isinstance(selected, monitor.PolicyMonitor)
     stage = SimpleNamespace(bead_id="work", stage=Stage.STACK, status=Status.OPEN, assignee="agent")
     sprint = SimpleNamespace(id="sprint1", title="Sprint", status=Status.OPEN, depends_on=[], steps=[stage])
