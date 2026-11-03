@@ -3,10 +3,11 @@
 import json
 import tomllib
 from pathlib import Path
-from subprocess import SubprocessError
 from urllib.parse import urlsplit
 
 from atm_bd_types import CheckState, CollectError, FactKind, PrBase, TopChecks
+
+from ._errors import READ_ERRORS
 
 
 def _table():
@@ -17,7 +18,7 @@ def _table():
 def resolve_provider(runner, configured, repo=None):
     try:
         table = _table()
-    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
+    except READ_ERRORS as error:
         return None, f"Cannot load provider command table: {error}"
     def qualified(provider):
         selected = dict(provider)
@@ -42,28 +43,31 @@ def resolve_provider(runner, configured, repo=None):
             if host and any(host == item or host.endswith("." + item) for item in provider["hosts"]):
                 return qualified(provider), None
         raise ValueError(f"unrecognized remote {remote!r}")
-    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
+    except READ_ERRORS as error:
         return None, f"{error}; set provider in the phase file."
 
 
-def _run(runner, template, pr):
-    argv = [part.replace("{pr}", str(pr)) for part in template]
-    result = runner.run(argv, None)
+def _argv(provider, key, pr):
+    return [part.replace("{pr}", str(pr)) for part in provider[key]]
+
+
+def _run(runner, provider, key, pr):
+    result = runner.run(_argv(provider, key, pr), None)
     if result.code:
         raise ValueError(result.stderr or f"exit {result.code}")
     return result.stdout
 
 
 def top_checks(runner, provider, layer):
-    argv = [part.replace("{pr}", str(layer.pr)) for part in provider["head"]]
+    argv = _argv(provider, "head", layer.pr)
     try:
-        head = _run(runner, provider["head"], layer.pr).strip()
+        head = _run(runner, provider, "head", layer.pr).strip()
         if head.lower() != layer.head.lower():
             raise ValueError(f"pull request head {head!r} differs from recorded head {layer.head}")
-        argv = [part.replace("{pr}", str(layer.pr)) for part in provider["checks"]]
-        states = json.loads(_run(runner, provider["checks"], layer.pr))
-        argv = [part.replace("{pr}", str(layer.pr)) for part in provider["head"]]
-        if _run(runner, provider["head"], layer.pr).strip().lower() != layer.head.lower():
+        argv = _argv(provider, "checks", layer.pr)
+        states = json.loads(_run(runner, provider, "checks", layer.pr))
+        argv = _argv(provider, "head", layer.pr)
+        if _run(runner, provider, "head", layer.pr).strip().lower() != layer.head.lower():
             raise ValueError("pull request head changed during check collection")
         if not isinstance(states, list) or any(not isinstance(state, str) for state in states):
             raise ValueError("expected list of check states")
@@ -82,19 +86,19 @@ def top_checks(runner, provider, layer):
         else:
             raise ValueError(f"unknown check states: {states}")
         return TopChecks(layer.head, state), None
-    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
+    except READ_ERRORS as error:
         return None, CollectError(FactKind.TOP_CHECKS, argv, str(error), "Check provider access and retry.")
 
 
 def pr_bases(runner, provider, layers):
     bases = []
     for layer in layers:
-        argv = [part.replace("{pr}", str(layer.pr)) for part in provider["base"]]
+        argv = _argv(provider, "base", layer.pr)
         try:
-            base = _run(runner, provider["base"], layer.pr).strip().removeprefix(provider["base_prefix"])
+            base = _run(runner, provider, "base", layer.pr).strip().removeprefix(provider["base_prefix"])
             if not base:
                 raise ValueError("empty pull request base")
             bases.append(PrBase(layer.pr, base))
-        except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
+        except READ_ERRORS as error:
             return None, CollectError(FactKind.PR_BASES, argv, str(error), "Check provider access and retry.")
     return bases, None

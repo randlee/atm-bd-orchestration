@@ -105,3 +105,25 @@ def test_github_reads_use_configured_repository(recorded_runner):
     bases, error = pr_bases(runner, provider, [layer])
     assert bases is not None and error is None and bases[0].base == "main"
     assert all(argv[-2:] == ["--repo", "owner/other-repo"] for argv, _ in runner.calls)
+
+
+@pytest.mark.parametrize("step", ["first-head", "checks", "last-head", "base"])
+def test_provider_failure_reports_exact_executed_argv(recorded_runner, step):
+    provider, error = resolve_provider(recorded_runner(), "gh", "owner/other-repo")
+    assert provider is not None and error is None
+    layer = SimpleNamespace(pr=42, head="a" * 40)
+    ok_head = {"stdout": layer.head}
+    ok_checks = {"stdout": '["success"]'}
+    failed = {"code": 1, "stderr": "unavailable"}
+    responses = {
+        "first-head": [failed],
+        "checks": [ok_head, failed],
+        "last-head": [ok_head, ok_checks, failed],
+        "base": [failed],
+    }
+    runner = recorded_runner(*responses[step])
+    value, error = (pr_bases(runner, provider, [layer]) if step == "base"
+                    else top_checks(runner, provider, layer))
+    assert value is None and error is not None
+    assert error.argv == runner.calls[-1][0]
+    assert "42" in error.argv and error.argv[-2:] == ["--repo", "owner/other-repo"]

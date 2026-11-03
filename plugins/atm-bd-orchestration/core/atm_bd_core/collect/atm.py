@@ -2,9 +2,10 @@
 
 import json
 from datetime import datetime
-from subprocess import SubprocessError
 
 from atm_bd_types import CollectError, FactKind, TaskEvents, TaskFact, TaskState
+
+from ._errors import READ_ERRORS
 
 
 def _read(runner, argv):
@@ -23,7 +24,7 @@ def tasks(runner):
         states = {"assigned": TaskState.ASSIGNED, "active": TaskState.ACTIVE, "complete": TaskState.COMPLETE}
         # collect() associates tasks with phase beads after the cache read.
         return [TaskFact(item["task_id"], item["assignee"], states[item["state"]], None) for item in raw], None
-    except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
+    except READ_ERRORS as error:
         return None, CollectError(FactKind.TASKS, argv, str(error), "Check ATM connectivity and task output.")
 
 
@@ -47,6 +48,6 @@ def task_events(runner, task_ids):
                 elif event["event"] == "reminded" and last_start is not None:
                     reminders += 1
             facts.append(TaskEvents(task_id, reminders, last_start))
-        except (OSError, RuntimeError, SubprocessError, ValueError, TypeError, KeyError) as error:
+        except READ_ERRORS as error:
             return None, CollectError(FactKind.TASK_EVENTS, argv, str(error), "Check ATM task event output.")
     return facts, None
