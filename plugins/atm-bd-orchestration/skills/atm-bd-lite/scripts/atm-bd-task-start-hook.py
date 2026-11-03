@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["atm-bd-types==0.2.0"]
+# dependencies = ["atm-bd-types==0.4.0"]
 # ///
 """task.start: hooks/task-start.md. One write: in_progress. Does not read the ledger."""
 TIMEOUT_MS = 2500

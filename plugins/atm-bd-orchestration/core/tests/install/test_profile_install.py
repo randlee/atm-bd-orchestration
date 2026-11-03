@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import tomllib
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -81,6 +82,38 @@ def test_registers_each_declared_hook_and_cron_with_runtime_launchers(tmp_path, 
     assert "--until-hook" in cron and cron.count("--arg") == 2
     entry = Path(cron[cron.index("--module") + 1])
     assert installer.timeout(entry, "CRON_TIMEOUT_MS") == 30000
+
+
+
+def test_install_resolves_actual_packages_with_uv_dry_run(tmp_path, monkeypatch):
+    # A local wheel supplies the unrelated cache dependency, keeping the real resolver offline.
+    wheel = tmp_path / "bd_cache_rs-0.1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("bd_cache_rs-0.1.0.dist-info/METADATA",
+                         "Metadata-Version: 2.1\nName: bd-cache-rs\nVersion: 0.1.0\n")
+        archive.writestr("bd_cache_rs-0.1.0.dist-info/WHEEL",
+                         "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+        archive.writestr("bd_cache_rs-0.1.0.dist-info/RECORD", "")
+    phase_dir = tmp_path / ".atm-bd"
+    phase_dir.mkdir()
+    (phase_dir / "phase-sample.toml").write_text('profile = "lite"\n', encoding="utf-8")
+    real_run = subprocess.run
+    resolved = []
+
+    def run(argv, **kwargs):
+        if argv[:3] == ["uv", "pip", "install"]:
+            assert argv[5:7] == [str(ROOT / "crates/atm-bd-types"), str(ROOT / "plugins/atm-bd-orchestration/core")]
+            assert argv[7] == installer.cache_requirement(ROOT / "plugins/atm-bd-orchestration/core")
+            result = real_run(["uv", "pip", "install", "--dry-run", "--offline", "--no-sources",
+                               "--python", sys.executable,
+                               *argv[5:7], str(wheel)], capture_output=True, text=True, check=True)
+            resolved.append(result)
+            return result
+        return list_response(argv, [], tmp_path)
+
+    monkeypatch.setattr(installer.subprocess, "run", run)
+    installer.install(PROFILE, tmp_path, "sample", ROOT, "0 * * * * *", "owner/repo")
+    assert len(resolved) == 1
 
 
 def test_failed_cache_initialization_does_not_register_hooks(tmp_path, monkeypatch):

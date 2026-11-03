@@ -75,14 +75,13 @@ requires-dist = [
 
 [[package]]
 name = "atm-bd-types"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "../../crates/atm-bd-types" }
 
 [package.metadata]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "atm-bd-core", editable = "../../plugins/atm-bd-orchestration/core" },
     { name = "pyright", extras = ["nodejs"], specifier = "==1.1.414" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "ruff", specifier = "==0.17.0" },

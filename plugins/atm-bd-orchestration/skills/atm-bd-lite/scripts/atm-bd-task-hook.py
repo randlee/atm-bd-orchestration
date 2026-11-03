@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["atm-bd-types==0.2.0"]
+# dependencies = ["atm-bd-types==0.4.0"]
 # ///
 """task.close: hooks/task-close.md. One write, to the caller's own bead."""
 TIMEOUT_MS = 2500
