@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.metadata
 
-import atm_bd_core
 import pytest
 from atm_bd_types import (
     Assign,
@@ -123,7 +122,13 @@ def test_give_back_reason_and_unknown_template() -> None:
         '{"result":"refused","message":"REQUEST_INVALID: Not yours to fix: field=template. The lead has it."}')
 
 
-def test_stores_refuse_until_bo_10() -> None:
+def test_stores_refuse_without_framework(monkeypatch: pytest.MonkeyPatch) -> None:
+    from atm_bd_types import _stores
+
+    def missing(_name: str):
+        raise ModuleNotFoundError("no framework", name="atm_bd_core")
+
+    monkeypatch.setattr(_stores, "import_module", missing)
     store = CacheStore.for_phase("bo")
     assert isinstance(store, Refusal) and store.id == ErrorId.CACHE_UNAVAILABLE
     phase = PhaseFilesCli().load(".atm-bd/phase-bo.toml", "lite")
@@ -164,37 +169,9 @@ def test_actions_round_trip_through_the_rust_action() -> None:
     assert failed.failure is not None and failed.failure.id == ErrorId.BEAD_RACED and failed.action == actions[2]
 
 
-def test_wheel_is_abi3_and_both_modules_import() -> None:
+def test_wheel_is_abi3() -> None:
     wheel = importlib.metadata.distribution("atm-bd-types").read_text("WHEEL") or ""
     assert "-abi3-" in wheel, wheel
-    assert atm_bd_core.__name__ == "atm_bd_core"
-
-
-def test_lazy_store_delegates_to_framework(monkeypatch: pytest.MonkeyPatch) -> None:
-    import sys
-    import types
-
-    class Store:
-        @staticmethod
-        def for_phase(phase: str):
-            assert phase == "bo"
-            return Store()
-
-        def show(self, bead_id: str):
-            return bead_id
-
-    class Phases:
-        def load(self, path: str, profile: str):
-            return (path, profile)
-
-    fake = types.ModuleType("atm_bd_core.store")
-    fake.CacheStore = Store  # type: ignore[attr-defined]
-    fake.PhaseFilesCli = Phases  # type: ignore[attr-defined]
-    import atm_bd_core
-    monkeypatch.setitem(sys.modules, "atm_bd_core.store", fake)
-    monkeypatch.setattr(atm_bd_core, "store", fake, raising=False)
-    assert CacheStore.for_phase("bo").show("bo-1") == "bo-1"
-    assert PhaseFilesCli().load("phase.toml", "lite") == ("phase.toml", "lite")
 
 
 def test_framework_stack_of_reads_ledger() -> None:

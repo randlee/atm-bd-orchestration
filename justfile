@@ -6,7 +6,7 @@ lint:
     cargo clippy --all-targets --features python -- -D warnings
     cd crates/atm-bd-types && uv run --frozen --no-editable ruff check .
 
-# The last line builds the atm-bd-types abi3 wheel with maturin, installs it beside atm_bd_core and runs the
+# The last line builds the atm-bd-types abi3 wheel with maturin in isolation and runs the
 # wheel tests: reply bytes, stub generation and contract diff, pyright strict on the lite hooks.
 test:
     cd apps/atm-bd-console && uv run --frozen pytest -q
