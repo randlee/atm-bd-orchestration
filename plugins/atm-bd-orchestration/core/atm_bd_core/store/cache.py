@@ -28,12 +28,16 @@ class CacheStore:
     @staticmethod
     def for_phase(phase: str):
         try:
-            root = next(p for p in (Path.cwd(), *Path.cwd().parents) if (p / ".beads").is_dir())
+            cwd = Path.cwd()
+            root = next((p for p in (cwd, *cwd.parents) if (p / ".beads").is_dir()), None)
+            if root is None:
+                return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=phase,
+                               reason=f"no .beads directory at or above {cwd}")
             binary = shutil.which("bd")
             if binary is None:
                 raise FileNotFoundError("bd executable not found on PATH")
             return CacheStore(bd_cache_rs.Cache(str(root), bd_binary=binary, scopes=[phase]), phase)
-        except (bd_cache_rs.CacheError, StopIteration, OSError, RuntimeError, ValueError) as exc:
+        except (bd_cache_rs.CacheError, OSError, RuntimeError, ValueError) as exc:
             return _refusal(exc, phase)
 
     def _row(self, bead_id: str):
@@ -85,8 +89,11 @@ class CacheStore:
             meta = row.get("metadata") or {}
             checked = meta.get("checked_bead")
             if not checked:
-                checked = next(edge["depends_on_id"] for edge in row.get("dependencies", [])
-                               if edge.get("type") == "blocks" and self._row(edge["depends_on_id"])["status"] == "closed")
+                checked = next((edge["depends_on_id"] for edge in row.get("dependencies", [])
+                                if edge.get("type") == "blocks" and self._row(edge["depends_on_id"])["status"] == "closed"), None)
+            if checked is None:
+                return Refusal(ErrorId.CACHE_UNAVAILABLE, phase=self.phase, bead=qa_bead.id,
+                               reason=f"QA bead {qa_bead.id} has no checked bead or closed blocker")
             target = self._convert(self._row(checked))
             stack = self.show(target.stack_bead)
             if isinstance(stack, Refusal):
@@ -94,7 +101,7 @@ class CacheStore:
             ledger = stack_of(stack)
             layer = next((x for x in ledger.layers if x.branch == target.branch), None) if ledger else None
             return layer or Refusal(ErrorId.STACK_NOT_RECORDED, branch=target.branch)
-        except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError, StopIteration) as exc:
+        except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
             return _refusal(exc, self.phase, qa_bead.id)
 
     def update(self, patch, actor: str):

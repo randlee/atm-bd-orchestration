@@ -145,3 +145,20 @@ def test_pending_journal_warning_names_late_write(setup, monkeypatch):
     result = store.update(BeadPatch.start(snapshot), "dev")
     assert isinstance(result, Refusal) and result.id == ErrorId.CACHE_UNAVAILABLE
     assert "write journaled; may still apply; re-check bead tst-1 before retrying" in repr(result)
+
+
+def test_missing_cache_root_names_the_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = CacheStore.for_phase("bo")
+    assert isinstance(result, Refusal) and result.id == ErrorId.CACHE_UNAVAILABLE
+    assert "no .beads directory" in repr(result)
+    assert str(tmp_path.resolve()) in repr(result)
+
+
+def test_qa_without_checked_bead_names_the_qa_bead(setup):
+    root, store = setup
+    create_bead(root, "tst-qa", "qa", "phase-bo,stage:qa", {})
+    store.cache.sync("bo", 30)
+    result = store.target_layer(store.show("tst-qa"))
+    assert isinstance(result, Refusal) and result.id == ErrorId.CACHE_UNAVAILABLE
+    assert "QA bead tst-qa has no checked bead or closed blocker" in repr(result)
