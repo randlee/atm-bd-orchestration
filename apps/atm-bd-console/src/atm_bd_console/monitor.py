@@ -239,7 +239,10 @@ class PolicyMonitor:
             if isinstance(written, Err):
                 print(written.error)
                 return Exit.UNAVAILABLE
-            return Exit.CONFIG if isinstance(tick, Refusal) else Exit.OK
+            if isinstance(tick, Refusal):
+                self._print_refusal(tick)
+                return Exit.CONFIG
+            return Exit.OK
 
     def cron(self, args: MonitorArgs) -> Exit:
         import json
