@@ -1,6 +1,5 @@
-from atm_bd_types import FactKind
-
 from atm_bd_core.collect.reported import reported_keys
+from atm_bd_types import FactKind
 
 
 def test_reported_keys(tmp_path):

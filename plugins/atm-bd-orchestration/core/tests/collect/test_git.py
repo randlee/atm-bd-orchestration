@@ -1,8 +1,7 @@
 from types import SimpleNamespace
 
-from atm_bd_types import FactKind
-
 from atm_bd_core.collect.git import ancestry, remote_branches
+from atm_bd_types import FactKind
 
 
 class Runner:

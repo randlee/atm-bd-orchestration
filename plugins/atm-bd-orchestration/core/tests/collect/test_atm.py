@@ -1,9 +1,8 @@
 import json
 from types import SimpleNamespace
 
-from atm_bd_types import FactKind, TaskState
-
 from atm_bd_core.collect.atm import task_events, tasks
+from atm_bd_types import FactKind, TaskState
 
 
 class Runner:

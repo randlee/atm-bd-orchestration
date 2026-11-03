@@ -1,8 +1,7 @@
 from types import SimpleNamespace
 
-from atm_bd_types import CheckState, FactKind
-
 from atm_bd_core.collect.provider import pr_bases, resolve_provider, top_checks
+from atm_bd_types import CheckState, FactKind
 
 
 class Runner:

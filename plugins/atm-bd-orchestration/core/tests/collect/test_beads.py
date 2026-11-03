@@ -1,8 +1,7 @@
 from types import SimpleNamespace
 
-from atm_bd_types import FactKind
-
 from atm_bd_core.collect.beads import beads, ready, stack
+from atm_bd_types import FactKind
 
 
 class Cache:
