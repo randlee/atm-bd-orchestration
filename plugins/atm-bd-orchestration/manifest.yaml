@@ -30,6 +30,9 @@ artifacts:
     - skills/atm-bd-lite/scripts/atm-bd-task-hook.py
     - skills/atm-bd-lite/scripts/atm-bd-task-start-hook.py
     - skills/atm-bd-lite/templates/dev-close.md.j2
+    - skills/atm-bd-lite/templates/dev.xml.j2
+    - skills/atm-bd-lite/templates/land-close.md.j2
+    - skills/atm-bd-lite/templates/land.xml.j2
     - skills/atm-bd-lite/templates/qa-findings.md.j2
     - skills/atm-bd-lite/templates/qa-pass.md.j2
     - skills/atm-bd-lite/templates/qa.xml.j2

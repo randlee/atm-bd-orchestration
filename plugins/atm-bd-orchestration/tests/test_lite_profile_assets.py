@@ -136,6 +136,7 @@ def test_policy_parameters_are_text_and_point_to_qa_template() -> None:
 def test_skill_registers_each_profile_hook_once() -> None:
     profile = tomllib.loads((SKILL / "profile.toml").read_text())
     skill = (SKILL / "SKILL.md").read_text()
+    assert profile["stages"] == ["dev", "qa", "land"]
     commands = [line for line in skill.splitlines() if line.startswith("atm hook register ")]
     assert len(commands) == len(profile["hooks"]) == 3
     for hook, script in profile["hooks"].items():

@@ -1,6 +1,6 @@
 # atm-bd-lite profile manifest. Paths are relative to this file.
 name = "lite"
-stages = ["dev", "qa"]
+stages = ["dev", "qa", "land"]
 policy = "policy.toml"
 cron = "scripts/atm-bd-cron.py"
 
