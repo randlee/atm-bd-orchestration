@@ -131,3 +131,28 @@ jobs:
       - name: Package tests
         working-directory: plugins/atm-bd-orchestration
         run: python3 -m pytest -q -rs
+
+  atm-bd-types:
+    name: atm-bd-types crate and wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v5
+      - name: Rust format, clippy, tests
+        run: |
+          cargo fmt --all --check
+          cargo clippy --all-targets -- -D warnings
+          cargo clippy --all-targets --features python -- -D warnings
+          cargo test -p atm-bd-types
+      - name: Wheel tests (reply bytes, stubs, pyright strict on the lite hooks)
+        working-directory: crates/atm-bd-types
+        run: |
+          uv run --frozen --no-editable ruff check .
+          uv run --frozen --no-editable pytest -q
