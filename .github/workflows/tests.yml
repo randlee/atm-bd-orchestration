@@ -103,6 +103,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
+      - name: Warm the Python 3.11 script environment
+        run: just warm-py311
+
       # The scripts render with the sc-compose wheel; it is the same version as the CLI below
       # (the floor of the `sc-compose >=` range in plugins/atm-bd-orchestration/manifest.yaml, so the floor stays tested).
       - name: Install Python test dependencies

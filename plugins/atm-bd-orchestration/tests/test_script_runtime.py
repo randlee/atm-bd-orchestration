@@ -88,7 +88,10 @@ def test_a_script_runs_on_python_3_11_whatever_python3_is_on_path(tmp_path):
     env = {**os.environ, "PATH": f"{fake}{os.pathsep}{os.environ['PATH']}"}
     command = ["uv", "run", "--offline", "--python", "3.11", "--script", str(probe)]
     run = _run_uv_probe(command, env=env, cwd=tmp_path)
-    assert run.returncode == 0, f"stdout:\n{run.stdout}\nstderr:\n{run.stderr}"
+    assert run.returncode == 0, (
+        f"stdout:\n{run.stdout}\nstderr:\n{run.stderr}\n"
+        "If the Python 3.11 script environment is missing, run `just warm-py311` before the offline test."
+    )
     assert run.stdout.strip() == "(3, 11)"
 
 

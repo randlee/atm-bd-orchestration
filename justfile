@@ -6,6 +6,10 @@ lint:
     cargo clippy --all-targets --features python -- -D warnings
     cd crates/atm-bd-types && uv run --frozen --no-editable ruff check .
 
+# Provision the PEP 723 Python 3.11 script environment used by the offline runtime test.
+warm-py311:
+    uv run --python 3.11 --script plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/assignment-gates.py --help
+
 # The last line builds the atm-bd-types abi3 wheel with maturin in isolation and runs the
 # wheel tests: reply bytes, stub generation and contract diff, pyright strict on the lite hooks.
 test:
