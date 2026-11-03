@@ -6,8 +6,8 @@ use super::hook::{PyBead, PyHookRequest};
 use super::{either, enum_stub};
 use crate::framework::{ActionKind, OutcomeKind};
 use crate::plugin::{
-    AssignTransition, CheckState, CloseTransition, ErrorId, FactKind, Hook, Stage, StartTransition,
-    Status, TaskState, Template,
+    AssignTransition, CheckState, CloseTransition, ErrorId, FactKind, Hook, PatchKind, Stage,
+    StartTransition, Status, TaskState, Template,
 };
 
 /// Declares `$py`, the Python enum `$name` for the Rust enum `$rust`, member for member.
@@ -69,13 +69,28 @@ macro_rules! py_enum {
 }
 
 py_enum! {
-    PyStatus = Status as "Status" in "atm_bd_types", doc None, stub "";
+    PyStatus = Status as "Status" in "atm_bd_types", doc None,
+    stub "    @staticmethod\n    def parse(value: str) -> Status | None: ...\n    def as_str(self) -> str: ...\n";
     { Open = "OPEN", InProgress = "IN_PROGRESS", Blocked = "BLOCKED", Deferred = "DEFERRED", Closed = "CLOSED" }
+    #[staticmethod]
+    fn parse(value: &str) -> Option<Self> { Status::parse(value).map(Into::into) }
+    fn as_str(&self) -> &'static str { Status::from(*self).as_str() }
 }
 
 py_enum! {
-    PyStage = Stage as "Stage" in "atm_bd_types", doc Some("The bead's stage label; unknown labels are OTHER."), stub "";
+    PyStage = Stage as "Stage" in "atm_bd_types", doc Some("The bead's stage label; unknown labels are OTHER."),
+    stub "    @staticmethod\n    def parse(value: str) -> Stage: ...\n    def as_str(self) -> str: ...\n";
     { Dev = "DEV", Fix = "FIX", Qa = "QA", Land = "LAND", Stack = "STACK", Other = "OTHER" }
+    #[staticmethod]
+    fn parse(value: &str) -> Self { Stage::parse(value).into() }
+    fn as_str(&self) -> &'static str { Stage::from(*self).as_str() }
+}
+
+py_enum! {
+    PyPatchKind = PatchKind as "PatchKind" in "atm_bd_types", doc Some("The guarded patch operation."),
+    stub "    def as_str(self) -> str: ...\n";
+    { Assign = "ASSIGN", Start = "START", Reopen = "REOPEN", Close = "CLOSE" }
+    fn as_str(&self) -> &'static str { PatchKind::from(*self).as_str() }
 }
 
 py_enum! {

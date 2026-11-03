@@ -1,15 +1,14 @@
 """BeadStore implemented by the beads-cache journal and snapshot API."""
 from __future__ import annotations
 
-import json
 import shutil
 import uuid
 from pathlib import Path
 
 from ._cache_binding import cache_module as bd_cache_rs
 
-from atm_bd_types import ErrorId, Refusal, Stage, Status
-from atm_bd_types._core import patch_json, stack_of
+from atm_bd_types import ErrorId, PatchKind, Refusal, Stage, Status
+from atm_bd_types._core import encode_evidence, stack_of
 from atm_bd_types._native import _bead, _layer, _stack
 
 
@@ -64,11 +63,11 @@ class CacheStore:
         row = view["bead"]
         metadata = row.get("metadata") or {}
         labels = row.get("labels") or []
-        status = {"open": Status.OPEN, "in_progress": Status.IN_PROGRESS, "blocked": Status.BLOCKED,
-                  "deferred": Status.DEFERRED, "closed": Status.CLOSED}[row["status"]]
+        status = Status.parse(row["status"])
+        if status is None:
+            raise ValueError(f"unknown bead status {row['status']!r}")
         stage_name = next((x[6:] for x in labels if x.startswith("stage:")), "other")
-        stage = {"dev": Stage.DEV, "fix": Stage.FIX, "qa": Stage.QA, "land": Stage.LAND,
-                 "stack": Stage.STACK}.get(stage_name, Stage.OTHER)
+        stage = Stage.parse(stage_name)
         open_blockers = view["blocked"]
         blocks_ids = blocks_index.get(row["id"], [])
         stack = None
@@ -144,19 +143,24 @@ class CacheStore:
             return _refusal(exc, self.phase, qa_bead.id)
 
     def update(self, patch, actor: str):
-        data = json.loads(patch_json(patch))
-        operation = data["operation"]
-        value = data["value"]
-        args = {"assign": {"assignee": value.get("agent")}, "start": {"status": "in_progress"},
-                "reopen": {"status": "open", "assignee": ""},
-                "close": {"reason": json.dumps(value, sort_keys=True, separators=(",", ":"))}}[operation]
         try:
-            self.cache.write(data["id"], "close" if operation == "close" else "update", args,
-                             {"status": data["status"], "assignee": data["assignee"] or ""},
+            if patch.kind == PatchKind.ASSIGN:
+                args = {"assignee": patch.agent}
+            elif patch.kind == PatchKind.START:
+                args = {"status": Status.IN_PROGRESS.as_str()}
+            elif patch.kind == PatchKind.REOPEN:
+                args = {"status": Status.OPEN.as_str(), "assignee": ""}
+            elif patch.kind == PatchKind.CLOSE:
+                args = {"reason": encode_evidence(patch.evidence)}
+            else:
+                raise ValueError(f"unsupported patch kind {patch.kind!r}")
+            operation = "close" if patch.kind == PatchKind.CLOSE else "update"
+            self.cache.write(patch.bead_id, operation, args,
+                             {"status": patch.expected_status.as_str(), "assignee": patch.expected_assignee or ""},
                              str(uuid.uuid4()), actor)
             return None
         except (bd_cache_rs.CacheError, KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
-            return _refusal(exc, self.phase, data["id"])
+            return _refusal(exc, self.phase, patch.bead_id)
 
     def drain(self):
         """Apply pending writes and return this phase's unannounced escalations."""

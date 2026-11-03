@@ -75,6 +75,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<PyStatus>()?;
     m.add_class::<PyStage>()?;
+    m.add_class::<PyPatchKind>()?;
     m.add_class::<PyAssignTransition>()?;
     m.add_class::<PyStartTransition>()?;
     m.add_class::<PyCloseTransition>()?;
@@ -129,8 +130,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCommandResult>()?;
     m.add_class::<PyPorts>()?;
 
-    m.add_function(wrap_pyfunction!(patch_json, m)?)?;
     m.add_function(wrap_pyfunction!(stack_of, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_evidence, m)?)?;
     m.add_function(wrap_pyfunction!(_layer, m)?)?;
     m.add_function(wrap_pyfunction!(_stack, m)?)?;
     m.add_function(wrap_pyfunction!(phase_file, m)?)?;

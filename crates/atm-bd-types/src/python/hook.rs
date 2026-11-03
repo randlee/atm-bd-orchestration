@@ -4,11 +4,12 @@
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use pyo3::IntoPyObjectExt;
 
 use super::context;
 use super::conv::conv_wrapper;
 use super::either;
-use super::enums::{PyErrorId, PyStage, PyStatus, PyTemplate};
+use super::enums::{PyErrorId, PyPatchKind, PyStage, PyStatus, PyTemplate};
 use super::records::PyMerged;
 use crate::plugin::{
     Bead, BeadId, BeadPatch, BranchName, CloseVars, Ctx, ErrorId, Evidence, Finding, HookAction,
@@ -371,6 +372,18 @@ class BeadPatch:
     def reopen(snapshot: Bead) -> BeadPatch: ...
     @staticmethod
     def close(snapshot: Bead, evidence: Layer | QaPass | QaFail | Merged) -> BeadPatch: ...
+    @property
+    def kind(self) -> PatchKind: ...
+    @property
+    def bead_id(self) -> str: ...
+    @property
+    def expected_status(self) -> Status: ...
+    @property
+    def expected_assignee(self) -> str | None: ...
+    @property
+    def agent(self) -> str | None: ...
+    @property
+    def evidence(self) -> Layer | QaPass | QaFail | Merged | None: ...
 "#;
 
 /// `Layer | QaPass | QaFail` as `Evidence`; `None` for any other value.
@@ -410,6 +423,42 @@ impl PyBeadPatch {
             PyTypeError::new_err("BeadPatch.close evidence must be Layer, QaPass or QaFail")
         })?;
         Ok(PyBeadPatch(BeadPatch::close(&snapshot.0, evidence)))
+    }
+    #[getter]
+    fn kind(&self) -> PyPatchKind {
+        self.0.kind().into()
+    }
+    #[getter]
+    fn bead_id(&self) -> &str {
+        self.0.snapshot().bead_id.as_str()
+    }
+    #[getter]
+    fn expected_status(&self) -> PyStatus {
+        self.0.snapshot().status.into()
+    }
+    #[getter]
+    fn expected_assignee(&self) -> Option<&str> {
+        self.0.snapshot().assignee.as_deref()
+    }
+    #[getter]
+    fn agent(&self) -> Option<&str> {
+        match &self.0 {
+            BeadPatch::Assign { agent, .. } => Some(agent),
+            _ => None,
+        }
+    }
+    #[getter]
+    fn evidence<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let BeadPatch::Close { evidence, .. } = &self.0 else {
+            return Ok(None);
+        };
+        let value = match evidence {
+            Evidence::Layer(value) => PyLayer(value.clone()).into_bound_py_any(py)?,
+            Evidence::QaPass(value) => PyQaPass(value.clone()).into_bound_py_any(py)?,
+            Evidence::QaFail(value) => PyQaFail(value.clone()).into_bound_py_any(py)?,
+            Evidence::Merged(value) => PyMerged(value.clone()).into_bound_py_any(py)?,
+        };
+        Ok(Some(value))
     }
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
@@ -623,41 +672,12 @@ pub(crate) fn stack_of(bead: PyRef<'_, PyBead>) -> Option<PyStack> {
     bead.0.stack.clone().map(PyStack)
 }
 
-/// Framework-only serialization of the guarded write selected by the plug-in.
+/// Encode typed close evidence at the framework's journal boundary.
 #[pyfunction]
-pub(crate) fn patch_json(patch: PyRef<'_, PyBeadPatch>) -> String {
-    let (operation, guard, value) = match &patch.0 {
-        BeadPatch::Assign { guard, agent } => {
-            ("assign", guard, serde_json::json!({"agent": agent}))
-        }
-        BeadPatch::Start { guard } => ("start", guard, serde_json::json!({})),
-        BeadPatch::Reopen { guard } => ("reopen", guard, serde_json::json!({})),
-        BeadPatch::Close { guard, evidence } => {
-            let value = match evidence {
-                Evidence::Layer(layer) => {
-                    serde_json::json!({"kind": "layer", "branch": layer.branch, "head": layer.head.as_str(), "pr": layer.pr, "base": layer.base})
-                }
-                Evidence::QaPass(pass) => {
-                    serde_json::json!({"kind": "qa_pass", "sha": pass.sha.as_str()})
-                }
-                Evidence::QaFail(fail) => {
-                    serde_json::json!({"kind": "qa_fail", "sha": fail.sha.as_str(), "findings": fail.findings.iter().map(|f| serde_json::json!({"id": f.id, "blocking": f.blocking})).collect::<Vec<_>>()})
-                }
-                Evidence::Merged(merged) => {
-                    serde_json::json!({"kind": "merged", "sha": merged.sha.as_str()})
-                }
-            };
-            ("close", guard, value)
-        }
-    };
-    let status = match guard.status {
-        crate::plugin::Status::Open => "open",
-        crate::plugin::Status::InProgress => "in_progress",
-        crate::plugin::Status::Blocked => "blocked",
-        crate::plugin::Status::Deferred => "deferred",
-        crate::plugin::Status::Closed => "closed",
-    };
-    serde_json::json!({"operation": operation, "id": guard.bead_id, "status": status, "assignee": guard.assignee, "value": value}).to_string()
+pub(crate) fn encode_evidence(value: &Bound<'_, PyAny>) -> PyResult<String> {
+    let evidence = evidence(value)
+        .ok_or_else(|| PyTypeError::new_err("evidence must be Layer, QaPass, QaFail or Merged"))?;
+    Ok(crate::framework::encode_evidence(&evidence))
 }
 
 /// Framework-only constructors for ledger snapshots.

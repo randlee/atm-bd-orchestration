@@ -51,7 +51,7 @@ import builtins
 import enum
 import typing
 
-from atm_bd_types import (Action, Bead, BeadPatch, BeadStore, CheckState, CollectError, Params, PhaseFacts, Refusal, Stack, Stage, Status,
+from atm_bd_types import (Action, Bead, BeadStore, CheckState, CollectError, Layer, Merged, Params, PhaseFacts, QaFail, QaPass, Refusal, Stack, Stage, Status,
                           TaskState)
 
 _T = typing.TypeVar("_T")
@@ -78,6 +78,7 @@ pub(crate) fn plugin() -> String {
         PLUGIN_HEADER.to_owned(),
         PyStatus::stub(),
         PyStage::stub(),
+        PyPatchKind::stub(),
         PyAssignTransition::stub(),
         PyStartTransition::stub(),
         format!("{}\n", PyCloseTransition::stub()),
@@ -147,8 +148,8 @@ pub(crate) fn framework() -> String {
         COMMAND_RUNNER.to_owned(),
         BEADS_CACHE.to_owned(),
         PyPorts::stub(),
-        "def patch_json(patch: BeadPatch) -> str: ...\n".to_owned(),
         "def stack_of(bead: Bead) -> Stack | None: ...\n".to_owned(),
+        "def encode_evidence(evidence: Layer | QaPass | QaFail | Merged) -> str: ...\n".to_owned(),
     ]
     .join("\n")
 }

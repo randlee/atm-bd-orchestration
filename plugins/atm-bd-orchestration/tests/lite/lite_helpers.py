@@ -9,7 +9,6 @@ from types import ModuleType
 
 import atm_bd_types as T
 import pytest
-from atm_bd_types._core import patch_json
 from atm_bd_types._native import _bead, _layer, _phase_file, _stack
 
 HERE = Path(__file__).parent
@@ -39,7 +38,7 @@ def bead(
     checked_bead: str | None = None,
 ):
     if isinstance(stage, str):
-        stage = getattr(T.Stage, stage.upper(), T.Stage.OTHER)
+        stage = T.Stage.parse(stage)
     ledger = _stack(list(layers.values())) if layers is not None else None
     return _bead(bead_id, status, stage, assignee, open_blockers=open_blockers or [], blocks_ids=blocks_ids or [],
                  branch=branch, stack_bead=stack_bead, sprint=sprint, phase=phase, stack=ledger, checked_bead=checked_bead)
@@ -141,11 +140,9 @@ class FakeStore:
         return self.target if self.target is not None else T.Refusal(T.ErrorId.QA_NOTHING_TO_REVIEW, bead=qa_bead.id)
 
     def update(self, patch: T.BeadPatch, actor: str) -> T.Refusal | None:
-        data = json.loads(patch_json(patch))
-        operation, value = data["operation"], data["value"]
-        argument = value.get("agent") if operation == "assign" else (None if operation in ("start", "reopen") else value)
-        self.writes.append((operation, data["id"], argument, actor))
-        return T.Refusal(T.ErrorId.BEAD_RACED, bead=data["id"]) if self.race else None
+        argument = patch.agent if patch.kind == T.PatchKind.ASSIGN else patch.evidence
+        self.writes.append((patch.kind.as_str(), patch.bead_id, argument, actor))
+        return T.Refusal(T.ErrorId.BEAD_RACED, bead=patch.bead_id) if self.race else None
 
 
 class FakePhases:

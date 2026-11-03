@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import json
 
 import pytest
 from atm_bd_types import (
@@ -21,6 +22,7 @@ from atm_bd_types import (
     Merged,
     Notify,
     Params,
+    PatchKind,
     PhaseFacts,
     PhaseFilesCli,
     Profile,
@@ -34,7 +36,7 @@ from atm_bd_types import (
     Status,
     Template,
 )
-from atm_bd_types._core import ActionOutcome, Decision, OutcomeKind, ViewRow
+from atm_bd_types._core import ActionOutcome, Decision, OutcomeKind, ViewRow, encode_evidence
 from atm_bd_types._native import _bead, _layer, _phase_file
 from conftest import SHA, pass_report, request_json
 
@@ -92,6 +94,11 @@ def test_verdicts() -> None:
     fail = req.qa_findings()
     assert isinstance(fail, QaFail) and fail.sha == SHA
     assert [(f.id, f.blocking) for f in fail.findings] == [("f1", True)]
+    closed = BeadPatch.close(_bead("b", S.OPEN, Stage.QA), fail)
+    assert closed.evidence == fail
+    assert encode_evidence(fail) == json.dumps({"kind": "qa_fail", "sha": SHA,
+                                              "findings": [{"id": "f1", "blocking": True}]},
+                                             sort_keys=True, separators=(",", ":"))
     wrong = req.qa_pass()
     assert isinstance(wrong, Refusal) and wrong.id == ErrorId.QA_VERDICT
 
@@ -114,6 +121,39 @@ def test_bead_patch_guards_the_snapshot() -> None:
     with pytest.raises(TypeError):
         BeadPatch.close(bead, "not evidence")  # type: ignore[arg-type]
 
+
+
+@pytest.mark.parametrize(("status", "text"), [
+    (Status.OPEN, "open"), (Status.IN_PROGRESS, "in_progress"), (Status.BLOCKED, "blocked"),
+    (Status.DEFERRED, "deferred"), (Status.CLOSED, "closed"),
+])
+def test_status_roundtrip(status: Status, text: str) -> None:
+    assert status.as_str() == text and Status.parse(text) == status
+    assert Status.parse("unknown") is None
+
+
+@pytest.mark.parametrize(("stage", "text"), [
+    (Stage.DEV, "dev"), (Stage.FIX, "fix"), (Stage.QA, "qa"), (Stage.LAND, "land"),
+    (Stage.STACK, "stack"), (Stage.OTHER, "other"),
+])
+def test_stage_roundtrip(stage: Stage, text: str) -> None:
+    assert stage.as_str() == text and Stage.parse(text) == stage
+    assert Stage.parse("unknown") == Stage.OTHER
+
+
+def test_patch_exposes_typed_snapshot_operation_and_evidence() -> None:
+    bead = _bead("b", S.IN_PROGRESS, Stage.DEV, "dev")
+    assigned = BeadPatch.assign(bead, "qa")
+    assert (assigned.kind, assigned.bead_id, assigned.expected_status, assigned.expected_assignee, assigned.agent) == (
+        PatchKind.ASSIGN, "b", S.IN_PROGRESS, "dev", "qa")
+    assert assigned.evidence is None
+    assert BeadPatch.start(bead).kind == PatchKind.START
+    assert BeadPatch.reopen(bead).kind == PatchKind.REOPEN
+    verdict = parse("task.close", pass_report(), {"op": "close", "outcome": "completed"}).qa_pass()
+    assert isinstance(verdict, QaPass)
+    closed = BeadPatch.close(bead, verdict)
+    assert closed.kind == PatchKind.CLOSE and closed.evidence == verdict and closed.agent is None
+    assert encode_evidence(verdict) == f'{{"kind":"qa_pass","sha":"{SHA}"}}'
 
 def test_bead_unset_scope_is_none_and_ids_are_nonempty() -> None:
     bead = _bead("b", S.OPEN, Stage.DEV)

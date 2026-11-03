@@ -49,8 +49,7 @@ def test_t_close_01_missing_reason(hooks):
 # T-CLOSE-02 WORK_CLOSE
 def test_t_close_02_layer_recorded_closes_with_layer_evidence(hooks):
     reply, store = run(hooks, dev_bead(), completed(close_report="done"))
-    layer_value = {"kind": "layer", "branch": LAYER.branch, "head": LAYER.head, "pr": LAYER.pr, "base": LAYER.base}
-    assert reply_data(reply)["result"] == "handled" and store.writes == [("close", "bo-10", layer_value, DEV)]
+    assert reply_data(reply)["result"] == "handled" and store.writes == [("close", "bo-10", LAYER, DEV)]
     [action] = reply_actions(reply)
     assert action_template(action).endswith("/dev-close.md")
     assert action_vars(action) == {"branch": LAYER.branch, "head": LAYER.head, "pr": LAYER.pr, "base": LAYER.base}
@@ -82,7 +81,9 @@ def test_t_close_03_pass_closes_with_sha(hooks):
     req = completed(caller=QA, task="bo-10-qa", verdict="PASS", verdict_sha=LAYER.head)
     reply, store = run(hooks, qa_bead(), req, target=LAYER)
     assert reply_data(reply)["result"] == "handled"
-    assert store.writes == [("close", "bo-10-qa", {"kind": "qa_pass", "sha": LAYER.head}, QA)]
+    [(operation, bead_id, evidence, actor)] = store.writes
+    assert (operation, bead_id, actor) == ("close", "bo-10-qa", QA)
+    assert isinstance(evidence, T.QaPass) and evidence.sha == LAYER.head
     [action] = reply_actions(reply)
     assert action_template(action).endswith("/qa-pass.md")
     assert action_vars(action) == {"sha": LAYER.head}
@@ -117,8 +118,10 @@ def test_t_close_04_poured_findings_close_qa(hooks):
     reply, store = run(hooks, qa_bead(), findings_req(*findings), *poured, target=LAYER)
     assert reply_data(reply)["result"] == "handled"
     assert store.refreshes == [["f-1", "f-2", "sprint-10", "bo"]]
-    assert store.writes == [("close", "bo-10-qa", {"kind": "qa_fail", "sha": LAYER.head,
-                                                       "findings": findings}, QA)]
+    [(operation, bead_id, evidence, actor)] = store.writes
+    assert (operation, bead_id, actor) == ("close", "bo-10-qa", QA)
+    assert isinstance(evidence, T.QaFail) and evidence.sha == LAYER.head
+    assert [(f.id, f.blocking) for f in evidence.findings] == [("f-1", True), ("f-2", False)]
     [action] = reply_actions(reply)
     assert action_template(action).endswith("/qa-findings.md")
     assert action_vars(action) == {"sha": LAYER.head, "ids": ["f-1", "f-2"]}
@@ -192,7 +195,9 @@ def test_land_close_requires_merge_sha(hooks):
     report = f'```json\n{{"merged":"{LAYER.head}"}}\n```'
     reply, store = run(hooks, landing, completed(task="land", close_report=report))
     assert reply_data(reply)["result"] == "handled"
-    assert store.writes == [("close", "land", {"kind": "merged", "sha": LAYER.head}, DEV)]
+    [(operation, bead_id, evidence, actor)] = store.writes
+    assert (operation, bead_id, actor) == ("close", "land", DEV)
+    assert isinstance(evidence, T.Merged) and evidence.sha == LAYER.head
     assert action_template(reply_actions(reply)[0]).endswith("/land-close.md")
     reply, store = run(hooks, landing, completed(task="land", close_report="no sha"))
     expect_refused(reply, T.ErrorId.LAND_EVIDENCE, store)

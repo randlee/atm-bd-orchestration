@@ -15,17 +15,17 @@ CONTRACT = CRATE / "tests" / "fixtures" / "contract"  # documented approved-cont
 
 
 def framework_matches_contract(contract: str, generated: str) -> bool:
-    """Preserve every contract AST node; permit only the two approved framework functions."""
+    """Preserve every contract AST node; permit only the approved framework functions."""
     expected = ast.parse(contract).body
     actual = ast.parse(generated).body
-    additions = {"patch_json", "stack_of"}
+    additions = {"stack_of"}
     filtered = []
     for node in actual:
         if isinstance(node, ast.FunctionDef) and node.name in additions:
             additions.remove(node.name)
             continue
         if isinstance(node, ast.ImportFrom) and node.module == "atm_bd_types":
-            allowed = {"BeadPatch", "Stack"}
+            allowed = {"Stack"}
             node.names = [name for name in node.names if name.name not in allowed]
         filtered.append(node)
     return not additions and [ast.dump(node) for node in filtered] == [ast.dump(node) for node in expected]
