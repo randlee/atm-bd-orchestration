@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from atm_bd_core.execute import RETRY_LIMIT
+from atm_bd_core.execute import RETRY_LIMIT, Executor, Ledger
 from atm_bd_core.tick import tick
-from atm_bd_types import Assign, CollectError, ErrorId, FactKind, PhaseFacts, Refusal, TaskFact, TaskState
-from atm_bd_core import OutcomeKind, Ports, TickResult
+from atm_bd_types import Assign, CollectError, ErrorId, FactKind, Notify, PhaseFacts, Refusal, Report, TaskFact, TaskState
+from atm_bd_core import Decision, OutcomeKind, Ports, TickResult
 
 from .helpers import STARTUP_PARAMS, LEAD, QA, Collector, Runner, make_primary, make_profile, ports, qa_bead
 
@@ -188,6 +188,35 @@ def test_dry_run_executes_nothing_and_writes_no_state(tmp_path):
     assert [o.kind for o in result.outcomes] == [OutcomeKind.DRY_RUN]
     assert runner.calls == []
     assert not (tmp_path / "primary/.atm-bd/state").exists()
+
+
+@pytest.mark.parametrize("action", [Report("report", "queue", None, "text"), Notify("recipient", ["key"])])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_missing_team_returns_typed_failure_without_running_command(tmp_path, monkeypatch, action, dry_run):
+    monkeypatch.delenv("ATM_TEAM", raising=False)
+    runner, ledger = Runner(), Ledger()
+    executor = Executor(runner, tmp_path / "state", tmp_path, "lead", "")
+
+    [outcome] = executor.run(Decision([action], []), [action], [], ledger, dry_run, True)
+
+    assert outcome.kind == OutcomeKind.FAILED
+    assert outcome.failure.id == ErrorId.REQUEST_INVALID
+    assert "ATM_TEAM" in repr(outcome.failure)
+    assert runner.calls == []
+    if dry_run:
+        assert not ledger.failures and not (tmp_path / "state").exists()
+    else:
+        assert next(iter(ledger.failures.values())).attempts == 1
+
+
+def test_qualified_recipient_does_not_require_team(tmp_path, monkeypatch):
+    monkeypatch.delenv("ATM_TEAM", raising=False)
+    runner = Runner()
+    action = Notify("recipient@example", ["key"])
+    executor = Executor(runner, tmp_path / "state", tmp_path, "lead", "")
+    [outcome] = executor.run(Decision([action], []), [action], [], Ledger(), False, True)
+    assert outcome.kind == OutcomeKind.SENT
+    assert "recipient@example" in runner.calls[0][0]
 
 
 def test_missing_params_report_goes_to_the_lead_once_then_stays_a_row(tmp_path, monkeypatch):

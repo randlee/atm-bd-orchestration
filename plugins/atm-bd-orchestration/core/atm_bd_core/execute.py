@@ -173,14 +173,22 @@ class Executor:
             return ActionOutcome(action, OutcomeKind.FAILED, Refusal(
                 ERROR_IDS[previous.error], key=key, attempts=str(previous.attempts),
                 reason=f"retry limit {RETRY_LIMIT} reached; last error: {previous.message}"))
-        argv, stdin = self.argv(action)
-        if dry_run:
-            return ActionOutcome(action, OutcomeKind.DRY_RUN, None)
         try:
-            result = self.runner.run(["env", f"ATM_IDENTITY={self.lead}", *argv], stdin)
-            code, message = result.code, (result.stderr or result.stdout).strip()
-        except (OSError, SubprocessError) as exc:
+            argv, stdin = self.argv(action)
+        except ValueError as exc:
+            argv = []
             code, message = -1, f"{type(exc).__name__}: {exc}"
+            if dry_run:
+                return ActionOutcome(action, OutcomeKind.FAILED, Refusal(ErrorId.REQUEST_INVALID, key=key,
+                                                                           reason=message))
+        else:
+            if dry_run:
+                return ActionOutcome(action, OutcomeKind.DRY_RUN, None)
+            try:
+                result = self.runner.run(["env", f"ATM_IDENTITY={self.lead}", *argv], stdin)
+                code, message = result.code, (result.stderr or result.stdout).strip()
+            except (OSError, SubprocessError) as exc:
+                code, message = -1, f"{type(exc).__name__}: {exc}"
         if code == 0:
             ledger.failures.pop(key, None)
             if isinstance(action, Report) and reported_keys is not None:
