@@ -52,6 +52,8 @@ nothing is copied.
 
 ## Develop
 
+This scratch branch verifies the lite workflow.
+
 Use `atm-bd console --phase <x>` for the dashboard and `atm-bd cron --phase <x>`
 for a single orchestration tick.
 
