@@ -205,14 +205,19 @@ ATM_STEP
 )
 ```
 
-For an approved new sprint, the planner prepares `SPRINT_VARS` as the JSON
-variables for `sprint-bead.json.j2`, `SPRINT_NAME` as its name and
-`DEPS_JSON` as a JSON array of predecessor sprint names. From the workdir,
-with the supplied BEADS_DIR and TMPDIR, run these commands:
+For an approved new sprint, write its JSON variables to the exact absolute
+file `{{ scratch_dir }}/{{ step }}/sprint-vars.json`. Set and export
+`SPRINT_NAME` to its name and `DEPS_JSON` to a JSON array of predecessor
+sprint names before running this block. Do not quote a literal `$TMPDIR`
+into a variable or pass a literal dollar-sign path to sc-compose. From the
+workdir, with the supplied BEADS_DIR and TMPDIR, run these commands:
 
 ```bash
 (cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
+SPRINT_VARS="$TMPDIR/sprint-vars.json"
+case "$SPRINT_VARS" in /*) ;; *) echo "SPRINT_VARS must be absolute" >&2; exit 1 ;; esac
+if [ ! -f "$SPRINT_VARS" ]; then echo "MISSING_REQUIRED_FILE: $SPRINT_VARS" >&2; exit 1; fi
 PLAN_INDEX='{{ plan_index }}'
 if [ "$PLAN_INDEX" = integration ]; then
   PLAN_INDEX=$('{{ workdir }}/.claude/skills/atm-beads/scripts/phase-index-path' --root '{{ root }}')

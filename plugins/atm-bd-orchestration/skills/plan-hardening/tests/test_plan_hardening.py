@@ -142,6 +142,24 @@ def test_step_filing_enumeration_executes(rendered, tmp_path, shell):
     assert missing.returncode != 0 and "two" in missing.stderr
 
 
+@pytest.mark.parametrize("shell", ["bash", "zsh"])
+def test_sprint_render_uses_expanded_absolute_vars_path(rendered, tmp_path: Path, shell: str):
+    _, text = rendered
+    block = next(block for block in re.findall(r"```bash\n(.*?)\n```", text, re.S) if "SPRINT_VARS=\"$TMPDIR/sprint-vars.json\"" in block)
+    block = block.replace("cd '/tmp/worktree'", f"cd '{tmp_path}'").replace("/tmp/eval-scratch/atm-wisp-2ha", str(tmp_path)).replace("/tmp/phase-d.jsonl", str(tmp_path / "index.jsonl"))
+    (tmp_path / "sprint-vars.json").write_text('{}')
+    sc = tmp_path / "sc-compose"
+    sc.write_text('#!/bin/sh\nwhile [ "$#" -gt 0 ]; do case "$1" in --var-file) test -f "$2" || exit 9; shift 2 ;; --output) printf "{}\\n" > "$2"; shift 2 ;; *) shift ;; esac; done\n')
+    sc.chmod(0o755)
+    bd = tmp_path / "bd"
+    bd.write_text('#!/bin/sh\nexit 0\n')
+    bd.chmod(0o755)
+    env = {**os.environ, "SPRINT_NAME": "qx-5", "DEPS_JSON": "[]"}
+    result = subprocess.run([shell, "-c", f"export PATH='{tmp_path}:'$PATH\n" + block], cwd=tmp_path, env=env, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((tmp_path / "index.jsonl").read_text()) == {"sprint": "qx-5", "depends_on": []}
+
+
 @pytest.mark.parametrize("field", ["workdir", "beads_dir", "plan_index", "scratch_dir", "cache_path", "policy_path"])
 def test_step_template_rejects_unsafe_path(tmp_path, field):
     source = tmp_path / "step.j2"
