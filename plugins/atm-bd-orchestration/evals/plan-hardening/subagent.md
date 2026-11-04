@@ -50,7 +50,9 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    to `$EVAL_SCRATCH/plan-index.jsonl` on every step. Also set `plan_pr`
    to `none`, `scratch_dir` to `$EVAL_SCRATCH`, and `cache_path` to
    `$EVAL_WORKTREE/.atm-bd/atm.bd-cache.sqlite3` on every step. These rendered instructions
-   carry cwd and database to agents; do not prepend or alter the rendered prompt.
+   carry cwd and database to agents. Never hand-write or alter the rendered file;
+   dispatch the fixed line from SKILL.md with its absolute path and, for a retry,
+   the named attached-evidence path. The runner reads it and stops if missing.
    Pass `--index "$EVAL_SCRATCH/plan-index.jsonl"` to validate-plan.
    Do not run sprint-review in a fix step.
    If validate-plan reports `proxy.doctor.unsupported`, use the rendered step

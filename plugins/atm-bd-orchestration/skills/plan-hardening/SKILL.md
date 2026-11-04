@@ -248,24 +248,30 @@ Set `step`, `runner`, `actor`, `phase`, `root`, `planner`, `plan_index`,
 real run. `plan_pr=none` means no push; any other value identifies the plan PR. Use absolute paths for the last
 two, and an absolute index path or `integration` for `plan_index`; every step
 runs with the supplied working directory and BEADS_DIR.
-Never hand-write a step prompt.
-
-For a teammate, set `runner=teammate`, `actor=<agent>`, and deliver with:
+Never hand-write or alter the rendered step file. Render for both modes:
 
 ```bash
-atm send <agent> --task-id <step> --template <skill-root>/templates/plan-hardening-step.xml.j2 --vars <vars.json>
+sc-compose render --root <absolute-skill-root>/templates --strict --file plan-hardening-step.xml.j2 --var-file <vars.json> --output <absolute-scratch>/step.xml
 ```
 
-For a subagent, set `runner=subagent`. For a fix step set `actor=<planner>`
-because the formula assigns that step to the planner; for review steps use
-`actor=<dispatcher>`. Render:
+Give one background runner at the chosen tier this short fixed line, replacing
+the path with the absolute rendered file path: `Read <absolute-step-file>,
+follow it exactly, and return the step JSON.` The runner reads the file itself
+and must stop if it is missing. For a retry, add `Attached evidence:
+<absolute-evidence-file>.` to that line; put the failed return and evidence
+in that named file. Never hand-copy or edit the rendered instructions.
+
+For a teammate, set `runner=teammate`, `actor=<agent>`, render the same step
+file, then send the fixed line in the shipped carrier template using vars
+`step_path` and `evidence_path` (empty when not retrying):
 
 ```bash
-sc-compose render --root <absolute-skill-root>/templates --strict --file plan-hardening-step.xml.j2 --var-file <vars.json> --output <scratch>/step.xml
+atm send <agent> --task-id <step> --template <skill-root>/templates/plan-hardening-dispatch.xml.j2 --vars <dispatch-vars.json>
 ```
 
-Give the exact contents of that rendered file as the prompt to one background
-`general-purpose` agent at the chosen tier. Its fenced JSON is the return:
+For a subagent, set `runner=subagent`; use `actor=<planner>` for a fix step
+and `actor=<dispatcher>` for a review step. Give the fixed line to one
+background `general-purpose` agent at the chosen tier. Its fenced JSON is the return:
 `success`, `data` (`step`, `verdict`, `findings`), and `error`. A completed
 review returns `success:true` and `error:null`, including when its review
 verdict is FAIL. An execution failure returns `success:false` with error

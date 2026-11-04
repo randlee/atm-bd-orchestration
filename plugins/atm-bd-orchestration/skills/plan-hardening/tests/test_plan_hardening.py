@@ -32,6 +32,20 @@ def rendered(request: pytest.FixtureRequest, tmp_path: Path) -> tuple[str, str]:
     return runner, (tmp_path / "step.xml").read_text()
 
 
+@pytest.mark.parametrize("evidence", ["", "/tmp/attached.json"])
+def test_dispatch_carrier_delivers_paths(tmp_path: Path, evidence: str):
+    template = tmp_path / "dispatch.xml.j2"
+    template.write_bytes((SKILL / "templates/plan-hardening-dispatch.xml.j2").read_bytes())
+    variables = tmp_path / "vars.json"
+    variables.write_text(json.dumps({"step_path": "/tmp/step.xml", "evidence_path": evidence}))
+    result = run("sc-compose", "render", "--strict", "--file", str(template), "--var-file", str(variables), "--output", "dispatch.xml", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr + result.stdout
+    body = (tmp_path / "dispatch.xml").read_text()
+    assert "Read /tmp/step.xml, follow it exactly" in body
+    assert ("Attached evidence: /tmp/attached.json" in body) == bool(evidence)
+    assert "If the step file is missing, stop" in body
+
+
 @pytest.fixture(scope="module")
 def formulas(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict]:
     directory = tmp_path_factory.mktemp("formulas")

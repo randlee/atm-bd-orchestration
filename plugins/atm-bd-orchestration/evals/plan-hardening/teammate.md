@@ -45,7 +45,7 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    Import only the fixture containers with `bd import -i "$EVAL_ROOT/fixture-plan.jsonl"`.
    Do not pour groups until the final formula passes.
 2. Read `.claude/skills/plan-hardening/SKILL.md`, run exactly one iteration (`iteration=1`, `iterations=1`) and the
-   final formula. Use the supplied planner, dispatcher and lead identities. Assign every step as an ATM task with the shipped step template and vars. Each assigned teammate starts and closes its own task and claims and closes the step bead. The planner takes the fix steps. Use two distinct step teammates for
+   final formula. Use the supplied planner, dispatcher and lead identities. Render every step, then assign it as an ATM task using the shipped dispatch carrier template and vars naming the rendered file and any retry evidence. Each assigned teammate starts and closes its own task and claims and closes the step bead. The planner takes the fix steps. Use two distinct step teammates for
    parallel reviews; if only one is available, run them serially and record it.
    Run the review steps at `EVAL_MODEL`; using that cell model instead of the
    reviewers' configured models is expected in this evaluation.
@@ -55,7 +55,9 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    to `$EVAL_SCRATCH/plan-index.jsonl` on every step. Also set `plan_pr`
    to `none`, `scratch_dir` to `$EVAL_SCRATCH`, and `cache_path` to
    `$EVAL_WORKTREE/.atm-bd/atm.bd-cache.sqlite3` on every step. These rendered instructions
-   carry cwd and database to agents; do not prepend or alter the rendered prompt.
+   carry cwd and database to agents. Never hand-write or alter the rendered file;
+   the carrier gives its absolute path and, for a retry, the attached-evidence
+   path. The teammate reads the file and stops if it is missing.
    Pass `--index "$EVAL_SCRATCH/plan-index.jsonl"` to validate-plan.
    Do not run sprint-review in a fix step.
    If validate-plan reports `proxy.doctor.unsupported`, use the rendered step
