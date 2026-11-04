@@ -87,7 +87,8 @@ Planner {{{ planner }}}: fix the plan. This is iteration {{{ iteration }}} of
    `bd update <fix bead> --append-notes "fixed: <what changed, where>"`.
    A finding you reject gets `--append-notes "rebutted: <citation>"`. Apply
    an edge or sprint the finding justifies; rebut only with a cited reason. In planner modes the planner is the lead: make the ruling and fix the
-   finding, or rebut it with a citation to the plan or governing requirements.
+   finding, rebut it with a citation, or record `open decision: <question?>`
+   only when the user or Rand must decide and no source or rule settles it.
    Never close a fix bead: the pass that filed it closes it.
 3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`
    with the index and typed doctor fallback from the dispatch template. Do not
@@ -97,7 +98,9 @@ Planner {{{ planner }}}: fix the plan. This is iteration {{{ iteration }}} of
    is an adversarial review. Fix its findings and close this step. Do not add
    an iteration; the final formula's verify step checks the fixes.
 5. Close this step PASS only after every open fix bead has one terminal
-   `fixed: <complete resolution>` or `rebutted: <citation>` note, never a
-   partial or mixed disposition. Check each bead with `bd show <id> --json`;
+   `fixed: <complete resolution>`, `rebutted: <citation>`, or
+   `open decision: <question?>` note. The last is only for a user or Rand
+   decision no source or design rule settles; leave that finding open. Never
+   accept a partial or mixed disposition. Check each bead with `bd show <id> --json`;
    a missing, partial or ambiguous disposition fails the step.
 """

@@ -1,5 +1,5 @@
 plan = "docs/plans/phase-qx.jsonl"
-root = "atm-eval-phase-qx"
+root = "atm-phase-qx"
 integration_branch = "integrate/phase-qx"
 lead = "arch-ctm"
 

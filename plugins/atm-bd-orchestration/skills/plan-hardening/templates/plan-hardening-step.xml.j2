@@ -127,7 +127,9 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
    REQ, ADR, or existing plan line, not the finding itself. For a ceremony
    finding use the repository ceremony rule it cites: it can remove only
    process artifacts (records, ledgers, sign-offs with no consumer), never
-   product behavior or a test criterion. Never add or remove scope without
+   product behavior or a test criterion. When findings conflict, rebut a
+   ceremony request to remove an ADR recording a real design choice, citing
+   the other finding and the design choice that requires the ADR. Never add or remove scope without
    such a source. Verify each source exists and actually supports the claim;
    reopen a finding when a fix or rebuttal cites the wrong rule. In a fix step, the planner is the lead in
    planner modes and rules on every
@@ -137,11 +139,15 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
    sanity beads or edges), report it to the planner in planner modes or the
    phase lead in lead-adversarial mode. The planner owns and applies the
    structural correction before continuing. In planner modes the planner rules:
-   apply a supported fix, rebut with a cited source, or record an `open decision:`
-   note explaining a supported finding that cannot be resolved with permitted
-   writes. Leave that finding open for the Plan Gate and continue the step; do
+   apply a supported fix or rebut with a cited source. Use `open decision:`
+   only for a question requiring the user or Rand that no source or design
+   rule settles; write the decision as a question ending in `?`. Leave that finding open for the Plan Gate and continue the step; do
    not return "needs lead ruling" to the same planner runner.
-   Before planning a sprint or structural fix, read `{{ workdir }}/.claude/skills/atm-beads/resources/planning.md` sections "Sprint Container" (sprint fields, layer,
+   Naming types, fields, and methods required by an existing deliverable is
+   a design fix, not new scope: put them in the contract sprint design and
+   cite the deliverable. Adding a sprint is permitted; when inserting one,
+   shift later layers and their pr_targets as needed to preserve dependencies,
+   then run validate-plan. Before planning a sprint or structural fix, read `{{ workdir }}/.claude/skills/atm-beads/resources/planning.md` sections "Sprint Container" (sprint fields, layer,
    and pr_target) and "New Ids", and `{{ workdir }}/.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md` sections "Ownership And Dependency Relations"
    and "Sprint Bead Shape". Apply their rules to each changed container.
    Never run `bd delete`. To drop or merge a sprint, move its supported scope
@@ -158,15 +164,16 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
    never be given an `open decision:` disposition.
 
 Before a fix step closes PASS, run this check. Every finding handled by this fix must have
-exactly one `fixed:`, `rebutted:`, or `open decision:` note; the latter
-must remain open. Partial or mixed dispositions fail:
+exactly one `fixed:`, `rebutted:`, or `open decision: <question?>` note;
+the latter is allowed only for a user or Rand decision no source or rule
+settles and must remain open. Partial or mixed dispositions fail:
 
 ```bash
 set -euo pipefail
 bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json |
   jq -r '.[].id' | while IFS= read -r id; do
     bd show "$id" --json | jq -e '.[0] | (.status != "closed" or ((.notes // "") | test("(^|\\n)[[:space:]]*open decision:"; "i") | not)) and (.notes | type == "string" and
-      ([test("(^|\\n)[[:space:]]*fixed:[[:space:]]*[^[:space:]]"; "i"), test("(^|\\n)[[:space:]]*rebutted:[[:space:]]*[^[:space:]]"; "i"), test("(^|\\n)[[:space:]]*open decision:[[:space:]]*[^[:space:]]"; "i")] | map(select(.)) | length == 1) and
+      ([test("(^|\\n)[[:space:]]*fixed:[[:space:]]*[^[:space:]]"; "i"), test("(^|\\n)[[:space:]]*rebutted:[[:space:]]*[^[:space:]]"; "i"), test("(^|\\n)[[:space:]]*open decision:[^\\n]*[?]"; "i")] | map(select(.)) | length == 1) and
       (test("in part|partial"; "i") | not))' >/dev/null || {
         echo "finding $id lacks a valid disposition" >&2; exit 1;
       }

@@ -53,14 +53,18 @@ from the last iteration. A FAIL from that final critical pass is normal.
 1. `bd list --parent {{{ root }}} -l stage:plan-fix --all -n 0 --json` (filter in JSON for open status and planner; compare against every prior step's `filed=` IDs; an absent ID is an error, never an empty success).
 2. For each one, change the plan beads with `bd update` and add a
    `fixed: ...` or `rebutted: <citation>` note. In planner modes the planner
-   is the lead and must make the ruling or cite the rebuttal. Never close a fix bead.
+   is the lead and must make the ruling or cite the rebuttal. Record
+   `open decision: <question?>` only when the user or Rand must decide and
+   no source or rule settles it. Never close a fix bead.
 3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`
    with the index and typed doctor fallback from the dispatch template. Do not
    pour groups or run sprint-review in this fix step; both run after the final
    formula passes.
 4. Close this step PASS only after every open fix bead has one terminal
-   `fixed: <complete resolution>` or `rebutted: <citation>` note, never a
-   partial or mixed disposition. Check each bead with `bd show <id> --json`;
+   `fixed: <complete resolution>`, `rebutted: <citation>`, or
+   `open decision: <question?>` note. The last is only for a user or Rand
+   decision no source or design rule settles; leave that finding open. Never
+   accept a partial or mixed disposition. Check each bead with `bd show <id> --json`;
    a missing, partial or ambiguous disposition fails the step.
 """
 

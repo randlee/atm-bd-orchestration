@@ -72,11 +72,11 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    retry fails, stop with `EXECUTION.STEP_FAILED`; do not run the final formula: capture the failed checker result and
    report the blocking error. Record the wisp IDs.
 3. If the final formula passes, run `bead-groups --phase qx` to pour
-   all groups, then `sprint-review --root atm-eval-phase-qx --index
+   all groups, then `sprint-review --root atm-phase-qx --index
    "$EVAL_SCRATCH/plan-index.jsonl"`. Capture both outputs and exit codes; a
    failed pour or render fails the cell even if the checker passes. If the
    formula did not pass, skip the pour and render. In either case, before
-   squashing, run `"$EVAL_ROOT/check.sh" atm-eval-phase-qx teammate` and
+   squashing, run `"$EVAL_ROOT/check.sh" atm-phase-qx teammate` and
    capture its complete output and exit status. A failure is a failed cell.
 4. Only if the final formula completes AND check.sh exits 0, squash the
    evaluation wisps. On an aborted run or failed check, reopen any failed fix bead before stopping

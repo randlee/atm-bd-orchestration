@@ -78,7 +78,7 @@ and import a sprint container, update its plan index, and add or remove only
 the corresponding container-to-container `blocks` edges. Do not pour or
 modify sprint groups during hardening. A direct
 `bd create` of a sprint or any other `bd` write fails the step. The planner
-adds a `fixed:` or `rebutted:` note to each fix bead and never closes it. The
+adds a `fixed:`, `rebutted:`, or permitted `open decision:` note to each fix bead and never closes it. The
 only permitted `git` write is after the plan changes and
 the final formula passes: pour groups, render the DAG, and commit and push it
 to the plan PR unless the dispatch template specifies no PR. Reviewer agents remain read-only.
@@ -149,15 +149,17 @@ For each iteration `i` from 1 through `N`:
 In either planner mode, the planner is the phase lead for hardening and owns
 rulings on every finding. If a proposed change is unsupported by the plan or
 its governing requirements, record a rebuttal citing that evidence; otherwise
-apply the fix. If a supported finding cannot be resolved with permitted writes,
-record `open decision: <reason>` and leave it open for the Plan Gate; continue
-the step. A missing ADR or REQ is never an open decision: add its future
+apply the fix. Use `open decision: <question?>` only for a decision requiring the user or
+Rand that no source or design rule settles. Leave it open for the Plan Gate
+and continue the step; never use it for a resolvable finding. A missing ADR or REQ is never an open decision: add its future
 document path to the owning sprint's `owned_paths` and a deliverable naming
 the `NEW:` id, for example `NEW:ADR-delivery-contract`; no number allocation
 is needed. These are permitted plan writes; the sprint writes the document later.
 Never invent a ruling or leave a finding without one of these notes. In lead-adversarial mode the phase lead makes the ruling.
-For every applied fix, cite both its finding and a REQ, ADR, or existing plan
-source. Never add or remove scope without a source; rebut an unsupported
+Naming types, fields, and methods required by an existing deliverable is a
+design fix, not new scope: write them in the contract sprint design and cite
+the deliverable. For every applied fix, cite both its finding and a REQ, ADR,
+or existing plan source. Never add or remove scope without a source; rebut an unsupported
 finding with `rebutted: unsupported by <source>`.
 For structural findings, prefer editing an existing sprint; otherwise rebut
 with a citation if the request is unsupported; add a sprint only when neither
@@ -169,7 +171,9 @@ prerequisites to the selected plan index and import it. Do not pour its dev,
 sanity or QA beads during hardening; the final step pours all groups once. Choose the added sprint's `pr_target` using
 `atm-beads-plan-guidelines.md` and `resources/planning.md` (nearest
 `must_follow` prerequisite, highest planned layer if there are several; trunk
-when none). Its own layer is above that prerequisite.
+when none). Its own layer is above that prerequisite. When inserting a sprint,
+shift later layer numbers and their `pr_target` values as needed to preserve
+the planned dependency chain, then run validate-plan.
 
 When changing an existing sprint's prerequisites, update `depends_on` in the
 plan index, then use `bd dep add <sprint> --blocked-by <prerequisite>` for

@@ -1,6 +1,6 @@
 {
-  "overlapping_owned_paths": "atm-eval-qx-1",
-  "unconsumed_ledger": "atm-eval-qx-2",
-  "must_follow_without_artifact": "atm-eval-qx-3",
-  "boundary_false_closure": "atm-eval-qx-4"
+  "overlapping_owned_paths": "atm-qx-1",
+  "unconsumed_ledger": "atm-qx-2",
+  "must_follow_without_artifact": "atm-qx-3",
+  "boundary_false_closure": "atm-qx-4"
 }
