@@ -136,6 +136,17 @@ def skill_text():
     return (SKILL / "SKILL.md").read_text()
 
 
+def test_skill_plan_gate_references_resolve_from_skill_root():
+    text = skill_text()
+    references = re.findall(r"\[[^\]]+\]\((\.\./atm-bd-orchestration/SKILL\.md#[^)]+)\)", text)
+    assert references == ["../atm-bd-orchestration/SKILL.md#plan-gate"] * 2
+    for reference in references:
+        path, anchor = reference.split("#", maxsplit=1)
+        assert (SKILL / path).is_file()
+        assert anchor == "plan-gate"
+        assert re.search(r"^#{1,6} Plan Gate$", (SKILL / path).read_text(), re.MULTILINE)
+
+
 def test_skill_names_three_modes():
     text = skill_text().lower()
     for mode in ("planner with subagents", "planner with teammates", "lead adversarial"):
