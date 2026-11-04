@@ -136,7 +136,25 @@ The planner fixes or rebuts it; the filing pass verifies and closes it.
 
 ## Filing reviewer output
 
-For scope and critical, the runner converts JSON to the step template's filing array in
+For scope and critical, before applying the step description's finding-based PASS rule, inspect the
+reviewer's envelope. `success: false` or any non-empty `errors` array is a
+fatal review failure: close the step `VERDICT=FAIL` with the error in the
+close reason, even when there are no findings. Do not file findings from an
+incomplete review. This failure rule takes precedence over the formula's
+finding-based PASS rule. For a successful envelope, use `data`; a legacy
+top-level `errors` array also triggers failure. The following maps the
+reviewer JSON in `$REVIEW` to the verdict, close-reason error, and filing
+array:
+
+```bash
+jq -c 'if (.success == false or ((.data.errors // []) | length > 0) or ((.errors // []) | length > 0)) then {verdict:"FAIL", error:([.error, (.data.errors // [])[], (.errors // [])[]] | map(select(. != null)) | if length == 0 then ["reviewer returned success:false without an error"] else . end), findings:[]} else {verdict:"FINDINGS", error:null, findings:([(.data.findings // [])[], (.data.minor_wording // [])[]] | map({title, description, severity, plan_bead}))} end' "$REVIEW"
+```
+
+For `FINDINGS`, apply the step's normal finding-based verdict after filing;
+`FINDINGS` is not a close verdict. For `FAIL`, include the mapped `error` in
+the step's `bd close --reason` alongside `VERDICT=FAIL`; never close PASS.
+
+For scope and critical, the runner converts successful reviewer JSON to the step template's filing array in
 one way: concatenate `findings` and `minor_wording`, then copy only `title`,
 `description`, `severity` and `plan_bead` from every entry. File both arrays,
 including Minor wording findings; do not drop `minor_wording`. The canonical

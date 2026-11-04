@@ -249,9 +249,41 @@ def test_reviewer_output_filing_adapter():
         agent = (PACKAGE / "agents" / f"{name}.md").read_text()
         assert "Filing reviewer output" in agent
         blocks = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", agent, re.S)]
-        output = next(block for block in blocks if "findings" in block)
+        output = next(block["data"] for block in blocks if "findings" in block.get("data", {}))
         for entry in output["findings"] + output["minor_wording"]:
             assert {"title", "description", "severity", "plan_bead"} <= entry.keys()
+        assert "## Error Handling" in agent and "## Constraints" in agent
+        assert "VALIDATION.INPUT" in agent and "REVIEW.TARGET_UNREADABLE" in agent
+
+
+@pytest.mark.parametrize("review", [
+    {"success": False, "data": None, "error": {"code": "VALIDATION.INPUT", "message": "missing root"}},
+    {"success": False, "data": None, "error": None},
+    {"success": True, "data": {"findings": [], "minor_wording": [], "errors": ["unreadable sprint"]}},
+    {"success": True, "data": {"findings": [], "minor_wording": [], "errors": []}, "errors": ["bad input"]},
+])
+def test_reviewer_errors_force_failed_step(tmp_path, review):
+    command = next(line for line in skill_text().splitlines() if line.startswith("jq -c 'if (.success"))
+    path = tmp_path / "review.json"
+    path.write_text(json.dumps(review))
+    result = run("bash", "-c", 'REVIEW="$1"; ' + command, "mapping", str(path), cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    mapped = json.loads(result.stdout)
+    assert mapped["verdict"] == "FAIL" and mapped["error"] and mapped["findings"] == []
+
+
+def test_successful_reviewer_output_files_both_arrays(tmp_path):
+    command = next(line for line in skill_text().splitlines() if line.startswith("jq -c 'if (.success"))
+    finding = {"title": "Gap", "description": "Fix gap", "severity": "Important", "plan_bead": "p-1", "issue": "extra"}
+    review = {"success": True, "data": {"findings": [finding], "minor_wording": [{**finding, "severity": "Minor"}], "errors": []}, "error": None}
+    path = tmp_path / "review.json"
+    path.write_text(json.dumps(review))
+    result = run("bash", "-c", 'REVIEW="$1"; ' + command, "mapping", str(path), cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    mapped = json.loads(result.stdout)
+    assert mapped["verdict"] == "FINDINGS" and mapped["error"] is None
+    assert mapped["findings"] == [{k: v for k, v in finding.items() if k != "issue"},
+                                   {k: v for k, v in {**finding, "severity": "Minor"}.items() if k != "issue"}]
 
 
 def adversary_guard_request(tmp_path, area, task):
