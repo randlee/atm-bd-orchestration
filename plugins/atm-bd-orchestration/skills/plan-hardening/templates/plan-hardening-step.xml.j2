@@ -3,7 +3,7 @@ name: plan-hardening-step
 version: 1.0.0
 description: Runs one plan-hardening wisp step. One template for both runners - a teammate (an ATM task) and a background subagent (a rendered prompt).
 format: xml
-required_variables: [step, runner, actor, phase, root, planner]
+required_variables: [step, runner, actor, phase, root, planner, plan_index, beads_dir, workdir]
 metadata:
   type: plan-hardening-step
   tags: [stage:plan-hardening]
@@ -21,13 +21,21 @@ metadata:
   <phase>{{ phase }}</phase>
   <root>{{ root }}</root>
   <instructions><![CDATA[
-Your instructions are the description of step bead {{ step }}. This template
-only starts, records and closes the step.
+Your instructions are the description of step bead {{ step }}. Run every shell
+command from `{{ workdir }}` with `BEADS_DIR={{ beads_dir }}`. The dispatcher
+must pass these exact values to every subagent or teammate; never infer them.
+{% if plan_index != 'integration' %}For validate-plan and sprint-review, pass `--index '{{ plan_index }}'` explicitly.
+{% else %}For validate-plan and sprint-review, use the integration-branch index.
+{% endif %}Save their complete output and exit status; a nonzero exit is a failed step,
+not a plan finding or a passing result. This template starts, records and
+closes the step.
 
 1. Start:
 
 ```bash
 set -euo pipefail
+cd '{{ workdir }}'
+export BEADS_DIR='{{ beads_dir }}'
 {% if teammate %}atm task start {{ step }} "plan-hardening step {{ step }}"
 {% endif %}bd update {{ step }} --claim --actor {{ actor }}
 bd show {{ step }} --json | jq -er '.[0].description'
@@ -42,7 +50,20 @@ bd list --parent {{ root }} -l stage:sprint -n 0 --json \
   | jq -e '[.[] | {id, title, description, design, acceptance_criteria, metadata}]'
 ```
 
-3. Do what the step description says.
+3. Do what the step description says. In a fix or verify step enumerate every
+   filing reported by earlier steps before filtering the fix beads:
+
+```bash
+bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0 --json |
+  jq -r --arg root '{{ root }}' '.[] | select(.metadata.root == $root) |
+    (.close_reason // "") | (try capture("(?:^|[[:space:]])filed=(?<ids>[^[:space:]]+)").ids catch empty) |
+    select(. != "none") | split(",")[]'
+```
+
+   Compare these IDs with `bd list --parent {{ root }} -l stage:plan-fix
+   --all -n 0 --json`; if any are absent, fail and report the missing IDs.
+   In a fix step, never create sprint or contract beads. If a finding requires
+   changing the plan structure, stop and escalate it to the phase lead.
 
 4. File findings when you have any. Write a JSON array to
    `${TMPDIR:-/tmp}/{{ step }}-findings.json`, one object per finding:
@@ -67,7 +88,7 @@ jq -ce '.[]' "${TMPDIR:-/tmp}/$STEP-findings.json" | while IFS= read -r f; do
     continue
   fi
   bd create "$(jq -er .title <<<"$f")" --parent '{{ root }}' --type task --assignee '{{ planner }}' \
-    --labels 'phase-{{ phase }},stage:plan-fix' --description "$(jq -er .description <<<"$f")" \
+    --no-inherit-labels --labels 'stage:plan-fix' --description "$(jq -er .description <<<"$f")" \
     --metadata "$(jq -c --arg pass "$PASS" --arg step "$STEP" '{pass:$pass, filed_by_step:$step, severity, plan_bead}' <<<"$f")" \
     --actor '{{ actor }}' --json | jq -er '.id'
 done | tee "${TMPDIR:-/tmp}/$STEP-filed.txt"

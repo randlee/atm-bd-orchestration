@@ -101,10 +101,9 @@ Use the current repository's bd database and repository configuration.
 it is `.claude/skills/plan-hardening`. Keep requests, renders and results in
 scratch outside the tracked tree.
 
-When validating a local, unpushed evaluation fixture, set
-`PLAN_HARDENING_PLAN_INDEX` to its absolute plan-index path; pass
-`--index "$PLAN_HARDENING_PLAN_INDEX"` to validate-plan. In normal runs leave
-it unset and validate the integration branch.
+When validating a local, unpushed plan, set the dispatch `plan_index` to
+its absolute path; each step passes it to both validate-plan and sprint-review.
+For the integration-branch index use the literal `integration`.
 
 For each iteration `i` from 1 through `N`:
 
@@ -180,7 +179,10 @@ stop the run instead of dispatching another copy.
 
 Use `templates/plan-hardening-step.xml.j2` for every step and the shipped
 `examples/plan-hardening-step-{teammate,subagent}-vars.json` as input shapes.
-Set `step`, `runner`, `actor`, `phase`, `root`, and `planner` for the real run.
+Set `step`, `runner`, `actor`, `phase`, `root`, `planner`, `plan_index`,
+`beads_dir`, and `workdir` for the real run. Use absolute paths for the last
+two, and an absolute index path or `integration` for `plan_index`; every step
+runs with the supplied working directory and BEADS_DIR.
 Never hand-write a step prompt.
 
 For a teammate, set `runner=teammate`, `actor=<agent>`, and deliver with:
@@ -221,6 +223,10 @@ Each finding has `title`, `description`, `severity` (Blocking, Important or
 Minor), and `plan_bead`. The finding block creates a `stage:plan-fix` bead
 under the phase root assigned to the planner, preserving the filing pass.
 The planner fixes or rebuts it; the filing pass verifies and closes it.
+Temporarily omit the `phase-<x>` label from plan-fix beads: the current phase
+validator has no model for that stage (atm-bd-orchestration#788). Keep the
+parent and `stage:plan-fix` label, and query them with `--all`. Restore the
+phase label when that model ships.
 
 ## Filing reviewer output
 

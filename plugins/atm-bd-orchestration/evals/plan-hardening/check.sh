@@ -12,7 +12,7 @@ BD=${BD:-bd}
 ATM=${ATM:-atm}
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 planted=$script_dir/planted.json
-fixes=$("$BD" search "$root." -l stage:plan-fix -n 0 --json)
+fixes=$("$BD" list --parent "$root" -l stage:plan-fix --all -n 0 --json)
 printf '%s\n' "$fixes" | jq -e 'type == "array"' >/dev/null
 printf '%s\n' "$fixes" | jq -er '.[].id' | while IFS= read -r id; do
     fix=$("$BD" show "$id" --json)

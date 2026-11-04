@@ -13,6 +13,7 @@ import yaml
 
 SKILL = Path(__file__).resolve().parents[1]
 PACKAGE = SKILL.parents[1]
+EVALS = PACKAGE / "evals/plan-hardening"
 
 
 def run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -52,6 +53,42 @@ def test_step_template_renders_both_runners(rendered):
     runner, text = rendered
     assert f'runner="{runner}"' in text
     assert '<plan-hardening-step id="atm-wisp-2ha"' in text
+
+
+def test_step_template_carries_isolated_context(rendered):
+    _, text = rendered
+    assert "cd '/tmp/worktree'" in text
+    assert "export BEADS_DIR='/tmp/beads'" in text
+    assert "--index '/tmp/phase-d.jsonl'" in text
+    assert 'filed=' in text and 'stage:plan-hardening --include-ephemeral --all' in text
+
+
+def test_step_filing_enumeration_executes(rendered, tmp_path):
+    _, text = rendered
+    command = text.split("filing reported by earlier steps", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
+    bd = tmp_path / "bd"
+    rows = [
+        {"metadata": {"root": "atm-phase-d"}, "close_reason": "VERDICT=FAIL filed=one,two verified=none"},
+        {"metadata": {"root": "other"}, "close_reason": "filed=wrong"},
+        {"metadata": {"root": "atm-phase-d"}, "close_reason": "VERDICT=PASS filed=none"},
+    ]
+    bd.write_text("#!/bin/sh\nprintf '%s\\n' " + "'" + json.dumps(rows) + "'\n")
+    bd.chmod(0o755)
+    result = subprocess.run(["bash", "-o", "pipefail", "-c", command], cwd=tmp_path,
+                            env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["one", "two"]
+
+
+def test_step_template_requires_plan_index(tmp_path):
+    source = tmp_path / "step.j2"
+    source.write_bytes((SKILL / "templates/plan-hardening-step.xml.j2").read_bytes())
+    variables = json.loads((SKILL / "examples/plan-hardening-step-subagent-vars.json").read_text())
+    del variables["plan_index"]
+    (tmp_path / "vars.json").write_text(json.dumps(variables))
+    result = run("sc-compose", "render", "--strict", "--file", str(source), "--var-file", str(tmp_path / "vars.json"), "--output", "output.xml", cwd=tmp_path)
+    assert result.returncode != 0
 
 
 def test_step_template_refuses_other_runner(tmp_path):
@@ -107,7 +144,8 @@ def test_step_template_reads_bead_description(rendered):
 def test_finding_block_files_planner_fix_beads(rendered):
     _, text = rendered
     assert "--parent 'atm-phase-d' --type task --assignee 'fenix'" in text
-    assert "phase-d,stage:plan-fix" in text
+    assert "--no-inherit-labels --labels 'stage:plan-fix'" in text
+    assert "phase-d,stage:plan-fix" not in text  # Temporary until schema issue #788 is fixed.
     for field in ("title", "description", "severity", "plan_bead", "filed_by_step", "verified="):
         assert field in text
 
@@ -451,6 +489,15 @@ def test_ceremony_output_files_through_step(rendered, tmp_path, severity, verdic
     assert metadata["pass"] == "ceremony"
     assert metadata["severity"] == canonical["severity"]
     assert metadata["plan_bead"] == "atm-d-1"
+@pytest.mark.skipif(not EVALS.is_dir(), reason="evaluation assets intentionally excluded from installed skill")
+def test_eval_answer_key_is_not_installed():
+    manifest = yaml.safe_load((PACKAGE / "manifest.yaml").read_text())
+    installed = [path for paths in manifest["artifacts"].values() for path in paths]
+    assert not any("plan-hardening/evals/" in path or path.endswith("/planted.json") for path in installed)
+    assert (EVALS / "planted.json").is_file()
+
+
+@pytest.mark.skipif(not EVALS.is_dir(), reason="evaluation assets intentionally excluded from installed skill")
 def test_eval_prompts_have_post_run_questions():
     questions = (
         "Which instruction was unclear?",
@@ -460,19 +507,22 @@ def test_eval_prompts_have_post_run_questions():
         "What would you change?",
     )
     for runner in ("subagent", "teammate"):
-        text = (SKILL / "evals" / f"{runner}.md").read_text()
+        text = (EVALS / f"{runner}.md").read_text()
         assert "## Post-run questions" in text
         assert all(question in text for question in questions)
-        assert "bd import" in text and "check.sh atm-eval-phase-z" in text
+        assert "bd import" in text and f'"$EVAL_ROOT/check.sh" atm-eval-phase-z {runner}' in text
+        assert "BEADS_DIR" in text and "--proxied-server" in text
+        assert "bd delete --force" not in text
 
 
+@pytest.mark.skipif(not EVALS.is_dir(), reason="evaluation assets intentionally excluded from installed skill")
 def test_eval_check_script_rejects_missing_fix_bead(tmp_path):
     bd = tmp_path / "bd"
     bd.write_text('''#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
 scenario = os.environ.get("EVAL_SCENARIO", "ok")
-if args[0] == "search":
+if args[0] == "list" and "--parent" in args:
     ids = ["atm-eval-z-1", "atm-eval-z-2", "atm-eval-z-3", "atm-eval-z-4"]
     if scenario == "missing_fix": ids.pop()
     print(json.dumps([{"id": f"fix-{i}", "metadata": {"plan_bead": x, "filed_by_step": "step-0"}} for i, x in enumerate(ids)]))
@@ -508,7 +558,7 @@ print(json.dumps({"events": events, "handoffs": []}))
 ''')
     bd.chmod(0o755)
     atm.chmod(0o755)
-    script = SKILL / "evals/check.sh"
+    script = EVALS / "check.sh"
 
     def check(runner: str, scenario: str = "ok") -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "BD": str(bd), "ATM": str(atm), "EVAL_RUNNER": runner, "EVAL_SCENARIO": scenario}

@@ -50,14 +50,15 @@ Planner {{{ planner }}}: fix the plan for every open fix bead under
 {{{ root }}}: the ceremony findings and any critical-plan-reviewer findings
 from the last iteration. A FAIL from that final critical pass is normal.
 
-1. `bd search "{{{ root }}}." -l stage:plan-fix --status open -n 0 --json` (filter to the root and planner; compare against every prior step's `filed=` IDs; an absent ID is an error, never an empty success).
+1. `bd list --parent {{{ root }}} -l stage:plan-fix --all -n 0 --json` (filter in JSON for open status and planner; compare against every prior step's `filed=` IDs; an absent ID is an error, never an empty success).
 2. For each one, change the plan beads with `bd update` and add a
    `fixed: ...` or `rebutted: <citation>` note. Never close a fix bead.
-3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (append `--index "$PLAN_HARDENING_PLAN_INDEX"` if that environment variable is set);
+3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (use the index supplied in the dispatch template);
    when the plan changed, re-run
-   `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}` and
-   commit and push the DAG to the plan PR. This is the only permitted `git`
-   write, and only in this fix step after both checks pass.
+   `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}`
+   (use the index supplied in the dispatch template), then commit and push the
+   DAG to the plan PR unless the dispatch template says no PR. This is the
+   only permitted `git` write, and only after both checks pass.
 4. Close this step when every fix bead has a note.
 """
 
@@ -75,9 +76,12 @@ the agent file of the pass that filed it (`metadata.pass`: scope is
 `.claude/agents/ceremony-qa.md`, lead and adversary findings name their own
 check) and check only that finding against the plan.
 
-1. Search `bd search "{{{ root }}}." -l stage:plan-fix -n 0 --json` and compare its IDs against every prior step's `filed=` IDs. If any are missing, close this step FAIL and report the missing IDs. Close each fix bead the plan now resolves. A rebuttal that cites the
+1. Search `bd list --parent {{{ root }}} -l stage:plan-fix --all -n 0 --json` and compare its IDs against every prior step's `filed=` IDs. If any are missing, close this step FAIL and report the missing IDs. Close each fix bead the plan now resolves. A rebuttal that cites the
    design closes it too. Leave the others open with a note saying what is
    still wrong; file nothing new.
-2. Close this step: PASS when no Blocking or Important fix bead is open,
+2. When review passes conflict, do not invent a resolution or close an unresolved
+   finding. Record the conflicting findings and evidence, ask the phase lead
+   for a ruling, and close this step FAIL if the conflict remains unresolved.
+3. Close this step: PASS when no Blocking or Important fix bead is open,
    FAIL otherwise. The open ones go to quality-mgr plan review with the plan.
 """

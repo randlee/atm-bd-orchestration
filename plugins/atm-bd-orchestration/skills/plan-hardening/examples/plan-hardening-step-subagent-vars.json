@@ -1,1 +1,1 @@
-{"step": "atm-wisp-2ha", "runner": "subagent", "actor": "fenix", "phase": "d", "root": "atm-phase-d", "planner": "fenix"}
+{"step": "atm-wisp-2ha", "runner": "subagent", "actor": "fenix", "phase": "d", "root": "atm-phase-d", "planner": "fenix", "plan_index": "/tmp/phase-d.jsonl", "beads_dir": "/tmp/beads", "workdir": "/tmp/worktree"}
