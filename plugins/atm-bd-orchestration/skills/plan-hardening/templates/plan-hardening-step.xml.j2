@@ -26,8 +26,11 @@ Your instructions are the description of step bead {{ step }}. Run every shell
 command from `{{ workdir }}` with `BEADS_DIR={{ beads_dir }}` and
 `TMPDIR={{ scratch_dir }}`. Read repository plan data, reviewer files, scripts and configuration only
 from that workdir or beads directory; the explicitly supplied plan index and
-run artifacts are read from scratch. Never read another checkout. Write every evidence and temporary file under the exact directory
-`{{ scratch_dir }}/{{ step }}/`; create it before starting. The
+run artifacts are read from scratch. Never read another checkout. Write every evidence and temporary file only under the exact directory
+`{{ scratch_dir }}/{{ step }}/`; create it before starting. Never use the
+agent session scratchpad. The selected plan index and tool-owned receipts are
+separate allowed plan writes; sprint-review writes its DAG under the clone
+`docs/plans/phase-{{ phase }}/` as well as its scratch outputs. The
 sprint-review cache must be `{{ cache_path }}`: verify the Git common directory
 and cache resolve within the workdir before running it. The dispatcher must
 pass these exact values to every subagent or teammate; never infer them.
@@ -39,7 +42,9 @@ description says to push; leave its generated artifact in this disposable workdi
 {% else %}For validate-plan and sprint-review, use the integration-branch index.
 {% endif %}Save each validate-plan and sprint-review command, its complete output and
 exit status immediately to a named scratch path; list the commands, paths and
-exit codes in the returned `data.commands` array. Also list every `bd` write
+exit codes in the returned `data.commands` array. Never silence or discard stderr for evidence-bearing commands: capture it
+with stdout, including filing, `bd` reads/writes, sc-compose and receipts.
+Also list every `bd` write
 in `data.bd_writes` and every written file in `data.file_writes`; use empty
 arrays when none occurred so the dispatcher can audit the run. If validate-plan fails specifically
 because `bd doctor` reports `proxy.doctor.unsupported`, retain the verbatim
@@ -83,7 +88,12 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
 
    Compare these IDs with `bd list --parent {{ root }} -l stage:plan-fix
    --all -n 0 --json`; if any are absent, fail and report the missing IDs.
-   In a fix step, rebut unsupported findings with citations. If a supported
+   Every applied fix must cite its finding and a REQ, ADR or existing plan
+   source; otherwise rebut it as `unsupported by <source>`. Never add or remove
+   scope without such a source. In a fix step, the planner is the lead in
+   planner modes and rules on every
+   finding, including conflicts between findings. Apply an edge or sprint a
+   finding justifies; rebut only with a cited reason. If a supported
    finding requires structural changes (including sprints, contracts, ADRs,
    sanity beads or edges), report it to the planner in planner modes or the
    phase lead in lead-adversarial mode. The planner owns and applies the
@@ -103,6 +113,33 @@ bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json |
       }
   done
 ```
+
+For an approved new sprint, the planner prepares `SPRINT_VARS` as the JSON
+variables for `sprint-bead.json.j2`, `SPRINT_NAME` as its name and
+`DEPS_JSON` as a JSON array of predecessor sprint names. From the workdir,
+with the supplied BEADS_DIR and TMPDIR, run these commands:
+
+```bash
+set -euo pipefail
+PLAN_INDEX='{{ plan_index }}'
+if [ "$PLAN_INDEX" = integration ]; then
+  PLAN_INDEX=$(.claude/skills/atm-beads/scripts/phase-index-path --root '{{ root }}')
+fi
+sc-compose render --root '{{ workdir }}/.claude/skills/atm-beads/templates' \
+  --strict --file sprint-bead.json.j2 --var-file "$SPRINT_VARS" --output "$TMPDIR/sprint.json"
+jq -c . "$TMPDIR/sprint.json" > "$TMPDIR/sprint.jsonl"
+bd import -i "$TMPDIR/sprint.jsonl"
+jq -cn --arg sprint "$SPRINT_NAME" --argjson depends_on "$DEPS_JSON" \
+  '{sprint:$sprint,depends_on:$depends_on}' >> "$PLAN_INDEX"
+# Do not pour groups during hardening; pour once after the final formula passes.
+```
+
+For a changed prerequisite of an existing sprint, update the index first;
+then add `bd dep add <sprint> --blocked-by <prerequisite>`
+or remove `bd dep remove <sprint> <prerequisite>`.
+Before each write confirm both beads are planned sprint containers and the
+edge corresponds exactly to the index change. Check the resulting graph and
+run validate-plan. A failed command is an execution failure, not a PASS.
 
 4. File findings when you have any. Write a JSON array to
    `${TMPDIR:-/tmp}/{{ step }}-findings.json`, one object per finding:

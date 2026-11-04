@@ -74,13 +74,14 @@ The runner's `bd` writes are limited to the step template's commands: claim
 and close the step, create `stage:plan-fix` beads under the root, and close
 verified fix beads or update their notes. In planner fix steps, the planner
 may also update plan beads and, only through the add-sprint path below, render
-and import a sprint container, update its plan index, run bead-groups, and
-add or remove only the corresponding dev-to-sanity `blocks` edges. A direct
+and import a sprint container, update its plan index, and add or remove only
+the corresponding container-to-container `blocks` edges. Do not pour or
+modify sprint groups during hardening. A direct
 `bd create` of a sprint or any other `bd` write fails the step. The planner
 adds a `fixed:` or `rebutted:` note to each fix bead and never closes it. The
-only permitted `git` write is in a planner fix step after the plan changes and
-both checks pass: commit and push the DAG to the plan PR, unless the dispatch
-template specifies no PR. Reviewer agents remain read-only.
+only permitted `git` write is after the plan changes and
+the final formula passes: pour groups, render the DAG, and commit and push it
+to the plan PR unless the dispatch template specifies no PR. Reviewer agents remain read-only.
 
 ## Iterations
 
@@ -149,25 +150,27 @@ rulings on every finding. If a proposed change is unsupported by the plan or
 its governing requirements, record a rebuttal citing that evidence; otherwise
 apply the fix. Never invent a ruling or leave a finding without a fixed or
 cited rebuttal note. In lead-adversarial mode the phase lead makes the ruling.
+For every applied fix, cite both its finding and a REQ, ADR, or existing plan
+source. Never add or remove scope without a source; rebut an unsupported
+finding with `rebutted: unsupported by <source>`.
 For structural findings, prefer editing an existing sprint; otherwise rebut
 with a citation if the request is unsupported; add a sprint only when neither
 resolves it. When a ruling adds a sprint, render the container with
 `.claude/skills/atm-beads/templates/sprint-bead.json.j2`, add its sprint and
-prerequisites to the selected plan index, import it, and run
-`.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <p>` to pour
-its dev, sanity and QA beads. Choose the added sprint's `pr_target` using
+prerequisites to the selected plan index and import it. Do not pour its dev,
+sanity or QA beads during hardening; the final step pours all groups once. Choose the added sprint's `pr_target` using
 `atm-beads-plan-guidelines.md` and `resources/planning.md` (nearest
 `must_follow` prerequisite, highest planned layer if there are several; trunk
 when none). Its own layer is above that prerequisite.
 
 When changing an existing sprint's prerequisites, update `depends_on` in the
-plan index, then use `bd dep add <sprint>.group-dev --blocked-by
-<prerequisite>.group-sanity` for each new edge and `bd dep remove
-<sprint>.group-dev <prerequisite>.group-sanity` for each stale edge. Limit
-these writes to the exact plan changes, inspect the resulting dependencies,
-and validate the updated index and graph. If any required edge operation or
-validation fails, leave the step open, report the command and error using the
-failure envelope, and refuse its ATM task when it has one.
+plan index, then use `bd dep add <sprint> --blocked-by <prerequisite>` for
+each new container edge and `bd dep remove <sprint> <prerequisite>` for each
+stale container edge. Limit writes to planned sprint containers, inspect the
+graph, and validate the updated index. If an edge operation or validation
+fails, leave the step open and return the failure envelope; refuse its ATM
+task if it has one.
+
 
 After the last fix step closes, copy into scratch, render and wisp
 `formulas/plan-hardening-final.formula.toml.j2` using `root`, `phase`, and
@@ -179,6 +182,12 @@ files no new findings. For `lead` and `adversary:*` findings, use the
 [the adversarial reference](references/adversarial-plan-hardening.md). Confirm
 its expected result against the current plan or a cited design rebuttal;
 leave a missing check or unresolved result open with a note.
+
+After the final formula passes, run `bead-groups --phase <p>` once to pour
+all groups, then run `sprint-review --root <root> --index <index>`. Save both
+outputs and exit codes. Commit and push the DAG to the plan PR only when the
+dispatch template specifies a PR; for `plan_pr=none`, keep the DAG in the
+clone and scratch. A failed pour or render fails the run.
 
 Finally run `bd mol squash <wisp>` on each iteration, adversary and final
 wisp. Close reasons retain verdicts and filed/verified fix-bead ids; wisp
@@ -196,6 +205,11 @@ of a step concurrently. A closed step is not retried. The filing block reuses
 an existing finding with the same step, title, description, severity and plan
 bead, including closed findings, and files only missing entries from a partial
 batch. Preserve the same finding input when retrying.
+
+For a recoverable fix-step execution failure, stop the failed runner, leave
+or reopen its bead, and dispatch the same step once to a fresh runner with
+the failed return and evidence attached. If the retry fails, stop the run with
+`EXECUTION.STEP_FAILED`; never start two copies concurrently.
 
 ## Dispatch
 

@@ -16,16 +16,29 @@ def start(root: Path) -> None:
     root = root.resolve(strict=True)
     data = root / "data"
     database = data / "atm"
-    database.mkdir(parents=True, exist_ok=False)
-    subprocess.run(["dolt", "init"], cwd=database, check=True)
     sock = root / "dolt.sock"
+    context_path = root / "server.json"
+    resuming = context_path.exists()
+    previous = json.loads(context_path.read_text(encoding="utf-8")) if resuming else None
+    if previous is not None:
+        if (previous["socket"] != str(sock) or previous["data_dir"] != str(data)
+                or previous["beads_dir"] != str(root / ".beads") or not database.is_dir()):
+            raise RuntimeError("server context does not belong to this scratch directory")
+        if sock.exists():
+            raise RuntimeError("private server socket already exists; stop the server first")
+    else:
+        database.mkdir(parents=True, exist_ok=False)
+        subprocess.run(["dolt", "init"], cwd=database, check=True)
     log_path = root / "dolt.log"
     process = None
     port = 0
-    for _ in range(5):
-        with socket.socket() as reservation:
-            reservation.bind(("127.0.0.1", 0))
-            port = reservation.getsockname()[1]
+    for _ in range(1 if resuming else 5):
+        if previous is not None:
+            port = previous["port"]
+        else:
+            with socket.socket() as reservation:
+                reservation.bind(("127.0.0.1", 0))
+                port = reservation.getsockname()[1]
         with log_path.open("ab") as log:
             process = subprocess.Popen(
                 ["dolt", "sql-server", "--host", "127.0.0.1", "--port", str(port),
@@ -56,10 +69,11 @@ def start(root: Path) -> None:
     assert process is not None
     env = {**os.environ, "BEADS_DIR": str(root / ".beads")}
     try:
-        subprocess.run(["bd", "init", "--server", "--server-host", "127.0.0.1",
+        if not resuming:
+            subprocess.run(["bd", "init", "--server", "--server-host", "127.0.0.1",
                         "--server-port", str(port), "--server-socket", str(sock),
                         "--prefix", "atm", "--non-interactive", "--skip-hooks", "--skip-agents"],
-                       cwd=root, env=env, check=True)
+                           cwd=root, env=env, check=True)
     except BaseException:
         process.terminate()
         process.wait(timeout=10)

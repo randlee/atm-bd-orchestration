@@ -41,11 +41,8 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    If `$EVAL_WORKTREE/docs/plans/phase-zzeval.jsonl` exists or is a symlink, stop.
    Otherwise link that path to the scratch index; `bead-groups --phase zzeval`
    reads the plan path from phase-zzeval.toml when the planner adds a sprint.
-   Import the fixture with `bd import -i "$EVAL_ROOT/fixture-plan.jsonl"`,
-   then from `EVAL_WORKTREE` run
-   `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase zzeval` to pour
-   all dev, sanity and QA groups using the actual worktree configuration.
-   If the pour fails, stop, retain its receipt, and report the failure.
+   Import only the fixture containers with `bd import -i "$EVAL_ROOT/fixture-plan.jsonl"`.
+   Do not pour groups until the final formula passes.
 2. Read `.claude/skills/plan-hardening/SKILL.md`, run exactly one iteration (`iteration=1`, `iterations=1`) and the
    final formula. Use the supplied planner, dispatcher and lead identities. Assign every step as an ATM task with the shipped step template and vars. Each assigned teammate starts and closes its own task and claims and closes the step bead. The planner takes the fix steps. Use two distinct step teammates for
    parallel reviews; if only one is available, run them serially and record it.
@@ -56,19 +53,26 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    to `none`, `scratch_dir` to `$EVAL_SCRATCH`, and `cache_path` to
    `$EVAL_WORKTREE/.atm-bd/atm.bd-cache.sqlite3` on every step. These rendered instructions
    carry cwd and database to agents; do not prepend or alter the rendered prompt.
-   Pass `--index "$EVAL_SCRATCH/plan-index.jsonl"` to validate-plan and sprint-review.
+   Pass `--index "$EVAL_SCRATCH/plan-index.jsonl"` to validate-plan.
+   Do not run sprint-review in a fix step.
    If validate-plan reports `proxy.doctor.unsupported`, use the rendered step
    template's one-time `--no-doctor` fallback and retain the original error
    (atm-bd-orchestration#807); do not skip any other failure.
    Save their full output and exit status immediately after each command. Nonzero
-   means the step fails and is reported, never a passing result. If a fix step
-   fails, do not run the final formula: capture the failed checker result and
+   means the step fails and is reported, never a passing result. If a fix step fails recoverably, stop the runner and re-dispatch that same
+   step once to a fresh runner with its failed return and evidence. If the
+   retry fails, stop with `EXECUTION.STEP_FAILED`; do not run the final formula: capture the failed checker result and
    report the blocking error. Record the wisp IDs.
-3. Before squashing, run `"$EVAL_ROOT/check.sh" atm-eval-phase-zzeval teammate` and
+3. If the final formula passes, run `bead-groups --phase zzeval` to pour
+   all groups, then `sprint-review --root atm-eval-phase-zzeval --index
+   "$EVAL_SCRATCH/plan-index.jsonl"`. Capture both outputs and exit codes; a
+   failed pour or render fails the cell even if the checker passes. If the
+   formula did not pass, skip the pour and render. In either case, before
+   squashing, run `"$EVAL_ROOT/check.sh" atm-eval-phase-zzeval teammate` and
    capture its complete output and exit status. A failure is a failed cell.
 4. Only if the final formula completes AND check.sh exits 0, squash the
-   evaluation wisps. On an aborted run or failed check, do not squash or delete the scratch
-   database: stop the private server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`, retain the database and context file as evidence, and
+   evaluation wisps. On an aborted run or failed check, reopen any failed fix bead before stopping
+   the server. Do not squash or delete the scratch database: stop the private server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`, retain the database and context file as evidence, and
    report their exact paths. Do not run `bd delete`.
    On a completed run with check exit 0, unlink the worktree plan-index symlink, remove only
    the phase-zzeval.toml and context file you copied, stop this cell's server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`,

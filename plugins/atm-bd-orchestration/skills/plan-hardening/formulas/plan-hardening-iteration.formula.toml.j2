@@ -85,17 +85,14 @@ Planner {{{ planner }}}: fix the plan. This is iteration {{{ iteration }}} of
 2. For each one, change the plan beads it names with `bd update` (description,
    design, acceptance criteria, metadata) and add a note to the fix bead:
    `bd update <fix bead> --append-notes "fixed: <what changed, where>"`.
-   A finding you reject gets `--append-notes "rebutted: <citation>"`. Rebut a
-   finding that adds a state, verb, check, artifact or edge the design does
-   not name. In planner modes the planner is the lead: make the ruling and fix the
+   A finding you reject gets `--append-notes "rebutted: <citation>"`. Apply
+   an edge or sprint the finding justifies; rebut only with a cited reason. In planner modes the planner is the lead: make the ruling and fix the
    finding, or rebut it with a citation to the plan or governing requirements.
    Never close a fix bead: the pass that filed it closes it.
-3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (use the index and typed proxy.doctor.unsupported fallback supplied in the dispatch template; issue #807)
-   and fix what it reports. When the plan changed, re-run
-   `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}`
-   (use the index supplied in the dispatch template), then commit and push the
-   DAG to the plan PR unless the dispatch template says no PR. This is the
-   only permitted `git` write, and only after both checks pass.
+3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`
+   with the index and typed doctor fallback from the dispatch template. Do not
+   pour groups or run sprint-review in this fix step; both run after the final
+   formula passes.
 4. A FAIL from the critical-plan-reviewer in the last iteration is normal: it
    is an adversarial review. Fix its findings and close this step. Do not add
    an iteration; the final formula's verify step checks the fixes.

@@ -54,12 +54,10 @@ from the last iteration. A FAIL from that final critical pass is normal.
 2. For each one, change the plan beads with `bd update` and add a
    `fixed: ...` or `rebutted: <citation>` note. In planner modes the planner
    is the lead and must make the ruling or cite the rebuttal. Never close a fix bead.
-3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (use the index and typed proxy.doctor.unsupported fallback supplied in the dispatch template; issue #807);
-   when the plan changed, re-run
-   `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}`
-   (use the index supplied in the dispatch template), then commit and push the
-   DAG to the plan PR unless the dispatch template says no PR. This is the
-   only permitted `git` write, and only after both checks pass.
+3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`
+   with the index and typed doctor fallback from the dispatch template. Do not
+   pour groups or run sprint-review in this fix step; both run after the final
+   formula passes.
 4. Close this step PASS only after every open fix bead has one terminal
    `fixed: <complete resolution>` or `rebutted: <citation>` note, never a
    partial or mixed disposition. Check each bead with `bd show <id> --json`;

@@ -30,6 +30,17 @@ printf '%s\n' "$planted_ids" | while IFS= read -r bead; do
         exit 1
     fi
 done
+# The final pour must have created each planned sprint's dev, sanity and QA.
+sprints=$("$BD" list --parent "$root" -l stage:sprint --all -n 0 --json)
+printf '%s\n' "$sprints" | jq -er '.[].id' | while IFS= read -r sprint; do
+    for role in dev sanity qa; do
+        id="$sprint.group-$role"
+        if ! "$BD" show "$id" --json | jq -e --arg id "$id" 'length == 1 and .[0].id == $id' >/dev/null; then
+            printf 'missing poured group bead %s\n' "$id" >&2
+            exit 1
+        fi
+    done
+done
 steps=$("$BD" list -l phase-zzeval,stage:plan-hardening --include-ephemeral --all -n 0 --json)
 # Labels use phase-zzeval; metadata ties each wisp step to this exact fixture root.
 steps=$(printf '%s\n' "$steps" | jq -ce --arg root "$root" '[.[] | select(.metadata.root == $root)]')

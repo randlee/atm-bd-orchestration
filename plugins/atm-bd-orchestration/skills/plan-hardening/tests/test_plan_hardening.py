@@ -305,9 +305,10 @@ def test_skill_limits_runner_writes_to_template_commands():
         "create `stage:plan-fix` beads under the root",
         "close\nverified fix beads or update their notes",
         "may also update plan beads and, only through the add-sprint path below",
-        "corresponding dev-to-sanity `blocks` edges",
+        "corresponding container-to-container `blocks` edges",
+        "modify sprint groups during hardening",
         "`bd create` of a sprint or any other `bd` write fails the step",
-        "only permitted `git` write is in a planner fix step",
+        "only permitted `git` write is after the plan changes",
         "template specifies no PR",
         "Reviewer agents remain read-only",
     ):
@@ -611,7 +612,9 @@ def test_eval_check_script_rejects_missing_fix_bead(tmp_path):
 import json, os, sys
 args = sys.argv[1:]
 scenario = os.environ.get("EVAL_SCENARIO", "ok")
-if args[0] == "list" and "--parent" in args:
+if args[0] == "list" and "stage:sprint" in args:
+    print(json.dumps([{"id": f"atm-eval-zzeval-{i}"} for i in range(1, 5)]))
+elif args[0] == "list" and "--parent" in args:
     ids = ["atm-eval-zzeval-1", "atm-eval-zzeval-2", "atm-eval-zzeval-3", "atm-eval-zzeval-4"]
     if scenario == "missing_fix": ids.pop()
     print(json.dumps([{"id": f"fix-{i}", "metadata": {"plan_bead": x, "filed_by_step": "step-0"}} for i, x in enumerate(ids)]))
@@ -620,6 +623,8 @@ elif args[0] == "list":
             ("ceremony", "final"), ("fix", "final"), ("verify", "final")]
     print(json.dumps([{"id": f"step-{i}", "metadata": {"root": "atm-eval-phase-zzeval", "pass": p, "iteration": n}}
                       for i, (p, n) in enumerate(rows)]))
+elif args[0] == "show" and ".group-" in args[1]:
+    print(json.dumps([] if scenario == "missing_group" else [{"id": args[1]}]))
 elif args[0] == "show" and args[1].startswith("fix-"):
     print(json.dumps([{"status": "closed" if scenario != "unfixed" else "open", "notes": "fixed: resolved\\nrebutted: citation" if scenario == "mixed" else ("fixed in part / rebutted in part" if scenario == "partial" else "fixed: resolved the finding")}]))
 elif args[0] == "show":
@@ -660,6 +665,7 @@ print(json.dumps({"events": events, "handoffs": []}))
         assert check(runner, "bad_verdict").returncode != 0
         assert check(runner, "missing_accounting").returncode != 0
         assert check(runner, "unfiled").returncode != 0
+        assert check(runner, "missing_group").returncode != 0
         assert check(runner, "partial").returncode != 0
         assert check(runner, "mixed").returncode != 0
         unfixed = check(runner, "unfixed")
