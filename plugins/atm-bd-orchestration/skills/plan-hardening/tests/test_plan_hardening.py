@@ -164,6 +164,7 @@ def test_adversarial_reference_lead_findings_new_tasks_tiers():
     text = adversarial_text()
     for clause in ("lead", "iteration 2", "fast", "frontier", "parallel", "weak", "area", "title"):
         assert clause in text
+    assert "file your own findings as plan-fix beads" in text
     assert "same" in text and "task" in text
 
 
