@@ -34,7 +34,7 @@ with the plan block of your dispatch template.
 
 1. Review the whole plan as the agent file says and file every finding with
    the finding block. The planner is {{{ planner }}}.
-2. Close this step: PASS when you filed no Blocking or Important finding,
+2. Use the dispatch template validated step-close block: set VERDICT=PASS when you filed no Blocking or Important finding,
    FAIL otherwise.
 """
 
@@ -50,7 +50,7 @@ Planner {{{ planner }}}: fix the plan for every open fix bead under
 {{{ root }}}: the ceremony findings and any critical-plan-reviewer findings
 from the last iteration. A FAIL from that final critical pass is normal.
 
-1. `bd list --parent {{{ root }}} -l stage:plan-fix --all -n 0 --json` (filter in JSON for open status and planner; compare against every prior step's `filed=` IDs; an absent ID is an error, never an empty success).
+1. Run the dispatch template's shipped filing enumeration and comparison block. It fails if a prior step's filed ID is missing. Use its fix-beads.json to select open beads assigned to the planner; never write a separate comparison query.
 2. For each one, change the plan beads with `bd update` and add a
    `fixed: ...` or `rebutted: <citation>` note. In planner modes the planner
    is the lead and must make the ruling or cite the rebuttal. Record
@@ -61,7 +61,7 @@ from the last iteration. A FAIL from that final critical pass is normal.
    with the index and typed doctor fallback from the dispatch template. Do not
    pour groups or run sprint-review in this fix step; both run after the final
    formula passes.
-4. Close this step PASS only after every open fix bead has one terminal
+4. Use the dispatch template validated step-close block with VERDICT=PASS only after every open fix bead has one terminal
    `fixed: <complete resolution>`, `rebutted: <citation>`, or
    `open decision: <question?>` note. The last is only for a user or Rand
    decision no source or design rule settles; leave that finding open. Never
@@ -83,11 +83,12 @@ the agent file of the pass that filed it (`metadata.pass`: scope is
 `.claude/agents/ceremony-qa.md`, lead and adversary findings name their own
 check) and check only that finding against the plan.
 
-1. Search `bd list --parent {{{ root }}} -l stage:plan-fix --all -n 0 --json` and compare its IDs against every prior step's `filed=` IDs. If any are missing, close this step FAIL and report the missing IDs. Close each fix bead the plan now resolves. A rebuttal that cites the
+1. Run the dispatch template's shipped filing enumeration and comparison block. If any filed IDs are missing, leave this step open and return the failure envelope with those IDs. Never write a separate comparison query. Close each fix bead the plan now resolves. A rebuttal that cites the
    design closes it too. Leave the others open with a note saying what is
    still wrong; file nothing new.
 2. Before closing this verify step, return every unresolved Blocking or Important
-   finding to planner {{{ planner }}} once with its `still wrong` note. Keep
+   finding to planner {{{ planner }}} once with its `still wrong` note, using
+   the dispatch template's ownership handoff block. Keep
    verify open while the planner fixes each finding or records a rebuttal with a
    source citation. Re-check each returned finding against the plan and citation;
    close resolved findings and update the notes on any still unresolved. Allow
@@ -98,6 +99,6 @@ check) and check only that finding against the plan.
    Keep this step open while the planner fixes the plan or records a cited
    rebuttal, then verify again and close the finding. If no ruling is possible,
    return an execution failure and leave the step open; never silently defer it.
-4. Close this step: PASS when no Blocking or Important fix bead is open,
+4. Use the dispatch template validated step-close block: set VERDICT=PASS when no Blocking or Important fix bead is open,
    FAIL otherwise. The open ones go to quality-mgr plan review with the plan.
 """

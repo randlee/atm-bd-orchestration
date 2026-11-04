@@ -118,6 +118,40 @@ def test_step_template_carries_isolated_context(rendered):
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh"])
+def test_verifier_handoff_transfers_ownership_for_close_and_repair(rendered, tmp_path, shell):
+    runner, text = rendered
+    verifier = "arch-ctm" if runner == "teammate" else "fenix"
+    blocks = [text.split(marker, 1)[1].split("```bash", 1)[1].split("```", 1)[0] for marker in
+              ("For each fix bead you verified as resolved", "For a finding still wrong and returned")]
+    bd = tmp_path / "bd"
+    bd.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+state = Path(os.environ['STATE'])
+record = json.loads(state.read_text())
+assert os.environ['BEADS_DIR'] == '/tmp/beads'
+args = sys.argv[1:]
+if args[0] == 'update':
+    record['assignee'] = args[args.index('--assignee') + 1]
+elif args[0] == 'close':
+    assert record['assignee'] == args[args.index('--actor') + 1]
+    record['closed'] = True
+else: sys.exit(1)
+state.write_text(json.dumps(record))
+''')
+    bd.chmod(0o755)
+    state = tmp_path / "state.json"
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "STATE": str(state)}
+    for index, block in enumerate(blocks):
+        state.write_text(json.dumps({"assignee": "fenix" if index == 0 else "arch-ctm", "closed": False}))
+        block = block.replace("cd '/tmp/worktree'", f"cd '{tmp_path}'").replace("<fix bead ID>", "finding-1").replace("<what resolves it>", "resolved").replace("<what remains wrong>", "missing evidence")
+        result = subprocess.run([shell, "-c", f"export PATH='{tmp_path}:'$PATH\n" + block], cwd=tmp_path,
+                                env=env, capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(state.read_text()) == ({"assignee": verifier, "closed": True} if index == 0 else {"assignee": "fenix", "closed": False})
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh"])
 def test_plan_snapshot_uses_isolated_context_and_includes_dependencies(rendered, tmp_path, shell):
     _, text = rendered
     command = text.split("create the plan snapshot below", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
@@ -387,11 +421,23 @@ def test_final_verify_returns_unresolved_findings_for_one_repair_round(formulas)
     assert "every unresolved Blocking or Important" in description
     assert "still wrong" in description and "source citation" in description
     assert "only this one repair round" in description
-    assert "PASS when no Blocking or Important" in description
+    assert "VERDICT=PASS when no Blocking or Important" in description
     skill = (SKILL / "SKILL.md").read_text()
     assert "reopen the final fix step" in skill
     assert "dispatch verify to re-check each returned finding" in skill
     assert "only one such repair round" in skill
+
+
+def test_formulas_use_shipped_filing_and_step_close_blocks(formulas):
+    for formula in formulas.values():
+        for step in formula["steps"]:
+            description = step["description"]
+            assert "validated step-close block" in description
+            assert not re.search(r"\bbd close\b", description)
+    for step in formulas["final"]["steps"]:
+        if step["id"] in ("fix", "verify"):
+            assert "shipped filing enumeration and comparison block" in step["description"]
+            assert "Never write a separate comparison query" in step["description"] or "never write a separate comparison query" in step["description"]
 
 
 def test_iteration_review_steps_are_parallel(formulas):
@@ -781,7 +827,7 @@ def test_eval_prompts_have_post_run_questions():
         text = (EVALS / f"{runner}.md").read_text()
         assert "## Post-run questions" in text
         assert all(question in text for question in questions)
-        assert "bd import" in text and f'"$EVAL_ROOT/check.sh" atm-phase-qx {runner}' in text
+        assert "bd import" in text and f'"$EVAL_ROOT/check.sh" atm-phase-qx {runner} "$EVAL_WORKTREE"' in text
         assert "BEADS_DIR" in text and "db-server.py" in text
         assert "independent" in text and "plan_pr" in text
         assert "bd delete --force" not in text
@@ -794,7 +840,11 @@ def test_eval_check_script_rejects_missing_fix_bead(tmp_path):
 import json, os, sys
 args = sys.argv[1:]
 scenario = os.environ.get("EVAL_SCENARIO", "ok")
-if args[0] == "list" and "stage:sprint" in args:
+if args[0] == "info":
+    assert os.environ["BEADS_DIR"] == os.environ["EXPECTED_BEADS"]
+    path = "/outside/live/database" if scenario == "wrong_database" else os.path.join(os.environ["BEADS_DIR"], "dolt")
+    print(json.dumps({"database_path": path}))
+elif args[0] == "list" and "stage:sprint" in args:
     rows = [{"id": f"atm-qx-{i}", "status": "open"} for i in range(1, 5)]
     if scenario in ("closed_sprint", "closed_no_reason", "closed_with_group"):
         rows[2]["status"] = "closed"
@@ -843,10 +893,19 @@ print(json.dumps({"events": events, "handoffs": []}))
     bd.chmod(0o755)
     atm.chmod(0o755)
     script = EVALS / "check.sh"
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    beads = scratch / ".beads"
+    beads.mkdir()
+    context = worktree / ".atm-plan-eval-context"
+    context.write_text(f"{scratch}\n{beads}\n")
 
     def check(runner: str, scenario: str = "ok") -> subprocess.CompletedProcess[str]:
-        env = {**os.environ, "BD": str(bd), "ATM": str(atm), "EVAL_RUNNER": runner, "EVAL_SCENARIO": scenario}
-        return subprocess.run([str(script), "atm-phase-qx", runner], env=env, capture_output=True, text=True, check=False)
+        env = {**os.environ, "BD": str(bd), "ATM": str(atm), "EVAL_RUNNER": runner, "EVAL_SCENARIO": scenario,
+               "BEADS_DIR": "/outside/live", "EXPECTED_BEADS": str(beads)}
+        return subprocess.run([str(script), "atm-phase-qx", runner, str(worktree)], env=env, capture_output=True, text=True, check=False)
 
     for runner in ("teammate", "subagent"):
         assert check(runner).returncode == 0
@@ -867,3 +926,8 @@ print(json.dumps({"events": events, "handoffs": []}))
     assert check("teammate", "no_start").returncode != 0
     assert check("subagent", "rogue_task").returncode != 0
     assert check("bogus").returncode == 2
+    wrong = check("subagent", "wrong_database")
+    assert wrong.returncode == 2 and "CHECK.DATABASE_INVALID" in wrong.stderr
+    context.unlink()
+    missing = check("subagent")
+    assert missing.returncode == 2 and "CHECK.CONTEXT_MISSING" in missing.stderr

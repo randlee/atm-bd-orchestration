@@ -43,7 +43,7 @@ with the plan block of your dispatch template.
 2. Review the whole plan as the agent file says and file every new
    Blocking, Important or Minor finding with the finding block. The planner
    is {{{ planner }}}.
-3. Close this step: PASS when no Blocking or Important finding filed by this
+3. Use the dispatch template validated step-close block: set VERDICT=PASS when no Blocking or Important finding filed by this
    pass is open, FAIL otherwise.
 """
 
@@ -65,7 +65,7 @@ with the plan block of your dispatch template.
    it open, with a note saying what is still wrong, when it does not.
 2. Attack the whole plan as the agent file says and file every new finding
    with the finding block. The planner is {{{ planner }}}.
-3. Close this step: PASS when no Blocking or Important finding filed by this
+3. Use the dispatch template validated step-close block: set VERDICT=PASS when no Blocking or Important finding filed by this
    pass is open, FAIL otherwise.
 """
 
@@ -96,9 +96,9 @@ Planner {{{ planner }}}: fix the plan. This is iteration {{{ iteration }}} of
    pour groups or run sprint-review in this fix step; both run after the final
    formula passes.
 4. A FAIL from the critical-plan-reviewer in the last iteration is normal: it
-   is an adversarial review. Fix its findings and close this step. Do not add
+   is an adversarial review. Fix its findings and use the dispatch template validated step-close block. Do not add
    an iteration; the final formula's verify step checks the fixes.
-5. Close this step PASS only after every open fix bead has one terminal
+5. Use the dispatch template validated step-close block with VERDICT=PASS only after every open fix bead has one terminal
    `fixed: <complete resolution>`, `rebutted: <citation>`, or
    `open decision: <question?>` note. The last is only for a user or Rand
    decision no source or design rule settles; leave that finding open. Never

@@ -201,7 +201,8 @@ or reopens it if unresolved or a citation is wrong. Verification files no new fi
 its expected result against the current plan or a cited design rebuttal;
 leave a missing check or unresolved result open with a note.
 Before final verify closes, return every unresolved Blocking or Important
-finding once to the planner with its `still wrong` note. Keep verify open;
+finding once to the planner with its `still wrong` note using the dispatch
+template's ownership handoff block. Keep verify open;
 after its prior runner stops, reopen the final fix step and dispatch the
 planner to fix or rebut each returned finding with a source citation. Once that
 fix step closes, dispatch verify to re-check each returned finding against the

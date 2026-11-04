@@ -54,6 +54,10 @@ exit codes in the returned `data.commands` array. Never silence or discard stder
 with stdout in the step evidence directory, including filing, `bd` reads/writes,
 sc-compose, dependency edits, ATM closes and receipts; retain their exit codes.
 Do not redirect these streams to `/dev/null` or ignore command failures.
+If a reviewer-written exploratory read fails, record its output and exit code,
+correct and rerun it, and use only the successful result as evidence. An
+exploratory read failure alone never requires refusing the step; use the
+supplied snapshot when the exploration is unnecessary.
 The checker cannot establish that an agent reported every command, so this is
 a runner obligation even when the reported evidence passes validation.
 Also list every `bd` write
@@ -62,11 +66,10 @@ arrays when none occurred so the dispatcher can audit the run. If validate-plan 
 because `bd doctor` reports `proxy.doctor.unsupported`, retain the verbatim
 error and rerun that same command once with `--no-doctor`; record the fallback
 and original error in the close reason or failure envelope (atm-bd-orchestration
-#807). Any other doctor error fails the step; any other nonzero exit is a
-failed step, not a plan finding or a passing result. Evidence commands are the
-reviewer, plan reads and writes, filing, rendering and validation
-commands used to support the step verdict; a nonzero exit fails the step unless
-the explicitly documented doctor fallback applies. A read of a named required
+#807). Any other doctor error fails the step. The supplied evidence commands,
+including snapshot, validator, filing, rendering, writes and close, must
+succeed; a failure is a failed step unless the documented fallback applies.
+An exploratory read is handled as described above. A read of a named required
 file is an evidence command; check it exists first and report the named error
 above if not. Do not guess paths or use failed discovery probes as evidence.
 This template starts, records and
@@ -294,10 +297,33 @@ ATM_STEP
 )
 ```
 
-   Close a fix bead you verified with
-   `bd close <fix bead> --reason "verified: <what resolves it>" --actor {{ actor }}`;
-   note one that is still wrong with
-   `bd update <fix bead> --append-notes "still open: <what>" --actor {{ actor }}`.
+   For each fix bead you verified as resolved, fill in the ID and evidence,
+   then run this block. The planner owns findings while fixing; the verifier
+   takes ownership before closing. Never use `--force` for this handoff.
+
+```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' bash <<'ATM_STEP'
+set -euo pipefail
+FINDING='<fix bead ID>'
+EVIDENCE='<what resolves it>'
+bd update "$FINDING" --assignee '{{ actor }}' --actor '{{ actor }}'
+bd close "$FINDING" --reason "verified: $EVIDENCE" --actor '{{ actor }}'
+ATM_STEP
+)
+```
+
+   For a finding still wrong and returned for a repair round, fill in the ID
+   and note and run this block to return ownership to the planner:
+
+```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' bash <<'ATM_STEP'
+set -euo pipefail
+FINDING='<fix bead ID>'
+STILL_WRONG='<what remains wrong>'
+bd update "$FINDING" --assignee '{{ planner }}' --append-notes "still wrong: $STILL_WRONG" --actor '{{ actor }}'
+ATM_STEP
+)
+```
 
    A create failure or count mismatch is an execution error: retain the finding
    JSON and return the failure envelope; do not continue until filing is repaired.

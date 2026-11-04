@@ -78,7 +78,7 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    "$EVAL_SCRATCH/plan-index.jsonl"`. Capture both outputs and exit codes; a
    failed pour or render fails the cell even if the checker passes. If the
    formula did not pass, skip the pour and render. In either case, before
-   squashing, run `"$EVAL_ROOT/check.sh" atm-phase-qx teammate` and
+   squashing, run `"$EVAL_ROOT/check.sh" atm-phase-qx teammate "$EVAL_WORKTREE"` and
    capture its complete output and exit status. A failure is a failed cell.
 4. Only if the final formula completes AND check.sh exits 0, squash the
    evaluation wisps. On an aborted run or failed check, reopen any failed fix bead before stopping

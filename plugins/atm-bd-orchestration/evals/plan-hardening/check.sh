@@ -1,8 +1,8 @@
 #!/bin/sh
 # Read-only validation of one un-squashed evaluation run.
 set -eu
-if [ "$#" -ne 2 ]; then
-    printf '%s\n' 'usage: check.sh <root> <teammate|subagent>' >&2
+if [ "$#" -ne 3 ]; then
+    printf '%s\n' 'usage: check.sh <root> <teammate|subagent> <worktree>' >&2
     exit 2
 fi
 root=$1
@@ -11,6 +11,38 @@ case $runner in teammate|subagent) ;; *) printf 'invalid runner: %s\n' "$runner"
 BD=${BD:-bd}
 ATM=${ATM:-atm}
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+worktree=$3
+context=$worktree/.atm-plan-eval-context
+if [ ! -f "$context" ]; then
+    printf '%s\n' 'CHECK.CONTEXT_MISSING: evaluation context file is missing' >&2
+    exit 2
+fi
+scratch=$(sed -n '1p' "$context")
+BEADS_DIR=$(sed -n '2p' "$context")
+export BEADS_DIR
+if [ -z "$scratch" ] || [ -z "$BEADS_DIR" ] || ! cd "$worktree"; then
+    printf '%s\n' 'CHECK.CONTEXT_INVALID: invalid evaluation context' >&2
+    exit 2
+fi
+if ! info=$("$BD" info --json); then
+    printf '%s\n' 'CHECK.DATABASE_INVALID: cannot inspect evaluation database' >&2
+    exit 2
+fi
+if ! printf '%s\n' "$info" | python3 -c '
+import json, os, sys
+try:
+    scratch = os.path.realpath(sys.argv[1])
+    beads = os.path.realpath(os.environ["BEADS_DIR"])
+    database = os.path.realpath(json.load(sys.stdin)["database_path"])
+    assert os.path.isabs(sys.argv[1]) and os.path.isabs(os.environ["BEADS_DIR"])
+    assert os.path.commonpath([scratch, beads]) == scratch and beads != scratch
+    assert os.path.commonpath([beads, database]) == beads
+except (ValueError, KeyError, TypeError, AssertionError):
+    sys.exit(1)
+' "$scratch"; then
+    printf '%s\n' 'CHECK.DATABASE_INVALID: database path is outside evaluation scratch' >&2
+    exit 2
+fi
 planted=$script_dir/planted.json
 fixes=$("$BD" list --parent "$root" -l stage:plan-fix --all -n 0 --json)
 printf '%s\n' "$fixes" | jq -e 'type == "array"' >/dev/null
