@@ -111,7 +111,9 @@ def test_step_template_carries_isolated_context(rendered):
     assert "TMPDIR=/tmp/eval-scratch" in text
     assert "export TMPDIR='/tmp/eval-scratch/atm-wisp-2ha'" in text
     assert "never push or commit the DAG" in text
-    assert "/tmp/worktree/.atm-bd/atm.bd-cache.sqlite3" in text
+    assert "/tmp/worktree/.atm-bd/atm.bd-cache.sqlite3" not in text
+    assert text.count("`sprint-review`") == 1
+    assert "No hardening step (including review, fix, and verify) runs" in text
     assert 'filed=' in text and 'stage:plan-hardening --include-ephemeral --all' in text
 
 

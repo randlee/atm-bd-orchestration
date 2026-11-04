@@ -62,7 +62,8 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    the carrier gives its absolute path and, for a retry, the attached-evidence
    path. The teammate reads the file and stops if it is missing.
    Pass `--index "$EVAL_SCRATCH/plan-index.jsonl"` to validate-plan.
-   Do not run sprint-review in a fix step.
+   No hardening step, including review, fix, or verify, runs sprint-review;
+   the dispatcher runs it only after the final formula passes and groups pour.
    If validate-plan reports `proxy.doctor.unsupported`, use the rendered step
    template's one-time `--no-doctor` fallback and retain the original error
    (atm-bd-orchestration#807); do not skip any other failure.

@@ -108,7 +108,9 @@ the phase DAG under `docs/plans/phase-<p>/` and, by default,
 inspect the output and include it when the plan requires it.
 
 When validating a local, unpushed plan, set the dispatch `plan_index` to
-its absolute path; each step passes it to both validate-plan and sprint-review.
+its absolute path; pass it to validate-plan and, after the final pour,
+sprint-review whenever either command is run. No hardening step runs
+sprint-review; it runs only after the final formula passes and groups are poured.
 For the integration-branch index use the literal `integration`.
 
 For each iteration `i` from 1 through `N`:
@@ -197,7 +199,9 @@ or reopens it if unresolved or a citation is wrong. Verification files no new fi
 its expected result against the current plan or a cited design rebuttal;
 leave a missing check or unresolved result open with a note.
 
-After the final formula passes, run
+After the final formula passes, verify the Git common directory and the
+selected `cache_path` resolve within the worktree before rendering. The cache
+file may not exist until the renderer creates it. After the final formula passes, run
 `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <p>` once
 to pour all groups, then run
 `.claude/skills/sprint-review/scripts/sprint-review --root <root> --index <index>`. Save both

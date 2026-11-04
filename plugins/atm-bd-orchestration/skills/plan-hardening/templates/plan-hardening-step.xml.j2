@@ -31,26 +31,24 @@ from that workdir or beads directory; the explicitly supplied plan index and
 run artifacts are read from scratch. Never read another checkout. Write every evidence and temporary file only under the exact directory
 `{{ scratch_dir }}/{{ step }}/`; create it before starting. Never use the
 agent session scratchpad. The selected plan index and tool-owned receipts are
-separate allowed plan writes; sprint-review writes its DAG under the clone
-`docs/plans/phase-{{ phase }}/` as well as its scratch outputs. The
-The configured policy file is `{{ policy_path }}`. The sprint-bead vars
+separate allowed plan writes. The configured policy file is `{{ policy_path }}`. The sprint-bead vars
 example is `{{ workdir }}/.claude/skills/plan-hardening/examples/sprint-bead-vars.json`;
 the sprint-bead template is `{{ workdir }}/.claude/skills/atm-beads/templates/sprint-bead.json.j2`.
 The required planning resources are `{{ workdir }}/.claude/skills/atm-beads/resources/planning.md`
 and `{{ workdir }}/.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md`.
 Before using a required file, check that it exists; if missing, stop and report
 `MISSING_REQUIRED_FILE: <absolute path>`. Do not guess paths.
-The sprint-review cache must be `{{ cache_path }}` (it may not exist until
-sprint-review creates it): verify the Git common directory
-and cache resolve within the workdir before running it. The dispatcher must
-pass these exact values to every subagent or teammate; never infer them.
+The dispatcher must pass these exact values to every subagent or teammate;
+never infer them.
 {% if plan_pr == 'none' %}This run has no plan PR: never push or commit the DAG, even if the step
 description says to push; leave its generated artifact in this disposable workdir and copy evidence to scratch.
 {% else %}Update the plan PR as instructed by the step description.
 {% endif %}
-{% if plan_index != 'integration' %}For validate-plan and sprint-review, pass `--index '{{ plan_index }}'` explicitly.
-{% else %}For validate-plan and sprint-review, use the integration-branch index.
-{% endif %}Save each validate-plan and sprint-review command, its complete output and
+{% if plan_index != 'integration' %}Whenever running validate-plan, pass `--index '{{ plan_index }}'` explicitly.
+{% else %}For validate-plan, use the integration-branch index.
+{% endif %}No hardening step (including review, fix, and verify) runs
+`sprint-review` or pours groups. The dispatcher runs both only after the final
+formula passes, pouring first. Save each validate-plan command, its complete output and
 exit status immediately to a named scratch path; list the commands, paths and
 exit codes in the returned `data.commands` array. Never silence or discard stderr for evidence-bearing commands: capture it
 with stdout in the step evidence directory, including filing, `bd` reads/writes,
@@ -66,7 +64,7 @@ error and rerun that same command once with `--no-doctor`; record the fallback
 and original error in the close reason or failure envelope (atm-bd-orchestration
 #807). Any other doctor error fails the step; any other nonzero exit is a
 failed step, not a plan finding or a passing result. Evidence commands are the
-reviewer, plan reads and writes, filing, rendering, validation and sprint-review
+reviewer, plan reads and writes, filing, rendering and validation
 commands used to support the step verdict; a nonzero exit fails the step unless
 the explicitly documented doctor fallback applies. A read of a named required
 file is an evidence command; check it exists first and report the named error
