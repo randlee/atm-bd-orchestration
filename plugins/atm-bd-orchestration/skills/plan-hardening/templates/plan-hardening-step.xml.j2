@@ -3,7 +3,7 @@ name: plan-hardening-step
 version: 1.0.0
 description: Runs one plan-hardening wisp step. One template for both runners - a teammate (an ATM task) and a background subagent (a rendered prompt).
 format: xml
-required_variables: [step, runner, actor, phase, root, planner, plan_index, beads_dir, workdir]
+required_variables: [step, runner, actor, phase, root, planner, plan_index, beads_dir, workdir, plan_pr, scratch_dir, cache_path]
 metadata:
   type: plan-hardening-step
   tags: [stage:plan-hardening]
@@ -17,14 +17,23 @@ metadata:
 {%- if root|length == 0 or root[0] not in "abcdefghijklmnopqrstuvwxyz0123456789" or root_invalid|length != 0 %}{{ "root must match ^[a-z0-9][a-z0-9._-]*$" | int }}{% endif %}
 {%- if planner|length == 0 or planner[0] not in "abcdefghijklmnopqrstuvwxyz0123456789" or planner_invalid|length != 0 %}{{ "planner must match ^[a-z0-9][a-z0-9._-]*$" | int }}{% endif %}
 {%- if actor|length == 0 or actor_invalid|length != 0 %}{{ "actor must match ^[A-Za-z0-9_-]+$" | int }}{% endif %}
-{%- if "'" in workdir or "\n" in workdir or "'" in beads_dir or "\n" in beads_dir or "'" in plan_index or "\n" in plan_index %}{{ "path contains an unsafe quote or newline" | int }}{% endif %}
+{%- if "'" in workdir or "\n" in workdir or "'" in beads_dir or "\n" in beads_dir or "'" in plan_index or "\n" in plan_index or "'" in scratch_dir or "\n" in scratch_dir or "'" in cache_path or "\n" in cache_path %}{{ "path contains an unsafe quote or newline" | int }}{% endif %}
 <plan-hardening-step id="{{ step }}" runner="{{ runner }}">
   <phase>{{ phase }}</phase>
   <root>{{ root }}</root>
   <instructions><![CDATA[
 Your instructions are the description of step bead {{ step }}. Run every shell
-command from `{{ workdir }}` with `BEADS_DIR={{ beads_dir }}`. The dispatcher
-must pass these exact values to every subagent or teammate; never infer them.
+command from `{{ workdir }}` with `BEADS_DIR={{ beads_dir }}` and
+`TMPDIR={{ scratch_dir }}`. Read repository plan data, reviewer files, scripts and configuration only
+from that workdir or beads directory; the explicitly supplied plan index and
+run artifacts are read from scratch. Never read another checkout. Write all temporary files under `{{ scratch_dir }}`. The
+sprint-review cache must be `{{ cache_path }}`: verify the Git common directory
+and cache resolve within the workdir before running it. The dispatcher must
+pass these exact values to every subagent or teammate; never infer them.
+{% if plan_pr == 'none' %}This run has no plan PR: never push or commit the DAG, even if the step
+description says to push; leave its generated artifact in this disposable workdir and copy evidence to scratch.
+{% else %}Update the plan PR as instructed by the step description.
+{% endif %}
 {% if plan_index != 'integration' %}For validate-plan and sprint-review, pass `--index '{{ plan_index }}'` explicitly.
 {% else %}For validate-plan and sprint-review, use the integration-branch index.
 {% endif %}Save each validate-plan and sprint-review command, its complete output and
@@ -43,6 +52,7 @@ closes the step.
 set -euo pipefail
 cd '{{ workdir }}'
 export BEADS_DIR='{{ beads_dir }}'
+export TMPDIR='{{ scratch_dir }}'
 {% if teammate %}atm task start {{ step }} "plan-hardening step {{ step }}"
 {% endif %}bd update {{ step }} --claim --actor {{ actor }}
 bd show {{ step }} --json | jq -er '.[0].description'

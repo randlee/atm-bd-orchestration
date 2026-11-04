@@ -1,1 +1,1 @@
-{"step": "atm-wisp-2ha", "runner": "subagent", "actor": "fenix", "phase": "d", "root": "atm-phase-d", "planner": "fenix", "plan_index": "/tmp/phase-d.jsonl", "beads_dir": "/tmp/beads", "workdir": "/tmp/worktree"}
+{"step": "atm-wisp-2ha", "runner": "subagent", "actor": "fenix", "phase": "d", "root": "atm-phase-d", "planner": "fenix", "plan_index": "/tmp/phase-d.jsonl", "beads_dir": "/tmp/beads", "workdir": "/tmp/worktree", "plan_pr": "none", "scratch_dir": "/tmp/eval-scratch", "cache_path": "/tmp/worktree/.atm-bd/atm.bd-cache.sqlite3"}

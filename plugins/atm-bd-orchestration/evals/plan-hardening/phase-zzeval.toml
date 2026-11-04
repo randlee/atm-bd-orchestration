@@ -1,6 +1,6 @@
-plan = "docs/plans/phase-z.jsonl"
-root = "atm-eval-phase-z"
-integration_branch = "integrate/phase-z"
+plan = "docs/plans/phase-zzeval.jsonl"
+root = "atm-eval-phase-zzeval"
+integration_branch = "integrate/phase-zzeval"
 lead = "arch-ctm"
 
 [templates]

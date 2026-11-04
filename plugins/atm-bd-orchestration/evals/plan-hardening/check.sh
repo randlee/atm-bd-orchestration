@@ -30,8 +30,8 @@ printf '%s\n' "$planted_ids" | while IFS= read -r bead; do
         exit 1
     fi
 done
-steps=$("$BD" list -l phase-z,stage:plan-hardening --include-ephemeral --all -n 0 --json)
-# Labels use phase-z; metadata ties each wisp step to this exact fixture root.
+steps=$("$BD" list -l phase-zzeval,stage:plan-hardening --include-ephemeral --all -n 0 --json)
+# Labels use phase-zzeval; metadata ties each wisp step to this exact fixture root.
 steps=$(printf '%s\n' "$steps" | jq -ce --arg root "$root" '[.[] | select(.metadata.root == $root)]')
 for item in '1:scope' '1:critical' '1:fix' 'final:ceremony' 'final:fix' 'final:verify'; do
     iteration=${item%:*}

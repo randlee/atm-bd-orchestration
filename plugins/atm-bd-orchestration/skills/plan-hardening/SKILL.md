@@ -74,12 +74,13 @@ The runner's `bd` writes are limited to the step template's commands: claim
 and close the step, create `stage:plan-fix` beads under the root, and close
 verified fix beads or update their notes. In planner fix steps, the planner
 may also update plan beads and, only through the add-sprint path below, render
-and import a sprint container, update its plan index, and run bead-groups.
-A direct `bd create` of a sprint or any other `bd` write fails the step. The
-planner adds a `fixed:` or `rebutted:` note to each fix bead and never closes
-it. The only permitted `git` write is in a planner fix step after the plan
-changes and both checks pass: commit and push the DAG to the plan PR, unless
-the dispatch template specifies no PR. Reviewer agents remain read-only.
+and import a sprint container, update its plan index, run bead-groups, and
+add or remove only the corresponding dev-to-sanity `blocks` edges. A direct
+`bd create` of a sprint or any other `bd` write fails the step. The planner
+adds a `fixed:` or `rebutted:` note to each fix bead and never closes it. The
+only permitted `git` write is in a planner fix step after the plan changes and
+both checks pass: commit and push the DAG to the plan PR, unless the dispatch
+template specifies no PR. Reviewer agents remain read-only.
 
 ## Iterations
 
@@ -154,7 +155,19 @@ resolves it. When a ruling adds a sprint, render the container with
 `.claude/skills/atm-beads/templates/sprint-bead.json.j2`, add its sprint and
 prerequisites to the selected plan index, import it, and run
 `.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <p>` to pour
-its dev, sanity and QA beads. Validate the updated index and graph.
+its dev, sanity and QA beads. Choose the added sprint's `pr_target` using
+`atm-beads-plan-guidelines.md` and `resources/planning.md` (nearest
+`must_follow` prerequisite, highest planned layer if there are several; trunk
+when none). Its own layer is above that prerequisite.
+
+When changing an existing sprint's prerequisites, update `depends_on` in the
+plan index, then use `bd dep add <sprint>.group-dev --blocked-by
+<prerequisite>.group-sanity` for each new edge and `bd dep remove
+<sprint>.group-dev <prerequisite>.group-sanity` for each stale edge. Limit
+these writes to the exact plan changes, inspect the resulting dependencies,
+and validate the updated index and graph. If any required edge operation or
+validation fails, leave the step open, report the command and error using the
+failure envelope, and refuse its ATM task when it has one.
 
 After the last fix step closes, copy into scratch, render and wisp
 `formulas/plan-hardening-final.formula.toml.j2` using `root`, `phase`, and
@@ -186,8 +199,11 @@ batch. Preserve the same finding input when retrying.
 
 ## Dispatch
 
-Set a deadline for each background step when dispatching it (30 minutes by
-default; the dispatcher may set another limit). If a step has not closed by
+For each background step, use a bounded wait (30 minutes by default; the
+dispatcher may set another limit). For a subagent tool without a deadline
+parameter, impose the bound in the dispatcher wait; if bounded waiting or
+stopping the agent is unavailable, stop the run with `EXECUTION.TIMEOUT`
+instead of waiting or starting a duplicate. If a step has not closed by
 its deadline, stop its agent, leave the bead open (reopen it if needed), and
 re-dispatch it once. Ensure the previous agent has stopped before retrying. If
 the retry also times out, stop the run and return `EXECUTION.TIMEOUT` naming
@@ -198,7 +214,8 @@ stop the run instead of dispatching another copy.
 Use `templates/plan-hardening-step.xml.j2` for every step and the shipped
 `examples/plan-hardening-step-{teammate,subagent}-vars.json` as input shapes.
 Set `step`, `runner`, `actor`, `phase`, `root`, `planner`, `plan_index`,
-`beads_dir`, and `workdir` for the real run. Use absolute paths for the last
+`beads_dir`, `workdir`, `plan_pr`, `scratch_dir`, and `cache_path` for the
+real run. `plan_pr=none` means no push; any other value identifies the plan PR. Use absolute paths for the last
 two, and an absolute index path or `integration` for `plan_index`; every step
 runs with the supplied working directory and BEADS_DIR.
 Never hand-write a step prompt.
