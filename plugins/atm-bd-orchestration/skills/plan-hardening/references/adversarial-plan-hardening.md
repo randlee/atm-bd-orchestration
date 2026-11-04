@@ -1,0 +1,37 @@
+# Lead Adversarial Plan Hardening
+
+The planner is a teammate. Follow the shared iteration and final-wisp loop in
+[SKILL.md](../SKILL.md), using the same rendered step template for every runner.
+The lead, scope and critical passes and all adversaries run in parallel.
+
+For each iteration:
+
+1. List every integration with another repository or an external API (CLI,
+   schema, service). Assign a researcher to each integration to find detail
+   missing from the plan. Render `plan-hardening-adversary.formula.toml.j2`
+   with the shared variables plus `area` naming that integration and `task`
+   giving its research instruction, then create it with `bd mol wisp`.
+   Require source citations for research claims.
+   Follow the contract's quoting constraint for `task`.
+2. Review every existing and new requirement and ADR the plan relates to.
+   Look for inconsistency, gaps and vague language. When the plan outgrows,
+   contradicts or sharpens an existing requirement or ADR, file a planner
+   fix bead proposing its revision through an adversary wisp with
+   `area=req-adr`.
+3. Review the plan yourself through an adversary wisp with `area=lead` and
+   file your findings. In iteration 2, first verify open fix beads filed by
+   the `lead` and `adversary:*` passes; close resolved or cited rebutted
+   findings and leave the rest open with precise remaining work.
+4. Select researcher tiers using the dev-dispatch `difficulty` rule: several
+   fast agents can cover broad, shallow ground in parallel; difficult code
+   and integrations use frontier models, preferably different foundries.
+   Background subagents are allowed and receive the rendered step prompt.
+5. Never give an adversary the same task in iteration 2 as in iteration 1.
+   Target a weakness iteration 1 found or an area nobody has covered.
+   Record every adversary's area per iteration in its wisp title.
+6. When the scope and critical passes and all adversary wisps close, assign
+   the iteration's fix step to the planner. This work runs alongside the
+   standard passes, rather than replacing them.
+
+Retain all adversary wisp ids for the final squash. The final ceremony, fix,
+and verification sequence remains the shared loop's sequence.

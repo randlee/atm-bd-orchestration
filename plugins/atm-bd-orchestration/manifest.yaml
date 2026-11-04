@@ -262,6 +262,15 @@ artifacts:
     - skills/atm-beads/tests/test_repo_config.py
     - skills/atm-beads/tests/test_sc_render.py
     - skills/atm-beads/tests/test_validate_plan.py
+    - skills/plan-hardening/SKILL.md
+    - skills/plan-hardening/examples/plan-hardening-step-subagent-vars.json
+    - skills/plan-hardening/examples/plan-hardening-step-teammate-vars.json
+    - skills/plan-hardening/formulas/plan-hardening-adversary.formula.toml.j2
+    - skills/plan-hardening/formulas/plan-hardening-final.formula.toml.j2
+    - skills/plan-hardening/formulas/plan-hardening-iteration.formula.toml.j2
+    - skills/plan-hardening/references/adversarial-plan-hardening.md
+    - skills/plan-hardening/templates/plan-hardening-step.xml.j2
+    - skills/plan-hardening/tests/test_plan_hardening.py
     - skills/prompt-rewrite-judge/SKILL.md
     - skills/prompt-rewrite-judge/scripts/judge.py
     - skills/prompt-rewrite-judge/scripts/tests/test_judge.py
@@ -286,8 +295,10 @@ artifacts:
     - skills/sprint-review/scripts/sprint-review
   agents:
     - agents/ceremony-qa.md
+    - agents/critical-plan-reviewer.md
     - agents/dev-sanity.md
     - agents/parallax.md
+    - agents/plan-scope-reviewer.md
     - agents/sanity-stack.md
     - agents/sc-sanity-jev.md
     - agents/sc-sanity-llm.md
