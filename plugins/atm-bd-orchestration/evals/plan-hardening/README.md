@@ -21,5 +21,6 @@ the PR. Debrief never substitutes for a passing check.
 
 The prompt creates a scratch database, imports the fixture, runs the checker
 before squashing, then stops its database and removes only that scratch
-`.beads` directory. Never use `bd delete` or connect this fixture to the live
+`.beads` directory after a completed final formula. For an aborted run it
+stops Dolt and retains the unsquashed scratch database as evidence. Never use `bd delete` or connect this fixture to the live
 team database. If setup or cleanup cannot be proven safe, stop and report it.

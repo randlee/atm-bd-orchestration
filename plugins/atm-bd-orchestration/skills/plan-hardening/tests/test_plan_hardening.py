@@ -583,7 +583,9 @@ print(json.dumps({"events": events, "handoffs": []}))
         assert check(runner, "bad_verdict").returncode != 0
         assert check(runner, "missing_accounting").returncode != 0
         assert check(runner, "unfiled").returncode != 0
-        assert check(runner, "unfixed").returncode != 0
+        unfixed = check(runner, "unfixed")
+        assert unfixed.returncode != 0
+        assert "fix-0" in unfixed.stderr and "fix-1" in unfixed.stderr
     assert check("teammate", "no_start").returncode != 0
     assert check("subagent", "rogue_task").returncode != 0
     assert check("bogus").returncode == 2

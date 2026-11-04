@@ -63,8 +63,11 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
 
    Compare these IDs with `bd list --parent {{ root }} -l stage:plan-fix
    --all -n 0 --json`; if any are absent, fail and report the missing IDs.
-   In a fix step, never create sprint or contract beads. If a finding requires
-   changing the plan structure, stop and escalate it to the phase lead.
+   In a fix step, rebut unsupported findings with citations. If a supported
+   finding requires structural changes (including sprints, contracts, ADRs,
+   sanity beads or edges), report it to the planner in planner modes or the
+   phase lead in lead-adversarial mode. The planner owns and applies the
+   structural correction before continuing; never leave it unresolved.
 
 4. File findings when you have any. Write a JSON array to
    `${TMPDIR:-/tmp}/{{ step }}-findings.json`, one object per finding:

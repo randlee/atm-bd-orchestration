@@ -14,13 +14,15 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 planted=$script_dir/planted.json
 fixes=$("$BD" list --parent "$root" -l stage:plan-fix --all -n 0 --json)
 printf '%s\n' "$fixes" | jq -e 'type == "array"' >/dev/null
-printf '%s\n' "$fixes" | jq -er '.[].id' | while IFS= read -r id; do
+if ! printf '%s\n' "$fixes" | jq -r '.[].id' | { failed=0; while IFS= read -r id; do
     fix=$("$BD" show "$id" --json)
     if ! printf '%s\n' "$fix" | jq -e 'length == 1 and .[0].status == "closed" and ((.[0].notes // "") | test("fixed:|rebutted:"; "i"))' >/dev/null; then
         printf 'finding %s was not fixed or rebutted and verified closed\n' "$id" >&2
-        exit 1
+        failed=1
     fi
-done
+done; exit "$failed"; }; then
+    exit 1
+fi
 planted_ids=$(jq -er 'if type == "object" and length > 0 and all(.[]; type == "string" and length > 0) then .[] else error("invalid planted map") end' "$planted")
 printf '%s\n' "$planted_ids" | while IFS= read -r bead; do
     if ! printf '%s\n' "$fixes" | jq -e --arg bead "$bead" 'any(.[]; .metadata.plan_bead == $bead)' >/dev/null; then

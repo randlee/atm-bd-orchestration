@@ -196,7 +196,7 @@ because the formula assigns that step to the planner; for review steps use
 `actor=<dispatcher>`. Render:
 
 ```bash
-sc-compose render --strict --file <skill-root>/templates/plan-hardening-step.xml.j2 --var-file <vars.json> --output <scratch>/step.xml
+sc-compose render --root <absolute-skill-root>/templates --strict --file plan-hardening-step.xml.j2 --var-file <vars.json> --output <scratch>/step.xml
 ```
 
 Give the exact contents of that rendered file as the prompt to one background
