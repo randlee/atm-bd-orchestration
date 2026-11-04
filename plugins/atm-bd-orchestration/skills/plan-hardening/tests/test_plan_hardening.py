@@ -269,3 +269,27 @@ def test_adversary_guards_accept_valid_request(tmp_path):
     rendered = run("sc-compose", "bead", "render", "--request", str(request), "--json", cwd=tmp_path)
     assert rendered.returncode == 0, rendered.stdout + rendered.stderr
     assert adversary_guard(tmp_path, request, "python3 -c").returncode == 0
+
+
+@pytest.mark.parametrize("batch", ["invalid_later", "valid"])
+def test_finding_batch_validates_before_creating(rendered, tmp_path, batch):
+    _, text = rendered
+    script = re.search(r"```bash\n(set -euo pipefail\nSTEP=.*?)```", text, re.S)
+    assert script is not None
+    valid = {"title": "Correct ownership", "description": "Name the owner", "severity": "Important", "plan_bead": "atm-d-1"}
+    findings = [valid, {**valid, "title": "" if batch == "invalid_later" else "Correct scope"}]
+    (tmp_path / "atm-wisp-2ha-findings.json").write_text(json.dumps(findings))
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    bd = bin_dir / "bd"
+    bd.write_text("#!/bin/sh\ncase \"$1\" in\nshow) printf '%s\\n' '[{\"metadata\":{\"pass\":\"scope\"}}]' ;;\ncreate) printf '%s\\n' \"$*\" >> \"$BD_WRITES\"; printf '%s\\n' '{\"id\":\"created-fix\"}' ;;\n*) exit 64 ;;\nesac\n")
+    bd.chmod(0o755)
+    writes = tmp_path / "writes.txt"
+    env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "TMPDIR": str(tmp_path), "BD_WRITES": str(writes)}
+    result = subprocess.run(["bash", "-c", script.group(1)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False)
+    if batch == "invalid_later":
+        assert result.returncode != 0
+        assert not writes.exists(), "An invalid batch must not create its valid prefix"
+    else:
+        assert result.returncode == 0, result.stderr
+        assert len(writes.read_text().splitlines()) == 2

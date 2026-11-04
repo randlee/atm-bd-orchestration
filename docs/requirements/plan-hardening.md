@@ -60,8 +60,10 @@ Contract: atm-core `develop`, `docs/plans/phase-bp/contract/README.md`.
     models for difficult code and integrations, preferring mixed foundries.
     Give iteration-2 adversaries different tasks targeted at discovered
     weaknesses or previously uncovered areas; record each area in the title.
-21. Preserve all six proven contract files byte for byte. Ship the skill,
-    rules, requirements and tests through the generated package manifest;
+21. Preserve the three proven formulas and two example files byte for byte.
+    The step template has one approved change: validate the whole finding
+    array before the first create. Ship the skill, rules, requirements and
+    tests through the generated package manifest;
     orchestration hooks, scripts and Plan Gate remain outside this skill.
 
 ## Unresolved

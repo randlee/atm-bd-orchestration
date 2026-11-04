@@ -46,8 +46,12 @@ bd list --parent {{ root }} -l stage:sprint -n 0 --json \
 set -euo pipefail
 STEP='{{ step }}'
 PASS=$(bd show "$STEP" --json | jq -er '.[0].metadata.pass')
+jq -e 'type == "array" and all(.[]; type == "object" and
+  (.severity | IN("Blocking","Important","Minor")) and
+  (.title | type == "string" and length > 0) and
+  (.description | type == "string" and length > 0) and
+  (.plan_bead | type == "string" and length > 0))' "${TMPDIR:-/tmp}/$STEP-findings.json" >/dev/null
 jq -ce '.[]' "${TMPDIR:-/tmp}/$STEP-findings.json" | while IFS= read -r f; do
-  jq -e '(.severity | IN("Blocking","Important","Minor")) and (.title|length>0) and (.plan_bead|length>0)' <<<"$f" >/dev/null
   bd create "$(jq -er .title <<<"$f")" --parent '{{ root }}' --type task --assignee '{{ planner }}' \
     --labels 'phase-{{ phase }},stage:plan-fix' --description "$(jq -er .description <<<"$f")" \
     --metadata "$(jq -c --arg pass "$PASS" --arg step "$STEP" '{pass:$pass, filed_by_step:$step, severity, plan_bead}' <<<"$f")" \
