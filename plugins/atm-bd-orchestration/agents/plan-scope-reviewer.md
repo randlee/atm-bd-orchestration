@@ -189,7 +189,9 @@ They may never be downgraded to `Minor`:
 
 ## Output Contract
 
-Return fenced JSON only.
+Return fenced JSON only. The runner applies “Filing reviewer output” in
+`.claude/skills/plan-hardening/SKILL.md` to both output arrays; each entry
+contains the four canonical finding fields. Other fields are diagnostics.
 
 ```json
 {

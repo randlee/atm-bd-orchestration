@@ -199,3 +199,17 @@ def test_role_doc():
     assert "Sources" in text and "Requirements" in text and "Unresolved" in text
     assert re.search(r"^1\. ", text, re.MULTILINE)
     assert "plan-hardening.md" in (root / "docs/requirements/README.md").read_text()
+
+
+def test_reviewer_output_filing_adapter():
+    text = skill_text().split("## Filing reviewer output")[1].split("## Planner with subagents")[0]
+    assert "concatenate `findings` and `minor_wording`" in text
+    assert "File both arrays" in text
+    assert "do not drop `minor_wording`" in text
+    for name in ("critical-plan-reviewer", "plan-scope-reviewer"):
+        agent = (PACKAGE / "agents" / f"{name}.md").read_text()
+        assert "Filing reviewer output" in agent
+        blocks = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", agent, re.S)]
+        output = next(block for block in blocks if "findings" in block)
+        for entry in output["findings"] + output["minor_wording"]:
+            assert {"title", "description", "severity", "plan_bead"} <= entry.keys()
