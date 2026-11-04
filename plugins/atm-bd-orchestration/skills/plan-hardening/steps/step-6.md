@@ -7,7 +7,7 @@ after the final critical review and its Step 5 correction pass.
 
 **1. Dispatch the reviewer**
 
-Dispatch `ceremony-qa` as your mode reference directs (SKILL.md "Modes").
+Import the step bead (SKILL.md "Beads", `step` 6, `route_to` `ceremony-qa`). Dispatch `ceremony-qa` as your mode reference directs (SKILL.md "Modes").
 Pass a fenced JSON input that includes:
 - `review_mode`: `doc_review`
 - `worktree_path`
@@ -30,11 +30,9 @@ Save the extracted fenced JSON to `/tmp/step-6.json`.
   `reviewer_findings_json` contains the Step 6 fenced JSON, then re-run Step 5
   once; after that correction pass, proceed to Step 7
 
-Record the round as a round bead after the Step 6 response: render
-`.claude/skills/plan-hardening/plan-hardening-round-bead.json.j2` (id
-`<root>-ph-<round_id>`, `step` 6, `reviewer` `ceremony-qa`, the counts,
-`reviewed_commit`, `findings_hash` and `supersedes` from the response),
-`bd import` it, then `bd close <id> --reason <status>`.
+Record the round in beads after every Step 6 response (SKILL.md "Beads"):
+file one finding bead per finding (`reviewer` `ceremony-qa`), then close the Step 6
+step bead with the status, counts, `reviewed_commit` and `findings_hash`.
 
 ## Hard stops
 

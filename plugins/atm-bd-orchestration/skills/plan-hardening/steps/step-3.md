@@ -24,7 +24,8 @@ It must also carry current round metadata:
 
 **2. Dispatch the planner step**
 
-Dispatch `02-sprint-scope-hardening.xml.j2` with the vars file as your mode reference directs
+Import the step bead (SKILL.md "Beads", `step` 3, `route_to` the planner) and set
+`task_id` in the vars file to its id. Dispatch `02-sprint-scope-hardening.xml.j2` with the vars file as your mode reference directs
 (SKILL.md "Modes"). The same planner runs steps 1, 3 and 5 of one hardening
 run.
 

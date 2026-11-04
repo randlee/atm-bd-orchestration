@@ -22,6 +22,7 @@ fix routing and recheck rounds. Do not route QA findings back through local
 ## Hard stops
 
 - `validate-plan` does not exit 0: do not dispatch; fix the plan first
+- an open `stage:plan-finding` bead for the phase: route it to Step 5 first
 - `step-6` fenced JSON from the Step 6 response is missing or malformed: do
   not advance; send a correction request immediately and identify the missing
   or malformed fields explicitly

@@ -6,7 +6,7 @@ The planning agent runs steps 1–7 itself; the reviewers are teammates.
 
 Render the step template with the vars file (sub-step 1) and do the work it
 describes yourself. Skip its `atm task start`, `atm send` and `atm task close`
-steps: there is no task. The fenced JSON the template specifies is your step
+steps: there is no task. Close the step bead yourself (SKILL.md "Beads"). The fenced JSON the template specifies is your step
 result; save it to `/tmp/step-<n>.json`.
 
 ## Reviewer steps (2, 4, 6)
@@ -16,7 +16,7 @@ Assign the review to a teammate with
 queued, nudged and tracked:
 
 ```bash
-atm task assign <reviewer teammate> --task-id <task-id> \
+atm task assign <reviewer teammate> --task-id <step bead id> \
   --template .claude/skills/plan-hardening/plan-critical-review.xml.j2 \
   --vars <vars>
 ```

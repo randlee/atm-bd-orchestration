@@ -4,7 +4,7 @@
 
 **1. Dispatch the reviewer**
 
-Dispatch `critical-plan-reviewer` as your mode reference directs (SKILL.md "Modes").
+Import the step bead (SKILL.md "Beads", `step` 4, `route_to` `critical-plan-reviewer`). Dispatch `critical-plan-reviewer` as your mode reference directs (SKILL.md "Modes").
 Pass a fenced JSON input that includes:
 - `source_of_truth`
 - `references`
@@ -118,16 +118,12 @@ author from Step 1 with `atm queue` so it never interrupts work in progress.
 The template declares `workflow.stage: plan`, which is what makes the round
 discoverable (`atm search --team <team> --workflow-stage plan`).
 
-Record the round as a round bead after every Step 4 response: render
-`.claude/skills/plan-hardening/plan-hardening-round-bead.json.j2` (id
-`<root>-ph-<round_id>`, `step` 4, `reviewer` `critical-plan-reviewer`, the counts,
-`reviewed_commit`, `findings_hash` and `supersedes` from the response),
-`bd import` it, then `bd close <id> --reason <status>`. In the `note`
-record the plan's `critical_path` and `width` for the round (from the
-`plan-scope-reviewer` `parallelism` block). A round that lengthens the
+Record the round in beads after every Step 4 response (SKILL.md "Beads"):
+file one finding bead per finding (`reviewer` `critical-plan-reviewer`), then close the Step 4
+step bead with the status, counts, `reviewed_commit` and `findings_hash`. Add the plan's `critical_path` and `width` for the round (from the
+`plan-scope-reviewer` `parallelism` block) to the close reason. A round that lengthens the
 critical path or narrows the width is a regression: name the finding that
 caused it, and prefer a boundary re-cut over accepting it.
-
 
 ## Hard stops
 
