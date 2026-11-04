@@ -97,7 +97,11 @@ After the last fix step closes, copy into scratch, render and wisp
 `planner`. Dispatch ceremony, then fix, then verify as their dependencies
 release them. The final fix includes unresolved final-critical findings.
 Verification checks each carried finding with its filing pass's rules and
-files no new findings.
+files no new findings. For `lead` and `adversary:*` findings, use the
+`Verification:` check recorded in the finding's `description`, as defined in
+[the adversarial reference](references/adversarial-plan-hardening.md). Confirm
+its expected result against the current plan or a cited design rebuttal;
+leave a missing check or unresolved result open with a note.
 
 Finally run `bd mol squash <wisp>` on each iteration, adversary and final
 wisp. Close reasons retain verdicts and filed/verified fix-bead ids; wisp

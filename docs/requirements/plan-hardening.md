@@ -55,7 +55,9 @@ Contract: atm-core `develop`, `docs/plans/phase-bp/contract/README.md`.
     for contradictions, missing detail and sharpened contracts through a
     req-adr adversary and planner fix beads.
 19. The lead files its own findings through area=lead. Its iteration-2 pass
-    first verifies carried lead and adversary findings.
+    first verifies carried lead and adversary findings. Each such finding
+    records a concrete Verification check in its description; final verify
+    uses that check and leaves absent or unsatisfied checks open.
 20. Use multiple fast researchers for broad shallow work and frontier
     models for difficult code and integrations, preferring mixed foundries.
     Give iteration-2 adversaries different tasks targeted at discovered
