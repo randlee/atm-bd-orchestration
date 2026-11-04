@@ -3,7 +3,7 @@ name: plan-hardening-step
 version: 1.0.0
 description: Runs one plan-hardening wisp step. One template for both runners - a teammate (an ATM task) and a background subagent (a rendered prompt).
 format: xml
-required_variables: [step, runner, actor, phase, root, planner, plan_index, beads_dir, workdir, plan_pr, scratch_dir, cache_path]
+required_variables: [step, runner, actor, phase, root, planner, plan_index, beads_dir, workdir, plan_pr, scratch_dir, cache_path, policy_path]
 metadata:
   type: plan-hardening-step
   tags: [stage:plan-hardening]
@@ -17,7 +17,7 @@ metadata:
 {%- if root|length == 0 or root[0] not in "abcdefghijklmnopqrstuvwxyz0123456789" or root_invalid|length != 0 %}{{ "root must match ^[a-z0-9][a-z0-9._-]*$" | int }}{% endif %}
 {%- if planner|length == 0 or planner[0] not in "abcdefghijklmnopqrstuvwxyz0123456789" or planner_invalid|length != 0 %}{{ "planner must match ^[a-z0-9][a-z0-9._-]*$" | int }}{% endif %}
 {%- if actor|length == 0 or actor_invalid|length != 0 %}{{ "actor must match ^[A-Za-z0-9_-]+$" | int }}{% endif %}
-{%- if "'" in workdir or "\n" in workdir or "'" in beads_dir or "\n" in beads_dir or "'" in plan_index or "\n" in plan_index or "'" in scratch_dir or "\n" in scratch_dir or "'" in cache_path or "\n" in cache_path %}{{ "path contains an unsafe quote or newline" | int }}{% endif %}
+{%- if "'" in workdir or "\n" in workdir or "'" in beads_dir or "\n" in beads_dir or "'" in plan_index or "\n" in plan_index or "'" in scratch_dir or "\n" in scratch_dir or "'" in cache_path or "\n" in cache_path or "'" in policy_path or "\n" in policy_path %}{{ "path contains an unsafe quote or newline" | int }}{% endif %}
 <plan-hardening-step id="{{ step }}" runner="{{ runner }}">
   <phase>{{ phase }}</phase>
   <root>{{ root }}</root>
@@ -33,7 +33,15 @@ run artifacts are read from scratch. Never read another checkout. Write every ev
 agent session scratchpad. The selected plan index and tool-owned receipts are
 separate allowed plan writes; sprint-review writes its DAG under the clone
 `docs/plans/phase-{{ phase }}/` as well as its scratch outputs. The
-sprint-review cache must be `{{ cache_path }}`: verify the Git common directory
+The configured policy file is `{{ policy_path }}`. The sprint-bead vars
+example is `{{ workdir }}/.claude/skills/plan-hardening/examples/sprint-bead-vars.json`;
+the sprint-bead template is `{{ workdir }}/.claude/skills/atm-beads/templates/sprint-bead.json.j2`.
+The required planning resources are `{{ workdir }}/.claude/skills/atm-beads/resources/planning.md`
+and `{{ workdir }}/.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md`.
+Before using a required file, check that it exists; if missing, stop and report
+`MISSING_REQUIRED_FILE: <absolute path>`. Do not guess paths.
+The sprint-review cache must be `{{ cache_path }}` (it may not exist until
+sprint-review creates it): verify the Git common directory
 and cache resolve within the workdir before running it. The dispatcher must
 pass these exact values to every subagent or teammate; never infer them.
 {% if plan_pr == 'none' %}This run has no plan PR: never push or commit the DAG, even if the step
@@ -57,7 +65,13 @@ because `bd doctor` reports `proxy.doctor.unsupported`, retain the verbatim
 error and rerun that same command once with `--no-doctor`; record the fallback
 and original error in the close reason or failure envelope (atm-bd-orchestration
 #807). Any other doctor error fails the step; any other nonzero exit is a
-failed step, not a plan finding or a passing result. This template starts, records and
+failed step, not a plan finding or a passing result. Evidence commands are the
+reviewer, plan reads and writes, filing, rendering, validation and sprint-review
+commands used to support the step verdict; a nonzero exit fails the step unless
+the explicitly documented doctor fallback applies. A read of a named required
+file is an evidence command; check it exists first and report the named error
+above if not. Do not guess paths or use failed discovery probes as evidence.
+This template starts, records and
 closes the step.
 
 For evidence-bearing commands, use this portable capture idiom, once per

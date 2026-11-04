@@ -50,7 +50,9 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    the absolute `$BEADS_DIR`, `workdir` to `$EVAL_WORKTREE`, and `plan_index`
    to `$EVAL_SCRATCH/plan-index.jsonl` on every step. Also set `plan_pr`
    to `none`, `scratch_dir` to `$EVAL_SCRATCH`, and `cache_path` to
-   `$EVAL_WORKTREE/.atm-bd/atm.bd-cache.sqlite3` on every step. These rendered instructions
+   `$EVAL_WORKTREE/.atm-bd/atm.bd-cache.sqlite3` on every step. Set
+   `policy_path` to the absolute path under `$EVAL_WORKTREE` named by
+   `policy_path` in its `.claude/project/atm-bd-orchestration.yaml`. These rendered instructions
    carry cwd and database to agents. Never hand-write or alter the rendered file;
    dispatch the fixed line from SKILL.md with its absolute path and, for a retry,
    the named attached-evidence path. The runner reads it and stops if missing.

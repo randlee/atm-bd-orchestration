@@ -244,10 +244,12 @@ stop the run instead of dispatching another copy.
 Use `templates/plan-hardening-step.xml.j2` for every step and the shipped
 `examples/plan-hardening-step-{teammate,subagent}-vars.json` as input shapes.
 Set `step`, `runner`, `actor`, `phase`, `root`, `planner`, `plan_index`,
-`beads_dir`, `workdir`, `plan_pr`, `scratch_dir`, and `cache_path` for the
+`beads_dir`, `workdir`, `plan_pr`, `scratch_dir`, `cache_path`, and `policy_path` for the
 real run. `plan_pr=none` means no push; any other value identifies the plan PR. Use absolute paths for the last
 two, and an absolute index path or `integration` for `plan_index`; every step
-runs with the supplied working directory and BEADS_DIR.
+runs with the supplied working directory and BEADS_DIR. Resolve `policy_path`
+from `policy_path` in `<workdir>/.claude/project/atm-bd-orchestration.yaml`
+to its absolute path under the workdir before rendering; never guess it.
 Never hand-write or alter the rendered step file. Render for both modes:
 
 ```bash

@@ -133,7 +133,7 @@ def test_step_filing_enumeration_executes(rendered, tmp_path):
     assert result.stdout.splitlines() == ["one", "two"]
 
 
-@pytest.mark.parametrize("field", ["workdir", "beads_dir", "plan_index", "scratch_dir", "cache_path"])
+@pytest.mark.parametrize("field", ["workdir", "beads_dir", "plan_index", "scratch_dir", "cache_path", "policy_path"])
 def test_step_template_rejects_unsafe_path(tmp_path, field):
     source = tmp_path / "step.j2"
     source.write_bytes((SKILL / "templates/plan-hardening-step.xml.j2").read_bytes())
