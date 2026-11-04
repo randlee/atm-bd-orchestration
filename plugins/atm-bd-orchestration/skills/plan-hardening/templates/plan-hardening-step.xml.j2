@@ -60,6 +60,12 @@ jq -e 'type == "array" and all(.[]; type == "object" and
   (.description | type == "string" and length > 0) and
   (.plan_bead | type == "string" and length > 0))' "${TMPDIR:-/tmp}/$STEP-findings.json" >/dev/null
 jq -ce '.[]' "${TMPDIR:-/tmp}/$STEP-findings.json" | while IFS= read -r f; do
+  existing=$(bd list --parent '{{ root }}' -l 'phase-{{ phase }},stage:plan-fix' --all -n 0 --json \
+    | jq -r --arg step "$STEP" --argjson f "$f" '[.[] | select(.metadata.filed_by_step == $step and .title == $f.title and .description == $f.description and .metadata.severity == $f.severity and .metadata.plan_bead == $f.plan_bead) | .id][0] // empty')
+  if [[ -n "$existing" ]]; then
+    printf '%s\n' "$existing"
+    continue
+  fi
   bd create "$(jq -er .title <<<"$f")" --parent '{{ root }}' --type task --assignee '{{ planner }}' \
     --labels 'phase-{{ phase }},stage:plan-fix' --description "$(jq -er .description <<<"$f")" \
     --metadata "$(jq -c --arg pass "$PASS" --arg step "$STEP" '{pass:$pass, filed_by_step:$step, severity, plan_bead}' <<<"$f")" \

@@ -108,6 +108,18 @@ wisp. Close reasons retain verdicts and filed/verified fix-bead ids; wisp
 metadata is not retained in the digest. Hand the plan and remaining findings
 to the existing Plan Gate, without changing that gate's workflow.
 
+## Resume
+
+Recover iteration, adversary and final wisp and step ids after an interruption
+from `bd list -l phase-<p>,stage:plan-hardening --include-ephemeral --all --json`,
+filtered on `metadata.root` for the phase root. Retain the parent wisp ids for
+the final squash. Retry a step only while its bead is open; ensure the previous
+runner has stopped before reopening or dispatching it, and never run two copies
+of a step concurrently. A closed step is not retried. The filing block reuses
+an existing finding with the same step, title, description, severity and plan
+bead, including closed findings, and files only missing entries from a partial
+batch. Preserve the same finding input when retrying.
+
 ## Dispatch
 
 Use `templates/plan-hardening-step.xml.j2` for every step and the shipped
@@ -155,22 +167,21 @@ The planner fixes or rebuts it; the filing pass verifies and closes it.
 ## Filing reviewer output
 
 For scope and critical, before applying the step description's finding-based PASS rule, inspect the
-reviewer's envelope. `success: false` or any non-empty `errors` array is a
-fatal review failure: close the step `VERDICT=FAIL` with the error in the
-close reason, even when there are no findings. Do not file findings from an
-incomplete review. This failure rule takes precedence over the formula's
-finding-based PASS rule. For a successful envelope, use `data`; a legacy
-top-level `errors` array also triggers failure. The following maps the
-reviewer JSON in `$REVIEW` to the verdict, close-reason error, and filing
-array:
+reviewer's envelope. `success: false` or any non-empty `errors` array means
+the review did not complete. Leave the step open (reopen it if closed), file
+nothing, and return the step's `success: false` envelope with the reviewer's
+error as the message. Never close `VERDICT=FAIL` for an incomplete review:
+that would release the next step. For a successful envelope, use `data`; a
+legacy top-level `errors` array also triggers this error. The following maps
+the reviewer JSON in `$REVIEW` to its outcome, error and filing array:
 
 ```bash
-jq -c 'if (.success == false or ((.data.errors // []) | length > 0) or ((.errors // []) | length > 0)) then {verdict:"FAIL", error:([.error, (.data.errors // [])[], (.errors // [])[]] | map(select(. != null)) | if length == 0 then ["reviewer returned success:false without an error"] else . end), findings:[]} else {verdict:"FINDINGS", error:null, findings:([(.data.findings // [])[], (.data.minor_wording // [])[]] | map({title, description, severity, plan_bead}))} end' "$REVIEW"
+jq -c 'if (.success == false or ((.data.errors // []) | length > 0) or ((.errors // []) | length > 0)) then {verdict:"ERROR", error:([.error, (.data.errors // [])[], (.errors // [])[]] | map(select(. != null)) | if length == 0 then ["reviewer returned success:false without an error"] else . end), findings:[]} else {verdict:"FINDINGS", error:null, findings:([(.data.findings // [])[], (.data.minor_wording // [])[]] | map({title, description, severity, plan_bead}))} end' "$REVIEW"
 ```
 
 For `FINDINGS`, apply the step's normal finding-based verdict after filing;
-`FINDINGS` is not a close verdict. For `FAIL`, include the mapped `error` in
-the step's `bd close --reason` alongside `VERDICT=FAIL`; never close PASS.
+`FINDINGS` is not a close verdict. For `ERROR`, use the mapped `error` in the
+failure envelope and follow the step template's execution-error path.
 
 For scope and critical, the runner converts successful reviewer JSON to the step template's filing array in
 one way: concatenate `findings` and `minor_wording`, then copy only `title`,
