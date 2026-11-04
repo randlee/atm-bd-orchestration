@@ -60,7 +60,10 @@ from the last iteration. A FAIL from that final critical pass is normal.
    (use the index supplied in the dispatch template), then commit and push the
    DAG to the plan PR unless the dispatch template says no PR. This is the
    only permitted `git` write, and only after both checks pass.
-4. Close this step when every fix bead has a note.
+4. Close this step PASS only after every open fix bead has one terminal
+   `fixed: <complete resolution>` or `rebutted: <citation>` note, never a
+   partial or mixed disposition. Check each bead with `bd show <id> --json`;
+   a missing, partial or ambiguous disposition fails the step.
 """
 
 [[steps]]
@@ -81,8 +84,11 @@ check) and check only that finding against the plan.
    design closes it too. Leave the others open with a note saying what is
    still wrong; file nothing new.
 2. When review passes conflict, do not invent a resolution or close an unresolved
-   finding. Record the conflicting findings and evidence, ask the phase lead
-   for a ruling, and close this step FAIL if the conflict remains unresolved.
+   finding. Record the conflicting findings and evidence. In planner modes ask the
+   planner, who is the lead; in lead-adversarial mode ask the phase lead.
+   Keep this step open while the planner fixes the plan or records a cited
+   rebuttal, then verify again and close the finding. If no ruling is possible,
+   return an execution failure and leave the step open; never silently defer it.
 3. Close this step: PASS when no Blocking or Important fix bead is open,
    FAIL otherwise. The open ones go to quality-mgr plan review with the plan.
 """

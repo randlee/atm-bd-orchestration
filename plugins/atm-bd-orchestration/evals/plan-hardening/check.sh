@@ -16,7 +16,7 @@ fixes=$("$BD" list --parent "$root" -l stage:plan-fix --all -n 0 --json)
 printf '%s\n' "$fixes" | jq -e 'type == "array"' >/dev/null
 if ! printf '%s\n' "$fixes" | jq -r '.[].id' | { failed=0; while IFS= read -r id; do
     fix=$("$BD" show "$id" --json)
-    if ! printf '%s\n' "$fix" | jq -e 'length == 1 and .[0].status == "closed" and ((.[0].notes // "") | test("fixed:|rebutted:"; "i"))' >/dev/null; then
+    if ! printf '%s\n' "$fix" | jq -e 'length == 1 and .[0].status == "closed" and ((.[0].notes // "") | (test("(^|\\n)[[:space:]]*fixed:[[:space:]]*[^[:space:]]"; "i") != test("(^|\\n)[[:space:]]*rebutted:[[:space:]]*[^[:space:]]"; "i")) and (test("in part|partial"; "i") | not))' >/dev/null; then
         printf 'finding %s was not fixed or rebutted and verified closed\n' "$id" >&2
         failed=1
     fi

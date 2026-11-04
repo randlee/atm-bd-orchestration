@@ -26,7 +26,8 @@ Your instructions are the description of step bead {{ step }}. Run every shell
 command from `{{ workdir }}` with `BEADS_DIR={{ beads_dir }}` and
 `TMPDIR={{ scratch_dir }}`. Read repository plan data, reviewer files, scripts and configuration only
 from that workdir or beads directory; the explicitly supplied plan index and
-run artifacts are read from scratch. Never read another checkout. Write all temporary files under `{{ scratch_dir }}`. The
+run artifacts are read from scratch. Never read another checkout. Write every evidence and temporary file under the exact directory
+`{{ scratch_dir }}/{{ step }}/`; create it before starting. The
 sprint-review cache must be `{{ cache_path }}`: verify the Git common directory
 and cache resolve within the workdir before running it. The dispatcher must
 pass these exact values to every subagent or teammate; never infer them.
@@ -38,7 +39,9 @@ description says to push; leave its generated artifact in this disposable workdi
 {% else %}For validate-plan and sprint-review, use the integration-branch index.
 {% endif %}Save each validate-plan and sprint-review command, its complete output and
 exit status immediately to a named scratch path; list the commands, paths and
-exit codes in the returned `data.commands` array. If validate-plan fails specifically
+exit codes in the returned `data.commands` array. Also list every `bd` write
+in `data.bd_writes` and every written file in `data.file_writes`; use empty
+arrays when none occurred so the dispatcher can audit the run. If validate-plan fails specifically
 because `bd doctor` reports `proxy.doctor.unsupported`, retain the verbatim
 error and rerun that same command once with `--no-doctor`; record the fallback
 and original error in the close reason or failure envelope (atm-bd-orchestration
@@ -52,7 +55,8 @@ closes the step.
 set -euo pipefail
 cd '{{ workdir }}'
 export BEADS_DIR='{{ beads_dir }}'
-export TMPDIR='{{ scratch_dir }}'
+export TMPDIR='{{ scratch_dir }}/{{ step }}'
+mkdir -p "$TMPDIR"
 {% if teammate %}atm task start {{ step }} "plan-hardening step {{ step }}"
 {% endif %}bd update {{ step }} --claim --actor {{ actor }}
 bd show {{ step }} --json | jq -er '.[0].description'
@@ -84,6 +88,21 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
    sanity beads or edges), report it to the planner in planner modes or the
    phase lead in lead-adversarial mode. The planner owns and applies the
    structural correction before continuing; never leave it unresolved.
+
+Before a fix step closes PASS, run this check. Every open finding must have a
+terminal `fixed:` or `rebutted:` note; partial or mixed dispositions fail:
+
+```bash
+set -euo pipefail
+bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json |
+  jq -r '.[] | select(.status != "closed") | .id' | while IFS= read -r id; do
+    bd show "$id" --json | jq -e '.[0].notes | type == "string" and
+      (test("(^|\\n)[[:space:]]*fixed:[[:space:]]*[^[:space:]]"; "i") != test("(^|\\n)[[:space:]]*rebutted:[[:space:]]*[^[:space:]]"; "i")) and
+      (test("in part|partial"; "i") | not)' >/dev/null || {
+        echo "finding $id lacks a terminal disposition" >&2; exit 1;
+      }
+  done
+```
 
 4. File findings when you have any. Write a JSON array to
    `${TMPDIR:-/tmp}/{{ step }}-findings.json`, one object per finding:
@@ -148,7 +167,7 @@ bd close {{ step }} --actor {{ actor }} \
 
 
 ```json
-{"success": true, "data": {"step": "{{ step }}", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 0}]}, "error": null}
+{"success": true, "data": {"step": "{{ step }}", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 0}], "bd_writes": ["<bd write>"], "file_writes": ["<written file>"]}, "error": null}
 ```
 
 If execution failed, return this envelope with the actual error and a
@@ -158,7 +177,7 @@ using `atm task close {{ step }} refused --stdin`; this also applies to a
 planner fix step that cannot finish. Do not run the completed close.{% else %}Run no ATM command.{% endif %}
 
 ```json
-{"success": false, "data": {"step": "{{ step }}", "verdict": null, "findings": [], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 1}]}, "error": {"code": "EXECUTION.STEP_FAILED", "message": "<what failed>", "recoverable": true, "suggested_action": "<specific recovery action>"}}
+{"success": false, "data": {"step": "{{ step }}", "verdict": null, "findings": [], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 1}], "bd_writes": ["<bd write>"], "file_writes": ["<written file>"]}, "error": {"code": "EXECUTION.STEP_FAILED", "message": "<what failed>", "recoverable": true, "suggested_action": "<specific recovery action>"}}
 ```
   ]]></instructions>
 </plan-hardening-step>

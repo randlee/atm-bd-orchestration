@@ -61,6 +61,7 @@ def test_step_template_carries_isolated_context(rendered):
     assert "export BEADS_DIR='/tmp/beads'" in text
     assert "--index '/tmp/phase-d.jsonl'" in text
     assert "TMPDIR=/tmp/eval-scratch" in text
+    assert "export TMPDIR='/tmp/eval-scratch/atm-wisp-2ha'" in text
     assert "never push or commit the DAG" in text
     assert "/tmp/worktree/.atm-bd/atm.bd-cache.sqlite3" in text
     assert 'filed=' in text and 'stage:plan-hardening --include-ephemeral --all' in text
@@ -403,9 +404,9 @@ def test_step_template_return_envelope(rendered):
     runner, text = rendered
     returns = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", text, re.S)]
     completed, failed = returns
-    assert completed == {"success": True, "data": {"step": "atm-wisp-2ha", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 0}]}, "error": None}
+    assert completed == {"success": True, "data": {"step": "atm-wisp-2ha", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 0}], "bd_writes": ["<bd write>"], "file_writes": ["<written file>"]}, "error": None}
     assert failed["success"] is False
-    assert failed["data"] == {"step": "atm-wisp-2ha", "verdict": None, "findings": [], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 1}]}
+    assert failed["data"] == {"step": "atm-wisp-2ha", "verdict": None, "findings": [], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 1}], "bd_writes": ["<bd write>"], "file_writes": ["<written file>"]}
     assert set(failed["error"]) == {"code", "message", "recoverable", "suggested_action"}
     assert failed["error"]["code"] == "EXECUTION.STEP_FAILED"
     assert isinstance(failed["error"]["recoverable"], bool)
@@ -620,7 +621,7 @@ elif args[0] == "list":
     print(json.dumps([{"id": f"step-{i}", "metadata": {"root": "atm-eval-phase-zzeval", "pass": p, "iteration": n}}
                       for i, (p, n) in enumerate(rows)]))
 elif args[0] == "show" and args[1].startswith("fix-"):
-    print(json.dumps([{"status": "closed" if scenario != "unfixed" else "open", "notes": "fixed: resolved the finding"}]))
+    print(json.dumps([{"status": "closed" if scenario != "unfixed" else "open", "notes": "fixed: resolved\\nrebutted: citation" if scenario == "mixed" else ("fixed in part / rebutted in part" if scenario == "partial" else "fixed: resolved the finding")}]))
 elif args[0] == "show":
     reason = "VERDICT=PASS detected=0 filed=none verified=none"
     if args[1] == "step-0": reason = "VERDICT=FAIL detected=4 filed=fix-0,fix-1,fix-2,fix-3 verified=none"
@@ -659,6 +660,8 @@ print(json.dumps({"events": events, "handoffs": []}))
         assert check(runner, "bad_verdict").returncode != 0
         assert check(runner, "missing_accounting").returncode != 0
         assert check(runner, "unfiled").returncode != 0
+        assert check(runner, "partial").returncode != 0
+        assert check(runner, "mixed").returncode != 0
         unfixed = check(runner, "unfixed")
         assert unfixed.returncode != 0
         assert "fix-0" in unfixed.stderr and "fix-1" in unfixed.stderr

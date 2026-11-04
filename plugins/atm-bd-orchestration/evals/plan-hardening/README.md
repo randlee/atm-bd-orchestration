@@ -2,7 +2,9 @@
 
 Every cell runs in its own disposable worktree and `BEADS_DIR` scratch database with a private Dolt server and socket.
 Never connect the fixture to the live team store. The dispatcher supplies the
-absolute source evaluation directory as `EVAL_ROOT`, the worktree as
+absolute path of an immutable per-cell `git archive` copy of the evaluation
+assets from the pushed candidate commit as `EVAL_ROOT` (record the commit and
+checker hash), the worktree as
 `EVAL_WORKTREE`, and the cell's model as `EVAL_MODEL`. Before launching a cell,
 the dispatcher must prepare that disposable worktree with no `.beads` path or
 symlink; move only worktree-owned setup files aside, never the live database.

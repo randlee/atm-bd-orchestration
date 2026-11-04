@@ -99,5 +99,8 @@ Planner {{{ planner }}}: fix the plan. This is iteration {{{ iteration }}} of
 4. A FAIL from the critical-plan-reviewer in the last iteration is normal: it
    is an adversarial review. Fix its findings and close this step. Do not add
    an iteration; the final formula's verify step checks the fixes.
-5. Close this step when every fix bead has a fixed or rebutted note.
+5. Close this step PASS only after every open fix bead has one terminal
+   `fixed: <complete resolution>` or `rebutted: <citation>` note, never a
+   partial or mixed disposition. Check each bead with `bd show <id> --json`;
+   a missing, partial or ambiguous disposition fails the step.
 """

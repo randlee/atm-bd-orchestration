@@ -2,7 +2,7 @@
 
 Run the shipped plan-hardening skill in **planner with teammates** mode on the
 seeded plan. The dispatcher supplies absolute paths `EVAL_ROOT` (the source
-`plugins/atm-bd-orchestration/evals/plan-hardening` directory) and `EVAL_WORKTREE`
+an immutable per-cell copy of `plugins/atm-bd-orchestration/evals/plan-hardening`) and `EVAL_WORKTREE`
 (an independent disposable atm-core clone with the skill under test installed), and
 `EVAL_PLANNER` and `EVAL_DISPATCHER` (the actual identities taking those roles),
 `EVAL_LEAD` (the planner in planner mode), and `EVAL_MODEL` (the cell model: `haiku` or `gpt-6-luna`). The agent under test uses that exact model. Review teammates run the
@@ -66,11 +66,11 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    report the blocking error. Record the wisp IDs.
 3. Before squashing, run `"$EVAL_ROOT/check.sh" atm-eval-phase-zzeval teammate` and
    capture its complete output and exit status. A failure is a failed cell.
-4. Only after the final formula completes and evidence is saved, squash the
-   evaluation wisps. On an aborted run, do not squash or delete the scratch
+4. Only if the final formula completes AND check.sh exits 0, squash the
+   evaluation wisps. On an aborted run or failed check, do not squash or delete the scratch
    database: stop the private server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`, retain the database and context file as evidence, and
    report their exact paths. Do not run `bd delete`.
-   On a completed run, unlink the worktree plan-index symlink, remove only
+   On a completed run with check exit 0, unlink the worktree plan-index symlink, remove only
    the phase-zzeval.toml and context file you copied, stop this cell's server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`,
    and delete only `$EVAL_SCRATCH/.beads` and `$EVAL_SCRATCH/data` after
    unlinking the worktree symlink and confirming both are beneath the exact
