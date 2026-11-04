@@ -238,6 +238,20 @@ def test_reviewer_agents_bd_form():
             assert f'"{field}"' in text
 
 
+def test_plan_scope_reviewer_keeps_one_input_contract():
+    agent = (PACKAGE / "agents/plan-scope-reviewer.md").read_text()
+    reference = (SKILL / "references/plan-gate-reviewer-input.md").read_text()
+    normalized_reference = " ".join(reference.split())
+    assert agent.count("## Input Contract") == 1
+    assert "plan-gate-reviewer-input.md" in agent
+    assert "phase_root_doc" not in agent
+    assert "findings_scope_locked" not in agent
+    for field in ("phase_root_doc", "plan_docs", "round_index", "carry_forward_findings", "findings_scope_locked"):
+        assert f'"{field}"' in reference
+    assert "verify only `carry_forward_findings`" in normalized_reference
+    assert "Do not make a new plan-shape review or file new findings." in normalized_reference
+
+
 def test_role_doc():
     roots = list(SKILL.parents)
     if source := os.environ.get("ATM_BD_CONSOLE_SRC"):

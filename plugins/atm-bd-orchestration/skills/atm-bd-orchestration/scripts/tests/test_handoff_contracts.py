@@ -56,6 +56,16 @@ def inputs_json(agent: str) -> dict:
     return json.loads(required_match(INPUTS.search((AGENTS / agent).read_text())).group(1))
 
 
+def assignment_inputs_json(agent: str) -> dict:
+    """Resolve special transport envelopes documented outside the receiver agent."""
+    agent_path = AGENTS / agent
+    if agent == "plan-scope-reviewer.md":
+        link = required_match(re.search(r"Plan Gate reviewer input\]\(([^)]+)\)", agent_path.read_text()))
+        reference = (agent_path.parent / link.group(1)).resolve()
+        return json.loads(required_match(INPUTS.search(reference.read_text())).group(1))
+    return inputs_json(agent)
+
+
 # Fenced JSON as agents send and return it.
 FENCE = re.compile(r"^```(jsonl?)\n(.*?)^```", re.S | re.M)
 # Example placeholders: a `<...>` or install-time placeholder inside a JSON string, then a bare one standing for a value.
@@ -246,7 +256,7 @@ class ReviewerHandoffTests(unittest.TestCase):
                     self.assertIn(f"`review_mode` = `{declared['review_mode']}`", mention)
         self.assertGreater(checked, 0)
 
-    def test_reviewer_assignments_render_valid_json_matching_the_receivers_agent_file_when_present(self):
+    def test_reviewer_assignments_render_valid_json_matching_the_receivers_contract_when_present(self):
         for template in sorted(TEMPLATES.glob("*-assignment.json.j2")):
             reviewer = template.name.removesuffix("-assignment.json.j2")
             if reviewer == "dev-sanity":
@@ -256,7 +266,7 @@ class ReviewerHandoffTests(unittest.TestCase):
                 agent = AGENTS / f"{reviewer}.md"
                 if not agent.is_file() or not INPUTS.search(agent.read_text()):
                     self.skipTest(f"{reviewer}.md is absent or declares no ## Inputs JSON here; sender checked as valid JSON only")
-                self.assertLessEqual(set(sent), set(inputs_json(f"{reviewer}.md")))
+                self.assertLessEqual(set(sent), set(assignment_inputs_json(f"{reviewer}.md")))
 
     def test_fix_round_scope_flags_in_the_senders_exist_in_the_script(self):
         script = (ROOT / "scripts/fix-round-scope").read_text()
