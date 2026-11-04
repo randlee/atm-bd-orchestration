@@ -12,7 +12,19 @@ For each iteration:
    with the shared variables plus `area` naming that integration and `task`
    giving its research instruction, then create it with `bd mol wisp`.
    Require source citations for research claims.
-   Follow the contract's quoting constraint for `task`.
+   Follow the contract's quoting constraint for `task`. Before creation,
+   constrain `area` to a lower-case hyphenated slug and parse the rendered
+   TOML: render success alone does not establish TOML validity. Set `request`
+   and `rendered_formula` to the scratch request and output paths, then run
+   this block with `set -euo pipefail`; a failed guard stops before `bd`:
+
+   ```bash
+   set -euo pipefail
+   jq -e '.compose_variables.area | type == "string" and test("^[a-z0-9]+(-[a-z0-9]+)*$")' "$request" >/dev/null
+   sc-compose bead render --request "$request" --json
+   python3 -c 'import sys,tomllib; tomllib.load(open(sys.argv[1], "rb"))' "$rendered_formula"
+   bd mol wisp "$rendered_formula" --json
+   ```
 2. Review every existing and new requirement and ADR the plan relates to.
    Look for inconsistency, gaps and vague language. When the plan outgrows,
    contradicts or sharpens an existing requirement or ADR, file a planner
