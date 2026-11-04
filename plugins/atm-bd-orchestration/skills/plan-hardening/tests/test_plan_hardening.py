@@ -463,7 +463,7 @@ def test_eval_prompts_have_post_run_questions():
         text = (SKILL / "evals" / f"{runner}.md").read_text()
         assert "## Post-run questions" in text
         assert all(question in text for question in questions)
-        assert "bd import" in text and "check.sh eval-phase-z" in text
+        assert "bd import" in text and "check.sh atm-eval-phase-z" in text
 
 
 def test_eval_check_script_rejects_missing_fix_bead(tmp_path):
@@ -472,17 +472,23 @@ def test_eval_check_script_rejects_missing_fix_bead(tmp_path):
 import json, os, sys
 args = sys.argv[1:]
 scenario = os.environ.get("EVAL_SCENARIO", "ok")
-if args[0] == "list" and "--parent" in args:
-    ids = ["eval-z-1", "eval-z-2", "eval-z-3", "eval-z-4"]
+if args[0] == "search":
+    ids = ["atm-eval-z-1", "atm-eval-z-2", "atm-eval-z-3", "atm-eval-z-4"]
     if scenario == "missing_fix": ids.pop()
-    print(json.dumps([{"metadata": {"plan_bead": x}} for x in ids]))
+    print(json.dumps([{"id": f"fix-{i}", "metadata": {"plan_bead": x, "filed_by_step": "step-0"}} for i, x in enumerate(ids)]))
 elif args[0] == "list":
     rows = [("scope", "1"), ("critical", "1"), ("fix", "1"),
             ("ceremony", "final"), ("fix", "final"), ("verify", "final")]
-    print(json.dumps([{"id": f"step-{i}", "metadata": {"root": "eval-phase-z", "pass": p, "iteration": n}}
+    print(json.dumps([{"id": f"step-{i}", "metadata": {"root": "atm-eval-phase-z", "pass": p, "iteration": n}}
                       for i, (p, n) in enumerate(rows)]))
+elif args[0] == "show" and args[1].startswith("fix-"):
+    print(json.dumps([{"status": "closed" if scenario != "unfixed" else "open", "notes": "fixed: resolved the finding"}]))
 elif args[0] == "show":
-    reason = "not a verdict" if scenario == "bad_verdict" else "VERDICT=PASS filed=none verified=none"
+    reason = "VERDICT=PASS detected=0 filed=none verified=none"
+    if args[1] == "step-0": reason = "VERDICT=FAIL detected=4 filed=fix-0,fix-1,fix-2,fix-3 verified=none"
+    if scenario == "bad_verdict": reason = "not a verdict"
+    if scenario == "missing_accounting": reason = "VERDICT=FAIL filed=none verified=none"
+    if scenario == "unfiled" and args[1] == "step-0": reason = "VERDICT=FAIL detected=5 filed=fix-0,fix-1,fix-2,fix-3 verified=none"
     print(json.dumps([{"status": "closed", "close_reason": reason}]))
 else:
     sys.exit(1)
@@ -506,13 +512,16 @@ print(json.dumps({"events": events, "handoffs": []}))
 
     def check(runner: str, scenario: str = "ok") -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "BD": str(bd), "ATM": str(atm), "EVAL_RUNNER": runner, "EVAL_SCENARIO": scenario}
-        return subprocess.run([str(script), "eval-phase-z", runner], env=env, capture_output=True, text=True, check=False)
+        return subprocess.run([str(script), "atm-eval-phase-z", runner], env=env, capture_output=True, text=True, check=False)
 
     for runner in ("teammate", "subagent"):
         assert check(runner).returncode == 0
         missing = check(runner, "missing_fix")
-        assert missing.returncode != 0 and "eval-z-4" in missing.stderr
+        assert missing.returncode != 0 and "atm-eval-z-4" in missing.stderr
         assert check(runner, "bad_verdict").returncode != 0
+        assert check(runner, "missing_accounting").returncode != 0
+        assert check(runner, "unfiled").returncode != 0
+        assert check(runner, "unfixed").returncode != 0
     assert check("teammate", "no_start").returncode != 0
     assert check("subagent", "rogue_task").returncode != 0
     assert check("bogus").returncode == 2

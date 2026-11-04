@@ -84,14 +84,14 @@ In lead adversarial mode, start only after the lead tells you every adversary
 task of this iteration has closed.
 
 1. List your open fix beads:
-   `bd list --parent {{{ root }}} -l stage:plan-fix --assignee {{{ planner }}} --status open -n 0 --json`.
+   `bd search "{{{ root }}}." -l stage:plan-fix --status open -n 0 --json` (filter to the root and planner; compare against every prior step's `filed=` IDs; an absent ID is an error, never an empty success).
 2. For each one, change the plan beads it names with `bd update` (description,
    design, acceptance criteria, metadata) and add a note to the fix bead:
    `bd update <fix bead> --append-notes "fixed: <what changed, where>"`.
    A finding you reject gets `--append-notes "rebutted: <citation>"`. Rebut a
    finding that adds a state, verb, check, artifact or edge the design does
    not name. Never close a fix bead: the pass that filed it closes it.
-3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`
+3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (append `--index "$PLAN_HARDENING_PLAN_INDEX"` if that environment variable is set)
    and fix what it reports. When the plan changed, re-run
    `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}` and
    commit and push the DAG to the plan PR. This is the only permitted `git`

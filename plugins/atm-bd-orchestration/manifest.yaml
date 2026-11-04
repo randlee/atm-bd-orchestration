@@ -266,6 +266,8 @@ artifacts:
     - skills/plan-hardening/evals/README.md
     - skills/plan-hardening/evals/check.sh
     - skills/plan-hardening/evals/fixture-plan.jsonl
+    - skills/plan-hardening/evals/phase-z.toml
+    - skills/plan-hardening/evals/plan-index.jsonl
     - skills/plan-hardening/evals/planted.json
     - skills/plan-hardening/evals/subagent.md
     - skills/plan-hardening/evals/teammate.md

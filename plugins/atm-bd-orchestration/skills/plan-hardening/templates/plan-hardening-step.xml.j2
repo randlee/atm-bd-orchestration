@@ -71,6 +71,9 @@ jq -ce '.[]' "${TMPDIR:-/tmp}/$STEP-findings.json" | while IFS= read -r f; do
     --metadata "$(jq -c --arg pass "$PASS" --arg step "$STEP" '{pass:$pass, filed_by_step:$step, severity, plan_bead}' <<<"$f")" \
     --actor '{{ actor }}' --json | jq -er '.id'
 done | tee "${TMPDIR:-/tmp}/$STEP-filed.txt"
+EXPECTED=$(jq length "${TMPDIR:-/tmp}/$STEP-findings.json")
+ACTUAL=$(wc -l < "${TMPDIR:-/tmp}/$STEP-filed.txt" | tr -d " ")
+test "$EXPECTED" = "$ACTUAL" || { echo "finding filing incomplete: expected $EXPECTED, filed $ACTUAL" >&2; exit 1; }
 ```
 
    Close a fix bead you verified with
@@ -78,16 +81,20 @@ done | tee "${TMPDIR:-/tmp}/$STEP-filed.txt"
    note one that is still wrong with
    `bd update <fix bead> --append-notes "still open: <what>" --actor {{ actor }}`.
 
-5. Close the step only when its work completed. VERDICT is PASS or FAIL as
-   the description says; a completed review with findings is still a
-   successful execution. On an execution error, leave the bead open (or
-   reopen it with `bd update {{ step }} --status open --actor {{ actor }}`)
-   and return the failure envelope below instead of running this close.
+   A create failure or count mismatch is an execution error: retain the finding
+   JSON and return the failure envelope; do not continue until filing is repaired.
+
+5. Close the step only when its work completed. Include `detected=<number>`
+   equal to the number of findings in the JSON (0 for non-review steps).
+   VERDICT is PASS or FAIL as the description says; a completed review with
+   findings is still a successful execution. On an execution error, leave the
+   bead open (or reopen it with `bd update {{ step }} --status open --actor
+   {{ actor }}`) and return the failure envelope instead of running this close.
 
 ```bash
 set -euo pipefail
 bd close {{ step }} --actor {{ actor }} \
-  --reason "VERDICT=<PASS|FAIL> filed=<fix bead ids, comma separated, or none> verified=<closed fix bead ids or none>"
+  --reason "VERDICT=<PASS|FAIL> detected=<count> filed=<fix bead ids, comma separated, or none> verified=<closed fix bead ids or none>"
 ```
 
 {% if teammate -%}

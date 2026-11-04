@@ -50,10 +50,10 @@ Planner {{{ planner }}}: fix the plan for every open fix bead under
 {{{ root }}}: the ceremony findings and any critical-plan-reviewer findings
 from the last iteration. A FAIL from that final critical pass is normal.
 
-1. `bd list --parent {{{ root }}} -l stage:plan-fix --assignee {{{ planner }}} --status open -n 0 --json`.
+1. `bd search "{{{ root }}}." -l stage:plan-fix --status open -n 0 --json` (filter to the root and planner; compare against every prior step's `filed=` IDs; an absent ID is an error, never an empty success).
 2. For each one, change the plan beads with `bd update` and add a
    `fixed: ...` or `rebutted: <citation>` note. Never close a fix bead.
-3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`;
+3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (append `--index "$PLAN_HARDENING_PLAN_INDEX"` if that environment variable is set);
    when the plan changed, re-run
    `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}` and
    commit and push the DAG to the plan PR. This is the only permitted `git`
@@ -75,7 +75,7 @@ the agent file of the pass that filed it (`metadata.pass`: scope is
 `.claude/agents/ceremony-qa.md`, lead and adversary findings name their own
 check) and check only that finding against the plan.
 
-1. Close each fix bead the plan now resolves. A rebuttal that cites the
+1. Search `bd search "{{{ root }}}." -l stage:plan-fix -n 0 --json` and compare its IDs against every prior step's `filed=` IDs. If any are missing, close this step FAIL and report the missing IDs. Close each fix bead the plan now resolves. A rebuttal that cites the
    design closes it too. Leave the others open with a note saying what is
    still wrong; file nothing new.
 2. Close this step: PASS when no Blocking or Important fix bead is open,

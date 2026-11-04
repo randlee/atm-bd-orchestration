@@ -59,6 +59,12 @@ Prefer different foundries (Anthropic, OpenAI, xAI). In iteration 2, run each
 pass on a different foundry than in iteration 1 wherever possible. Record the
 chosen runner and foundry with the step's evidence.
 
+For general-purpose subagents use the harness-native model mapping: fast =
+haiku (Anthropic) or gpt-6-luna (OpenAI), normal = sonnet or gpt-6.1-terra,
+frontier = opus or gpt-6-astra. If a named tier is unavailable, report it; do
+not silently substitute a more expensive tier. An evaluation may explicitly
+override all tiers to its specified model.
+
 The runner is the teammate or background `general-purpose` agent taking the
 step. It reads the reviewer agent file named by the step description as its
 review rules. Those files remain read-only: the runner executes the template's
@@ -94,6 +100,11 @@ Use the current repository's bd database and repository configuration.
 `plugins/atm-bd-orchestration/skills/plan-hardening`, and after installation
 it is `.claude/skills/plan-hardening`. Keep requests, renders and results in
 scratch outside the tracked tree.
+
+When validating a local, unpushed evaluation fixture, set
+`PLAN_HARDENING_PLAN_INDEX` to its absolute plan-index path; pass
+`--index "$PLAN_HARDENING_PLAN_INDEX"` to validate-plan. In normal runs leave
+it unset and validate the integration branch.
 
 For each iteration `i` from 1 through `N`:
 
@@ -178,13 +189,15 @@ For a teammate, set `runner=teammate`, `actor=<agent>`, and deliver with:
 atm task assign <agent> --task-id <step> --template <skill-root>/templates/plan-hardening-step.xml.j2 --vars <vars.json>
 ```
 
-For a subagent, set `runner=subagent`, `actor=<dispatcher>`, and render:
+For a subagent, set `runner=subagent`. For a fix step set `actor=<planner>`
+because the formula assigns that step to the planner; for review steps use
+`actor=<dispatcher>`. Render:
 
 ```bash
 sc-compose render --strict --file <skill-root>/templates/plan-hardening-step.xml.j2 --var-file <vars.json> --output <scratch>/step.xml
 ```
 
-Give that exact rendered file as the prompt to one background
+Give the exact contents of that rendered file as the prompt to one background
 `general-purpose` agent at the chosen tier. Its fenced JSON is the return:
 `success`, `data` (`step`, `verdict`, `findings`), and `error`. A completed
 review returns `success:true` and `error:null`, including when its review

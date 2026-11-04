@@ -12,8 +12,15 @@ BD=${BD:-bd}
 ATM=${ATM:-atm}
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 planted=$script_dir/planted.json
-fixes=$("$BD" list --parent "$root" -l stage:plan-fix --all -n 0 --json)
+fixes=$("$BD" search "$root." -l stage:plan-fix -n 0 --json)
 printf '%s\n' "$fixes" | jq -e 'type == "array"' >/dev/null
+printf '%s\n' "$fixes" | jq -er '.[].id' | while IFS= read -r id; do
+    fix=$("$BD" show "$id" --json)
+    if ! printf '%s\n' "$fix" | jq -e 'length == 1 and .[0].status == "closed" and ((.[0].notes // "") | test("fixed:|rebutted:"; "i"))' >/dev/null; then
+        printf 'finding %s was not fixed or rebutted and verified closed\n' "$id" >&2
+        exit 1
+    fi
+done
 planted_ids=$(jq -er 'if type == "object" and length > 0 and all(.[]; type == "string" and length > 0) then .[] else error("invalid planted map") end' "$planted")
 printf '%s\n' "$planted_ids" | while IFS= read -r bead; do
     if ! printf '%s\n' "$fixes" | jq -e --arg bead "$bead" 'any(.[]; .metadata.plan_bead == $bead)' >/dev/null; then
@@ -38,6 +45,33 @@ printf '%s\n' "$steps" | jq -er '.[].id' | while IFS= read -r step; do
     if ! printf '%s\n' "$row" | jq -e 'length == 1 and .[0].status == "closed" and (.[0].close_reason | type == "string" and test("(^|[[:space:]])VERDICT=(PASS|FAIL)([[:space:]]|$)"))' >/dev/null; then
         printf 'step %s lacks a closed PASS/FAIL verdict\n' "$step" >&2
         exit 1
+    fi
+    step_pass=$(printf '%s\n' "$steps" | jq -er --arg step "$step" '.[] | select(.id == $step) | .metadata.pass')
+    if [ "$step_pass" = fix ] || [ "$step_pass" = verify ]; then
+        if ! printf '%s\n' "$row" | jq -e '.[0].close_reason | test("(^|[[:space:]])VERDICT=PASS([[:space:]]|$)")' >/dev/null; then
+            printf 'step %s did not pass\n' "$step" >&2
+            exit 1
+        fi
+    fi
+    reason=$(printf '%s\n' "$row" | jq -er '.[0].close_reason')
+    detected=$(printf '%s\n' "$reason" | sed -nE 's/.*(^|[[:space:]])detected=([0-9]+)([[:space:]]|$).*/\2/p')
+    filed=$(printf '%s\n' "$reason" | sed -nE 's/.*(^|[[:space:]])filed=([^[:space:]]+).*/\2/p')
+    if [ -z "$detected" ] || [ -z "$filed" ]; then
+        printf 'step %s lacks detected/ filed accounting\n' "$step" >&2
+        exit 1
+    fi
+    if [ "$filed" = none ]; then count=0; else count=$(printf '%s\n' "$filed" | tr ',' '\n' | wc -l | tr -d ' '); fi
+    if [ "$detected" -ne "$count" ]; then
+        printf 'step %s detected %s findings but filed %s\n' "$step" "$detected" "$count" >&2
+        exit 1
+    fi
+    if [ "$filed" != none ]; then
+        for id in $(printf '%s\n' "$filed" | tr ',' ' '); do
+            if ! printf '%s\n' "$fixes" | jq -e --arg id "$id" --arg step "$step" 'any(.[]; .id == $id and .metadata.filed_by_step == $step)' >/dev/null; then
+                printf 'step %s filed missing or misattributed finding %s\n' "$step" "$id" >&2
+                exit 1
+            fi
+        done
     fi
     events=$("$ATM" task events "$step" --json)
     if [ "$runner" = teammate ]; then
