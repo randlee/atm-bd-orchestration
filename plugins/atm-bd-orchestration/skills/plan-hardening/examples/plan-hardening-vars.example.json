@@ -1,5 +1,5 @@
 {
-  "task_id": "phase-bc-plan-hardening-step-1",
+  "task_id": "proj-phase-bc-ph-s1-c1",
   "phase": "bc",
   "description": "Plan hardening for phase-bc current plan state",
   "worktree_path": "/absolute/path/to/worktree",

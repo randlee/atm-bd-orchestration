@@ -67,7 +67,7 @@ thin layer sprints are as much a defect as full-stack feature sprints. The
 phase plan carries a wave table with critical path, width and sprint count,
 and every name follows "Naming" in the guidelines. Hardening exists to make that shape safe to run in
 parallel; it must never make a plan more serial. Record `critical_path` and
-`width` from the `plan-scope-reviewer` output in the round bead's `note`,
+`width` from the `plan-scope-reviewer` output in the Step 2 bead's close reason,
 and treat a round that lengthens the critical path as a regression to
 be explained.
 
@@ -88,11 +88,28 @@ Always use:
 | 6 | `ceremony-qa` | `step-5` JSON | `step-6` fenced JSON | `steps/step-6.md` |
 | 7 | `quality-mgr` | `step-6` JSON | the plan gate | `steps/step-7.md` |
 
-## Round Tracking
+## Beads
 
-The runner records every reviewer response as a round bead
-(`plan-hardening-round-bead.json.j2`), a child of the phase root; the steps
-say when. `bd list -l stage:plan-hardening --parent <root>` is the round table.
+Every step run is a step bead and every reviewer finding is a finding bead,
+both children of the phase root:
+
+- before dispatching a step, the runner imports its step bead
+  (`plan-hardening-step-bead.json.j2`, id `<root>-ph-s<step>-c<cycle>`,
+  `blocked_by` the previous step bead and, for a review step, the finding
+  beads of the previous review) and sets `task_id` in the vars to that id;
+  dispatch it only while `bd ready -l phase-<phase>,stage:plan-hardening`
+  lists it
+- after a review step (2, 4, 6), the runner files one finding bead
+  (`plan-hardening-finding-bead.json.j2`, id `<step bead>-<finding id in
+  lower case>`) per finding in the reviewer's fenced JSON, then closes the
+  step bead with `bd close <id> --reason "<status> blocking=<n> important=<n>
+  minor=<n> reviewed_commit=<sha> findings_hash=<hash>"`
+- the planner closes each open finding bead in the next correction step with
+  its ruling; the runner closes the planner's step bead with its status
+- `bd list -l phase-<phase>,stage:plan-hardening --status closed` is the round table;
+  `bd list -l phase-<phase>,stage:plan-finding` is the open findings
+
+Import a rendered bead with `jq -c . <file> > <file>.jsonl && bd import <file>.jsonl`.
 
 ## Reviewer Cycle Caps
 
@@ -179,8 +196,9 @@ Each step's task closes with its complete template
 - `.claude/skills/plan-hardening/plan-consistency-hardening-complete.md.j2`
 - `.claude/skills/plan-hardening/plan-critical-review-complete.md.j2`
 
-The round bead is rendered from
-`.claude/skills/plan-hardening/plan-hardening-round-bead.json.j2`.
+Beads are rendered from
+`.claude/skills/plan-hardening/plan-hardening-step-bead.json.j2` and
+`.claude/skills/plan-hardening/plan-hardening-finding-bead.json.j2`.
 
 Start the vars file from
 `.claude/skills/plan-hardening/examples/plan-hardening-vars.example.json`.

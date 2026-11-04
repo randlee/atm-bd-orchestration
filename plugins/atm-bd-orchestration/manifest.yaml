@@ -266,12 +266,15 @@ artifacts:
     - skills/plan-hardening/02-sprint-scope-hardening.xml.j2
     - skills/plan-hardening/03-consistency-hardening.xml.j2
     - skills/plan-hardening/SKILL.md
+    - skills/plan-hardening/examples/plan-hardening-finding-bead-vars.example.json
+    - skills/plan-hardening/examples/plan-hardening-step-bead-vars.example.json
     - skills/plan-hardening/examples/plan-hardening-vars.example.json
     - skills/plan-hardening/examples/plan-step-complete-vars.example.json
     - skills/plan-hardening/plan-consistency-hardening-complete.md.j2
     - skills/plan-hardening/plan-critical-review-complete.md.j2
     - skills/plan-hardening/plan-critical-review.xml.j2
-    - skills/plan-hardening/plan-hardening-round-bead.json.j2
+    - skills/plan-hardening/plan-hardening-finding-bead.json.j2
+    - skills/plan-hardening/plan-hardening-step-bead.json.j2
     - skills/plan-hardening/plan-review-notice.xml.j2
     - skills/plan-hardening/plan-scope-review-complete.md.j2
     - skills/plan-hardening/plan-sprint-hardening-complete.md.j2

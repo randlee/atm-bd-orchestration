@@ -9,7 +9,7 @@ process but is not the authority for rewriting the plan.
 ```bash
 VARS=/tmp/plan-hardening-vars.json
 AGENT=<planner>                        # the plan author chosen by the lead
-TASK_ID="$(jq -r .task_id "$VARS")"
+TASK_ID="$(jq -r .task_id "$VARS")"     # the step bead id
 atm task assign "$AGENT" --task-id "$TASK_ID" \
   --template .claude/skills/plan-hardening/<step template> --vars "$VARS"
 ```
