@@ -103,65 +103,69 @@ contains the four canonical finding fields. Other fields are diagnostics.
 
 ```json
 {
-  "status": "PASS | FAIL",
-  "mode": "critical-plan-review",
-  "reviewer": "critical-plan-reviewer",
-  "round_id": "STEP3-R1",
-  "round_index": 1,
-  "reviewed_commit": "abc1234",
-  "previous_reviewed_commit": "",
-  "findings_hash": "stable-round-fingerprint",
-  "scope": {
-    "phase": "string or null",
-    "sprint": "string or null"
+  "success": true,
+  "data": {
+    "status": "PASS | FAIL",
+    "mode": "critical-plan-review",
+    "reviewer": "critical-plan-reviewer",
+    "round_id": "STEP3-R1",
+    "round_index": 1,
+    "reviewed_commit": "abc1234",
+    "previous_reviewed_commit": "",
+    "findings_hash": "stable-round-fingerprint",
+    "scope": {
+      "phase": "string or null",
+      "sprint": "string or null"
+    },
+    "sprint_scores": [
+      {
+        "sprint": "X.12",
+        "status": "PASS | FAIL",
+        "blocking_count": 0,
+        "important_count": 0,
+        "minor_count": 0
+      }
+    ],
+    "plan_beads_read": [
+      "<sprint bead id>"
+    ],
+    "findings": [
+      {
+        "id": "PLAN-CRIT-001",
+        "title": "Boundary contract is incomplete",
+        "description": "Name the missing contract and exact correction",
+        "plan_bead": "<sprint bead id>",
+        "severity": "Blocking | Important | Minor",
+        "category": "ARCH-RISK | BOUNDARY-RISK | FALSE-CLOSURE | CONTRA | MISSING-ADR | UNDEF | VAGUE | GAP",
+        "classification": "structural | wording",
+        "affects_ac": false,
+        "target_refs": [
+          "<sprint bead id>:design"
+        ],
+        "issue": "clear statement of the planning problem",
+        "required_correction": "specific corrective action"
+      }
+    ],
+    "minor_wording": [
+      {
+        "id": "PLAN-CRIT-M1",
+        "title": "Clarify boundary wording",
+        "description": "State the precise boundary name",
+        "severity": "Minor",
+        "plan_bead": "<sprint bead id>",
+        "category": "VAGUE | GAP",
+        "affects_ac": false,
+        "target_refs": [
+          "<sprint bead id>:design"
+        ],
+        "issue": "non-blocking wording problem",
+        "suggested_cleanup": "specific wording cleanup"
+      }
+    ],
+    "ready_for_next_step": true,
+    "errors": []
   },
-  "sprint_scores": [
-    {
-      "sprint": "X.12",
-      "status": "PASS | FAIL",
-      "blocking_count": 0,
-      "important_count": 0,
-      "minor_count": 0
-    }
-  ],
-  "plan_beads_read": [
-    "<sprint bead id>"
-  ],
-  "findings": [
-    {
-      "id": "PLAN-CRIT-001",
-      "title": "Boundary contract is incomplete",
-      "description": "Name the missing contract and exact correction",
-      "plan_bead": "<sprint bead id>",
-      "severity": "Blocking | Important | Minor",
-      "category": "ARCH-RISK | BOUNDARY-RISK | FALSE-CLOSURE | CONTRA | MISSING-ADR | UNDEF | VAGUE | GAP",
-      "classification": "structural | wording",
-      "affects_ac": false,
-      "target_refs": [
-        "<sprint bead id>:design"
-      ],
-      "issue": "clear statement of the planning problem",
-      "required_correction": "specific corrective action"
-    }
-  ],
-  "minor_wording": [
-    {
-      "id": "PLAN-CRIT-M1",
-      "title": "Clarify boundary wording",
-      "description": "State the precise boundary name",
-      "severity": "Minor",
-      "plan_bead": "<sprint bead id>",
-      "category": "VAGUE | GAP",
-      "affects_ac": false,
-      "target_refs": [
-        "<sprint bead id>:design"
-      ],
-      "issue": "non-blocking wording problem",
-      "suggested_cleanup": "specific wording cleanup"
-    }
-  ],
-  "ready_for_next_step": true,
-  "errors": []
+  "error": null
 }
 ```
 
@@ -189,3 +193,13 @@ Gate policy:
   for the developer to fix them in the next cycle
 
 Finding output must include `title`, `description`, `severity` and `plan_bead` for every entry.
+
+
+## Error Handling
+
+A missing or malformed phase root or required sprint input is fatal `VALIDATION.INPUT`; an unreadable review target is fatal `REVIEW.TARGET_UNREADABLE`. Return fenced JSON with `success: false`, `data: null`, and `error` containing `code`, `message`, `recoverable: false`, and `suggested_action`. Do not return a passing review or invent findings when input cannot be reviewed.
+
+## Constraints
+
+- Review read-only; the runner files and closes beads.
+- Report every finding with its canonical fields and evidence; do not invent findings.
