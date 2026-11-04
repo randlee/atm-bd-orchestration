@@ -149,8 +149,9 @@ For each iteration `i` from 1 through `N`:
 In either planner mode, the planner is the phase lead for hardening and owns
 rulings on every finding. If a proposed change is unsupported by the plan or
 its governing requirements, record a rebuttal citing that evidence; otherwise
-apply the fix. Never invent a ruling or leave a finding without a fixed or
-cited rebuttal note. In lead-adversarial mode the phase lead makes the ruling.
+apply the fix. If a supported finding cannot be resolved with permitted writes,
+record `open decision: <reason>` and leave it open for the Plan Gate; continue
+the step. Never invent a ruling or leave a finding without one of these notes. In lead-adversarial mode the phase lead makes the ruling.
 For every applied fix, cite both its finding and a REQ, ADR, or existing plan
 source. Never add or remove scope without a source; rebut an unsupported
 finding with `rebutted: unsupported by <source>`.

@@ -33,15 +33,15 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    (macOS may spell `/tmp` as `/private/tmp`). The context file
    records the exact scratch and database paths on separate lines; read it in
    every new shell rather than assuming variables persist. Never link to or
-   import into the live store. Copy `$EVAL_ROOT/phase-zzeval.toml` to the new
-   worktree's `.atm-bd/phase-zzeval.toml` only if that file is absent. Set its
+   import into the live store. Copy `$EVAL_ROOT/phase-qx.toml` to the new
+   worktree's `.atm-bd/phase-qx.toml` only if that file is absent. Set its
    `lead` field to the supplied `EVAL_LEAD` (the fixture default is arch-ctm). Run once from
    `EVAL_WORKTREE`: `npm ci --prefix .claude/skills/sprint-report/renderer`.
    If setup fails, report the exact command and error; do not run the cell.
    Copy the index to scratch: `cp "$EVAL_ROOT/plan-index.jsonl" "$EVAL_SCRATCH/plan-index.jsonl"`.
-   If `$EVAL_WORKTREE/docs/plans/phase-zzeval.jsonl` exists or is a symlink, stop.
-   Otherwise link that path to the scratch index; `bead-groups --phase zzeval`
-   reads the plan path from phase-zzeval.toml when the planner adds a sprint.
+   If `$EVAL_WORKTREE/docs/plans/phase-qx.jsonl` exists or is a symlink, stop.
+   Otherwise link that path to the scratch index; `bead-groups --phase qx`
+   reads the plan path from phase-qx.toml when the planner adds a sprint.
    Import only the fixture containers with `bd import -i "$EVAL_ROOT/fixture-plan.jsonl"`.
    Do not pour groups until the final formula passes.
 2. Read `.claude/skills/plan-hardening/SKILL.md`, run exactly one iteration (`iteration=1`, `iterations=1`) and the
@@ -61,19 +61,19 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    step once to a fresh runner with its failed return and evidence. If the
    retry fails, stop with `EXECUTION.STEP_FAILED`; do not run the final formula: capture the failed checker result and
    report the blocking error. Record the wisp IDs.
-3. If the final formula passes, run `bead-groups --phase zzeval` to pour
-   all groups, then `sprint-review --root atm-eval-phase-zzeval --index
+3. If the final formula passes, run `bead-groups --phase qx` to pour
+   all groups, then `sprint-review --root atm-eval-phase-qx --index
    "$EVAL_SCRATCH/plan-index.jsonl"`. Capture both outputs and exit codes; a
    failed pour or render fails the cell even if the checker passes. If the
    formula did not pass, skip the pour and render. In either case, before
-   squashing, run `"$EVAL_ROOT/check.sh" atm-eval-phase-zzeval subagent` and
+   squashing, run `"$EVAL_ROOT/check.sh" atm-eval-phase-qx subagent` and
    capture its complete output and exit status. A failure is a failed cell.
 4. Only if the final formula completes AND check.sh exits 0, squash the
    evaluation wisps. On an aborted run or failed check, reopen any failed fix bead before stopping
    the server. Do not squash or delete the scratch database: stop the private server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`, retain the database and context file as evidence, and
    report their exact paths. Do not run `bd delete`.
    On a completed run with check exit 0, unlink the worktree plan-index symlink, remove only
-   the phase-zzeval.toml and context file you copied, stop this cell's server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`,
+   the phase-qx.toml and context file you copied, stop this cell's server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`,
    retain `$EVAL_SCRATCH/.beads` and `$EVAL_SCRATCH/data` through the post-run
    debrief. After answering the questions, delete only those two directories,
    after unlinking the worktree symlink and confirming both are beneath the

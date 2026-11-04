@@ -120,8 +120,11 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
    finding requires structural changes (including sprints, contracts, ADRs,
    sanity beads or edges), report it to the planner in planner modes or the
    phase lead in lead-adversarial mode. The planner owns and applies the
-   structural correction before continuing; never leave it unresolved. In planner
-   modes do not return "needs lead ruling": the planner makes the ruling.
+   structural correction before continuing. In planner modes the planner rules:
+   apply a supported fix, rebut with a cited source, or record an `open decision:`
+   note explaining a supported finding that cannot be resolved with permitted
+   writes. Leave that finding open for the Plan Gate and continue the step; do
+   not return "needs lead ruling" to the same planner runner.
    Before planning a sprint or structural fix, read `.claude/skills/atm-beads/resources/planning.md` sections "Sprint Container" (sprint fields, layer,
    and pr_target) and "New Ids", and `.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md` sections "Ownership And Dependency Relations"
    and "Sprint Bead Shape". Apply their rules to each changed container.
@@ -133,17 +136,18 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
    an ADR as specified by atm-beads `planning.md` New Ids; alternatively
    rebut with a cited existing ADR or requirement.
 
-Before a fix step closes PASS, run this check. Every finding handled by this fix must have a
-terminal `fixed:` or `rebutted:` note; partial or mixed dispositions fail:
+Before a fix step closes PASS, run this check. Every finding handled by this fix must have
+exactly one `fixed:`, `rebutted:`, or `open decision:` note; the latter
+must remain open. Partial or mixed dispositions fail:
 
 ```bash
 set -euo pipefail
 bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json |
   jq -r '.[].id' | while IFS= read -r id; do
-    bd show "$id" --json | jq -e '.[0].notes | type == "string" and
-      (test("(^|\\n)[[:space:]]*fixed:[[:space:]]*[^[:space:]]"; "i") != test("(^|\\n)[[:space:]]*rebutted:[[:space:]]*[^[:space:]]"; "i")) and
-      (test("in part|partial"; "i") | not)' >/dev/null || {
-        echo "finding $id lacks a terminal disposition" >&2; exit 1;
+    bd show "$id" --json | jq -e '.[0] | (.status != "closed" or ((.notes // "") | test("(^|\\n)[[:space:]]*open decision:"; "i") | not)) and (.notes | type == "string" and
+      ([test("(^|\\n)[[:space:]]*fixed:[[:space:]]*[^[:space:]]"; "i"), test("(^|\\n)[[:space:]]*rebutted:[[:space:]]*[^[:space:]]"; "i"), test("(^|\\n)[[:space:]]*open decision:[[:space:]]*[^[:space:]]"; "i")] | map(select(.)) | length == 1) and
+      (test("in part|partial"; "i") | not))' >/dev/null || {
+        echo "finding $id lacks a valid disposition" >&2; exit 1;
       }
   done
 ```
