@@ -55,7 +55,8 @@ from the last iteration. A FAIL from that final critical pass is normal.
    `fixed: ...` or `rebutted: <citation>` note. In planner modes the planner
    is the lead and must make the ruling or cite the rebuttal. Record
    `open decision: <question?>` only when the user or Rand must decide and
-   no source or rule settles it. Never close a fix bead.
+   no source or rule settles it.
+   A missing governing document or section (ADR, REQ, architecture, or design document) is never an open decision. Add its path to the owning sprint owned_paths and a deliverable writing it; use a NEW: id for an ADR or REQ. Never close a fix bead.
 3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`
    with the index and typed doctor fallback from the dispatch template. Do not
    pour groups or run sprint-review in this fix step; both run after the final

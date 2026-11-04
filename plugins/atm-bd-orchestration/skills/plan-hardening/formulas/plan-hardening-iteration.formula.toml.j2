@@ -89,6 +89,7 @@ Planner {{{ planner }}}: fix the plan. This is iteration {{{ iteration }}} of
    an edge or sprint the finding justifies; rebut only with a cited reason. In planner modes the planner is the lead: make the ruling and fix the
    finding, rebut it with a citation, or record `open decision: <question?>`
    only when the user or Rand must decide and no source or rule settles it.
+   A missing governing document or section (ADR, REQ, architecture, or design document) is never an open decision. Add its path to the owning sprint owned_paths and a deliverable writing it; use a NEW: id for an ADR or REQ.
    Never close a fix bead: the pass that filed it closes it.
 3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`
    with the index and typed doctor fallback from the dispatch template. Do not

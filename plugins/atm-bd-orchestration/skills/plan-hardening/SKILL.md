@@ -153,10 +153,7 @@ rulings on every finding. If a proposed change is unsupported by the plan or
 its governing requirements, record a rebuttal citing that evidence; otherwise
 apply the fix. Use `open decision: <question?>` only for a decision requiring the user or
 Rand that no source or design rule settles. Leave it open for the Plan Gate
-and continue the step; never use it for a resolvable finding. A missing ADR or REQ is never an open decision: add its future
-document path to the owning sprint's `owned_paths` and a deliverable naming
-the `NEW:` id, for example `NEW:ADR-delivery-contract`; no number allocation
-is needed. These are permitted plan writes; the sprint writes the document later.
+and continue the step; never use it for a resolvable finding. A missing governing document or section (ADR, REQ, architecture, or design document) is never an open decision. Add its path to the owning sprint owned_paths and a deliverable writing it; use a NEW: id for an ADR or REQ. For example, `NEW:ADR-delivery-contract` needs no number allocation. These are permitted plan writes; the sprint writes the document later.
 Never invent a ruling or leave a finding without one of these notes. In lead-adversarial mode the phase lead makes the ruling.
 Naming types, fields, and methods required by an existing deliverable is a
 design fix, not new scope: write them in the contract sprint design and cite

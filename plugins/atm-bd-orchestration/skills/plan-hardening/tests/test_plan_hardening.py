@@ -285,6 +285,16 @@ else:
     assert (tmp_path / "atm-wisp-2ha-filed.txt").read_text().splitlines() == ["fix-1", "fix-2"]
 
 
+def test_missing_governing_document_is_planned_not_parked(rendered, formulas):
+    _, step = rendered
+    phrase = "A missing governing document or section (ADR, REQ, architecture, or design document) is never an open decision."
+    assert phrase in step
+    assert phrase in skill_text()
+    for name in ("iteration", "final"):
+        fix = next(item for item in formulas[name]["steps"] if item["id"] == "fix")
+        assert phrase in fix["description"]
+
+
 def test_formulas_are_vapor(formulas):
     assert all(formula["phase"] == "vapor" for formula in formulas.values())
 

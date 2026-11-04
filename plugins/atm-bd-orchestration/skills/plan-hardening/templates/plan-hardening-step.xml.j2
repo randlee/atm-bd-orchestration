@@ -182,8 +182,7 @@ ATM_STEP
    allocating a number. Add the future document path to that sprint's
    `owned_paths` and a deliverable naming the `NEW:` id. These are permitted
    plan writes; the sprint writes the document later. Alternatively rebut
-   with a cited existing ADR or requirement. Missing ADR/REQ findings must
-   never be given an `open decision:` disposition.
+   with a cited existing ADR or requirement. A missing governing document or section (ADR, REQ, architecture, or design document) is never an open decision. Add its path to the owning sprint owned_paths and a deliverable writing it; use a NEW: id for an ADR or REQ.
 
 Before a fix step closes PASS, run this check. Every finding handled by this fix must have
 exactly one `fixed:`, `rebutted:`, or `open decision: <question?>` note;
