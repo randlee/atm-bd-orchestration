@@ -72,7 +72,11 @@ done | tee "${TMPDIR:-/tmp}/$STEP-filed.txt"
    note one that is still wrong with
    `bd update <fix bead> --append-notes "still open: <what>" --actor {{ actor }}`.
 
-5. Close the step. VERDICT is PASS or FAIL as the description says:
+5. Close the step only when its work completed. VERDICT is PASS or FAIL as
+   the description says; a completed review with findings is still a
+   successful execution. On an execution error, leave the bead open (or
+   reopen it with `bd update {{ step }} --status open --actor {{ actor }}`)
+   and return the failure envelope below instead of running this close.
 
 ```bash
 set -euo pipefail
@@ -81,16 +85,26 @@ bd close {{ step }} --actor {{ actor }} \
 ```
 
 {% if teammate -%}
-6. Close your task with a short report that ends in this fenced JSON, then
+6. On successful execution, close your task with a short report that ends in this fenced JSON, then
    stop: `atm task close {{ step }} completed --stdin`. If the close fails,
    read the error, fix its cause and rerun it.
 {% else -%}
-6. Return only this fenced JSON as your final message. Run no `atm` command.
+6. On successful execution, return only this fenced JSON as your final message. Run no `atm` command.
 {% endif %}
 
 
 ```json
-{"step": "{{ step }}", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"]}
+{"success": true, "data": {"step": "{{ step }}", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"]}, "error": null}
+```
+
+If execution failed, return this envelope with the actual error and a
+specific recovery action. `recoverable` is true only when that action can
+recover this step. {% if teammate %}Close the task with this fenced report
+using `atm task close {{ step }} refused --stdin`; do not run the completed
+close.{% else %}Run no ATM command.{% endif %}
+
+```json
+{"success": false, "data": {"step": "{{ step }}", "verdict": null, "findings": []}, "error": {"code": "EXECUTION.STEP_FAILED", "message": "<what failed>", "recoverable": true, "suggested_action": "<specific recovery action>"}}
 ```
   ]]></instructions>
 </plan-hardening-step>
