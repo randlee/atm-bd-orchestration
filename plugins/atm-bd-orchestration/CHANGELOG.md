@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- The sprint-report renderer install is `(cd .claude/skills/sprint-report/renderer && npm ci --ignore-scripts)` in sprint-report and sprint-review and in `sprint_dag.py`'s missing-dependency error. `npm ci --prefix` failed with `EUSAGE ... Missing: renderer@1.0.0 from lock file` whenever the path ran through a symlink (`/tmp` → `/private/tmp` on macOS).
+
 ## [0.19.12] - 2026-10-29
 
 ### Fixed
