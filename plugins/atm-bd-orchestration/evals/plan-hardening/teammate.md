@@ -22,6 +22,7 @@ export BEADS_DIR="$EVAL_SCRATCH/.beads"
 printf '%s\n%s\n' "$EVAL_SCRATCH" "$BEADS_DIR" > "$EVAL_WORKTREE/.atm-plan-eval-context"
 # The isolated worktree must not already have a database or a live-store link.
 test ! -e "$EVAL_WORKTREE/.beads" && test ! -L "$EVAL_WORKTREE/.beads"
+(cd "$EVAL_WORKTREE" && git config beads.role maintainer)
 python3 "$EVAL_ROOT/db-server.py" start "$EVAL_SCRATCH"
 ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
 (cd "$EVAL_WORKTREE" && bd info --json)
@@ -64,7 +65,7 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    template's one-time `--no-doctor` fallback and retain the original error
    (atm-bd-orchestration#807); do not skip any other failure.
    Save their full output and exit status immediately after each command. Nonzero
-   means the step fails and is reported, never a passing result. If a fix step fails recoverably, stop the runner and re-dispatch that same
+   means the step fails and is reported, never a passing result. If any step (review, fix, or verify) fails recoverably, stop the runner and re-dispatch that same
    step once to a fresh runner with its failed return and evidence. If the
    retry fails, stop with `EXECUTION.STEP_FAILED`; do not run the final formula: capture the failed checker result and
    report the blocking error. Record the wisp IDs.

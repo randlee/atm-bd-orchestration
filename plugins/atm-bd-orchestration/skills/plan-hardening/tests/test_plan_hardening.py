@@ -46,6 +46,40 @@ def test_dispatch_carrier_delivers_paths(tmp_path: Path, evidence: str):
     assert "If the step file is missing, stop" in body
 
 
+def test_filing_reuses_existing_findings_with_stderr_warning(rendered, tmp_path: Path):
+    _, prompt = rendered
+    block = prompt.split('STEP=\'atm-wisp-2ha\'', 1)[1].split("\n```", 1)[0]
+    block = "set -euo pipefail\nSTEP='atm-wisp-2ha'" + block
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    bd = bin_dir / "bd"
+    bd.write_text("""#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+state = Path(os.environ['STATE'])
+print('beads warning', file=sys.stderr)
+if sys.argv[1] == 'show':
+    print(json.dumps([{'metadata': {'pass': 'scope'}}]))
+elif sys.argv[1] == 'list':
+    print(state.read_text() if state.exists() else '[]')
+else:
+    args = sys.argv
+    row = {'id': 'finding-1', 'title': args[2], 'description': args[args.index('--description') + 1], 'metadata': json.loads(args[args.index('--metadata') + 1])}
+    state.write_text(json.dumps([row]))
+    print(json.dumps({'id': row['id']}))
+""")
+    bd.chmod(0o755)
+    (tmp_path / "atm-wisp-2ha-findings.json").write_text(json.dumps([{'title': 'Issue', 'description': 'Correction', 'severity': 'Important', 'plan_bead': 'sprint-1'}]))
+    env = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ['PATH'], TMPDIR=str(tmp_path), STATE=str(tmp_path / 'state.json'))
+    for _ in range(2):
+        result = subprocess.run(['bash', '-c', block], env=env, capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == 'finding-1'
+    assert len(json.loads((tmp_path / 'state.json').read_text())) == 1
+    assert len(list(tmp_path.glob('filing.*/create.json'))) == 1
+    assert all('beads warning' in p.read_text() for p in tmp_path.glob('filing.*/list.stderr'))
+
+
 @pytest.fixture(scope="module")
 def formulas(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict]:
     directory = tmp_path_factory.mktemp("formulas")

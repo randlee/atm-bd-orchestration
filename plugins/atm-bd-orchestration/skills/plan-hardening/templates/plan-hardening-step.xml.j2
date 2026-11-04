@@ -186,7 +186,10 @@ Before each write confirm both beads are planned sprint containers and the
 edge corresponds exactly to the index change. Check the resulting graph and
 run validate-plan. A failed command is an execution failure, not a PASS.
 
-4. File findings when you have any. Write a JSON array to
+4. File findings when you have any. Capture each bd command's stdout as JSON
+   and stderr in a separate evidence file; never merge the streams. Look up an
+   existing finding for this step and issue before each create; reuse it on
+   retry rather than creating a duplicate. Write a JSON array to
    `${TMPDIR:-/tmp}/{{ step }}-findings.json`, one object per finding:
    `title`, `description` (the problem and the exact correction, naming the
    bead and field), `severity` (`Blocking`, `Important` or `Minor`) and
@@ -195,15 +198,17 @@ run validate-plan. A failed command is an execution failure, not a PASS.
 ```bash
 set -euo pipefail
 STEP='{{ step }}'
-PASS=$(bd show "$STEP" --json | jq -er '.[0].metadata.pass')
+bd show "$STEP" --json >"$TMPDIR/$STEP-show.json" 2>"$TMPDIR/$STEP-show.stderr"
+PASS=$(jq -er '.[0].metadata.pass' "$TMPDIR/$STEP-show.json")
 jq -e 'type == "array" and all(.[]; type == "object" and
   (.severity | IN("Blocking","Important","Minor")) and
   (.title | type == "string" and length > 0) and
   (.description | type == "string" and length > 0) and
   (.plan_bead | type == "string" and length > 0))' "${TMPDIR:-/tmp}/$STEP-findings.json" >/dev/null
 jq -ce '.[]' "${TMPDIR:-/tmp}/$STEP-findings.json" | while IFS= read -r f; do
-  existing=$(bd list --parent '{{ root }}' -l 'stage:plan-fix' --all -n 0 --json \
-    | jq -r --arg step "$STEP" --argjson f "$f" '[.[] | select(.metadata.filed_by_step == $step and .title == $f.title and .description == $f.description and .metadata.severity == $f.severity and .metadata.plan_bead == $f.plan_bead) | .id][0] // empty')
+  filing_dir=$(mktemp -d "$TMPDIR/filing.XXXXXXXX")
+  bd list --parent '{{ root }}' -l 'stage:plan-fix' --all -n 0 --json >"$filing_dir/list.json" 2>"$filing_dir/list.stderr"
+  existing=$(jq -r --arg step "$STEP" --argjson f "$f" '[.[] | select(.metadata.filed_by_step == $step and .title == $f.title and .description == $f.description and .metadata.severity == $f.severity and .metadata.plan_bead == $f.plan_bead) | .id][0] // empty' "$filing_dir/list.json")
   if [[ -n "$existing" ]]; then
     printf '%s\n' "$existing"
     continue
@@ -211,7 +216,8 @@ jq -ce '.[]' "${TMPDIR:-/tmp}/$STEP-findings.json" | while IFS= read -r f; do
   bd create "$(jq -er .title <<<"$f")" --parent '{{ root }}' --type task --assignee '{{ planner }}' \
     --no-inherit-labels --labels 'stage:plan-fix' --description "$(jq -er .description <<<"$f")" \
     --metadata "$(jq -c --arg pass "$PASS" --arg step "$STEP" '{pass:$pass, filed_by_step:$step, severity, plan_bead}' <<<"$f")" \
-    --actor '{{ actor }}' --json | jq -er '.id'
+    --actor '{{ actor }}' --json >"$filing_dir/create.json" 2>"$filing_dir/create.stderr"
+  jq -er '.id' "$filing_dir/create.json"
 done | tee "${TMPDIR:-/tmp}/$STEP-filed.txt"
 EXPECTED=$(jq length "${TMPDIR:-/tmp}/$STEP-findings.json")
 ACTUAL=$(wc -l < "${TMPDIR:-/tmp}/$STEP-filed.txt" | tr -d " ")
