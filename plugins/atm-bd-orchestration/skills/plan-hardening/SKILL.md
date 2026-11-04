@@ -9,8 +9,7 @@ description: Harden a phase plan in bd before the Plan Gate, using parallel scop
 The plan is the phase root and its sprint-container beads. Read
 `.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md` for planning
 rules. This skill changes plan beads through `bd`; it adds no script or hook.
-After hardening, hand the plan to the existing Plan Gate in
-`atm-bd-orchestration/SKILL.md` unchanged.
+After hardening, hand the plan to the existing [Plan Gate](../atm-bd-orchestration/SKILL.md#plan-gate) unchanged.
 
 ## Run modes
 
@@ -30,7 +29,7 @@ are busy.
 
 ## Reviewer selection
 
-Use the dev-dispatch `difficulty` rule in `atm-bd-orchestration/SKILL.md` for
+Use the dev-dispatch `difficulty` rule in [the orchestration skill](../atm-bd-orchestration/SKILL.md#plan-gate) for
 fast, normal and frontier tiers. Scope and critical passes run at frontier.
 Prefer different foundries (Anthropic, OpenAI, xAI). In iteration 2, run each
 pass on a different foundry than in iteration 1 wherever possible. Record the
