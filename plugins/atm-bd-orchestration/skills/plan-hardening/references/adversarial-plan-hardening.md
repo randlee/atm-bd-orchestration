@@ -19,7 +19,7 @@ For each iteration:
    fix bead proposing its revision through an adversary wisp with
    `area=req-adr`.
 3. Review the plan yourself through an adversary wisp with `area=lead` and
-   file your findings. In iteration 2, first verify open fix beads filed by
+   file your own findings as plan-fix beads. In iteration 2, first verify open fix beads filed by
    the `lead` and `adversary:*` passes; close resolved or cited rebutted
    findings and leave the rest open with precise remaining work.
 4. Select researcher tiers using the dev-dispatch `difficulty` rule: several
