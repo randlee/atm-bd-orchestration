@@ -1,0 +1,46 @@
+---
+name: plan-hardening-round-bead
+version: 1.0.0
+description: One row of the plan-hardening round table as a bead, created after every reviewer response (steps 2, 4 and 6). A child of the phase root; the runner closes it with the reviewer's status as the reason. Render strictly, then `jq -c .` into the import JSONL.
+format: json
+required_variables:
+  - id
+  - root
+  - phase
+  - round_id
+  - step
+  - reviewer
+  - reviewed_commit
+  - status
+  - blocking
+  - important
+  - minor
+defaults:
+  findings_hash: ""
+  supersedes: ""
+  note: ""
+---
+{
+  "id": {{ id | tojson }},
+  "title": {{ ("phase-" ~ phase ~ ": plan hardening " ~ round_id ~ " " ~ reviewer ~ " " ~ status) | tojson }},
+  "issue_type": "task",
+  "status": "open",
+  "priority": 3,
+  "description": {{ note | tojson }},
+  "labels": {{ ["phase-" ~ phase, "stage:plan-hardening"] | tojson }},
+  "dependencies": [
+    {"issue_id": {{ id | tojson }}, "depends_on_id": {{ root | tojson }}, "type": "parent-child"}
+  ],
+  "metadata": {
+    "round_id": {{ round_id | tojson }},
+    "step": {{ step }},
+    "reviewer": {{ reviewer | tojson }},
+    "reviewed_commit": {{ reviewed_commit | tojson }},
+    "status": {{ status | tojson }},
+    "blocking": {{ blocking }},
+    "important": {{ important }},
+    "minor": {{ minor }},
+    "findings_hash": {{ findings_hash | tojson }},
+    "supersedes": {{ supersedes | tojson }}
+  }
+}
