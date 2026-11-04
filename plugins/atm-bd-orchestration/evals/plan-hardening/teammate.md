@@ -38,7 +38,7 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    import into the live store. Copy `$EVAL_ROOT/phase-qx.toml` to the new
    worktree's `.atm-bd/phase-qx.toml` only if that file is absent. Set its
    `lead` field to the supplied `EVAL_LEAD` (the fixture default is arch-ctm). Run once from
-   `EVAL_WORKTREE`: `npm ci --prefix .claude/skills/sprint-report/renderer`.
+   `EVAL_WORKTREE`: `(cd "$EVAL_WORKTREE/.claude/skills/sprint-report/renderer" && npm ci --ignore-scripts)`.
    If setup fails, report the exact command and error; do not run the cell.
    Copy the index to scratch: `cp "$EVAL_ROOT/plan-index.jsonl" "$EVAL_SCRATCH/plan-index.jsonl"`.
    If `$EVAL_WORKTREE/docs/plans/phase-qx.jsonl` exists or is a symlink, stop.
