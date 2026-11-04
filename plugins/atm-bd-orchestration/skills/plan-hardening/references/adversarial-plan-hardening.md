@@ -2,7 +2,8 @@
 
 The planner is a teammate. Follow the shared iteration and final-wisp loop in
 [SKILL.md](../SKILL.md), using the same rendered step template for every runner.
-The lead, scope and critical passes and all adversaries run in parallel.
+The lead, scope and critical passes and adversaries run in parallel. Run at
+most four adversary subagents at once and queue the rest.
 
 For each iteration:
 
@@ -38,6 +39,12 @@ For each iteration:
    fast agents can cover broad, shallow ground in parallel; difficult code
    and integrations use frontier models, preferably different foundries.
    Background subagents are allowed and receive the rendered step prompt.
+   Set each background step's deadline at dispatch (30 minutes by default).
+   On timeout, stop its agent, leave the step open or reopen it, then dispatch
+   it once more after the prior agent stops. On a second timeout, stop the run
+   and return `EXECUTION.TIMEOUT` naming the step to the caller. Never close a
+   timed-out review with a verdict or release the planner's fix step. If the
+   agent cannot be stopped, stop the run rather than starting another copy.
 5. Never give an adversary the same task in iteration 2 as in iteration 1.
    Target a weakness iteration 1 found or an area nobody has covered.
    Record every adversary's area per iteration in its wisp title.
