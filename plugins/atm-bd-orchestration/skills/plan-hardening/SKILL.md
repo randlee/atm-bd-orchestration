@@ -125,7 +125,22 @@ sc-compose render --strict --file <skill-root>/templates/plan-hardening-step.xml
 ```
 
 Give that exact rendered file as the prompt to one background
-`general-purpose` agent at the chosen tier. Its fenced JSON is the return.
+`general-purpose` agent at the chosen tier. Its fenced JSON is the return:
+`success`, `data` (`step`, `verdict`, `findings`), and `error`. A completed
+review returns `success:true` and `error:null`, including when its review
+verdict is FAIL. An execution failure returns `success:false` with error
+`code`, `message`, `recoverable`, and `suggested_action`.
+
+Require one fenced JSON object. An unfenced, missing or malformed return,
+`success:false`, or a returned verdict differing from the step bead's
+`close_reason` (`VERDICT=PASS` or `VERDICT=FAIL`) is a failed step. Read the
+recorded reason with `bd show <step> --json`; do not trust the return alone.
+Surface a concise error and its recovery action. A failed step does not
+release the fix step: never dispatch the fix merely because `bd ready`
+lists it. Leave the failed step open, or reopen it with
+`bd update <step> --status open` if the runner already closed it. Recover
+that step and accept its return before releasing the planner's fix.
+
 The teammate starts and closes its ATM task; the subagent runs no ATM command.
 Both claim and close their step bead through the rendered instructions.
 

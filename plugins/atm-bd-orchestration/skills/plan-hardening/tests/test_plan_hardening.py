@@ -240,6 +240,22 @@ def test_role_doc():
     assert "plan-hardening.md" in (root / "docs/requirements/README.md").read_text()
 
 
+def test_step_template_return_envelope(rendered):
+    runner, text = rendered
+    returns = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", text, re.S)]
+    completed, failed = returns
+    assert completed == {"success": True, "data": {"step": "atm-wisp-2ha", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"]}, "error": None}
+    assert failed["success"] is False
+    assert failed["data"] == {"step": "atm-wisp-2ha", "verdict": None, "findings": []}
+    assert set(failed["error"]) == {"code", "message", "recoverable", "suggested_action"}
+    assert failed["error"]["code"] == "EXECUTION.STEP_FAILED"
+    assert isinstance(failed["error"]["recoverable"], bool)
+    assert failed["error"]["message"] and failed["error"]["suggested_action"]
+    assert "bd update atm-wisp-2ha --status open --actor" in text
+    if runner == "teammate":
+        assert "atm task close atm-wisp-2ha refused --stdin" in text
+
+
 def test_reviewer_output_filing_adapter():
     text = skill_text().split("## Filing reviewer output")[1].split("## Planner with subagents")[0]
     assert "concatenate `findings` and `minor_wording`" in text
