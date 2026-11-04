@@ -26,6 +26,7 @@ PKG = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.skipif(shutil.which("sc-compose") is None, reason="sc-compose not on PATH; skill suites not run")
 
 SUITES = (
+    ".claude/skills/plan-hardening/tests",
     ".claude/skills/atm-bd-orchestration/scripts/tests",
     ".claude/skills/atm-beads/tests",
     ".claude/skills/sprint-report/tests",
