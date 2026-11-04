@@ -9,6 +9,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 
 SKILL = Path(__file__).resolve().parents[1]
 PACKAGE = SKILL.parents[1]
@@ -149,23 +150,39 @@ def adversarial_text():
 
 
 def test_adversarial_reference_integration_step():
-    text = adversarial_text()
-    for clause in ("CLI", "schema", "service", "repository", "adversary", "source"):
+    text = " ".join(adversarial_text().split())
+    for clause in (
+        "List every integration with another repository or an external API (CLI, schema, service).",
+        "Assign a researcher to each integration to find detail missing from the plan.",
+        "`area` naming that integration and `task` giving its research instruction",
+    ):
         assert clause in text
 
 
 def test_adversarial_reference_req_adr_step():
-    text = adversarial_text()
-    for clause in ("req-adr", "requirement", "ADR", "existing", "new"):
+    text = " ".join(adversarial_text().split())
+    for clause in (
+        "Review every existing and new requirement and ADR the plan relates to.",
+        "Look for inconsistency, gaps and vague language.",
+        "When the plan outgrows, contradicts or sharpens an existing requirement or ADR, file a planner fix bead proposing its revision",
+        "through an adversary wisp with `area=req-adr`.",
+    ):
         assert clause in text
 
 
 def test_adversarial_reference_lead_findings_new_tasks_tiers():
-    text = adversarial_text()
-    for clause in ("lead", "iteration 2", "fast", "frontier", "parallel", "weak", "area", "title"):
+    text = " ".join(adversarial_text().split())
+    for clause in (
+        "Review the plan yourself through an adversary wisp with `area=lead`",
+        "In iteration 2, first verify open fix beads filed by the `lead` and `adversary:*` passes",
+        "Select researcher tiers using the dev-dispatch `difficulty` rule",
+        "fast agents can cover broad, shallow ground in parallel; difficult code and integrations use frontier models, preferably different foundries.",
+        "Never give an adversary the same task in iteration 2 as in iteration 1.",
+        "Target a weakness iteration 1 found or an area nobody has covered.",
+        "Record every adversary's area per iteration in its wisp title.",
+    ):
         assert clause in text
     assert "file your own findings as plan-fix beads" in text
-    assert "same" in text and "task" in text
 
 
 def test_skill_is_bd_only():
@@ -179,7 +196,8 @@ def test_skill_is_bd_only():
 def test_reviewer_agents_bd_form():
     for name in ("plan-scope-reviewer", "critical-plan-reviewer"):
         text = (PACKAGE / "agents" / f"{name}.md").read_text()
-        assert "tools: Glob, Grep, LS, Read, BashOutput" in text
+        frontmatter = yaml.safe_load(text.split("---\n", 2)[1])
+        assert frontmatter["tools"] == "Glob, Grep, LS, Read, BashOutput"
         assert "atm-beads-plan-guidelines.md" in text
         assert "sprint-planning-guidelines.md" not in text
         assert "sprint-scope-hardening fenced JSON handoff" not in text
