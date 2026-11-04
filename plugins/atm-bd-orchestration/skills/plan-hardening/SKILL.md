@@ -1,6 +1,6 @@
 ---
 name: plan-hardening
-version: 1.0.0
+version: 0.19.12
 description: Harden a phase plan in bd before the Plan Gate, using parallel scope and critical reviews, planner fixes, and final ceremony review. Use for new plans or replans; the Plan Gate remains a separate review.
 ---
 
