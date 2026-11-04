@@ -248,12 +248,52 @@ def test_step_template_refuses_shell_metacharacters(tmp_path, variable, hostile_
 def test_step_template_start_and_close_by_runner(rendered):
     runner, text = rendered
     assert "bd update atm-wisp-2ha --claim --actor" in text
-    assert "bd close atm-wisp-2ha --actor" in text
+    assert "bd close 'atm-wisp-2ha' --actor" in text
     if runner == "teammate":
         assert "atm task start atm-wisp-2ha" in text
         assert "atm task close atm-wisp-2ha completed" in text
     else:
         assert not re.search(r"\batm ", text)
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh"])
+@pytest.mark.parametrize("verdict,detected,filed,verified,valid", [
+    ("PASS", "0", "none", "none", True),
+    ("FAIL", "1", "finding-1", "finding-1", True),
+    ("maybe", "0", "none", "none", False),
+    ("PASS", "x", "none", "none", False),
+    ("PASS", "2", "finding-1", "none", False),
+    ("PASS", "1", "missing", "none", False),
+    ("PASS", "0", "none", "finding-1,", False),
+])
+def test_step_close_validates_accounting(rendered, tmp_path, shell, verdict, detected, filed, verified, valid):
+    _, text = rendered
+    block = text.split("Fill the four values at the", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
+    block = block.replace("cd '/tmp/worktree'", f"cd '{tmp_path}'").replace("/tmp/eval-scratch/atm-wisp-2ha", str(tmp_path))
+    for name, placeholder, value in (("VERDICT", "<PASS or FAIL>", verdict), ("DETECTED", "<number>", detected),
+                                     ("FILED", "<comma-separated IDs or none>", filed), ("VERIFIED", "<comma-separated IDs or none>", verified)):
+        block = block.replace(f"{name}='{placeholder}'", f"{name}='{value}'")
+    bd = tmp_path / "bd"
+    bd.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+assert os.environ['BEADS_DIR'] == '/tmp/beads'
+if sys.argv[1] == 'show':
+    if sys.argv[2] != 'finding-1': sys.exit(1)
+    print(json.dumps([{'id': 'finding-1', 'status': 'closed', 'metadata': {'filed_by_step': 'atm-wisp-2ha'}}]))
+elif sys.argv[1] == 'close':
+    Path(os.environ['CLOSE_LOG']).write_text(json.dumps(sys.argv[1:]))
+else: sys.exit(1)
+''')
+    bd.chmod(0o755)
+    log = tmp_path / "close.json"
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "CLOSE_LOG": str(log)}
+    result = subprocess.run([shell, "-c", f"export PATH='{tmp_path}:'$PATH\n" + block], cwd=tmp_path,
+                            env=env, capture_output=True, text=True, check=False)
+    assert (result.returncode == 0) == valid, result.stderr
+    assert log.exists() == valid
+    if valid:
+        assert f"VERDICT={verdict} detected={detected} filed={filed} verified={verified}" in json.loads(log.read_text())
 
 
 def test_step_template_reads_bead_description(rendered):

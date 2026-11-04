@@ -302,18 +302,44 @@ ATM_STEP
    A create failure or count mismatch is an execution error: retain the finding
    JSON and return the failure envelope; do not continue until filing is repaired.
 
-5. Close the step only when its work completed. Include `detected=<number>`
-   equal to the number of findings in the JSON (0 for non-review steps).
-   VERDICT is PASS or FAIL as the description says; a completed review with
-   findings is still a successful execution. On an execution error, leave the
-   bead open (or reopen it with `bd update {{ step }} --status open --actor
-   {{ actor }}`) and return the failure envelope instead of running this close.
+5. Close the step only when its work completed. Fill the four values at the
+   start of this block, then run this exact block for every review, fix, and
+   verify step. Never hand-write a `bd close` for the step. DETECTED is the
+   count of findings filed by this step (zero for non-review steps); FILED
+   and VERIFIED are `none` or comma-separated bead IDs. VERDICT is PASS or
+   FAIL as the description says; a completed review with findings is still a
+   successful execution. On execution error, leave the bead open (or reopen
+   it with `bd update {{ step }} --status open --actor {{ actor }}`) and return
+   the failure envelope instead of running this close.
 
 ```bash
 (cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
-bd close {{ step }} --actor {{ actor }} \
-  --reason "VERDICT=<PASS|FAIL> detected=<count> filed=<fix bead ids, comma separated, or none> verified=<closed fix bead ids or none>"
+VERDICT='<PASS or FAIL>'
+DETECTED='<number>'
+FILED='<comma-separated IDs or none>'
+VERIFIED='<comma-separated IDs or none>'
+case "$VERDICT" in PASS|FAIL) ;; *) echo 'invalid VERDICT' >&2; exit 1 ;; esac
+[[ "$DETECTED" =~ ^[0-9]+$ ]] || { echo 'invalid DETECTED' >&2; exit 1; }
+count=0
+for field in FILED VERIFIED; do
+  value=${!field}
+  if [ "$value" = none ]; then continue; fi
+  [[ "$value" =~ ^[a-zA-Z0-9._-]+(,[a-zA-Z0-9._-]+)*$ ]] || { echo "invalid $field" >&2; exit 1; }
+  IFS=, read -r -a ids <<<"$value"
+  for id in "${ids[@]}"; do
+    row=$(bd show "$id" --json)
+    if [ "$field" = FILED ]; then
+      printf '%s\n' "$row" | jq -e --arg id "$id" --arg step '{{ step }}' 'length == 1 and .[0].id == $id and .[0].metadata.filed_by_step == $step' >/dev/null || { echo "invalid filed bead $id" >&2; exit 1; }
+      count=$((count + 1))
+    else
+      printf '%s\n' "$row" | jq -e --arg id "$id" 'length == 1 and .[0].id == $id and .[0].status == "closed"' >/dev/null || { echo "invalid verified bead $id" >&2; exit 1; }
+    fi
+  done
+done
+[ "$((10#$DETECTED))" -eq "$count" ] || { echo 'DETECTED does not match FILED' >&2; exit 1; }
+bd close '{{ step }}' --actor '{{ actor }}' \
+  --reason "VERDICT=$VERDICT detected=$DETECTED filed=$FILED verified=$VERIFIED"
 ATM_STEP
 )
 ```
