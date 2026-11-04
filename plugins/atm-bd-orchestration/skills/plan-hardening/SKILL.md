@@ -22,7 +22,7 @@ After hardening, hand the plan to the existing Plan Gate in
 
 ## Mode selection
 
-When the team has no assigned work, choose lead adversarial. Otherwise choose
+When the team is idle (has no assigned work), choose lead adversarial. Otherwise choose
 planner with teammates when the plan is hard enough to justify interrupting
 another frontier model, preferably from a different foundry. Otherwise choose
 planner with subagents; this is the usual mid-phase replan while teammates
