@@ -43,7 +43,11 @@ description says to push; leave its generated artifact in this disposable workdi
 {% endif %}Save each validate-plan and sprint-review command, its complete output and
 exit status immediately to a named scratch path; list the commands, paths and
 exit codes in the returned `data.commands` array. Never silence or discard stderr for evidence-bearing commands: capture it
-with stdout, including filing, `bd` reads/writes, sc-compose and receipts.
+with stdout in the step evidence directory, including filing, `bd` reads/writes,
+sc-compose, dependency edits, ATM closes and receipts; retain their exit codes.
+Do not redirect these streams to `/dev/null` or ignore command failures.
+The checker cannot establish that an agent reported every command, so this is
+a runner obligation even when the reported evidence passes validation.
 Also list every `bd` write
 in `data.bd_writes` and every written file in `data.file_writes`; use empty
 arrays when none occurred so the dispatcher can audit the run. If validate-plan fails specifically

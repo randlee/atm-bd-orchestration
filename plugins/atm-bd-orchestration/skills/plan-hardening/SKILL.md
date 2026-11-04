@@ -103,8 +103,9 @@ Use the current repository's bd database and repository configuration.
 `plugins/atm-bd-orchestration/skills/plan-hardening`, and after installation
 it is `.claude/skills/plan-hardening`. Keep requests, renders and results in
 scratch outside the tracked tree. `sprint-review` is an exception: it writes
-the phase DAG under `docs/plans/phase-<p>/` in the worktree; inspect that
-output and include it when the plan requires it.
+the phase DAG under `docs/plans/phase-<p>/` and, by default,
+`scratchpad/phase-<p>-dag/` in the worktree. Both are expected clone writes;
+inspect the output and include it when the plan requires it.
 
 When validating a local, unpushed plan, set the dispatch `plan_index` to
 its absolute path; each step passes it to both validate-plan and sprint-review.
@@ -156,7 +157,9 @@ finding with `rebutted: unsupported by <source>`.
 For structural findings, prefer editing an existing sprint; otherwise rebut
 with a citation if the request is unsupported; add a sprint only when neither
 resolves it. When a ruling adds a sprint, render the container with
-`.claude/skills/atm-beads/templates/sprint-bead.json.j2`, add its sprint and
+`.claude/skills/atm-beads/templates/sprint-bead.json.j2`, using
+[the sprint vars example](examples/sprint-bead-vars.json) as a field shape;
+replace every example value with facts supported by the plan. Add its sprint and
 prerequisites to the selected plan index and import it. Do not pour its dev,
 sanity or QA beads during hardening; the final step pours all groups once. Choose the added sprint's `pr_target` using
 `atm-beads-plan-guidelines.md` and `resources/planning.md` (nearest
@@ -176,8 +179,9 @@ After the last fix step closes, copy into scratch, render and wisp
 `formulas/plan-hardening-final.formula.toml.j2` using `root`, `phase`, and
 `planner`. Dispatch ceremony, then fix, then verify as their dependencies
 release them. The final fix includes unresolved final-critical findings.
-Verification checks each carried finding with its filing pass's rules and
-files no new findings. For `lead` and `adversary:*` findings, use the
+For each carried finding, verification re-applies its filing pass's rule to
+the current plan state, records the evidence path, and closes it if resolved
+or reopens it if unresolved. Verification files no new findings. For `lead` and `adversary:*` findings, use the
 `Verification:` check recorded in the finding's `description`, as defined in
 [the adversarial reference](references/adversarial-plan-hardening.md). Confirm
 its expected result against the current plan or a cited design rebuttal;
@@ -311,6 +315,10 @@ For ceremony-qa's `doc_review` input, capture each plan bead with
 `bd show <id> --json > <scratch>/<id>.json`. Set `worktree_path` to the
 checkout and `review_targets` to those capture paths. Findings cite a capture
 in `file`; its `[0].id` is the cited bead id. Do not infer ids from filenames.
+Apply any ceremony-finding screen required by the consuming repository before
+filing and computing the ceremony-qa verdict. Record each dropped finding and
+the screen decision in the step notes. `review_output` below is the resulting
+screened reviewer output, retaining the reviewer envelope and status.
 
 | Reviewer | Source findings | Filing mapping | Step verdict |
 | --- | --- | --- | --- |
@@ -346,6 +354,9 @@ plan to the Plan Gate.
 The planner assigns scope, critical and verify steps to teammates and takes
 the fix steps itself. Dispatch the final ceremony review to a teammate too.
 Use the same formula dependencies and rendered step template in every case.
+A single identity may hold planner, dispatcher, and step teammate roles; it
+assigns each step to itself using the rendered ATM assignment, then starts and
+closes its own task. Record verification by that same identity as not independent.
 
 ## Lead adversarial
 

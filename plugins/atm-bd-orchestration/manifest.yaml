@@ -265,6 +265,7 @@ artifacts:
     - skills/plan-hardening/SKILL.md
     - skills/plan-hardening/examples/plan-hardening-step-subagent-vars.json
     - skills/plan-hardening/examples/plan-hardening-step-teammate-vars.json
+    - skills/plan-hardening/examples/sprint-bead-vars.json
     - skills/plan-hardening/formulas/plan-hardening-adversary.formula.toml.j2
     - skills/plan-hardening/formulas/plan-hardening-final.formula.toml.j2
     - skills/plan-hardening/formulas/plan-hardening-iteration.formula.toml.j2

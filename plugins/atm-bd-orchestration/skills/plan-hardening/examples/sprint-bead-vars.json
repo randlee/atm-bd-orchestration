@@ -1,0 +1,28 @@
+{
+  "id": "atm-example-1",
+  "parent": "atm-phase-example",
+  "phase": "example",
+  "sprint": "example-1",
+  "title": "Example supported change",
+  "stack": "example",
+  "layer": 1,
+  "branch": "sprint/example-1",
+  "pr_target": "develop",
+  "worktree": "sprint/example-1",
+  "relation": "foundation",
+  "closure_type": "complete",
+  "target_boundary": "ExampleBoundary",
+  "owned_paths": [
+    "example/path/"
+  ],
+  "description": "Replace with the sourced sprint scope.",
+  "design": "Replace with the sourced design.",
+  "acceptance_criteria": "Replace with verifiable sourced criteria.",
+  "requirements": [
+    "REQ-EXAMPLE"
+  ],
+  "adrs": [
+    "NONE"
+  ],
+  "difficulty": "normal"
+}
