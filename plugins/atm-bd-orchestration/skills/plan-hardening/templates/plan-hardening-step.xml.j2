@@ -24,7 +24,9 @@ metadata:
   <instructions><![CDATA[
 Your instructions are the description of step bead {{ step }}. Run every shell
 command from `{{ workdir }}` with `BEADS_DIR={{ beads_dir }}` and
-`TMPDIR={{ scratch_dir }}`. Read repository plan data, reviewer files, scripts and configuration only
+`TMPDIR={{ scratch_dir }}`. Every `bd` command must run from this workdir
+with this exact `BEADS_DIR`, including in every new shell and subcommand;
+never change to the live checkout or use its database. Read repository plan data, reviewer files, scripts and configuration only
 from that workdir or beads directory; the explicitly supplied plan index and
 run artifacts are read from scratch. Never read another checkout. Write every evidence and temporary file only under the exact directory
 `{{ scratch_dir }}/{{ step }}/`; create it before starting. Never use the
@@ -125,16 +127,21 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
    note explaining a supported finding that cannot be resolved with permitted
    writes. Leave that finding open for the Plan Gate and continue the step; do
    not return "needs lead ruling" to the same planner runner.
-   Before planning a sprint or structural fix, read `.claude/skills/atm-beads/resources/planning.md` sections "Sprint Container" (sprint fields, layer,
-   and pr_target) and "New Ids", and `.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md` sections "Ownership And Dependency Relations"
+   Before planning a sprint or structural fix, read `{{ workdir }}/.claude/skills/atm-beads/resources/planning.md` sections "Sprint Container" (sprint fields, layer,
+   and pr_target) and "New Ids", and `{{ workdir }}/.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md` sections "Ownership And Dependency Relations"
    and "Sprint Bead Shape". Apply their rules to each changed container.
    Never run `bd delete`. To drop or merge a sprint, move its supported scope
    into another container and close the old container with a reason, or rebut
    the finding with a cited reason. Plan-hardening fixes never write ADR or REQ
    files. For a missing ADR or REQ, plan the deliverable in its owning sprint
    (usually the contract sprint), using a `NEW:` id in `metadata.adrs` for
-   an ADR as specified by atm-beads `planning.md` New Ids; alternatively
-   rebut with a cited existing ADR or requirement.
+   an ADR as specified by atm-beads `planning.md` New Ids; for example use
+   `NEW:ADR-delivery-contract` (or `NEW:REQ-delivery-contract`) without
+   allocating a number. Add the future document path to that sprint's
+   `owned_paths` and a deliverable naming the `NEW:` id. These are permitted
+   plan writes; the sprint writes the document later. Alternatively rebut
+   with a cited existing ADR or requirement. Missing ADR/REQ findings must
+   never be given an `open decision:` disposition.
 
 Before a fix step closes PASS, run this check. Every finding handled by this fix must have
 exactly one `fixed:`, `rebutted:`, or `open decision:` note; the latter
@@ -161,7 +168,7 @@ with the supplied BEADS_DIR and TMPDIR, run these commands:
 set -euo pipefail
 PLAN_INDEX='{{ plan_index }}'
 if [ "$PLAN_INDEX" = integration ]; then
-  PLAN_INDEX=$(.claude/skills/atm-beads/scripts/phase-index-path --root '{{ root }}')
+  PLAN_INDEX=$('{{ workdir }}/.claude/skills/atm-beads/scripts/phase-index-path' --root '{{ root }}')
 fi
 sc-compose render --root '{{ workdir }}/.claude/skills/atm-beads/templates' \
   --strict --file sprint-bead.json.j2 --var-file "$SPRINT_VARS" --output "$TMPDIR/sprint.json"
