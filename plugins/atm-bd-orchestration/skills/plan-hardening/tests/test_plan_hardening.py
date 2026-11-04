@@ -112,6 +112,49 @@ def test_finding_block_files_planner_fix_beads(rendered):
         assert field in text
 
 
+def test_finding_block_resumes_partial_batch_without_duplicates(rendered, tmp_path):
+    _, text = rendered
+    block = next(block for block in re.findall(r"```bash\n(.*?)\n```", text, re.S)
+                 if "STEP='atm-wisp-2ha'" in block)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    bd = bindir / "bd"
+    bd.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+path = Path(os.environ["BD_STATE"])
+rows = json.loads(path.read_text()) if path.exists() else []
+args = sys.argv[1:]
+if args[0] == "show":
+    print(json.dumps([{"metadata": {"pass": "scope"}}]))
+elif args[0] == "list":
+    assert "--all" in args
+    print(json.dumps(rows))
+elif args[0] == "create":
+    value = lambda option: args[args.index(option) + 1]
+    row = {"id": f"fix-{len(rows)+1}", "title": args[1], "description": value("--description"),
+           "metadata": json.loads(value("--metadata"))}
+    rows.append(row)
+    path.write_text(json.dumps(rows))
+    print(json.dumps(row))
+else:
+    raise SystemExit("unexpected bd command")
+''')
+    bd.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+           "TMPDIR": str(tmp_path), "BD_STATE": str(tmp_path / "state.json")}
+    findings = [{"title": "First", "description": "Fix one", "severity": "Important", "plan_bead": "p-1"},
+                {"title": "Second", "description": "Fix two", "severity": "Minor", "plan_bead": "p-2"}]
+    input_path = tmp_path / "atm-wisp-2ha-findings.json"
+    for batch in (findings[:1], findings, findings):
+        input_path.write_text(json.dumps(batch))
+        result = subprocess.run(["bash", "-c", block], cwd=tmp_path, env=env, capture_output=True, text=True,
+                                timeout=30, check=False)
+        assert result.returncode == 0, result.stderr
+    assert [row["title"] for row in json.loads((tmp_path / "state.json").read_text())] == ["First", "Second"]
+    assert (tmp_path / "atm-wisp-2ha-filed.txt").read_text().splitlines() == ["fix-1", "fix-2"]
+
+
 def test_formulas_are_vapor(formulas):
     assert all(formula["phase"] == "vapor" for formula in formulas.values())
 
@@ -296,7 +339,7 @@ def test_reviewer_errors_force_failed_step(tmp_path, review):
     result = run("bash", "-c", 'REVIEW="$1"; ' + command, "mapping", str(path), cwd=tmp_path)
     assert result.returncode == 0, result.stderr
     mapped = json.loads(result.stdout)
-    assert mapped["verdict"] == "FAIL" and mapped["error"] and mapped["findings"] == []
+    assert mapped["verdict"] == "ERROR" and mapped["error"] and mapped["findings"] == []
 
 
 def test_successful_reviewer_output_files_both_arrays(tmp_path):
@@ -361,7 +404,7 @@ def test_finding_batch_validates_before_creating(rendered, tmp_path, batch):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     bd = bin_dir / "bd"
-    bd.write_text("#!/bin/sh\ncase \"$1\" in\nshow) printf '%s\\n' '[{\"metadata\":{\"pass\":\"scope\"}}]' ;;\ncreate) printf '%s\\n' \"$*\" >> \"$BD_WRITES\"; printf '%s\\n' '{\"id\":\"created-fix\"}' ;;\n*) exit 64 ;;\nesac\n")
+    bd.write_text("#!/bin/sh\ncase \"$1\" in\nshow) printf '%s\\n' '[{\"metadata\":{\"pass\":\"scope\"}}]' ;;\nlist) printf '%s\\n' '[]' ;;\ncreate) printf '%s\\n' \"$*\" >> \"$BD_WRITES\"; printf '%s\\n' '{\"id\":\"created-fix\"}' ;;\n*) exit 64 ;;\nesac\n")
     bd.chmod(0o755)
     writes = tmp_path / "writes.txt"
     env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "TMPDIR": str(tmp_path), "BD_WRITES": str(writes)}
@@ -390,7 +433,7 @@ def test_ceremony_output_files_through_step(rendered, tmp_path, severity, verdic
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     bd = bin_dir / "bd"
-    bd.write_text('#!/usr/bin/env python3\nimport json, os, sys\nif sys.argv[1] == "show":\n    print(json.dumps([{"metadata":{"pass":"ceremony"}}]))\nelif sys.argv[1] == "create":\n    with open(os.environ["BD_WRITES"], "a") as log:\n        log.write(json.dumps(sys.argv[1:]) + "\\n")\n    print(json.dumps({"id":"created-fix"}))\nelse:\n    sys.exit(64)\n')
+    bd.write_text('#!/usr/bin/env python3\nimport json, os, sys\nif sys.argv[1] == "show":\n    print(json.dumps([{"metadata":{"pass":"ceremony"}}]))\nelif sys.argv[1] == "list":\n    print("[]")\nelif sys.argv[1] == "create":\n    with open(os.environ["BD_WRITES"], "a") as log:\n        log.write(json.dumps(sys.argv[1:]) + "\\n")\n    print(json.dumps({"id":"created-fix"}))\nelse:\n    sys.exit(64)\n')
     bd.chmod(0o755)
     writes = tmp_path / "writes.jsonl"
     env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "TMPDIR": str(tmp_path), "BD_WRITES": str(writes)}
