@@ -50,8 +50,9 @@ runner; reviewer agents remain read-only.
 ## Iterations
 
 Default to **2 iterations**; the lead or planner may set another number.
-Within each iteration, scope and critical passes and every adversary run in
-parallel. The planner's fix step waits for all of them. Create the final
+Within each iteration, scope and critical passes and adversaries run in
+parallel, with at most four adversary subagents active at once; queue the
+rest. The planner's fix step waits for all of them. Create the final
 formula only after the last iteration's fix step closes: ceremony-qa reviews
 the plan after the final critical pass.
 
@@ -94,7 +95,8 @@ For each iteration `i` from 1 through `N`:
    out of ordinary ready queues.
 3. List steps with `bd ready --mol <wisp> --include-ephemeral --json`.
 4. Dispatch ready scope and critical steps at the same time. In lead mode,
-   also dispatch the iteration's adversary wisps in parallel.
+   also dispatch the iteration's adversary wisps in parallel, at most four
+   adversary subagents at a time.
 5. Once those steps have all closed, dispatch the ready fix step to the
    planner. In lead mode, the lead first confirms every adversary closed.
 6. After the fix step closes, create the next iteration's wisp.
@@ -128,6 +130,15 @@ bead, including closed findings, and files only missing entries from a partial
 batch. Preserve the same finding input when retrying.
 
 ## Dispatch
+
+Set a deadline for each background step when dispatching it (30 minutes by
+default; the dispatcher may set another limit). If a step has not closed by
+its deadline, stop its agent, leave the bead open (reopen it if needed), and
+re-dispatch it once. Ensure the previous agent has stopped before retrying. If
+the retry also times out, stop the run and return `EXECUTION.TIMEOUT` naming
+the step to the caller. A timed-out review is incomplete: never close it with
+a review verdict or release the fix step. If the agent cannot be stopped,
+stop the run instead of dispatching another copy.
 
 Use `templates/plan-hardening-step.xml.j2` for every step and the shipped
 `examples/plan-hardening-step-{teammate,subagent}-vars.json` as input shapes.
