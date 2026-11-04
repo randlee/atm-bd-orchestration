@@ -56,7 +56,8 @@ from the last iteration. A FAIL from that final critical pass is normal.
 3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`;
    when the plan changed, re-run
    `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}` and
-   push the DAG to the plan PR.
+   commit and push the DAG to the plan PR. This is the only permitted `git`
+   write, and only in this fix step after both checks pass.
 4. Close this step when every fix bead has a note.
 """
 

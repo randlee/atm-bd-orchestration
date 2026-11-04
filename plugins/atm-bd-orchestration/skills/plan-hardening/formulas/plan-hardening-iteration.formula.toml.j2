@@ -94,7 +94,8 @@ task of this iteration has closed.
 3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}`
    and fix what it reports. When the plan changed, re-run
    `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}` and
-   push the DAG to the plan PR.
+   commit and push the DAG to the plan PR. This is the only permitted `git`
+   write, and only in this fix step after both checks pass.
 4. A FAIL from the critical-plan-reviewer in the last iteration is normal: it
    is an adversarial review. Fix its findings and close this step. Do not add
    an iteration; the final formula's verify step checks the fixes.
