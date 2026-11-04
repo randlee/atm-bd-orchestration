@@ -34,7 +34,8 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    records the exact scratch and database paths on separate lines; read it in
    every new shell rather than assuming variables persist. Never link to or
    import into the live store. Copy `$EVAL_ROOT/phase-zzeval.toml` to the new
-   worktree's `.atm-bd/phase-zzeval.toml` only if that file is absent. Run once from
+   worktree's `.atm-bd/phase-zzeval.toml` only if that file is absent. Set its
+   `lead` field to the supplied `EVAL_LEAD` (the fixture default is arch-ctm). Run once from
    `EVAL_WORKTREE`: `npm ci --prefix .claude/skills/sprint-report/renderer`.
    If setup fails, report the exact command and error; do not run the cell.
    Copy the index to scratch: `cp "$EVAL_ROOT/plan-index.jsonl" "$EVAL_SCRATCH/plan-index.jsonl"`.
@@ -78,11 +79,13 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    report their exact paths. Do not run `bd delete`.
    On a completed run with check exit 0, unlink the worktree plan-index symlink, remove only
    the phase-zzeval.toml and context file you copied, stop this cell's server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`,
-   and delete only `$EVAL_SCRATCH/.beads` and `$EVAL_SCRATCH/data` after
-   unlinking the worktree symlink and confirming both are beneath the exact
-   `mktemp` directory you created. Preserve outputs and digest IDs in scratch.
-5. Tell the caller the check exit status, output and cleanup result. Remain
-   available for the caller's post-run questions; do not answer them early.
+   retain `$EVAL_SCRATCH/.beads` and `$EVAL_SCRATCH/data` through the post-run
+   debrief. After answering the questions, delete only those two directories,
+   after unlinking the worktree symlink and confirming both are beneath the
+   exact `mktemp` directory you created. Preserve outputs and digest IDs in scratch.
+5. Tell the caller the check exit status, output and retained evidence paths.
+   Remain available for the caller's post-run questions; do not answer them early.
+   After answering, perform the successful-run cleanup above and report its result.
 
 ## Post-run questions
 

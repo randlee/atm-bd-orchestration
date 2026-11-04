@@ -180,15 +180,18 @@ After the last fix step closes, copy into scratch, render and wisp
 `planner`. Dispatch ceremony, then fix, then verify as their dependencies
 release them. The final fix includes unresolved final-critical findings.
 For each carried finding, verification re-applies its filing pass's rule to
-the current plan state, records the evidence path, and closes it if resolved
-or reopens it if unresolved. Verification files no new findings. For `lead` and `adversary:*` findings, use the
+the current plan state, checks that every cited source exists and says what
+the fix or rebuttal claims, records the evidence path, and closes it if resolved
+or reopens it if unresolved or a citation is wrong. Verification files no new findings. For `lead` and `adversary:*` findings, use the
 `Verification:` check recorded in the finding's `description`, as defined in
 [the adversarial reference](references/adversarial-plan-hardening.md). Confirm
 its expected result against the current plan or a cited design rebuttal;
 leave a missing check or unresolved result open with a note.
 
-After the final formula passes, run `bead-groups --phase <p>` once to pour
-all groups, then run `sprint-review --root <root> --index <index>`. Save both
+After the final formula passes, run
+`.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <p>` once
+to pour all groups, then run
+`.claude/skills/sprint-review/scripts/sprint-review --root <root> --index <index>`. Save both
 outputs and exit codes. Commit and push the DAG to the plan PR only when the
 dispatch template specifies a PR; for `plan_pr=none`, keep the DAG in the
 clone and scratch. A failed pour or render fails the run.

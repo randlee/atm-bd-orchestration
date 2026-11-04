@@ -58,6 +58,20 @@ and original error in the close reason or failure envelope (atm-bd-orchestration
 failed step, not a plan finding or a passing result. This template starts, records and
 closes the step.
 
+For evidence-bearing commands, use this portable capture idiom, once per
+command with a distinct name; it records output and exit status and preserves
+the command's failure for the caller (no shell-specific PIPESTATUS):
+
+```bash
+capture() {
+  name=$1; shift
+  if "$@" >"$TMPDIR/$name.out" 2>&1; then rc=0; else rc=$?; fi
+  cat "$TMPDIR/$name.out"
+  printf '%s\n' "$rc" >"$TMPDIR/$name.exit"
+  return "$rc"
+}
+```
+
 1. Start:
 
 ```bash
@@ -93,8 +107,13 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
    Compare these IDs with `bd list --parent {{ root }} -l stage:plan-fix
    --all -n 0 --json`; if any are absent, fail and report the missing IDs.
    Every applied fix must cite its finding and a REQ, ADR or existing plan
-   source; otherwise rebut it as `unsupported by <source>`. Never add or remove
-   scope without such a source. In a fix step, the planner is the lead in
+   source; otherwise rebut it as `unsupported by <source>`. A source is a
+   REQ, ADR, or existing plan line, not the finding itself. For a ceremony
+   finding use the repository ceremony rule it cites: it can remove only
+   process artifacts (records, ledgers, sign-offs with no consumer), never
+   product behavior or a test criterion. Never add or remove scope without
+   such a source. Verify each source exists and actually supports the claim;
+   reopen a finding when a fix or rebuttal cites the wrong rule. In a fix step, the planner is the lead in
    planner modes and rules on every
    finding, including conflicts between findings. Apply an edge or sprint a
    finding justifies; rebut only with a cited reason. If a supported
