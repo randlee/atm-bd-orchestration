@@ -66,6 +66,26 @@ def test_step_template_refuses_other_runner(tmp_path):
     assert not (tmp_path / "output.xml").exists()
 
 
+@pytest.mark.parametrize(
+    ("variable", "hostile_value"),
+    [
+        ("step", "atm-wisp-2ha; touch /tmp/atm-g8-injected"),
+        ("root", "atm-phase-d; touch /tmp/atm-g8-injected"),
+        ("planner", "fenix; touch /tmp/atm-g8-injected"),
+        ("actor", "arch-ctm; touch /tmp/atm-g8-injected"),
+    ],
+)
+def test_step_template_refuses_shell_metacharacters(tmp_path, variable, hostile_value):
+    source = tmp_path / "step.j2"
+    source.write_bytes((SKILL / "templates/plan-hardening-step.xml.j2").read_bytes())
+    variables = json.loads((SKILL / "examples/plan-hardening-step-teammate-vars.json").read_text())
+    variables[variable] = hostile_value
+    (tmp_path / "vars.json").write_text(json.dumps(variables))
+    result = run("sc-compose", "render", "--strict", "--file", str(source), "--var-file", str(tmp_path / "vars.json"), "--output", "output.xml", cwd=tmp_path)
+    assert result.returncode != 0
+    assert not (tmp_path / "output.xml").exists()
+
+
 def test_step_template_start_and_close_by_runner(rendered):
     runner, text = rendered
     assert "bd update atm-wisp-2ha --claim --actor" in text
