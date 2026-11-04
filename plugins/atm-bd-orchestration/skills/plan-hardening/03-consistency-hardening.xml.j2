@@ -1,6 +1,6 @@
 ---
 name: 03-consistency-hardening-task
-version: 1.2.0
+version: 1.3.0
 description: lead assignment template for cross-document consistency and ambiguity hardening after critical plan review.
 format: xml
 required_variables:
@@ -120,6 +120,12 @@ metadata:
     Read the current plan docs from disk first, using `<source-of-truth>` and
     `<references>`, before doing anything else.
 
+    The plan is in beads: the plan file is `docs/plans/phase-{{ phase }}.jsonl`
+    (one sprint bead per line); read "plan docs" as that file and "sprint doc"
+    as "sprint bead". After editing it, run `validate-plan` as
+    `.claude/skills/atm-beads/SKILL.md` "Validation" directs and fix what it
+    reports before you commit.
+
     This is the second required hardening pass. The sprint-shape and
     production-ready deliverable split should already be hardened. Your job in
     this pass is to eliminate document inconsistency, contradiction, ambiguity,
@@ -236,7 +242,7 @@ metadata:
     </repeat>
 
     Return fenced JSON to `{{ lead }}` when this pass completes. `{{ lead }}`
-    will hand the plan off to the codex-orchestration plan-QA flow via
+    will run the ceremony review, then hand the plan to the plan gate via
     `quality-mgr`.
 
     <exit-criterion>

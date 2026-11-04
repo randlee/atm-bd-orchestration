@@ -262,6 +262,29 @@ artifacts:
     - skills/atm-beads/tests/test_repo_config.py
     - skills/atm-beads/tests/test_sc_render.py
     - skills/atm-beads/tests/test_validate_plan.py
+    - skills/plan-hardening/01-plan-scope-review.xml.j2
+    - skills/plan-hardening/02-sprint-scope-hardening.xml.j2
+    - skills/plan-hardening/03-consistency-hardening.xml.j2
+    - skills/plan-hardening/SKILL.md
+    - skills/plan-hardening/examples/plan-hardening-vars.example.json
+    - skills/plan-hardening/examples/plan-step-complete-vars.example.json
+    - skills/plan-hardening/plan-consistency-hardening-complete.md.j2
+    - skills/plan-hardening/plan-critical-review-complete.md.j2
+    - skills/plan-hardening/plan-critical-review.xml.j2
+    - skills/plan-hardening/plan-hardening-round-bead.json.j2
+    - skills/plan-hardening/plan-review-notice.xml.j2
+    - skills/plan-hardening/plan-scope-review-complete.md.j2
+    - skills/plan-hardening/plan-sprint-hardening-complete.md.j2
+    - skills/plan-hardening/references/mode-adversarial-lead.md
+    - skills/plan-hardening/references/mode-planner-subagents.md
+    - skills/plan-hardening/references/mode-planner-teammates.md
+    - skills/plan-hardening/steps/step-1.md
+    - skills/plan-hardening/steps/step-2.md
+    - skills/plan-hardening/steps/step-3.md
+    - skills/plan-hardening/steps/step-4.md
+    - skills/plan-hardening/steps/step-5.md
+    - skills/plan-hardening/steps/step-6.md
+    - skills/plan-hardening/steps/step-7.md
     - skills/prompt-rewrite-judge/SKILL.md
     - skills/prompt-rewrite-judge/scripts/judge.py
     - skills/prompt-rewrite-judge/scripts/tests/test_judge.py
@@ -286,8 +309,10 @@ artifacts:
     - skills/sprint-review/scripts/sprint-review
   agents:
     - agents/ceremony-qa.md
+    - agents/critical-plan-reviewer.md
     - agents/dev-sanity.md
     - agents/parallax.md
+    - agents/plan-scope-reviewer.md
     - agents/sanity-stack.md
     - agents/sc-sanity-jev.md
     - agents/sc-sanity-llm.md

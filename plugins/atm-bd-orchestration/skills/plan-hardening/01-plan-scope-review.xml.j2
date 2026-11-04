@@ -1,6 +1,6 @@
 ---
 name: 01-plan-scope-review-task
-version: 2.1.0
+version: 2.2.0
 description: lead assignment template for the initial developer guidelines pass before background scope review.
 format: xml
 required_variables:
@@ -72,10 +72,16 @@ metadata:
 
     Read the current plan docs from disk first, using `<source-of-truth>` and
     `<references>`, before doing anything else. Then read
-    `.claude/skills/plan-hardening/sprint-planning-guidelines.md` and make
+    `.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md` and make
     sure the current plan state follows it before any reviewer is launched.
     The current phase plan already exists in repo docs, but sprint docs may
     still be partial or missing.
+
+    The plan is in beads: the plan file is `docs/plans/phase-{{ phase }}.jsonl`
+    (one sprint bead per line); read "plan docs" as that file and "sprint doc"
+    as "sprint bead". After editing it, run `validate-plan` as
+    `.claude/skills/atm-beads/SKILL.md` "Validation" directs and fix what it
+    reports before you commit.
 
     In this pass:
     - tighten the current plan docs to match the sprint-planning guidelines
