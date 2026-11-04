@@ -22,7 +22,7 @@ For each iteration:
    set -euo pipefail
    jq -e '.compose_variables.area | type == "string" and test("^[a-z0-9]+(-[a-z0-9]+)*$")' "$request" >/dev/null
    sc-compose bead render --request "$request" --json
-   python3 -c 'import sys,tomllib; tomllib.load(open(sys.argv[1], "rb"))' "$rendered_formula"
+   uv run --no-project --python '>=3.11' python -c 'import sys,tomllib; tomllib.load(open(sys.argv[1], "rb"))' "$rendered_formula"
    bd mol wisp "$rendered_formula" --json
    ```
 2. Review every existing and new requirement and ADR the plan relates to.
