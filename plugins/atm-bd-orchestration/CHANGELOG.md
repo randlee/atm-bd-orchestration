@@ -2,8 +2,17 @@
 
 ## [Unreleased]
 
+## [0.19.13] - 2026-11-04
+
+### Added
+- `plan-hardening` skill, ported from atm-core with plans in beads: the plan file and the atm-beads plan guidelines replace markdown sprint docs, each step run is a step bead (its ATM task id) and each reviewer finding a finding bead the planner closes with its ruling, so `bd ready` gates dispatch (#816); `ceremony-qa` reviews after the final critical pass (step 6), and step 7 hands off to the plan gate. Three run modes, each in its own reference: planner with subagents, planner with teammates, lead adversarial to the planner. Reviewer cycle caps default to 2; a final critical-review FAIL goes to the step 5 fix pass (#813).
+- `atm-bd-lite` and the shared atm-bd framework from phase bo (#778).
+
 ### Fixed
-- The sprint-report renderer install is `(cd .claude/skills/sprint-report/renderer && npm ci --ignore-scripts)` in sprint-report and sprint-review and in `sprint_dag.py`'s missing-dependency error. `npm ci --prefix` failed with `EUSAGE ... Missing: renderer@1.0.0 from lock file` whenever the path ran through a symlink (`/tmp` → `/private/tmp` on macOS).
+- `atm-bd queues` and the console take the ATM team and identity from the repository and phase, never the caller's environment: the phase file's optional `team`, else `.atm.toml` `[atm] default_team`, else a named error; `atm task list` runs with `--team` and `--as <phase lead>`, and bd reads drop the caller's `BEADS_DIR`. In-flight counted 0 when `ATM_TEAM` named another team (#817, #818).
+- `jev_client`: a Jev HTTP 400 `max_tokens_exceeded` takes the oversize path and splits like a 413 instead of failing as `Jev HTTP 400; response body withheld`; every other 4xx message names the parsed `error_type` (#628, #819).
+- The lint-supervisor cancellation test is deterministic (#798, #805).
+- The sprint-report renderer install is `(cd .claude/skills/sprint-report/renderer && npm ci --ignore-scripts)` in sprint-report and sprint-review and in `sprint_dag.py`'s missing-dependency error. `npm ci --prefix` failed with `EUSAGE ... Missing: renderer@1.0.0 from lock file` whenever the path ran through a symlink (`/tmp` → `/private/tmp` on macOS) (#814).
 
 ## [0.19.12] - 2026-10-29
 
