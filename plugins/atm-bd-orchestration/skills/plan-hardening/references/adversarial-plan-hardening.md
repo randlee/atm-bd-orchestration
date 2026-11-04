@@ -45,5 +45,17 @@ For each iteration:
    the iteration's fix step to the planner. This work runs alongside the
    standard passes, rather than replacing them.
 
+Every lead and adversary finding must record a `Verification:` section in
+its `description`: name the affected plan bead and field, the concrete check
+to run or source to compare, and the expected result. The lead includes this
+instruction in every adversary task. This is the check the final formula
+means when it says lead and adversary findings name their own check.
+
+The final verifier reads that recorded check and compares it with the current
+plan. Close the finding only when the stated check passes or a cited design
+rebuttal resolves the original issue. If the check is absent or the result
+does not match, leave the finding open with a note naming the missing check
+or remaining mismatch; do not invent a verification rule.
+
 Retain all adversary wisp ids for the final squash. The final ceremony, fix,
 and verification sequence remains the shared loop's sequence.
