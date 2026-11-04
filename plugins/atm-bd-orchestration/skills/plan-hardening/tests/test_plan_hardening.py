@@ -81,6 +81,18 @@ def test_step_filing_enumeration_executes(rendered, tmp_path):
     assert result.stdout.splitlines() == ["one", "two"]
 
 
+@pytest.mark.parametrize("field", ["workdir", "beads_dir", "plan_index"])
+def test_step_template_rejects_unsafe_path(tmp_path, field):
+    source = tmp_path / "step.j2"
+    source.write_bytes((SKILL / "templates/plan-hardening-step.xml.j2").read_bytes())
+    variables = json.loads((SKILL / "examples/plan-hardening-step-subagent-vars.json").read_text())
+    variables[field] = "/tmp/unsafe'path"
+    (tmp_path / "vars.json").write_text(json.dumps(variables))
+    result = run("sc-compose", "render", "--strict", "--file", str(source), "--var-file", str(tmp_path / "vars.json"), "--output", "output.xml", cwd=tmp_path)
+    assert result.returncode != 0
+    assert not (tmp_path / "output.xml").exists()
+
+
 def test_step_template_requires_plan_index(tmp_path):
     source = tmp_path / "step.j2"
     source.write_bytes((SKILL / "templates/plan-hardening-step.xml.j2").read_bytes())
