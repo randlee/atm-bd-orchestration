@@ -106,14 +106,28 @@ ATM_STEP
 )
 ```
 
-2. Read the plan when the step reviews it:
+2. When reviewing the plan, create the plan snapshot below and read
+   `$TMPDIR/plan-snapshot.json` for the root, sprint beads, their dependencies,
+   and open plan-fix beads. Use this file instead of writing your own bead queries:
 
 ```bash
 (cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
-bd show {{ root }} --json | jq -e '.[0] | {id, title, description, design, acceptance_criteria}'
-bd list --parent {{ root }} -l stage:sprint -n 0 --json \
-  | jq -e '[.[] | {id, title, description, design, acceptance_criteria, metadata}]'
+mkdir -p "$TMPDIR"
+bd show '{{ root }}' --json >"$TMPDIR/plan-root.json"
+bd list --parent '{{ root }}' -l stage:sprint -n 0 --json >"$TMPDIR/plan-sprints.json"
+bd list --parent '{{ root }}' -l stage:plan-fix --status open -n 0 --json >"$TMPDIR/plan-fixes.json"
+: >"$TMPDIR/plan-deps.jsonl"
+while IFS= read -r id; do
+  bd dep list "$id" --json >"$TMPDIR/plan-dep.json"
+  jq -c --arg id "$id" '{id: $id, dependencies: .}' "$TMPDIR/plan-dep.json" >>"$TMPDIR/plan-deps.jsonl"
+done < <(jq -r '.[].id' "$TMPDIR/plan-sprints.json")
+jq -n --slurpfile root "$TMPDIR/plan-root.json" \
+  --slurpfile sprints "$TMPDIR/plan-sprints.json" \
+  --slurpfile fixes "$TMPDIR/plan-fixes.json" \
+  --slurpfile deps "$TMPDIR/plan-deps.jsonl" \
+  '{root: $root[0], sprints: $sprints[0], dependencies: $deps, open_plan_fixes: $fixes[0]}' >"$TMPDIR/plan-snapshot.json"
+cat "$TMPDIR/plan-snapshot.json"
 ATM_STEP
 )
 ```

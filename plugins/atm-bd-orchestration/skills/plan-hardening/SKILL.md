@@ -20,13 +20,18 @@ The plan is the phase root and its sprint-container beads. Read
 rules. This skill changes plan beads through `bd`; it adds no script or hook.
 After hardening, hand the plan to the existing [Plan Gate](../atm-bd-orchestration/SKILL.md#plan-gate) unchanged.
 
+Every `bd` command, including dispatcher commands, must set its own context
+in the same command: `(cd "$workdir" && BEADS_DIR="$beads_dir" bd ...)`.
+Set `workdir` and `beads_dir` to the supplied absolute paths before starting;
+never depend on an earlier shell export.
+
 ## Step 1 — Verify CLI Installation
 
 Run this before anything else in the skill:
 
 ```bash
 for c in bd atm sc-compose jq uv; do command -v "$c" >/dev/null && echo "ok $c" || echo "MISSING $c"; done
-bd version          # 1.3.0 or newer
+(cd "$workdir" && BEADS_DIR="$beads_dir" bd version) # 1.3.0 or newer
 sc-compose --version # 1.7.0 or newer
 uv --version
 ```
@@ -135,10 +140,10 @@ For each iteration `i` from 1 through `N`:
    ```
 
    Require a successful render before using its output.
-2. Run `bd mol wisp <rendered file> --json`; retain the returned wisp id.
+2. Run `(cd "$workdir" && BEADS_DIR="$beads_dir" bd mol wisp <rendered file> --json)`; retain the returned wisp id.
    The formula has `phase = "vapor"`, so its steps are ephemeral and stay
    out of ordinary ready queues.
-3. List steps with `bd ready --mol <wisp> --include-ephemeral --json`.
+3. List steps with `(cd "$workdir" && BEADS_DIR="$beads_dir" bd ready --mol <wisp> --include-ephemeral --json)`.
 4. Dispatch ready scope and critical steps at the same time using two distinct
    available teammates when a teammate has max_tasks=1. If only one teammate
    is available, run the two passes serially and record that limitation. In lead
@@ -175,8 +180,8 @@ shift later layer numbers and their `pr_target` values as needed to preserve
 the planned dependency chain, then run validate-plan.
 
 When changing an existing sprint's prerequisites, update `depends_on` in the
-plan index, then use `bd dep add <sprint> --blocked-by <prerequisite>` for
-each new container edge and `bd dep remove <sprint> <prerequisite>` for each
+plan index, then use `(cd "$workdir" && BEADS_DIR="$beads_dir" bd dep add <sprint> --blocked-by <prerequisite>)` for
+each new container edge and `(cd "$workdir" && BEADS_DIR="$beads_dir" bd dep remove <sprint> <prerequisite>)` for each
 stale container edge. Limit writes to planned sprint containers, inspect the
 graph, and validate the updated index. If an edge operation or validation
 fails, leave the step open and return the failure envelope; refuse its ATM
@@ -206,7 +211,7 @@ outputs and exit codes. Commit and push the DAG to the plan PR only when the
 dispatch template specifies a PR; for `plan_pr=none`, keep the DAG in the
 clone and scratch. A failed pour or render fails the run.
 
-Finally run `bd mol squash <wisp>` on each iteration, adversary and final
+Finally run `(cd "$workdir" && BEADS_DIR="$beads_dir" bd mol squash <wisp>)` on each iteration, adversary and final
 wisp. Close reasons retain verdicts and filed/verified fix-bead ids; wisp
 metadata is not retained in the digest. Hand the plan and remaining findings
 to the existing Plan Gate, without changing that gate's workflow.
@@ -214,7 +219,7 @@ to the existing Plan Gate, without changing that gate's workflow.
 ## Resume
 
 Recover iteration, adversary and final wisp and step ids after an interruption
-from `bd list -l phase-<p>,stage:plan-hardening --include-ephemeral --all --json`,
+from `(cd "$workdir" && BEADS_DIR="$beads_dir" bd list -l phase-<p>,stage:plan-hardening --include-ephemeral --all --json)`,
 filtered on `metadata.root` for the phase root. Retain the parent wisp ids for
 the final squash. Retry a step only while its bead is open; ensure the previous
 runner has stopped before reopening or dispatching it, and never run two copies
@@ -288,11 +293,11 @@ Require one fenced JSON object and reject a missing, unfenced or malformed
 return before reading any step close reason. An unfenced, missing or malformed return,
 `success:false`, or a returned verdict differing from the step bead's
 `close_reason` (`VERDICT=PASS` or `VERDICT=FAIL`) is a failed step. Read the
-recorded reason with `bd show <step> --json`; do not trust the return alone.
+recorded reason with `(cd "$workdir" && BEADS_DIR="$beads_dir" bd show <step> --json)`; do not trust the return alone.
 Surface a concise error and its recovery action. A failed step does not
-release the fix step: never dispatch the fix merely because `bd ready`
+release the fix step: never dispatch the fix merely because the ready queue
 lists it. Leave the failed step open, or reopen it with
-`bd update <step> --status open` if the runner already closed it. Recover
+`(cd "$workdir" && BEADS_DIR="$beads_dir" bd update <step> --status open)` if the runner already closed it. Recover
 that step and accept its return before releasing the planner's fix.
 
 The teammate starts and closes its ATM task; the subagent runs no ATM command.
@@ -338,7 +343,7 @@ from those extras. Both reviewer agents use this mapping.
 ### Ceremony output
 
 For ceremony-qa's `doc_review` input, capture each plan bead with
-`bd show <id> --json > <scratch>/<id>.json`. Set `worktree_path` to the
+`(cd "$workdir" && BEADS_DIR="$beads_dir" bd show <id> --json) > <scratch>/<id>.json`. Set `worktree_path` to the
 checkout and `review_targets` to those capture paths. Findings cite a capture
 in `file`; its `[0].id` is the cited bead id. Do not infer ids from filenames.
 Apply any ceremony-finding screen required by the consuming repository before

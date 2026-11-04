@@ -25,15 +25,16 @@ test ! -e "$EVAL_WORKTREE/.beads" && test ! -L "$EVAL_WORKTREE/.beads"
 (cd "$EVAL_WORKTREE" && git config beads.role maintainer)
 python3 "$EVAL_ROOT/db-server.py" start "$EVAL_SCRATCH"
 ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
-(cd "$EVAL_WORKTREE" && bd info --json)
+(cd "$EVAL_WORKTREE" && BEADS_DIR="$(sed -n '2p' "$EVAL_WORKTREE/.atm-plan-eval-context")" bd info --json)
 ```
 
-   Stop unless the realpath of `bd info` database_path is within `$BEADS_DIR`
+   Stop unless the realpath of the returned database_path is within `$BEADS_DIR`
    and the socket and data paths in `$EVAL_SCRATCH/server.json` and
    `$BEADS_DIR/metadata.json` resolve inside that same scratch directory
    (macOS may spell `/tmp` as `/private/tmp`). The context file
    records the exact scratch and database paths on separate lines; read it in
-   every new shell rather than assuming variables persist. Never link to or
+   every new shell rather than assuming variables persist. Every dispatcher `bd`
+   command must independently run as `(cd "$EVAL_WORKTREE" && BEADS_DIR="$(sed -n '2p' "$EVAL_WORKTREE/.atm-plan-eval-context")" bd ...)` in that same command; never use the live checkout. Never link to or
    import into the live store. Copy `$EVAL_ROOT/phase-qx.toml` to the new
    worktree's `.atm-bd/phase-qx.toml` only if that file is absent. Set its
    `lead` field to the supplied `EVAL_LEAD` (the fixture default is arch-ctm). Run once from
@@ -43,7 +44,7 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    If `$EVAL_WORKTREE/docs/plans/phase-qx.jsonl` exists or is a symlink, stop.
    Otherwise link that path to the scratch index; `bead-groups --phase qx`
    reads the plan path from phase-qx.toml when the planner adds a sprint.
-   Import only the fixture containers with `bd import -i "$EVAL_ROOT/fixture-plan.jsonl"`.
+   Import only the fixture containers with `(cd "$EVAL_WORKTREE" && BEADS_DIR="$(sed -n '2p' "$EVAL_WORKTREE/.atm-plan-eval-context")" bd import -i "$EVAL_ROOT/fixture-plan.jsonl")`.
    Do not pour groups until the final formula passes.
 2. Read `.claude/skills/plan-hardening/SKILL.md`, run exactly one iteration (`iteration=1`, `iterations=1`) and the
    final formula. Use the supplied planner, dispatcher and lead identities. For every step, use one background general-purpose subagent at the cell model; the planner fix steps also use subagents. Each subagent claims and closes its step bead and runs no ATM task or command. Set the shipped step-template vars `beads_dir` to

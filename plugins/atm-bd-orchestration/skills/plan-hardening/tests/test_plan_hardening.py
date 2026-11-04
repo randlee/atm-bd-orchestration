@@ -118,6 +118,37 @@ def test_step_template_carries_isolated_context(rendered):
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh"])
+def test_plan_snapshot_uses_isolated_context_and_includes_dependencies(rendered, tmp_path, shell):
+    _, text = rendered
+    command = text.split("create the plan snapshot below", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
+    command = command.replace("cd '/tmp/worktree'", f"cd '{tmp_path}'").replace("/tmp/eval-scratch/atm-wisp-2ha", str(tmp_path))
+    bd = tmp_path / "bd"
+    bd.write_text('''#!/usr/bin/env python3
+import json, os, sys
+assert os.environ['BEADS_DIR'] == '/tmp/beads'
+args = sys.argv[1:]
+if args[0] == 'show': result = [{'id': 'atm-phase-d'}]
+elif args[0] == 'dep':
+    assert args[1:3] == ['list', 'sprint-1']
+    result = [{'id': 'prerequisite'}]
+elif 'stage:sprint' in args: result = [{'id': 'sprint-1'}]
+else:
+    assert 'stage:plan-fix' in args and '--status' in args and 'open' in args
+    result = [{'id': 'finding-1'}]
+print(json.dumps(result))
+''')
+    bd.chmod(0o755)
+    result = subprocess.run([shell, "-c", f"export PATH='{tmp_path}:'$PATH\n" + command], cwd=tmp_path,
+                            env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    snapshot = json.loads((tmp_path / "plan-snapshot.json").read_text())
+    assert snapshot == {"root": [{"id": "atm-phase-d"}], "sprints": [{"id": "sprint-1"}],
+                        "dependencies": [{"id": "sprint-1", "dependencies": [{"id": "prerequisite"}]}],
+                        "open_plan_fixes": [{"id": "finding-1"}]}
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh"])
 def test_step_filing_enumeration_executes(rendered, tmp_path, shell):
     _, text = rendered
     command = text.split("filing reported by earlier steps", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
@@ -228,8 +259,8 @@ def test_step_template_start_and_close_by_runner(rendered):
 def test_step_template_reads_bead_description(rendered):
     _, text = rendered
     assert "bd show atm-wisp-2ha --json | jq -er '.[0].description'" in text
-    assert "bd show atm-phase-d --json" in text
-    assert "bd list --parent atm-phase-d -l stage:sprint" in text
+    assert "bd show 'atm-phase-d' --json" in text
+    assert "bd list --parent 'atm-phase-d' -l stage:sprint" in text
 
 
 def test_finding_block_files_planner_fix_beads(rendered):
@@ -293,6 +324,17 @@ def test_missing_governing_document_is_planned_not_parked(rendered, formulas):
     for name in ("iteration", "final"):
         fix = next(item for item in formulas[name]["steps"] if item["id"] == "fix")
         assert phrase in fix["description"]
+
+
+def test_dispatcher_bd_examples_always_bind_database_and_workdir():
+    docs = [SKILL / "SKILL.md"]
+    if EVALS.is_dir():
+        docs.extend([EVALS / "subagent.md", EVALS / "teammate.md"])
+    command = re.compile(r"\bbd (?:version|mol|ready|dep|list|show|update|import|info)\b")
+    for doc in docs:
+        for line_number, line in enumerate(doc.read_text().splitlines(), 1):
+            if command.search(line):
+                assert "BEADS_DIR=" in line and "cd " in line, (doc, line_number, line)
 
 
 def test_formulas_are_vapor(formulas):
@@ -365,7 +407,7 @@ def test_skill_declares_and_verifies_cli_dependencies_first(tmp_path):
         version = requirements[name] or "1.0.0"
         tool.write_text(f'#!/bin/sh\nprintf "%s\\n" "{name} $*" >> "$CLI_CALLS"\nprintf "%s\\n" "{name} {version}"\n')
         tool.chmod(0o755)
-    env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "CLI_CALLS": str(calls)}
+    env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "CLI_CALLS": str(calls), "workdir": str(tmp_path), "beads_dir": str(tmp_path / "beads")}
     result = subprocess.run(["bash", "-c", first_block.group(1)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False)
     assert result.returncode == 0, result.stderr
     assert {line for line in result.stdout.splitlines() if line.startswith("ok ")} == {"ok " + name for name in requirements}
