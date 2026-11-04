@@ -49,30 +49,10 @@ bead id). Return all findings in one pass, citing the plan bead and field.
 Verification in a later iteration checks the assigned carried findings
 against the current plan before the pass makes its new review.
 
-The existing Plan Gate may instead supply this JSON envelope. Its
-`phase_root_doc` and `plan_docs` are captured `bd show --json` output for the
-root and sprint containers, not markdown plan sources. When
-`findings_scope_locked` is true, verify only `carry_forward_findings` against
-their original acceptance criteria; do not make a new plan-shape review or
-file new findings.
-
-```json
-{
-  "scope": {"phase": "phase id", "sprint": null},
-  "plan": "beads",
-  "root": "<phase root bead id>",
-  "phase_root_doc": "<root bd JSON capture>",
-  "plan_docs": ["<sprint-container bd JSON capture>"],
-  "reference_docs": ["<planning rules or architecture reference>"],
-  "worktree_path": "<absolute checkout>",
-  "branch": "<branch>",
-  "commit": "<commit>",
-  "round_index": 1,
-  "carry_forward_findings": [],
-  "findings_scope_locked": false,
-  "notes": ""
-}
-```
+The Plan Gate assignment's JSON envelope and scope-lock behavior are
+documented in [Plan Gate reviewer input](../skills/plan-hardening/references/plan-gate-reviewer-input.md).
+Use that transport only when the assignment supplies it; the review rules and
+output contract below remain the same.
 
 ## What You Check
 

@@ -269,6 +269,7 @@ artifacts:
     - skills/plan-hardening/formulas/plan-hardening-final.formula.toml.j2
     - skills/plan-hardening/formulas/plan-hardening-iteration.formula.toml.j2
     - skills/plan-hardening/references/adversarial-plan-hardening.md
+    - skills/plan-hardening/references/plan-gate-reviewer-input.md
     - skills/plan-hardening/templates/plan-hardening-step.xml.j2
     - skills/plan-hardening/tests/test_plan_hardening.py
     - skills/prompt-rewrite-judge/SKILL.md
