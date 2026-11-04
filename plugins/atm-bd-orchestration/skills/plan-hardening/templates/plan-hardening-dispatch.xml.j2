@@ -1,0 +1,10 @@
+---
+name: plan-hardening-dispatch
+version: 1.0.0
+description: Deliver the path of a rendered plan-hardening step to its teammate.
+format: xml
+required_variables: [step_path, evidence_path]
+---
+{%- if not step_path or step_path[0] != '/' or ']]>' in step_path or '\n' in step_path %}{{ "invalid step path" | int }}{% endif %}
+{%- if evidence_path and (evidence_path[0] != '/' or ']]>' in evidence_path or '\n' in evidence_path) %}{{ "invalid evidence path" | int }}{% endif %}
+<plan-hardening-dispatch><![CDATA[Read {{ step_path }}, follow it exactly, and return the step JSON.{% if evidence_path %} Attached evidence: {{ evidence_path }}.{% endif %} If the step file is missing, stop and report the error.]]></plan-hardening-dispatch>

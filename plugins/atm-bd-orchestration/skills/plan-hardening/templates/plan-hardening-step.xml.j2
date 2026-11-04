@@ -3,7 +3,7 @@ name: plan-hardening-step
 version: 1.0.0
 description: Runs one plan-hardening wisp step. One template for both runners - a teammate (an ATM task) and a background subagent (a rendered prompt).
 format: xml
-required_variables: [step, runner, actor, phase, root, planner]
+required_variables: [step, runner, actor, phase, root, planner, plan_index, beads_dir, workdir, plan_pr, scratch_dir, cache_path, policy_path]
 metadata:
   type: plan-hardening-step
   tags: [stage:plan-hardening]
@@ -17,77 +17,357 @@ metadata:
 {%- if root|length == 0 or root[0] not in "abcdefghijklmnopqrstuvwxyz0123456789" or root_invalid|length != 0 %}{{ "root must match ^[a-z0-9][a-z0-9._-]*$" | int }}{% endif %}
 {%- if planner|length == 0 or planner[0] not in "abcdefghijklmnopqrstuvwxyz0123456789" or planner_invalid|length != 0 %}{{ "planner must match ^[a-z0-9][a-z0-9._-]*$" | int }}{% endif %}
 {%- if actor|length == 0 or actor_invalid|length != 0 %}{{ "actor must match ^[A-Za-z0-9_-]+$" | int }}{% endif %}
+{%- if "'" in workdir or "\n" in workdir or "'" in beads_dir or "\n" in beads_dir or "'" in plan_index or "\n" in plan_index or "'" in scratch_dir or "\n" in scratch_dir or "'" in cache_path or "\n" in cache_path or "'" in policy_path or "\n" in policy_path %}{{ "path contains an unsafe quote or newline" | int }}{% endif %}
 <plan-hardening-step id="{{ step }}" runner="{{ runner }}">
   <phase>{{ phase }}</phase>
   <root>{{ root }}</root>
   <instructions><![CDATA[
-Your instructions are the description of step bead {{ step }}. This template
-only starts, records and closes the step.
+Your instructions are the description of step bead {{ step }}. Run every shell
+command from `{{ workdir }}` with `BEADS_DIR={{ beads_dir }}` and
+`TMPDIR={{ scratch_dir }}`. Every `bd` command must run from this workdir
+with this exact `BEADS_DIR`, including in every new shell and subcommand;
+never change to the live checkout or use its database. Read repository plan data, reviewer files, scripts and configuration only
+from that workdir or beads directory; the explicitly supplied plan index and
+run artifacts are read from scratch. Never read another checkout. Write every evidence and temporary file only under the exact directory
+`{{ scratch_dir }}/{{ step }}/`; create it before starting. Never use the
+agent session scratchpad. The selected plan index and tool-owned receipts are
+separate allowed plan writes. The configured policy file is `{{ policy_path }}`. The sprint-bead vars
+example is `{{ workdir }}/.claude/skills/plan-hardening/examples/sprint-bead-vars.json`;
+the sprint-bead template is `{{ workdir }}/.claude/skills/atm-beads/templates/sprint-bead.json.j2`.
+The required planning resources are `{{ workdir }}/.claude/skills/atm-beads/resources/planning.md`
+and `{{ workdir }}/.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md`.
+Before using a required file, check that it exists; if missing, stop and report
+`MISSING_REQUIRED_FILE: <absolute path>`. Do not guess paths.
+The dispatcher must pass these exact values to every subagent or teammate;
+never infer them.
+{% if plan_pr == 'none' %}This run has no plan PR: never push or commit the DAG, even if the step
+description says to push; leave its generated artifact in this disposable workdir and copy evidence to scratch.
+{% else %}Update the plan PR as instructed by the step description.
+{% endif %}
+{% if plan_index != 'integration' %}Whenever running validate-plan, pass `--index '{{ plan_index }}'` explicitly.
+{% else %}For validate-plan, use the integration-branch index.
+{% endif %}No hardening step (including review, fix, and verify) runs
+`sprint-review` or pours groups. The dispatcher runs both only after the final
+formula passes, pouring first. Save each validate-plan command, its complete output and
+exit status immediately to a named scratch path; list the commands, paths and
+exit codes in the returned `data.commands` array. Never silence or discard stderr for evidence-bearing commands: capture it
+with stdout in the step evidence directory, including filing, `bd` reads/writes,
+sc-compose, dependency edits, ATM closes and receipts; retain their exit codes.
+Do not redirect these streams to `/dev/null` or ignore command failures.
+If a reviewer-written exploratory read fails, record its output and exit code,
+correct and rerun it, and use only the successful result as evidence. An
+exploratory read failure alone never requires refusing the step; use the
+supplied snapshot when the exploration is unnecessary.
+The checker cannot establish that an agent reported every command, so this is
+a runner obligation even when the reported evidence passes validation.
+Also list every `bd` write
+in `data.bd_writes` and every written file in `data.file_writes`; use empty
+arrays when none occurred so the dispatcher can audit the run. If validate-plan fails specifically
+because `bd doctor` reports `proxy.doctor.unsupported`, retain the verbatim
+error and rerun that same command once with `--no-doctor`; record the fallback
+and original error in the close reason or failure envelope (atm-bd-orchestration
+#807). Any other doctor error fails the step. The supplied evidence commands,
+including snapshot, validator, filing, rendering, writes and close, must
+succeed; a failure is a failed step unless the documented fallback applies.
+An exploratory read is handled as described above. A read of a named required
+file is an evidence command; check it exists first and report the named error
+above if not. Do not guess paths or use failed discovery probes as evidence.
+This template starts, records and
+closes the step.
+
+For evidence-bearing commands, use this portable capture idiom, once per
+command with a distinct name. Define the function inside the same Bash heredoc
+as each command, because separate blocks run in separate shells; it records output and exit status and preserves
+the command's failure for the caller (no shell-specific PIPESTATUS):
+
+```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
+capture() {
+  name=$1; shift
+  if "$@" >"$TMPDIR/$name.out" 2>&1; then rc=0; else rc=$?; fi
+  cat "$TMPDIR/$name.out"
+  printf '%s\n' "$rc" >"$TMPDIR/$name.exit"
+  return "$rc"
+}
+ATM_STEP
+)
+```
 
 1. Start:
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
+cd '{{ workdir }}'
+export BEADS_DIR='{{ beads_dir }}'
+export TMPDIR='{{ scratch_dir }}/{{ step }}'
+mkdir -p "$TMPDIR"
 {% if teammate %}atm task start {{ step }} "plan-hardening step {{ step }}"
 {% endif %}bd update {{ step }} --claim --actor {{ actor }}
 bd show {{ step }} --json | jq -er '.[0].description'
+ATM_STEP
+)
 ```
 
-2. Read the plan when the step reviews it:
+2. When reviewing the plan, create the plan snapshot below and read
+   `$TMPDIR/plan-snapshot.json` for the root, sprint beads, their dependencies,
+   and open plan-fix beads. Use this file instead of writing your own bead queries:
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
-bd show {{ root }} --json | jq -e '.[0] | {id, title, description, design, acceptance_criteria}'
-bd list --parent {{ root }} -l stage:sprint -n 0 --json \
-  | jq -e '[.[] | {id, title, description, design, acceptance_criteria, metadata}]'
+mkdir -p "$TMPDIR"
+bd show '{{ root }}' --json >"$TMPDIR/plan-root.json"
+bd list --parent '{{ root }}' -l stage:sprint -n 0 --json >"$TMPDIR/plan-sprints.json"
+bd list --parent '{{ root }}' -l stage:plan-fix --status open -n 0 --json >"$TMPDIR/plan-fixes.json"
+: >"$TMPDIR/plan-deps.jsonl"
+while IFS= read -r id; do
+  bd dep list "$id" --json >"$TMPDIR/plan-dep.json"
+  jq -c --arg id "$id" '{id: $id, dependencies: .}' "$TMPDIR/plan-dep.json" >>"$TMPDIR/plan-deps.jsonl"
+done < <(jq -r '.[].id' "$TMPDIR/plan-sprints.json")
+jq -n --slurpfile root "$TMPDIR/plan-root.json" \
+  --slurpfile sprints "$TMPDIR/plan-sprints.json" \
+  --slurpfile fixes "$TMPDIR/plan-fixes.json" \
+  --slurpfile deps "$TMPDIR/plan-deps.jsonl" \
+  '{root: $root[0], sprints: $sprints[0], dependencies: $deps, open_plan_fixes: $fixes[0]}' >"$TMPDIR/plan-snapshot.json"
+cat "$TMPDIR/plan-snapshot.json"
+ATM_STEP
+)
 ```
 
-3. Do what the step description says.
+3. Do what the step description says. In a fix or verify step enumerate every
+   filing reported by earlier steps before filtering the fix beads:
 
-4. File findings when you have any. Write a JSON array to
+```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
+set -euo pipefail
+mkdir -p "$TMPDIR"
+bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0 --json |
+  jq -r --arg root '{{ root }}' '.[] | select(.metadata.root == $root) |
+    (.close_reason // "") | (try capture("(?:^|[[:space:]])filed=(?<ids>[^[:space:]]+)").ids catch empty) |
+    select(. != "none") | split(",")[]' >"$TMPDIR/filed-ids.txt"
+bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json >"$TMPDIR/fix-beads.json"
+jq -Rn '[inputs]' <"$TMPDIR/filed-ids.txt" >"$TMPDIR/filed-ids.json"
+jq -rn --slurpfile filed "$TMPDIR/filed-ids.json" --slurpfile fixes "$TMPDIR/fix-beads.json" \
+  '$filed[0] - [$fixes[0][].id] | .[]' >"$TMPDIR/missing-filed-ids.txt"
+if [ -s "$TMPDIR/missing-filed-ids.txt" ]; then
+  cat "$TMPDIR/missing-filed-ids.txt" >&2
+  exit 1
+fi
+cat "$TMPDIR/filed-ids.txt"
+ATM_STEP
+)
+```
+
+   The command compares the filed IDs with all fix beads and fails with the
+   missing IDs; do not compose a separate lookup filter.
+   Every applied fix must cite its finding and a REQ, ADR or existing plan
+   source; otherwise rebut it as `unsupported by <source>`. A source is a
+   REQ, ADR, or existing plan line, not the finding itself. For a ceremony
+   finding use the repository ceremony rule it cites: it can remove only
+   process artifacts (records, ledgers, sign-offs with no consumer), never
+   product behavior or a test criterion. When findings conflict, rebut a
+   ceremony request to remove an ADR recording a real design choice, citing
+   the other finding and the design choice that requires the ADR. Never add or remove scope without
+   such a source. Verify each source exists and actually supports the claim;
+   reopen a finding when a fix or rebuttal cites the wrong rule. In a fix step, the planner is the lead in
+   planner modes and rules on every
+   finding, including conflicts between findings. Apply an edge or sprint a
+   finding justifies; rebut only with a cited reason. If a supported
+   finding requires structural changes (including sprints, contracts, ADRs,
+   sanity beads or edges), report it to the planner in planner modes or the
+   phase lead in lead-adversarial mode. The planner owns and applies the
+   structural correction before continuing. In planner modes the planner rules:
+   apply a supported fix or rebut with a cited source. Use `open decision:`
+   only for a question requiring the user or Rand that no source or design
+   rule settles; write the decision as a question ending in `?`. Leave that finding open for the Plan Gate and continue the step; do
+   not return "needs lead ruling" to the same planner runner.
+   Naming types, fields, and methods required by an existing deliverable is
+   a design fix, not new scope: put them in the contract sprint design and
+   cite the deliverable. Adding a sprint is permitted; when inserting one,
+   shift later layers and their pr_targets as needed to preserve dependencies,
+   then run validate-plan. Before planning a sprint or structural fix, read `{{ workdir }}/.claude/skills/atm-beads/resources/planning.md` sections "Sprint Container" (sprint fields, layer,
+   and pr_target) and "New Ids", and `{{ workdir }}/.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md` sections "Ownership And Dependency Relations"
+   and "Sprint Bead Shape". Apply their rules to each changed container.
+   Never run `bd delete`. To drop or merge a sprint, move its supported scope
+   into another container and close the old container with a reason, or rebut
+   the finding with a cited reason. Plan-hardening fixes never write ADR or REQ
+   files. For a missing ADR or REQ, plan the deliverable in its owning sprint
+   (usually the contract sprint), using a `NEW:` id in `metadata.adrs` for
+   an ADR as specified by atm-beads `planning.md` New Ids; for example use
+   `NEW:ADR-delivery-contract` (or `NEW:REQ-delivery-contract`) without
+   allocating a number. Add the future document path to that sprint's
+   `owned_paths` and a deliverable naming the `NEW:` id. These are permitted
+   plan writes; the sprint writes the document later. Alternatively rebut
+   with a cited existing ADR or requirement. A missing governing document or section (ADR, REQ, architecture, or design document) is never an open decision. Add its path to the owning sprint owned_paths and a deliverable writing it; use a NEW: id for an ADR or REQ.
+
+Before a fix step closes PASS, run this check. Every finding handled by this fix must have
+exactly one `fixed:`, `rebutted:`, or `open decision: <question?>` note;
+the latter is allowed only for a user or Rand decision no source or rule
+settles and must remain open. Partial or mixed dispositions fail:
+
+```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
+set -euo pipefail
+bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json |
+  jq -r '.[].id' | while IFS= read -r id; do
+    bd show "$id" --json | jq -e '.[0] | (.status != "closed" or ((.notes // "") | test("(^|\\n)[[:space:]]*open decision:"; "i") | not)) and (.notes | type == "string" and
+      ([test("(^|\\n)[[:space:]]*fixed:[[:space:]]*[^[:space:]]"; "i"), test("(^|\\n)[[:space:]]*rebutted:[[:space:]]*[^[:space:]]"; "i"), test("(^|\\n)[[:space:]]*open decision:[^\\n]*[?]"; "i")] | map(select(.)) | length == 1) and
+      (test("in part|partial"; "i") | not))' >/dev/null || {
+        echo "finding $id lacks a valid disposition" >&2; exit 1;
+      }
+  done
+ATM_STEP
+)
+```
+
+For an approved new sprint, write its JSON variables to the exact absolute
+file `{{ scratch_dir }}/{{ step }}/sprint-vars.json`. Set and export
+`SPRINT_NAME` to its name and `DEPS_JSON` to a JSON array of predecessor
+sprint names before running this block. Do not quote a literal `$TMPDIR`
+into a variable or pass a literal dollar-sign path to sc-compose. From the
+workdir, with the supplied BEADS_DIR and TMPDIR, run these commands:
+
+```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
+set -euo pipefail
+SPRINT_VARS="$TMPDIR/sprint-vars.json"
+case "$SPRINT_VARS" in /*) ;; *) echo "SPRINT_VARS must be absolute" >&2; exit 1 ;; esac
+if [ ! -f "$SPRINT_VARS" ]; then echo "MISSING_REQUIRED_FILE: $SPRINT_VARS" >&2; exit 1; fi
+PLAN_INDEX='{{ plan_index }}'
+if [ "$PLAN_INDEX" = integration ]; then
+  PLAN_INDEX=$('{{ workdir }}/.claude/skills/atm-beads/scripts/phase-index-path' --root '{{ root }}')
+fi
+sc-compose render --root '{{ workdir }}/.claude/skills/atm-beads/templates' \
+  --strict --file sprint-bead.json.j2 --var-file "$SPRINT_VARS" --output "$TMPDIR/sprint.json"
+jq -c . "$TMPDIR/sprint.json" > "$TMPDIR/sprint.jsonl"
+bd import -i "$TMPDIR/sprint.jsonl"
+jq -cn --arg sprint "$SPRINT_NAME" --argjson depends_on "$DEPS_JSON" \
+  '{sprint:$sprint,depends_on:$depends_on}' >> "$PLAN_INDEX"
+# Do not pour groups during hardening; pour once after the final formula passes.
+ATM_STEP
+)
+```
+
+For a changed prerequisite of an existing sprint, update the index first;
+then add `bd dep add <sprint> --blocked-by <prerequisite>`
+or remove `bd dep remove <sprint> <prerequisite>`.
+Before each write confirm both beads are planned sprint containers and the
+edge corresponds exactly to the index change. Check the resulting graph and
+run validate-plan. A failed command is an execution failure, not a PASS.
+
+4. File findings when you have any. Capture each bd command's stdout as JSON
+   and stderr in a separate evidence file; never merge the streams. Look up an
+   existing finding for this step and issue before each create; reuse it on
+   retry rather than creating a duplicate. Write a JSON array to
    `${TMPDIR:-/tmp}/{{ step }}-findings.json`, one object per finding:
    `title`, `description` (the problem and the exact correction, naming the
    bead and field), `severity` (`Blocking`, `Important` or `Minor`) and
    `plan_bead` (the bead it is about). Then run:
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
 STEP='{{ step }}'
-PASS=$(bd show "$STEP" --json | jq -er '.[0].metadata.pass')
+bd show "$STEP" --json >"$TMPDIR/$STEP-show.json" 2>"$TMPDIR/$STEP-show.stderr"
+PASS=$(jq -er '.[0].metadata.pass' "$TMPDIR/$STEP-show.json")
 jq -e 'type == "array" and all(.[]; type == "object" and
   (.severity | IN("Blocking","Important","Minor")) and
   (.title | type == "string" and length > 0) and
   (.description | type == "string" and length > 0) and
   (.plan_bead | type == "string" and length > 0))' "${TMPDIR:-/tmp}/$STEP-findings.json" >/dev/null
 jq -ce '.[]' "${TMPDIR:-/tmp}/$STEP-findings.json" | while IFS= read -r f; do
-  existing=$(bd list --parent '{{ root }}' -l 'phase-{{ phase }},stage:plan-fix' --all -n 0 --json \
-    | jq -r --arg step "$STEP" --argjson f "$f" '[.[] | select(.metadata.filed_by_step == $step and .title == $f.title and .description == $f.description and .metadata.severity == $f.severity and .metadata.plan_bead == $f.plan_bead) | .id][0] // empty')
+  filing_dir=$(mktemp -d "$TMPDIR/filing.XXXXXXXX")
+  bd list --parent '{{ root }}' -l 'stage:plan-fix' --all -n 0 --json >"$filing_dir/list.json" 2>"$filing_dir/list.stderr"
+  existing=$(jq -r --arg step "$STEP" --argjson f "$f" '[.[] | select(.metadata.filed_by_step == $step and .title == $f.title and .description == $f.description and .metadata.severity == $f.severity and .metadata.plan_bead == $f.plan_bead) | .id][0] // empty' "$filing_dir/list.json")
   if [[ -n "$existing" ]]; then
     printf '%s\n' "$existing"
     continue
   fi
   bd create "$(jq -er .title <<<"$f")" --parent '{{ root }}' --type task --assignee '{{ planner }}' \
-    --labels 'phase-{{ phase }},stage:plan-fix' --description "$(jq -er .description <<<"$f")" \
+    --no-inherit-labels --labels 'stage:plan-fix' --description "$(jq -er .description <<<"$f")" \
     --metadata "$(jq -c --arg pass "$PASS" --arg step "$STEP" '{pass:$pass, filed_by_step:$step, severity, plan_bead}' <<<"$f")" \
-    --actor '{{ actor }}' --json | jq -er '.id'
+    --actor '{{ actor }}' --json >"$filing_dir/create.json" 2>"$filing_dir/create.stderr"
+  jq -er '.id' "$filing_dir/create.json"
 done | tee "${TMPDIR:-/tmp}/$STEP-filed.txt"
+EXPECTED=$(jq length "${TMPDIR:-/tmp}/$STEP-findings.json")
+ACTUAL=$(wc -l < "${TMPDIR:-/tmp}/$STEP-filed.txt" | tr -d " ")
+test "$EXPECTED" = "$ACTUAL" || { echo "finding filing incomplete: expected $EXPECTED, filed $ACTUAL" >&2; exit 1; }
+ATM_STEP
+)
 ```
 
-   Close a fix bead you verified with
-   `bd close <fix bead> --reason "verified: <what resolves it>" --actor {{ actor }}`;
-   note one that is still wrong with
-   `bd update <fix bead> --append-notes "still open: <what>" --actor {{ actor }}`.
-
-5. Close the step only when its work completed. VERDICT is PASS or FAIL as
-   the description says; a completed review with findings is still a
-   successful execution. On an execution error, leave the bead open (or
-   reopen it with `bd update {{ step }} --status open --actor {{ actor }}`)
-   and return the failure envelope below instead of running this close.
+   For each fix bead you verified as resolved, fill in the ID and evidence,
+   then run this block. The planner owns findings while fixing; the verifier
+   takes ownership before closing. Never use `--force` for this handoff.
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' bash <<'ATM_STEP'
 set -euo pipefail
-bd close {{ step }} --actor {{ actor }} \
-  --reason "VERDICT=<PASS|FAIL> filed=<fix bead ids, comma separated, or none> verified=<closed fix bead ids or none>"
+FINDING='<fix bead ID>'
+EVIDENCE='<what resolves it>'
+bd update "$FINDING" --assignee '{{ actor }}' --actor '{{ actor }}'
+bd close "$FINDING" --reason "verified: $EVIDENCE" --actor '{{ actor }}'
+ATM_STEP
+)
+```
+
+   For a finding still wrong and returned for a repair round, fill in the ID
+   and note and run this block to return ownership to the planner:
+
+```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' bash <<'ATM_STEP'
+set -euo pipefail
+FINDING='<fix bead ID>'
+STILL_WRONG='<what remains wrong>'
+bd update "$FINDING" --assignee '{{ planner }}' --append-notes "still wrong: $STILL_WRONG" --actor '{{ actor }}'
+ATM_STEP
+)
+```
+
+   A create failure or count mismatch is an execution error: retain the finding
+   JSON and return the failure envelope; do not continue until filing is repaired.
+
+5. Close the step only when its work completed. Fill the four values at the
+   start of this block, then run this exact block for every review, fix, and
+   verify step. Never hand-write a `bd close` for the step. DETECTED is the
+   count of findings filed by this step (zero for non-review steps); FILED
+   and VERIFIED are `none` or comma-separated bead IDs. VERDICT is PASS or
+   FAIL as the description says; a completed review with findings is still a
+   successful execution. On execution error, leave the bead open (or reopen
+   it with `bd update {{ step }} --status open --actor {{ actor }}`) and return
+   the failure envelope instead of running this close.
+
+```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
+set -euo pipefail
+VERDICT='<PASS or FAIL>'
+DETECTED='<number>'
+FILED='<comma-separated IDs or none>'
+VERIFIED='<comma-separated IDs or none>'
+case "$VERDICT" in PASS|FAIL) ;; *) echo 'invalid VERDICT' >&2; exit 1 ;; esac
+[[ "$DETECTED" =~ ^[0-9]+$ ]] || { echo 'invalid DETECTED' >&2; exit 1; }
+count=0
+for field in FILED VERIFIED; do
+  value=${!field}
+  if [ "$value" = none ]; then continue; fi
+  [[ "$value" =~ ^[a-zA-Z0-9._-]+(,[a-zA-Z0-9._-]+)*$ ]] || { echo "invalid $field" >&2; exit 1; }
+  IFS=, read -r -a ids <<<"$value"
+  for id in "${ids[@]}"; do
+    row=$(bd show "$id" --json)
+    if [ "$field" = FILED ]; then
+      printf '%s\n' "$row" | jq -e --arg id "$id" --arg step '{{ step }}' 'length == 1 and .[0].id == $id and .[0].metadata.filed_by_step == $step' >/dev/null || { echo "invalid filed bead $id" >&2; exit 1; }
+      count=$((count + 1))
+    else
+      printf '%s\n' "$row" | jq -e --arg id "$id" 'length == 1 and .[0].id == $id and .[0].status == "closed"' >/dev/null || { echo "invalid verified bead $id" >&2; exit 1; }
+    fi
+  done
+done
+[ "$((10#$DETECTED))" -eq "$count" ] || { echo 'DETECTED does not match FILED' >&2; exit 1; }
+bd close '{{ step }}' --actor '{{ actor }}' \
+  --reason "VERDICT=$VERDICT detected=$DETECTED filed=$FILED verified=$VERIFIED"
+ATM_STEP
+)
 ```
 
 {% if teammate -%}
@@ -100,17 +380,19 @@ bd close {{ step }} --actor {{ actor }} \
 
 
 ```json
-{"success": true, "data": {"step": "{{ step }}", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"]}, "error": null}
+{"success": true, "data": {"step": "{{ step }}", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 0}], "bd_writes": ["<bd write>"], "file_writes": ["<written file>"]}, "error": null}
 ```
 
 If execution failed, return this envelope with the actual error and a
-specific recovery action. `recoverable` is true only when that action can
-recover this step. {% if teammate %}Close the task with this fenced report
-using `atm task close {{ step }} refused --stdin`; do not run the completed
-close.{% else %}Run no ATM command.{% endif %}
+specific recovery action. An unruled finding is recoverable: return it to
+the planner for a ruling; never mark that failure non-recoverable.
+`recoverable` means the planner can finish with its permitted writes;
+an unruled finding always meets that condition. {% if teammate %}Close the task with this fenced report
+using `atm task close {{ step }} refused --stdin`; this also applies to a
+planner fix step that cannot finish. Do not run the completed close.{% else %}Run no ATM command.{% endif %}
 
 ```json
-{"success": false, "data": {"step": "{{ step }}", "verdict": null, "findings": []}, "error": {"code": "EXECUTION.STEP_FAILED", "message": "<what failed>", "recoverable": true, "suggested_action": "<specific recovery action>"}}
+{"success": false, "data": {"step": "{{ step }}", "verdict": null, "findings": [], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 1}], "bd_writes": ["<bd write>"], "file_writes": ["<written file>"]}, "error": {"code": "EXECUTION.STEP_FAILED", "message": "<what failed>", "recoverable": true, "suggested_action": "<specific recovery action>"}}
 ```
   ]]></instructions>
 </plan-hardening-step>

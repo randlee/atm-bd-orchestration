@@ -20,13 +20,18 @@ The plan is the phase root and its sprint-container beads. Read
 rules. This skill changes plan beads through `bd`; it adds no script or hook.
 After hardening, hand the plan to the existing [Plan Gate](../atm-bd-orchestration/SKILL.md#plan-gate) unchanged.
 
+Every `bd` command, including dispatcher commands, must set its own context
+in the same command: `(cd "$workdir" && BEADS_DIR="$beads_dir" bd ...)`.
+Set `workdir` and `beads_dir` to the supplied absolute paths before starting;
+never depend on an earlier shell export.
+
 ## Step 1 — Verify CLI Installation
 
 Run this before anything else in the skill:
 
 ```bash
 for c in bd atm sc-compose jq uv; do command -v "$c" >/dev/null && echo "ok $c" || echo "MISSING $c"; done
-bd version          # 1.3.0 or newer
+(cd "$workdir" && BEADS_DIR="$beads_dir" bd version) # 1.3.0 or newer
 sc-compose --version # 1.7.0 or newer
 uv --version
 ```
@@ -59,6 +64,12 @@ Prefer different foundries (Anthropic, OpenAI, xAI). In iteration 2, run each
 pass on a different foundry than in iteration 1 wherever possible. Record the
 chosen runner and foundry with the step's evidence.
 
+For general-purpose subagents use the harness-native model mapping: fast =
+haiku (Anthropic) or gpt-6-luna (OpenAI), normal = sonnet or gpt-6.1-terra,
+frontier = opus or gpt-6-astra. If a named tier is unavailable, report it; do
+not silently substitute a more expensive tier. An evaluation may explicitly
+override all tiers to its specified model.
+
 The runner is the teammate or background `general-purpose` agent taking the
 step. It reads the reviewer agent file named by the step description as its
 review rules. Those files remain read-only: the runner executes the template's
@@ -67,12 +78,15 @@ review rules. Those files remain read-only: the runner executes the template's
 The runner's `bd` writes are limited to the step template's commands: claim
 and close the step, create `stage:plan-fix` beads under the root, and close
 verified fix beads or update their notes. In planner fix steps, the planner
-may also update plan beads to apply the assigned fixes and add a `fixed:` or
-`rebutted:` note to each assigned fix bead; the planner never closes those
-beads. The only permitted `git` write is in a planner fix step after the plan
-changes and both `validate-plan` and `sprint-review` pass: commit and push the
-DAG to the plan PR. Any other `bd` write or `git` write fails the step. These
-write permissions belong to the runner; reviewer agents remain read-only.
+may also update plan beads and, only through the add-sprint path below, render
+and import a sprint container, update its plan index, and add or remove only
+the corresponding container-to-container `blocks` edges. Do not pour or
+modify sprint groups during hardening. A direct
+`bd create` of a sprint or any other `bd` write fails the step. The planner
+adds a `fixed:`, `rebutted:`, or permitted `open decision:` note to each fix bead and never closes it. The
+only permitted `git` write is after the plan changes and
+the final formula passes: pour groups, render the DAG, and commit and push it
+to the plan PR unless the dispatch template specifies no PR. Reviewer agents remain read-only.
 
 ## Iterations
 
@@ -93,7 +107,16 @@ Use the current repository's bd database and repository configuration.
 `skill-root` below is this skill's directory: in the package it is
 `plugins/atm-bd-orchestration/skills/plan-hardening`, and after installation
 it is `.claude/skills/plan-hardening`. Keep requests, renders and results in
-scratch outside the tracked tree.
+scratch outside the tracked tree. `sprint-review` is an exception: it writes
+the phase DAG under `docs/plans/phase-<p>/` and, by default,
+`scratchpad/phase-<p>-dag/` in the worktree. Both are expected clone writes;
+inspect the output and include it when the plan requires it.
+
+When validating a local, unpushed plan, set the dispatch `plan_index` to
+its absolute path; pass it to validate-plan and, after the final pour,
+sprint-review whenever either command is run. No hardening step runs
+sprint-review; it runs only after the final formula passes and groups are poured.
+For the integration-branch index use the literal `integration`.
 
 For each iteration `i` from 1 through `N`:
 
@@ -117,29 +140,86 @@ For each iteration `i` from 1 through `N`:
    ```
 
    Require a successful render before using its output.
-2. Run `bd mol wisp <rendered file> --json`; retain the returned wisp id.
+2. Run `(cd "$workdir" && BEADS_DIR="$beads_dir" bd mol wisp <rendered file> --json)`; retain the returned wisp id.
    The formula has `phase = "vapor"`, so its steps are ephemeral and stay
    out of ordinary ready queues.
-3. List steps with `bd ready --mol <wisp> --include-ephemeral --json`.
-4. Dispatch ready scope and critical steps at the same time. In lead mode,
-   also dispatch the iteration's adversary wisps in parallel, at most four
+3. List steps with `(cd "$workdir" && BEADS_DIR="$beads_dir" bd ready --mol <wisp> --include-ephemeral --json)`.
+4. Dispatch ready scope and critical steps at the same time using two distinct
+   available teammates when a teammate has max_tasks=1. If only one teammate
+   is available, run the two passes serially and record that limitation. In lead
+   mode, also dispatch the iteration's adversary wisps in parallel, at most four
    adversary subagents at a time.
 5. Once those steps have all closed, dispatch the ready fix step to the
    planner. In lead mode, the lead first confirms every adversary closed.
 6. After the fix step closes, create the next iteration's wisp.
 
+In either planner mode, the planner is the phase lead for hardening and owns
+rulings on every finding. If a proposed change is unsupported by the plan or
+its governing requirements, record a rebuttal citing that evidence; otherwise
+apply the fix. Use `open decision: <question?>` only for a decision requiring the user or
+Rand that no source or design rule settles. Leave it open for the Plan Gate
+and continue the step; never use it for a resolvable finding. A missing governing document or section (ADR, REQ, architecture, or design document) is never an open decision. Add its path to the owning sprint owned_paths and a deliverable writing it; use a NEW: id for an ADR or REQ. For example, `NEW:ADR-delivery-contract` needs no number allocation. These are permitted plan writes; the sprint writes the document later.
+Never invent a ruling or leave a finding without one of these notes. In lead-adversarial mode the phase lead makes the ruling.
+Naming types, fields, and methods required by an existing deliverable is a
+design fix, not new scope: write them in the contract sprint design and cite
+the deliverable. For every applied fix, cite both its finding and a REQ, ADR,
+or existing plan source. Never add or remove scope without a source; rebut an unsupported
+finding with `rebutted: unsupported by <source>`.
+For structural findings, prefer editing an existing sprint; otherwise rebut
+with a citation if the request is unsupported; add a sprint only when neither
+resolves it. When a ruling adds a sprint, render the container with
+`.claude/skills/atm-beads/templates/sprint-bead.json.j2`, using
+[the sprint vars example](examples/sprint-bead-vars.json) as a field shape;
+replace every example value with facts supported by the plan. Add its sprint and
+prerequisites to the selected plan index and import it. Do not pour its dev,
+sanity or QA beads during hardening; the final step pours all groups once. Choose the added sprint's `pr_target` using
+`atm-beads-plan-guidelines.md` and `resources/planning.md` (nearest
+`must_follow` prerequisite, highest planned layer if there are several; trunk
+when none). Its own layer is above that prerequisite. When inserting a sprint,
+shift later layer numbers and their `pr_target` values as needed to preserve
+the planned dependency chain, then run validate-plan.
+
+When changing an existing sprint's prerequisites, update `depends_on` in the
+plan index, then use `(cd "$workdir" && BEADS_DIR="$beads_dir" bd dep add <sprint> --blocked-by <prerequisite>)` for
+each new container edge and `(cd "$workdir" && BEADS_DIR="$beads_dir" bd dep remove <sprint> <prerequisite>)` for each
+stale container edge. Limit writes to planned sprint containers, inspect the
+graph, and validate the updated index. If an edge operation or validation
+fails, leave the step open and return the failure envelope; refuse its ATM
+task if it has one.
+
+
 After the last fix step closes, copy into scratch, render and wisp
 `formulas/plan-hardening-final.formula.toml.j2` using `root`, `phase`, and
 `planner`. Dispatch ceremony, then fix, then verify as their dependencies
 release them. The final fix includes unresolved final-critical findings.
-Verification checks each carried finding with its filing pass's rules and
-files no new findings. For `lead` and `adversary:*` findings, use the
+For each carried finding, verification re-applies its filing pass's rule to
+the current plan state, checks that every cited source exists and says what
+the fix or rebuttal claims, records the evidence path, and closes it if resolved
+or reopens it if unresolved or a citation is wrong. Verification files no new findings. For `lead` and `adversary:*` findings, use the
 `Verification:` check recorded in the finding's `description`, as defined in
 [the adversarial reference](references/adversarial-plan-hardening.md). Confirm
 its expected result against the current plan or a cited design rebuttal;
 leave a missing check or unresolved result open with a note.
+Before final verify closes, return every unresolved Blocking or Important
+finding once to the planner with its `still wrong` note using the dispatch
+template's ownership handoff block. Keep verify open;
+after its prior runner stops, reopen the final fix step and dispatch the
+planner to fix or rebut each returned finding with a source citation. Once that
+fix step closes, dispatch verify to re-check each returned finding against the
+plan and citation. Permit only one such repair round; then close verify PASS
+if none remain open, or FAIL and send the remaining findings to plan review.
 
-Finally run `bd mol squash <wisp>` on each iteration, adversary and final
+After the final formula passes, verify the Git common directory and the
+selected `cache_path` resolve within the worktree before rendering. The cache
+file may not exist until the renderer creates it. After the final formula passes, run
+`.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <p>` once
+to pour all groups, then run
+`.claude/skills/sprint-review/scripts/sprint-review --root <root> --index <index>`. Save both
+outputs and exit codes. Commit and push the DAG to the plan PR only when the
+dispatch template specifies a PR; for `plan_pr=none`, keep the DAG in the
+clone and scratch. A failed pour or render fails the run.
+
+Finally run `(cd "$workdir" && BEADS_DIR="$beads_dir" bd mol squash <wisp>)` on each iteration, adversary and final
 wisp. Close reasons retain verdicts and filed/verified fix-bead ids; wisp
 metadata is not retained in the digest. Hand the plan and remaining findings
 to the existing Plan Gate, without changing that gate's workflow.
@@ -147,19 +227,31 @@ to the existing Plan Gate, without changing that gate's workflow.
 ## Resume
 
 Recover iteration, adversary and final wisp and step ids after an interruption
-from `bd list -l phase-<p>,stage:plan-hardening --include-ephemeral --all --json`,
+from `(cd "$workdir" && BEADS_DIR="$beads_dir" bd list -l phase-<p>,stage:plan-hardening --include-ephemeral --all --json)`,
 filtered on `metadata.root` for the phase root. Retain the parent wisp ids for
 the final squash. Retry a step only while its bead is open; ensure the previous
 runner has stopped before reopening or dispatching it, and never run two copies
-of a step concurrently. A closed step is not retried. The filing block reuses
+of a step concurrently. A closed step is not retried except when verification
+returns unresolved findings to the planner fix step as described above; reopen it
+only after its prior runner has stopped. The filing block reuses
 an existing finding with the same step, title, description, severity and plan
 bead, including closed findings, and files only missing entries from a partial
 batch. Preserve the same finding input when retrying.
 
+For a recoverable execution failure in any step, stop the failed runner, leave
+or reopen its bead, and dispatch that step once to a fresh runner with the
+failed return and evidence attached. If verification fails because findings
+lack planner rulings, return those findings to the planner fix step once before
+retrying verification. If the retry fails, stop the run with
+`EXECUTION.STEP_FAILED`; never start two copies concurrently.
+
 ## Dispatch
 
-Set a deadline for each background step when dispatching it (30 minutes by
-default; the dispatcher may set another limit). If a step has not closed by
+For each background step, use a bounded wait (30 minutes by default; the
+dispatcher may set another limit). For a subagent tool without a deadline
+parameter, impose the bound in the dispatcher wait; if bounded waiting or
+stopping the agent is unavailable, stop the run with `EXECUTION.TIMEOUT`
+instead of waiting or starting a duplicate. If a step has not closed by
 its deadline, stop its agent, leave the bead open (reopen it if needed), and
 re-dispatch it once. Ensure the previous agent has stopped before retrying. If
 the retry also times out, stop the run and return `EXECUTION.TIMEOUT` naming
@@ -169,36 +261,51 @@ stop the run instead of dispatching another copy.
 
 Use `templates/plan-hardening-step.xml.j2` for every step and the shipped
 `examples/plan-hardening-step-{teammate,subagent}-vars.json` as input shapes.
-Set `step`, `runner`, `actor`, `phase`, `root`, and `planner` for the real run.
-Never hand-write a step prompt.
-
-For a teammate, set `runner=teammate`, `actor=<agent>`, and deliver with:
-
-```bash
-atm task assign <agent> --task-id <step> --template <skill-root>/templates/plan-hardening-step.xml.j2 --vars <vars.json>
-```
-
-For a subagent, set `runner=subagent`, `actor=<dispatcher>`, and render:
+Set `step`, `runner`, `actor`, `phase`, `root`, `planner`, `plan_index`,
+`beads_dir`, `workdir`, `plan_pr`, `scratch_dir`, `cache_path`, and `policy_path` for the
+real run. `plan_pr=none` means no push; any other value identifies the plan PR. Use absolute paths for the last
+two, and an absolute index path or `integration` for `plan_index`; every step
+runs with the supplied working directory and BEADS_DIR. Resolve `policy_path`
+from `policy_path` in `<workdir>/.claude/project/atm-bd-orchestration.yaml`
+to its absolute path under the workdir before rendering; never guess it.
+Never hand-write or alter the rendered step file. Render for both modes:
 
 ```bash
-sc-compose render --strict --file <skill-root>/templates/plan-hardening-step.xml.j2 --var-file <vars.json> --output <scratch>/step.xml
+sc-compose render --root <absolute-skill-root>/templates --strict --file plan-hardening-step.xml.j2 --var-file <vars.json> --output <absolute-scratch>/step.xml
 ```
 
-Give that exact rendered file as the prompt to one background
-`general-purpose` agent at the chosen tier. Its fenced JSON is the return:
+Give one background runner at the chosen tier this short fixed line, replacing
+the path with the absolute rendered file path: `Read <absolute-step-file>,
+follow it exactly, and return the step JSON.` The runner reads the file itself
+and must stop if it is missing. For a retry, add `Attached evidence:
+<absolute-evidence-file>.` to that line; put the failed return and evidence
+in that named file. Never hand-copy or edit the rendered instructions.
+
+For a teammate, set `runner=teammate`, `actor=<agent>`, render the same step
+file, then send the fixed line in the shipped carrier template using vars
+`step_path` and `evidence_path` (empty when not retrying):
+
+```bash
+atm send <agent> --task-id <step> --template <skill-root>/templates/plan-hardening-dispatch.xml.j2 --vars <dispatch-vars.json>
+```
+
+For a subagent, set `runner=subagent`; use `actor=<planner>` for a fix step
+and `actor=<dispatcher>` for a review step. Give the fixed line to one
+background `general-purpose` agent at the chosen tier. Its fenced JSON is the return:
 `success`, `data` (`step`, `verdict`, `findings`), and `error`. A completed
 review returns `success:true` and `error:null`, including when its review
 verdict is FAIL. An execution failure returns `success:false` with error
 `code`, `message`, `recoverable`, and `suggested_action`.
 
-Require one fenced JSON object. An unfenced, missing or malformed return,
+Require one fenced JSON object and reject a missing, unfenced or malformed
+return before reading any step close reason. An unfenced, missing or malformed return,
 `success:false`, or a returned verdict differing from the step bead's
 `close_reason` (`VERDICT=PASS` or `VERDICT=FAIL`) is a failed step. Read the
-recorded reason with `bd show <step> --json`; do not trust the return alone.
+recorded reason with `(cd "$workdir" && BEADS_DIR="$beads_dir" bd show <step> --json)`; do not trust the return alone.
 Surface a concise error and its recovery action. A failed step does not
-release the fix step: never dispatch the fix merely because `bd ready`
+release the fix step: never dispatch the fix merely because the ready queue
 lists it. Leave the failed step open, or reopen it with
-`bd update <step> --status open` if the runner already closed it. Recover
+`(cd "$workdir" && BEADS_DIR="$beads_dir" bd update <step> --status open)` if the runner already closed it. Recover
 that step and accept its return before releasing the planner's fix.
 
 The teammate starts and closes its ATM task; the subagent runs no ATM command.
@@ -208,6 +315,10 @@ Each finding has `title`, `description`, `severity` (Blocking, Important or
 Minor), and `plan_bead`. The finding block creates a `stage:plan-fix` bead
 under the phase root assigned to the planner, preserving the filing pass.
 The planner fixes or rebuts it; the filing pass verifies and closes it.
+Temporarily omit the `phase-<x>` label from plan-fix beads: the current phase
+validator has no model for that stage (atm-bd-orchestration#788). Keep the
+parent and `stage:plan-fix` label, and query them with `--all`. Restore the
+phase label when that model ships.
 
 ## Filing reviewer output
 
@@ -240,9 +351,13 @@ from those extras. Both reviewer agents use this mapping.
 ### Ceremony output
 
 For ceremony-qa's `doc_review` input, capture each plan bead with
-`bd show <id> --json > <scratch>/<id>.json`. Set `worktree_path` to the
+`(cd "$workdir" && BEADS_DIR="$beads_dir" bd show <id> --json) > <scratch>/<id>.json`. Set `worktree_path` to the
 checkout and `review_targets` to those capture paths. Findings cite a capture
 in `file`; its `[0].id` is the cited bead id. Do not infer ids from filenames.
+Apply any ceremony-finding screen required by the consuming repository before
+filing and computing the ceremony-qa verdict. Record each dropped finding and
+the screen decision in the step notes. `review_output` below is the resulting
+screened reviewer output, retaining the reviewer envelope and status.
 
 | Reviewer | Source findings | Filing mapping | Step verdict |
 | --- | --- | --- | --- |
@@ -278,6 +393,9 @@ plan to the Plan Gate.
 The planner assigns scope, critical and verify steps to teammates and takes
 the fix steps itself. Dispatch the final ceremony review to a teammate too.
 Use the same formula dependencies and rendered step template in every case.
+A single identity may hold planner, dispatcher, and step teammate roles; it
+assigns each step to itself using the rendered ATM assignment, then starts and
+closes its own task. Record verification by that same identity as not independent.
 
 ## Lead adversarial
 

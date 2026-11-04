@@ -106,6 +106,10 @@ jobs:
       - uses: extractions/setup-just@v2
         with:
           just-version: "1.40.0"
+      # The plan-hardening step blocks are tested under zsh as well as bash.
+      - name: Install zsh
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q zsh
       - name: Warm the Python 3.11 script environment
         run: just warm-py311
 
