@@ -27,8 +27,14 @@ command from `{{ workdir }}` with `BEADS_DIR={{ beads_dir }}`. The dispatcher
 must pass these exact values to every subagent or teammate; never infer them.
 {% if plan_index != 'integration' %}For validate-plan and sprint-review, pass `--index '{{ plan_index }}'` explicitly.
 {% else %}For validate-plan and sprint-review, use the integration-branch index.
-{% endif %}Save their complete output and exit status; a nonzero exit is a failed step,
-not a plan finding or a passing result. This template starts, records and
+{% endif %}Save each validate-plan and sprint-review command, its complete output and
+exit status immediately to a named scratch path; list the commands, paths and
+exit codes in the returned `data.commands` array. If validate-plan fails specifically
+because `bd doctor` reports `proxy.doctor.unsupported`, retain the verbatim
+error and rerun that same command once with `--no-doctor`; record the fallback
+and original error in the close reason or failure envelope (atm-bd-orchestration
+#807). Any other doctor error fails the step; any other nonzero exit is a
+failed step, not a plan finding or a passing result. This template starts, records and
 closes the step.
 
 1. Start:
@@ -132,17 +138,17 @@ bd close {{ step }} --actor {{ actor }} \
 
 
 ```json
-{"success": true, "data": {"step": "{{ step }}", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"]}, "error": null}
+{"success": true, "data": {"step": "{{ step }}", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 0}]}, "error": null}
 ```
 
 If execution failed, return this envelope with the actual error and a
 specific recovery action. `recoverable` is true only when that action can
 recover this step. {% if teammate %}Close the task with this fenced report
-using `atm task close {{ step }} refused --stdin`; do not run the completed
-close.{% else %}Run no ATM command.{% endif %}
+using `atm task close {{ step }} refused --stdin`; this also applies to a
+planner fix step that cannot finish. Do not run the completed close.{% else %}Run no ATM command.{% endif %}
 
 ```json
-{"success": false, "data": {"step": "{{ step }}", "verdict": null, "findings": []}, "error": {"code": "EXECUTION.STEP_FAILED", "message": "<what failed>", "recoverable": true, "suggested_action": "<specific recovery action>"}}
+{"success": false, "data": {"step": "{{ step }}", "verdict": null, "findings": [], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 1}]}, "error": {"code": "EXECUTION.STEP_FAILED", "message": "<what failed>", "recoverable": true, "suggested_action": "<specific recovery action>"}}
 ```
   ]]></instructions>
 </plan-hardening-step>

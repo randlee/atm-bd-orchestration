@@ -5,8 +5,8 @@ seeded plan. The dispatcher supplies absolute paths `EVAL_ROOT` (the source
 `plugins/atm-bd-orchestration/evals/plan-hardening` directory) and `EVAL_WORKTREE`
 (a disposable atm-core worktree with the skill under test installed), and
 `EVAL_PLANNER` and `EVAL_DISPATCHER` (the actual identities taking those roles),
-`EVAL_LEAD` (the planner in planner mode), and `EVAL_MODEL` (the cell model: `haiku` or `gpt-6-luna`). Use that exact model
-for every step subagent; do not silently substitute a model. Run all steps from
+`EVAL_LEAD` (the planner in planner mode), and `EVAL_MODEL` (the cell model: `haiku` or `gpt-6-luna`). The agent under test uses that exact model. Review teammates run the
+step themselves; they do not need to spawn step subagents. Run all steps from
 `EVAL_WORKTREE`. Do not inspect `$EVAL_ROOT/planted.json` before review ends.
 Never push or mutate another plan.
 
@@ -19,13 +19,15 @@ export BEADS_DIR="$EVAL_SCRATCH/.beads"
 printf '%s\n%s\n' "$EVAL_SCRATCH" "$BEADS_DIR" > "$EVAL_WORKTREE/.atm-plan-eval-context"
 # The isolated worktree must not already have a database or a live-store link.
 test ! -e "$EVAL_WORKTREE/.beads" && test ! -L "$EVAL_WORKTREE/.beads"
-(cd "$EVAL_SCRATCH" && bd init --proxied-server --prefix atm --non-interactive --skip-hooks --skip-agents)
+python3 "$EVAL_ROOT/db-server.py" start "$EVAL_SCRATCH"
 ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
 (cd "$EVAL_WORKTREE" && bd info --json)
 ```
 
-   Stop unless the realpath of `bd info` database_path equals the realpath of
-   `$BEADS_DIR` (macOS may spell `/tmp` as `/private/tmp`). The context file
+   Stop unless the realpath of `bd info` database_path is within `$BEADS_DIR`
+   and the socket and data paths in `$EVAL_SCRATCH/server.json` and
+   `$BEADS_DIR/metadata.json` resolve inside that same scratch directory
+   (macOS may spell `/tmp` as `/private/tmp`). The context file
    records the exact scratch and database paths on separate lines; read it in
    every new shell rather than assuming variables persist. Never link to or
    import into the live store. Copy `$EVAL_ROOT/phase-z.toml` to the new
@@ -33,13 +35,22 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    `EVAL_WORKTREE`: `npm ci --prefix .claude/skills/sprint-report/renderer`.
    If setup fails, report the exact command and error; do not run the cell.
    Copy the index to scratch: `cp "$EVAL_ROOT/plan-index.jsonl" "$EVAL_SCRATCH/plan-index.jsonl"`.
+   If `$EVAL_WORKTREE/docs/plans/phase-z.jsonl` exists or is a symlink, stop.
+   Otherwise link that path to the scratch index; `bead-groups --phase z`
+   reads the plan path from phase-z.toml when the planner adds a sprint.
    Import the fixture with `bd import -i "$EVAL_ROOT/fixture-plan.jsonl"`.
 2. Read `.claude/skills/plan-hardening/SKILL.md`, run exactly one iteration (`iteration=1`, `iterations=1`) and the
-   final formula. Use the supplied planner, dispatcher and lead identities. Assign every step as an ATM task with the shipped step template and vars. Each assigned teammate starts and closes its own task and claims and closes the step bead. The planner takes the fix steps. Set the shipped step-template vars `beads_dir` to
+   final formula. Use the supplied planner, dispatcher and lead identities. Assign every step as an ATM task with the shipped step template and vars. Each assigned teammate starts and closes its own task and claims and closes the step bead. The planner takes the fix steps. Use two distinct step teammates for
+   parallel reviews; if only one is available, run them serially and record it.
+   For a fix step that cannot finish, reopen the bead and close the ATM task
+   refused with the template failure envelope; do not claim it completed. Set the shipped step-template vars `beads_dir` to
    the absolute `$BEADS_DIR`, `workdir` to `$EVAL_WORKTREE`, and `plan_index`
    to `$EVAL_SCRATCH/plan-index.jsonl` on every step. These rendered instructions
    carry cwd and database to agents; do not prepend or alter the rendered prompt.
    Pass `--index "$EVAL_SCRATCH/plan-index.jsonl"` to validate-plan and sprint-review.
+   If validate-plan reports `proxy.doctor.unsupported`, use the rendered step
+   template's one-time `--no-doctor` fallback and retain the original error
+   (atm-bd-orchestration#807); do not skip any other failure.
    Save their full output and exit status immediately after each command. Nonzero
    means the step fails and is reported, never a passing result. If a fix step
    fails, do not run the final formula: capture the failed checker result and
@@ -48,11 +59,12 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    capture its complete output and exit status. A failure is a failed cell.
 4. Only after the final formula completes and evidence is saved, squash the
    evaluation wisps. On an aborted run, do not squash or delete the scratch
-   database: stop Dolt, retain the database and context file as evidence, and
+   database: stop the private server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`, retain the database and context file as evidence, and
    report their exact paths. Do not run `bd delete`.
-   On a completed run, remove only the phase-z.toml and context file you copied, stop this cell's Dolt server with
-   `BEADS_DIR="$BEADS_DIR" bd dolt stop`, and delete only the private database
-   directory `$EVAL_SCRATCH/.beads` after unlinking the worktree symlink and confirming it is beneath the exact
+   On a completed run, unlink the worktree plan-index symlink, remove only
+   the phase-z.toml and context file you copied, stop this cell's server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`,
+   and delete only `$EVAL_SCRATCH/.beads` and `$EVAL_SCRATCH/data` after
+   unlinking the worktree symlink and confirming both are beneath the exact
    `mktemp` directory you created. Preserve outputs and digest IDs in scratch.
 5. Tell the caller the check exit status, output and cleanup result. Remain
    available for the caller's post-run questions; do not answer them early.

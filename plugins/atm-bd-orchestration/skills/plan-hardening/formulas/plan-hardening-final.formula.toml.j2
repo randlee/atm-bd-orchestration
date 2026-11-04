@@ -52,8 +52,9 @@ from the last iteration. A FAIL from that final critical pass is normal.
 
 1. `bd list --parent {{{ root }}} -l stage:plan-fix --all -n 0 --json` (filter in JSON for open status and planner; compare against every prior step's `filed=` IDs; an absent ID is an error, never an empty success).
 2. For each one, change the plan beads with `bd update` and add a
-   `fixed: ...` or `rebutted: <citation>` note. Never close a fix bead.
-3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (use the index supplied in the dispatch template);
+   `fixed: ...` or `rebutted: <citation>` note. In planner modes the planner
+   is the lead and must make the ruling or cite the rebuttal. Never close a fix bead.
+3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (use the index and typed proxy.doctor.unsupported fallback supplied in the dispatch template; issue #807);
    when the plan changed, re-run
    `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}`
    (use the index supplied in the dispatch template), then commit and push the

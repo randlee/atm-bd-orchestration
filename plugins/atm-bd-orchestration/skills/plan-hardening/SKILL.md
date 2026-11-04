@@ -73,12 +73,13 @@ review rules. Those files remain read-only: the runner executes the template's
 The runner's `bd` writes are limited to the step template's commands: claim
 and close the step, create `stage:plan-fix` beads under the root, and close
 verified fix beads or update their notes. In planner fix steps, the planner
-may also update plan beads to apply the assigned fixes and add a `fixed:` or
-`rebutted:` note to each assigned fix bead; the planner never closes those
-beads. The only permitted `git` write is in a planner fix step after the plan
-changes and both `validate-plan` and `sprint-review` pass: commit and push the
-DAG to the plan PR. Any other `bd` write or `git` write fails the step. These
-write permissions belong to the runner; reviewer agents remain read-only.
+may also update plan beads and, only through the add-sprint path below, render
+and import a sprint container, update its plan index, and run bead-groups.
+A direct `bd create` of a sprint or any other `bd` write fails the step. The
+planner adds a `fixed:` or `rebutted:` note to each fix bead and never closes
+it. The only permitted `git` write is in a planner fix step after the plan
+changes and both checks pass: commit and push the DAG to the plan PR, unless
+the dispatch template specifies no PR. Reviewer agents remain read-only.
 
 ## Iterations
 
@@ -99,7 +100,9 @@ Use the current repository's bd database and repository configuration.
 `skill-root` below is this skill's directory: in the package it is
 `plugins/atm-bd-orchestration/skills/plan-hardening`, and after installation
 it is `.claude/skills/plan-hardening`. Keep requests, renders and results in
-scratch outside the tracked tree.
+scratch outside the tracked tree. `sprint-review` is an exception: it writes
+the phase DAG under `docs/plans/phase-<p>/` in the worktree; inspect that
+output and include it when the plan requires it.
 
 When validating a local, unpushed plan, set the dispatch `plan_index` to
 its absolute path; each step passes it to both validate-plan and sprint-review.
@@ -131,12 +134,27 @@ For each iteration `i` from 1 through `N`:
    The formula has `phase = "vapor"`, so its steps are ephemeral and stay
    out of ordinary ready queues.
 3. List steps with `bd ready --mol <wisp> --include-ephemeral --json`.
-4. Dispatch ready scope and critical steps at the same time. In lead mode,
-   also dispatch the iteration's adversary wisps in parallel, at most four
+4. Dispatch ready scope and critical steps at the same time using two distinct
+   available teammates when a teammate has max_tasks=1. If only one teammate
+   is available, run the two passes serially and record that limitation. In lead
+   mode, also dispatch the iteration's adversary wisps in parallel, at most four
    adversary subagents at a time.
 5. Once those steps have all closed, dispatch the ready fix step to the
    planner. In lead mode, the lead first confirms every adversary closed.
 6. After the fix step closes, create the next iteration's wisp.
+
+In either planner mode, the planner is the phase lead for hardening and owns
+rulings on every finding. If a proposed change is unsupported by the plan or
+its governing requirements, record a rebuttal citing that evidence; otherwise
+apply the fix. Never invent a ruling or leave a finding without a fixed or
+cited rebuttal note. In lead-adversarial mode the phase lead makes the ruling.
+For structural findings, prefer editing an existing sprint; otherwise rebut
+with a citation if the request is unsupported; add a sprint only when neither
+resolves it. When a ruling adds a sprint, render the container with
+`.claude/skills/atm-beads/templates/sprint-bead.json.j2`, add its sprint and
+prerequisites to the selected plan index, import it, and run
+`.claude/skills/atm-bd-orchestration/scripts/bead-groups --phase <p>` to pour
+its dev, sanity and QA beads. Validate the updated index and graph.
 
 After the last fix step closes, copy into scratch, render and wisp
 `formulas/plan-hardening-final.formula.toml.j2` using `root`, `phase`, and

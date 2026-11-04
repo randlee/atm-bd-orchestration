@@ -1,6 +1,6 @@
 # Plan hardening live evaluations
 
-Every cell runs in its own disposable worktree and `BEADS_DIR` scratch database.
+Every cell runs in its own disposable worktree and `BEADS_DIR` scratch database with a private Dolt server and socket.
 Never connect the fixture to the live team store. The dispatcher supplies the
 absolute source evaluation directory as `EVAL_ROOT`, the worktree as
 `EVAL_WORKTREE`, and the cell's model as `EVAL_MODEL`. Before launching a cell,
@@ -22,5 +22,5 @@ the PR. Debrief never substitutes for a passing check.
 The prompt creates a scratch database, imports the fixture, runs the checker
 before squashing, then stops its database and removes only that scratch
 `.beads` directory after a completed final formula. For an aborted run it
-stops Dolt and retains the unsquashed scratch database as evidence. Never use `bd delete` or connect this fixture to the live
+stops the private Dolt server and retains the unsquashed scratch database as evidence. Never use `bd delete` or connect this fixture to the live
 team database. If setup or cleanup cannot be proven safe, stop and report it.

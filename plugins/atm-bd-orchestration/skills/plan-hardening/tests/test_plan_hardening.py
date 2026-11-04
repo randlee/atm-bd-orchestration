@@ -289,6 +289,46 @@ def test_skill_declares_and_verifies_cli_dependencies_first(tmp_path):
 def test_skill_names_three_modes():
     headings = set(re.findall(r"^## (.+)$", skill_text(), re.MULTILINE))
     assert {"Planner with subagents", "Planner with teammates", "Lead adversarial"} <= headings
+    text = skill_text().lower()
+    for mode in ("planner with subagents", "planner with teammates", "lead adversarial"):
+        assert mode in text
+
+
+def test_skill_limits_runner_writes_to_template_commands():
+    text = skill_text().split("The runner's `bd` writes are limited", 1)[1].split("## Iterations", 1)[0]
+    for clause in (
+        "claim\nand close the step",
+        "create `stage:plan-fix` beads under the root",
+        "close\nverified fix beads or update their notes",
+        "may also update plan beads and, only through the add-sprint path below",
+        "A direct `bd create` of a sprint, any other `bd` write, or any `git` write\nfails the step",
+        "reviewer agents remain read-only",
+    ):
+        assert clause in text
+
+
+def test_skill_mode_selection():
+    text = skill_text()
+    for clause in ("team is idle", "no assigned work", "interrupting", "frontier model", "mid-phase replan"):
+        assert clause in text
+
+
+def test_skill_foundry_rule():
+    text = skill_text()
+    for clause in ("Anthropic, OpenAI, xAI", "iteration 2", "different foundry", "wherever possible", "Scope and critical passes run at frontier"):
+        assert clause in text
+
+
+def test_skill_default_two_iterations_and_final_fail_normal():
+    text = skill_text()
+    for clause in ("**2 iterations**", "lead or planner may set another number", "final critical pass is normal", "never add an iteration", "only after the last iteration"):
+        assert clause in text
+
+
+def test_skill_planner_mode_needs_no_lead():
+    text = skill_text().split("## Planner with subagents")[1].split("## Planner with teammates")[0]
+    for clause in ("every iteration", "final wisp", "No step waits on the phase lead", "only when handing", "Plan Gate"):
+        assert clause in text
 
 
 def adversarial_text():
@@ -328,6 +368,11 @@ def test_plan_scope_reviewer_keeps_one_input_contract():
         assert f'"{field}"' in reference
     assert "verify only `carry_forward_findings`" in normalized_reference
     assert "Do not make a new plan-shape review or file new findings." in normalized_reference
+def test_scope_reviewer_uses_nearest_required_pr_target():
+    text = (PACKAGE / "agents/plan-scope-reviewer.md").read_text()
+    assert "branch of its nearest `must_follow` prerequisite" in text
+    assert "branch of layer n-1" not in text
+    assert "branch of the layer below" not in text
 
 
 def test_role_doc():
@@ -352,9 +397,9 @@ def test_step_template_return_envelope(rendered):
     runner, text = rendered
     returns = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", text, re.S)]
     completed, failed = returns
-    assert completed == {"success": True, "data": {"step": "atm-wisp-2ha", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"]}, "error": None}
+    assert completed == {"success": True, "data": {"step": "atm-wisp-2ha", "verdict": "PASS|FAIL", "findings": ["<filed fix bead ids>"], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 0}]}, "error": None}
     assert failed["success"] is False
-    assert failed["data"] == {"step": "atm-wisp-2ha", "verdict": None, "findings": []}
+    assert failed["data"] == {"step": "atm-wisp-2ha", "verdict": None, "findings": [], "commands": [{"argv": "<command>", "output_path": "<scratch path>", "exit_code": 1}]}
     assert set(failed["error"]) == {"code", "message", "recoverable", "suggested_action"}
     assert failed["error"]["code"] == "EXECUTION.STEP_FAILED"
     assert isinstance(failed["error"]["recoverable"], bool)
@@ -502,6 +547,15 @@ def test_ceremony_output_files_through_step(rendered, tmp_path, severity, verdic
     assert metadata["severity"] == canonical["severity"]
     assert metadata["plan_bead"] == "atm-d-1"
 @pytest.mark.skipif(not EVALS.is_dir(), reason="evaluation assets intentionally excluded from installed skill")
+def test_eval_server_refuses_foreign_process_context(tmp_path):
+    (tmp_path / "server.json").write_text(json.dumps({"pid": os.getpid(), "socket": "/tmp/not-this-eval.sock", "data_dir": "/tmp/other"}))
+    result = subprocess.run(["python3", str(EVALS / "db-server.py"), "stop", str(tmp_path)],
+                            capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert "does not belong to this scratch directory" in result.stderr
+
+
+@pytest.mark.skipif(not EVALS.is_dir(), reason="evaluation assets intentionally excluded from installed skill")
 def test_eval_answer_key_is_not_installed():
     manifest = yaml.safe_load((PACKAGE / "manifest.yaml").read_text())
     installed = [path for paths in manifest["artifacts"].values() for path in paths]
@@ -523,7 +577,7 @@ def test_eval_prompts_have_post_run_questions():
         assert "## Post-run questions" in text
         assert all(question in text for question in questions)
         assert "bd import" in text and f'"$EVAL_ROOT/check.sh" atm-eval-phase-z {runner}' in text
-        assert "BEADS_DIR" in text and "--proxied-server" in text
+        assert "BEADS_DIR" in text and "db-server.py" in text
         assert "bd delete --force" not in text
 
 

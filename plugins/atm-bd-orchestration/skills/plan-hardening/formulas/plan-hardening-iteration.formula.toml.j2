@@ -87,8 +87,10 @@ Planner {{{ planner }}}: fix the plan. This is iteration {{{ iteration }}} of
    `bd update <fix bead> --append-notes "fixed: <what changed, where>"`.
    A finding you reject gets `--append-notes "rebutted: <citation>"`. Rebut a
    finding that adds a state, verb, check, artifact or edge the design does
-   not name. Never close a fix bead: the pass that filed it closes it.
-3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (use the index supplied in the dispatch template)
+   not name. In planner modes the planner is the lead: make the ruling and fix the
+   finding, or rebut it with a citation to the plan or governing requirements.
+   Never close a fix bead: the pass that filed it closes it.
+3. Re-run `.claude/skills/atm-beads/scripts/validate-plan --phase {{{ phase }}}` (use the index and typed proxy.doctor.unsupported fallback supplied in the dispatch template; issue #807)
    and fix what it reports. When the plan changed, re-run
    `.claude/skills/sprint-review/scripts/sprint-review --root {{{ root }}}`
    (use the index supplied in the dispatch template), then commit and push the

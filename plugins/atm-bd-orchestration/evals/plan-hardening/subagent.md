@@ -19,13 +19,15 @@ export BEADS_DIR="$EVAL_SCRATCH/.beads"
 printf '%s\n%s\n' "$EVAL_SCRATCH" "$BEADS_DIR" > "$EVAL_WORKTREE/.atm-plan-eval-context"
 # The isolated worktree must not already have a database or a live-store link.
 test ! -e "$EVAL_WORKTREE/.beads" && test ! -L "$EVAL_WORKTREE/.beads"
-(cd "$EVAL_SCRATCH" && bd init --proxied-server --prefix atm --non-interactive --skip-hooks --skip-agents)
+python3 "$EVAL_ROOT/db-server.py" start "$EVAL_SCRATCH"
 ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
 (cd "$EVAL_WORKTREE" && bd info --json)
 ```
 
-   Stop unless the realpath of `bd info` database_path equals the realpath of
-   `$BEADS_DIR` (macOS may spell `/tmp` as `/private/tmp`). The context file
+   Stop unless the realpath of `bd info` database_path is within `$BEADS_DIR`
+   and the socket and data paths in `$EVAL_SCRATCH/server.json` and
+   `$BEADS_DIR/metadata.json` resolve inside that same scratch directory
+   (macOS may spell `/tmp` as `/private/tmp`). The context file
    records the exact scratch and database paths on separate lines; read it in
    every new shell rather than assuming variables persist. Never link to or
    import into the live store. Copy `$EVAL_ROOT/phase-z.toml` to the new
@@ -33,6 +35,9 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    `EVAL_WORKTREE`: `npm ci --prefix .claude/skills/sprint-report/renderer`.
    If setup fails, report the exact command and error; do not run the cell.
    Copy the index to scratch: `cp "$EVAL_ROOT/plan-index.jsonl" "$EVAL_SCRATCH/plan-index.jsonl"`.
+   If `$EVAL_WORKTREE/docs/plans/phase-z.jsonl` exists or is a symlink, stop.
+   Otherwise link that path to the scratch index; `bead-groups --phase z`
+   reads the plan path from phase-z.toml when the planner adds a sprint.
    Import the fixture with `bd import -i "$EVAL_ROOT/fixture-plan.jsonl"`.
 2. Read `.claude/skills/plan-hardening/SKILL.md`, run exactly one iteration (`iteration=1`, `iterations=1`) and the
    final formula. Use the supplied planner, dispatcher and lead identities. For every step, use one background general-purpose subagent at the cell model; the planner fix steps also use subagents. Each subagent claims and closes its step bead and runs no ATM task or command. Set the shipped step-template vars `beads_dir` to
@@ -40,6 +45,9 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    to `$EVAL_SCRATCH/plan-index.jsonl` on every step. These rendered instructions
    carry cwd and database to agents; do not prepend or alter the rendered prompt.
    Pass `--index "$EVAL_SCRATCH/plan-index.jsonl"` to validate-plan and sprint-review.
+   If validate-plan reports `proxy.doctor.unsupported`, use the rendered step
+   template's one-time `--no-doctor` fallback and retain the original error
+   (atm-bd-orchestration#807); do not skip any other failure.
    Save their full output and exit status immediately after each command. Nonzero
    means the step fails and is reported, never a passing result. If a fix step
    fails, do not run the final formula: capture the failed checker result and
@@ -48,11 +56,12 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
    capture its complete output and exit status. A failure is a failed cell.
 4. Only after the final formula completes and evidence is saved, squash the
    evaluation wisps. On an aborted run, do not squash or delete the scratch
-   database: stop Dolt, retain the database and context file as evidence, and
+   database: stop the private server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`, retain the database and context file as evidence, and
    report their exact paths. Do not run `bd delete`.
-   On a completed run, remove only the phase-z.toml and context file you copied, stop this cell's Dolt server with
-   `BEADS_DIR="$BEADS_DIR" bd dolt stop`, and delete only the private database
-   directory `$EVAL_SCRATCH/.beads` after unlinking the worktree symlink and confirming it is beneath the exact
+   On a completed run, unlink the worktree plan-index symlink, remove only
+   the phase-z.toml and context file you copied, stop this cell's server with `python3 "$EVAL_ROOT/db-server.py" stop "$EVAL_SCRATCH"`,
+   and delete only `$EVAL_SCRATCH/.beads` and `$EVAL_SCRATCH/data` after
+   unlinking the worktree symlink and confirming both are beneath the exact
    `mktemp` directory you created. Preserve outputs and digest IDs in scratch.
 5. Tell the caller the check exit status, output and cleanup result. Remain
    available for the caller's post-run questions; do not answer them early.
