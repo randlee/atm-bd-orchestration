@@ -136,7 +136,7 @@ The planner fixes or rebuts it; the filing pass verifies and closes it.
 
 ## Filing reviewer output
 
-The runner converts reviewer JSON to the step template's filing array in
+For scope and critical, the runner converts JSON to the step template's filing array in
 one way: concatenate `findings` and `minor_wording`, then copy only `title`,
 `description`, `severity` and `plan_bead` from every entry. File both arrays,
 including Minor wording findings; do not drop `minor_wording`. The canonical
@@ -144,6 +144,35 @@ including Minor wording findings; do not drop `minor_wording`. The canonical
 `issue`, `required_correction` and `target_refs` fields are diagnostic context,
 not alternative filing fields. The runner does not infer canonical fields
 from those extras. Both reviewer agents use this mapping.
+
+### Ceremony output
+
+For ceremony-qa's `doc_review` input, capture each plan bead with
+`bd show <id> --json > <scratch>/<id>.json`. Set `worktree_path` to the
+checkout and `review_targets` to those capture paths. Findings cite a capture
+in `file`; its `[0].id` is the cited bead id. Do not infer ids from filenames.
+
+| Reviewer | Source findings | Filing mapping | Step verdict |
+| --- | --- | --- | --- |
+| ceremony-qa | `data.findings` | `title=issue`; `description=issue + " " + recommendation`; capitalize `severity`; `plan_bead` is the cited capture's bead id | FAIL when `data.status=findings` has an `important` finding; otherwise PASS |
+
+Set `review_output` to the reviewer's JSON file and `findings_file` to the
+step template's findings-array path. Run this adapter before the filing
+block. A reviewer error (`success:false`) stops the step; propagate its error.
+An empty converted array needs no filing block. Use the printed verdict for
+the step close.
+
+```bash
+# Ceremony filing adapter
+set -euo pipefail
+jq -e '.success == true' "$review_output" >/dev/null
+jq -c '.data.findings[]' "$review_output" | while IFS= read -r finding; do
+  capture=$(jq -er '.file' <<<"$finding")
+  plan_bead=$(jq -er '.[0].id' "$capture")
+  jq -c --arg bead "$plan_bead" '{title:.issue, description:(.issue + " " + .recommendation), severity:(.severity | (.[0:1] | ascii_upcase) + .[1:]), plan_bead:$bead}' <<<"$finding"
+done | jq -s '.' >"$findings_file"
+jq -r 'if .data.status == "findings" and any(.data.findings[]; .severity == "important") then "FAIL" else "PASS" end' "$review_output"
+```
 
 ## Planner with subagents
 

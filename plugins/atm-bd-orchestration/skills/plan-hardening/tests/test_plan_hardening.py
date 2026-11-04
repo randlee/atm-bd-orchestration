@@ -293,3 +293,38 @@ def test_finding_batch_validates_before_creating(rendered, tmp_path, batch):
     else:
         assert result.returncode == 0, result.stderr
         assert len(writes.read_text().splitlines()) == 2
+
+
+@pytest.mark.parametrize("severity,verdict", [("important", "FAIL"), ("minor", "PASS")])
+def test_ceremony_output_files_through_step(rendered, tmp_path, severity, verdict):
+    _, text = rendered
+    adapter = re.search(r"```bash\n(# Ceremony filing adapter.*?)```", skill_text(), re.S)
+    filing = re.search(r"```bash\n(set -euo pipefail\nSTEP=.*?)```", text, re.S)
+    assert adapter is not None and filing is not None
+    capture = tmp_path / "plan.json"
+    capture.write_text(json.dumps([{"id": "atm-d-1", "description": "Plan text"}]))
+    issue, recommendation = "Redundant checklist", "Remove the duplicate checklist."
+    review = {"success": True, "data": {"status": "findings", "findings": [{"id": "CQA-F001", "severity": severity, "class": "redundant_enforcement", "file": str(capture), "line": 1, "issue": issue, "recommendation": recommendation, "evidence": "Already enforced"}]}, "error": None}
+    output = tmp_path / "ceremony.json"
+    output.write_text(json.dumps(review))
+    findings = tmp_path / "atm-wisp-2ha-findings.json"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    bd = bin_dir / "bd"
+    bd.write_text('#!/usr/bin/env python3\nimport json, os, sys\nif sys.argv[1] == "show":\n    print(json.dumps([{"metadata":{"pass":"ceremony"}}]))\nelif sys.argv[1] == "create":\n    with open(os.environ["BD_WRITES"], "a") as log:\n        log.write(json.dumps(sys.argv[1:]) + "\\n")\n    print(json.dumps({"id":"created-fix"}))\nelse:\n    sys.exit(64)\n')
+    bd.chmod(0o755)
+    writes = tmp_path / "writes.jsonl"
+    env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "TMPDIR": str(tmp_path), "BD_WRITES": str(writes)}
+    script = 'review_output="$1"; findings_file="$2";\n' + adapter.group(1) + filing.group(1)
+    result = subprocess.run(["bash", "-c", script, "ceremony", str(output), str(findings)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == verdict
+    canonical = {"title": issue, "description": issue + " " + recommendation, "severity": severity.capitalize(), "plan_bead": "atm-d-1"}
+    assert json.loads(findings.read_text()) == [canonical]
+    args, = [json.loads(line) for line in writes.read_text().splitlines()]
+    assert args[:2] == ["create", issue]
+    assert args[args.index("--description") + 1] == canonical["description"]
+    metadata = json.loads(args[args.index("--metadata") + 1])
+    assert metadata["pass"] == "ceremony"
+    assert metadata["severity"] == canonical["severity"]
+    assert metadata["plan_bead"] == "atm-d-1"
