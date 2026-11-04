@@ -305,8 +305,10 @@ def test_skill_limits_runner_writes_to_template_commands():
         "close\nverified fix beads or update their notes",
         "may also update plan beads and, only through the add-sprint path below",
         "corresponding dev-to-sanity `blocks` edges",
-        "A direct `bd create` of a sprint, any other `bd` write, or any `git` write\nfails the step",
-        "reviewer agents remain read-only",
+        "`bd create` of a sprint or any other `bd` write fails the step",
+        "only permitted `git` write is in a planner fix step",
+        "template specifies no PR",
+        "Reviewer agents remain read-only",
     ):
         assert clause in text
 
