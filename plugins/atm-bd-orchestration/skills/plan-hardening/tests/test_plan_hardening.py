@@ -381,6 +381,19 @@ def test_formulas_are_vapor(formulas):
     assert all(formula["phase"] == "vapor" for formula in formulas.values())
 
 
+def test_final_verify_returns_unresolved_findings_for_one_repair_round(formulas):
+    verify = next(step for step in formulas["final"]["steps"] if step["id"] == "verify")
+    description = verify["description"]
+    assert "every unresolved Blocking or Important" in description
+    assert "still wrong" in description and "source citation" in description
+    assert "only this one repair round" in description
+    assert "PASS when no Blocking or Important" in description
+    skill = (SKILL / "SKILL.md").read_text()
+    assert "reopen the final fix step" in skill
+    assert "dispatch verify to re-check each returned finding" in skill
+    assert "only one such repair round" in skill
+
+
 def test_iteration_review_steps_are_parallel(formulas):
     steps = {step["id"]: step for step in formulas["iteration"]["steps"]}
     assert not steps["scope"].get("needs")

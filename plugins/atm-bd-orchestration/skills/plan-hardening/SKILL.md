@@ -200,6 +200,13 @@ or reopens it if unresolved or a citation is wrong. Verification files no new fi
 [the adversarial reference](references/adversarial-plan-hardening.md). Confirm
 its expected result against the current plan or a cited design rebuttal;
 leave a missing check or unresolved result open with a note.
+Before final verify closes, return every unresolved Blocking or Important
+finding once to the planner with its `still wrong` note. Keep verify open;
+after its prior runner stops, reopen the final fix step and dispatch the
+planner to fix or rebut each returned finding with a source citation. Once that
+fix step closes, dispatch verify to re-check each returned finding against the
+plan and citation. Permit only one such repair round; then close verify PASS
+if none remain open, or FAIL and send the remaining findings to plan review.
 
 After the final formula passes, verify the Git common directory and the
 selected `cache_path` resolve within the worktree before rendering. The cache
@@ -224,7 +231,7 @@ filtered on `metadata.root` for the phase root. Retain the parent wisp ids for
 the final squash. Retry a step only while its bead is open; ensure the previous
 runner has stopped before reopening or dispatching it, and never run two copies
 of a step concurrently. A closed step is not retried except when verification
-returns unruled findings to the planner fix step as described below; reopen it
+returns unresolved findings to the planner fix step as described above; reopen it
 only after its prior runner has stopped. The filing block reuses
 an existing finding with the same step, title, description, severity and plan
 bead, including closed findings, and files only missing entries from a partial
