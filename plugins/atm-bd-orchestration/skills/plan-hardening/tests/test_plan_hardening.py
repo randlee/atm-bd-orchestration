@@ -62,7 +62,7 @@ def test_step_template_refuses_other_runner(tmp_path):
     (tmp_path / "vars.json").write_text(json.dumps(variables))
     result = run("sc-compose", "render", "--strict", "--file", str(source), "--var-file", str(tmp_path / "vars.json"), "--output", "output.xml", cwd=tmp_path)
     assert result.returncode != 0
-    assert "template rendering failed: invalid operation: invalid float literal" in result.stderr
+    assert "runner_must_be_teammate_or_subagent" in result.stderr
     assert not (tmp_path / "output.xml").exists()
 
 

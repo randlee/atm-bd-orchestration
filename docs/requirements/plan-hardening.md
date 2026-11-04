@@ -63,11 +63,12 @@ Contract: atm-core `develop`, `docs/plans/phase-bp/contract/README.md`.
     Give iteration-2 adversaries different tasks targeted at discovered
     weaknesses or previously uncovered areas; record each area in the title.
 21. Preserve the three proven formulas and two example files byte for byte.
-    The step template has three approved changes: validate the whole finding
+    The step template has four approved changes: validate the whole finding
     array before the first create; return typed success/error envelopes with
-    failure handling; and guard step, root, planner and actor values before
-    shell interpolation. Ship the skill, rules, requirements and tests
-    through the generated package manifest;
+    failure handling; guard step, root, planner and actor values before shell
+    interpolation; and identify invalid runner values with a named strict
+    refusal guard. Ship the skill, rules, requirements and tests through the
+    generated package manifest;
     orchestration hooks, scripts and Plan Gate remain outside this skill.
 
 ## Unresolved
