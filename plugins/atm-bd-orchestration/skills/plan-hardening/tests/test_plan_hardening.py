@@ -451,3 +451,68 @@ def test_ceremony_output_files_through_step(rendered, tmp_path, severity, verdic
     assert metadata["pass"] == "ceremony"
     assert metadata["severity"] == canonical["severity"]
     assert metadata["plan_bead"] == "atm-d-1"
+def test_eval_prompts_have_post_run_questions():
+    questions = (
+        "Which instruction was unclear?",
+        "Where did you guess?",
+        "Which instruction did you skip or reinterpret, and why?",
+        "What did you need but not have?",
+        "What would you change?",
+    )
+    for runner in ("subagent", "teammate"):
+        text = (SKILL / "evals" / f"{runner}.md").read_text()
+        assert "## Post-run questions" in text
+        assert all(question in text for question in questions)
+        assert "bd import" in text and "check.sh eval-phase-z" in text
+
+
+def test_eval_check_script_rejects_missing_fix_bead(tmp_path):
+    bd = tmp_path / "bd"
+    bd.write_text('''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+scenario = os.environ.get("EVAL_SCENARIO", "ok")
+if args[0] == "list" and "--parent" in args:
+    ids = ["eval-z-1", "eval-z-2", "eval-z-3", "eval-z-4"]
+    if scenario == "missing_fix": ids.pop()
+    print(json.dumps([{"metadata": {"plan_bead": x}} for x in ids]))
+elif args[0] == "list":
+    rows = [("scope", "1"), ("critical", "1"), ("fix", "1"),
+            ("ceremony", "final"), ("fix", "final"), ("verify", "final")]
+    print(json.dumps([{"id": f"step-{i}", "metadata": {"root": "eval-phase-z", "pass": p, "iteration": n}}
+                      for i, (p, n) in enumerate(rows)]))
+elif args[0] == "show":
+    reason = "not a verdict" if scenario == "bad_verdict" else "VERDICT=PASS filed=none verified=none"
+    print(json.dumps([{"status": "closed", "close_reason": reason}]))
+else:
+    sys.exit(1)
+''')
+    atm = tmp_path / "atm"
+    atm.write_text('''#!/usr/bin/env python3
+import json, os
+runner = os.environ["EVAL_RUNNER"]
+scenario = os.environ.get("EVAL_SCENARIO", "ok")
+events = []
+if runner == "teammate":
+    events = [{"event": "started"}, {"event": "completed"}]
+    if scenario == "no_start": events = [{"event": "completed"}]
+elif scenario == "rogue_task":
+    events = [{"event": "assigned"}]
+print(json.dumps({"events": events, "handoffs": []}))
+''')
+    bd.chmod(0o755)
+    atm.chmod(0o755)
+    script = SKILL / "evals/check.sh"
+
+    def check(runner: str, scenario: str = "ok") -> subprocess.CompletedProcess[str]:
+        env = {**os.environ, "BD": str(bd), "ATM": str(atm), "EVAL_RUNNER": runner, "EVAL_SCENARIO": scenario}
+        return subprocess.run([str(script), "eval-phase-z", runner], env=env, capture_output=True, text=True, check=False)
+
+    for runner in ("teammate", "subagent"):
+        assert check(runner).returncode == 0
+        missing = check(runner, "missing_fix")
+        assert missing.returncode != 0 and "eval-z-4" in missing.stderr
+        assert check(runner, "bad_verdict").returncode != 0
+    assert check("teammate", "no_start").returncode != 0
+    assert check("subagent", "rogue_task").returncode != 0
+    assert check("bogus").returncode == 2

@@ -263,6 +263,12 @@ artifacts:
     - skills/atm-beads/tests/test_sc_render.py
     - skills/atm-beads/tests/test_validate_plan.py
     - skills/plan-hardening/SKILL.md
+    - skills/plan-hardening/evals/README.md
+    - skills/plan-hardening/evals/check.sh
+    - skills/plan-hardening/evals/fixture-plan.jsonl
+    - skills/plan-hardening/evals/planted.json
+    - skills/plan-hardening/evals/subagent.md
+    - skills/plan-hardening/evals/teammate.md
     - skills/plan-hardening/examples/plan-hardening-step-subagent-vars.json
     - skills/plan-hardening/examples/plan-hardening-step-teammate-vars.json
     - skills/plan-hardening/formulas/plan-hardening-adversary.formula.toml.j2
