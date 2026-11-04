@@ -213,3 +213,40 @@ def test_reviewer_output_filing_adapter():
         output = next(block for block in blocks if "findings" in block)
         for entry in output["findings"] + output["minor_wording"]:
             assert {"title", "description", "severity", "plan_bead"} <= entry.keys()
+
+
+def adversary_guard_request(tmp_path, area, task):
+    source = SKILL / "formulas/plan-hardening-adversary.formula.toml.j2"
+    (tmp_path / "input.j2").write_bytes(source.read_bytes())
+    request = {"schema": "sc-compose/beads/v1", "operation": "render", "working_directory": str(tmp_path), "template": "input.j2", "rendered_formula": "output.formula.toml", "bead_variables": {}, "compose_variables": {"root": "atm-phase-d", "phase": "d", "iteration": "1", "planner": "fenix", "area": area, "task": task}}
+    path = tmp_path / "request.json"
+    path.write_text(json.dumps(request))
+    return path
+
+
+def adversary_guard(tmp_path, request, prefix):
+    # Execute the documented guard itself; no real bd/ATM command is run.
+    command = next(line.strip() for line in adversarial_text().splitlines() if line.strip().startswith(prefix))
+    return run("bash", "-c", 'request="$1"; rendered_formula="$2"; ' + command, "guard", str(request), str(tmp_path / "output.formula.toml"), cwd=tmp_path)
+
+
+@pytest.mark.parametrize("task", ['Check """ broken', r"Check C:\invalid\q"])
+def test_adversary_rejects_invalid_rendered_toml(tmp_path, task):
+    request = adversary_guard_request(tmp_path, "lead", task)
+    rendered = run("sc-compose", "bead", "render", "--request", str(request), "--json", cwd=tmp_path)
+    assert rendered.returncode == 0, rendered.stdout + rendered.stderr
+    assert adversary_guard(tmp_path, request, "python3 -c").returncode != 0
+
+
+@pytest.mark.parametrize("area", ['bad"slug', "bad/slug", "Bad Slug"])
+def test_adversary_rejects_non_slug_area(tmp_path, area):
+    request = adversary_guard_request(tmp_path, area, "Check boundaries.")
+    assert adversary_guard(tmp_path, request, "jq -e").returncode != 0
+
+
+def test_adversary_guards_accept_valid_request(tmp_path):
+    request = adversary_guard_request(tmp_path, "repo-sc-compose", "Check boundaries.")
+    assert adversary_guard(tmp_path, request, "jq -e").returncode == 0
+    rendered = run("sc-compose", "bead", "render", "--request", str(request), "--json", cwd=tmp_path)
+    assert rendered.returncode == 0, rendered.stdout + rendered.stderr
+    assert adversary_guard(tmp_path, request, "python3 -c").returncode == 0
