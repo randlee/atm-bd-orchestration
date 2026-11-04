@@ -48,7 +48,7 @@ def test_dispatch_carrier_delivers_paths(tmp_path: Path, evidence: str):
 
 def test_filing_reuses_existing_findings_with_stderr_warning(rendered, tmp_path: Path):
     _, prompt = rendered
-    block = prompt.split('STEP=\'atm-wisp-2ha\'', 1)[1].split("\n```", 1)[0]
+    block = prompt.split('STEP=\'atm-wisp-2ha\'', 1)[1].split("\nATM_STEP", 1)[0]
     block = "set -euo pipefail\nSTEP='atm-wisp-2ha'" + block
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -115,22 +115,29 @@ def test_step_template_carries_isolated_context(rendered):
     assert 'filed=' in text and 'stage:plan-hardening --include-ephemeral --all' in text
 
 
-def test_step_filing_enumeration_executes(rendered, tmp_path):
+@pytest.mark.parametrize("shell", ["bash", "zsh"])
+def test_step_filing_enumeration_executes(rendered, tmp_path, shell):
     _, text = rendered
     command = text.split("filing reported by earlier steps", 1)[1].split("```bash", 1)[1].split("```", 1)[0]
+    command = command.replace("cd '/tmp/worktree'", f"cd '{tmp_path}'").replace("/tmp/eval-scratch/atm-wisp-2ha", str(tmp_path))
     bd = tmp_path / "bd"
     rows = [
         {"metadata": {"root": "atm-phase-d"}, "close_reason": "VERDICT=FAIL filed=one,two verified=none"},
         {"metadata": {"root": "other"}, "close_reason": "filed=wrong"},
         {"metadata": {"root": "atm-phase-d"}, "close_reason": "VERDICT=PASS filed=none"},
     ]
-    bd.write_text("#!/bin/sh\nprintf '%s\\n' " + "'" + json.dumps(rows) + "'\n")
+    bd.write_text("#!/bin/sh\ncase \"$*\" in *stage:plan-fix*) printf '%s\\n' '[{\"id\":\"one\"},{\"id\":\"two\"}]' ;; *) printf '%s\\n' " + "'" + json.dumps(rows) + "' ;; esac\n")
     bd.chmod(0o755)
-    result = subprocess.run(["bash", "-o", "pipefail", "-c", command], cwd=tmp_path,
+    result = subprocess.run([shell, "-c", f"export PATH='{tmp_path}:'$PATH\n" + command], cwd=tmp_path,
                             env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ["one", "two"]
+    bd.write_text(bd.read_text().replace('{"id":"two"}', '{"id":"different"}'))
+    missing = subprocess.run([shell, "-c", f"export PATH='{tmp_path}:'$PATH\n" + command], cwd=tmp_path,
+                             env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
+                             capture_output=True, text=True, check=False)
+    assert missing.returncode != 0 and "two" in missing.stderr
 
 
 @pytest.mark.parametrize("field", ["workdir", "beads_dir", "plan_index", "scratch_dir", "cache_path", "policy_path"])
@@ -218,6 +225,7 @@ def test_finding_block_resumes_partial_batch_without_duplicates(rendered, tmp_pa
     _, text = rendered
     block = next(block for block in re.findall(r"```bash\n(.*?)\n```", text, re.S)
                  if "STEP='atm-wisp-2ha'" in block)
+    block = block.replace("cd '/tmp/worktree'", f"cd '{tmp_path}'").replace("/tmp/eval-scratch/atm-wisp-2ha", str(tmp_path))
     bindir = tmp_path / "bin"
     bindir.mkdir()
     bd = bindir / "bd"
@@ -548,8 +556,8 @@ def test_adversary_guards_accept_valid_request(tmp_path):
 @pytest.mark.parametrize("batch", ["invalid_later", "valid"])
 def test_finding_batch_validates_before_creating(rendered, tmp_path, batch):
     _, text = rendered
-    script = re.search(r"```bash\n(set -euo pipefail\nSTEP=.*?)```", text, re.S)
-    assert script is not None
+    script = next(block for block in re.findall(r"```bash\n(.*?)\n```", text, re.S) if "STEP='atm-wisp-2ha'" in block)
+    script = script.replace("cd '/tmp/worktree'", f"cd '{tmp_path}'").replace("/tmp/eval-scratch/atm-wisp-2ha", str(tmp_path))
     valid = {"title": "Correct ownership", "description": "Name the owner", "severity": "Important", "plan_bead": "atm-d-1"}
     findings = [valid, {**valid, "title": "" if batch == "invalid_later" else "Correct scope"}]
     (tmp_path / "atm-wisp-2ha-findings.json").write_text(json.dumps(findings))
@@ -560,7 +568,7 @@ def test_finding_batch_validates_before_creating(rendered, tmp_path, batch):
     bd.chmod(0o755)
     writes = tmp_path / "writes.txt"
     env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "TMPDIR": str(tmp_path), "BD_WRITES": str(writes)}
-    result = subprocess.run(["bash", "-c", script.group(1)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False)
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False)
     if batch == "invalid_later":
         assert result.returncode != 0
         assert not writes.exists(), "An invalid batch must not create its valid prefix"
@@ -573,8 +581,9 @@ def test_finding_batch_validates_before_creating(rendered, tmp_path, batch):
 def test_ceremony_output_files_through_step(rendered, tmp_path, severity, verdict):
     _, text = rendered
     adapter = re.search(r"```bash\n(# Ceremony filing adapter.*?)```", skill_text(), re.S)
-    filing = re.search(r"```bash\n(set -euo pipefail\nSTEP=.*?)```", text, re.S)
-    assert adapter is not None and filing is not None
+    filing = next(block for block in re.findall(r"```bash\n(.*?)\n```", text, re.S) if "STEP='atm-wisp-2ha'" in block)
+    filing = filing.replace("cd '/tmp/worktree'", f"cd '{tmp_path}'").replace("/tmp/eval-scratch/atm-wisp-2ha", str(tmp_path))
+    assert adapter is not None
     capture = tmp_path / "plan.json"
     capture.write_text(json.dumps([{"id": "atm-d-1", "description": "Plan text"}]))
     issue, recommendation = "Redundant checklist", "Remove the duplicate checklist."
@@ -589,7 +598,7 @@ def test_ceremony_output_files_through_step(rendered, tmp_path, severity, verdic
     bd.chmod(0o755)
     writes = tmp_path / "writes.jsonl"
     env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "TMPDIR": str(tmp_path), "BD_WRITES": str(writes)}
-    script = 'review_output="$1"; findings_file="$2";\n' + adapter.group(1) + filing.group(1)
+    script = 'review_output="$1"; findings_file="$2";\n' + adapter.group(1) + filing
     result = subprocess.run(["bash", "-c", script, "ceremony", str(output), str(findings)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[0] == verdict
@@ -661,7 +670,15 @@ import json, os, sys
 args = sys.argv[1:]
 scenario = os.environ.get("EVAL_SCENARIO", "ok")
 if args[0] == "list" and "stage:sprint" in args:
-    print(json.dumps([{"id": f"atm-qx-{i}"} for i in range(1, 5)]))
+    rows = [{"id": f"atm-qx-{i}", "status": "open"} for i in range(1, 5)]
+    if scenario in ("closed_sprint", "closed_no_reason", "closed_with_group"):
+        rows[2]["status"] = "closed"
+        rows[2]["close_reason"] = "removed with scope absorbed" if scenario != "closed_no_reason" else " "
+    print(json.dumps(rows))
+elif args[0] == "list" and "--parent" in args and args[args.index("--parent") + 1].startswith("atm-qx-"):
+    sprint = args[args.index("--parent") + 1]
+    absent = scenario == "missing_group" or (sprint == "atm-qx-3" and scenario in ("closed_sprint", "closed_no_reason"))
+    print(json.dumps([] if absent else [{"id": sprint + ".group-" + role} for role in ("dev", "sanity", "qa")]))
 elif args[0] == "list" and "--parent" in args:
     ids = ["atm-qx-1", "atm-qx-2", "atm-qx-3", "atm-qx-4"]
     if scenario == "missing_fix": ids.pop()
@@ -714,6 +731,9 @@ print(json.dumps({"events": events, "handoffs": []}))
         assert check(runner, "missing_accounting").returncode != 0
         assert check(runner, "unfiled").returncode != 0
         assert check(runner, "missing_group").returncode != 0
+        assert check(runner, "closed_sprint").returncode == 0
+        assert check(runner, "closed_no_reason").returncode != 0
+        assert check(runner, "closed_with_group").returncode != 0
         assert check(runner, "partial").returncode != 0
         assert check(runner, "mixed").returncode != 0
         unfixed = check(runner, "unfixed")

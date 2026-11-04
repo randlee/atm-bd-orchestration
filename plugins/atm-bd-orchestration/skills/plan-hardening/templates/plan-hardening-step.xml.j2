@@ -75,10 +75,12 @@ This template starts, records and
 closes the step.
 
 For evidence-bearing commands, use this portable capture idiom, once per
-command with a distinct name; it records output and exit status and preserves
+command with a distinct name. Define the function inside the same Bash heredoc
+as each command, because separate blocks run in separate shells; it records output and exit status and preserves
 the command's failure for the caller (no shell-specific PIPESTATUS):
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 capture() {
   name=$1; shift
   if "$@" >"$TMPDIR/$name.out" 2>&1; then rc=0; else rc=$?; fi
@@ -86,11 +88,14 @@ capture() {
   printf '%s\n' "$rc" >"$TMPDIR/$name.exit"
   return "$rc"
 }
+ATM_STEP
+)
 ```
 
 1. Start:
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
 cd '{{ workdir }}'
 export BEADS_DIR='{{ beads_dir }}'
@@ -99,29 +104,48 @@ mkdir -p "$TMPDIR"
 {% if teammate %}atm task start {{ step }} "plan-hardening step {{ step }}"
 {% endif %}bd update {{ step }} --claim --actor {{ actor }}
 bd show {{ step }} --json | jq -er '.[0].description'
+ATM_STEP
+)
 ```
 
 2. Read the plan when the step reviews it:
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
 bd show {{ root }} --json | jq -e '.[0] | {id, title, description, design, acceptance_criteria}'
 bd list --parent {{ root }} -l stage:sprint -n 0 --json \
   | jq -e '[.[] | {id, title, description, design, acceptance_criteria, metadata}]'
+ATM_STEP
+)
 ```
 
 3. Do what the step description says. In a fix or verify step enumerate every
    filing reported by earlier steps before filtering the fix beads:
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
+set -euo pipefail
+mkdir -p "$TMPDIR"
 bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0 --json |
   jq -r --arg root '{{ root }}' '.[] | select(.metadata.root == $root) |
     (.close_reason // "") | (try capture("(?:^|[[:space:]])filed=(?<ids>[^[:space:]]+)").ids catch empty) |
-    select(. != "none") | split(",")[]'
+    select(. != "none") | split(",")[]' >"$TMPDIR/filed-ids.txt"
+bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json >"$TMPDIR/fix-beads.json"
+jq -Rn '[inputs]' <"$TMPDIR/filed-ids.txt" >"$TMPDIR/filed-ids.json"
+jq -rn --slurpfile filed "$TMPDIR/filed-ids.json" --slurpfile fixes "$TMPDIR/fix-beads.json" \
+  '$filed[0] - [$fixes[0][].id] | .[]' >"$TMPDIR/missing-filed-ids.txt"
+if [ -s "$TMPDIR/missing-filed-ids.txt" ]; then
+  cat "$TMPDIR/missing-filed-ids.txt" >&2
+  exit 1
+fi
+cat "$TMPDIR/filed-ids.txt"
+ATM_STEP
+)
 ```
 
-   Compare these IDs with `bd list --parent {{ root }} -l stage:plan-fix
-   --all -n 0 --json`; if any are absent, fail and report the missing IDs.
+   The command compares the filed IDs with all fix beads and fails with the
+   missing IDs; do not compose a separate lookup filter.
    Every applied fix must cite its finding and a REQ, ADR or existing plan
    source; otherwise rebut it as `unsupported by <source>`. A source is a
    REQ, ADR, or existing plan line, not the finding itself. For a ceremony
@@ -169,6 +193,7 @@ the latter is allowed only for a user or Rand decision no source or rule
 settles and must remain open. Partial or mixed dispositions fail:
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
 bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json |
   jq -r '.[].id' | while IFS= read -r id; do
@@ -178,6 +203,8 @@ bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json |
         echo "finding $id lacks a valid disposition" >&2; exit 1;
       }
   done
+ATM_STEP
+)
 ```
 
 For an approved new sprint, the planner prepares `SPRINT_VARS` as the JSON
@@ -186,6 +213,7 @@ variables for `sprint-bead.json.j2`, `SPRINT_NAME` as its name and
 with the supplied BEADS_DIR and TMPDIR, run these commands:
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
 PLAN_INDEX='{{ plan_index }}'
 if [ "$PLAN_INDEX" = integration ]; then
@@ -198,6 +226,8 @@ bd import -i "$TMPDIR/sprint.jsonl"
 jq -cn --arg sprint "$SPRINT_NAME" --argjson depends_on "$DEPS_JSON" \
   '{sprint:$sprint,depends_on:$depends_on}' >> "$PLAN_INDEX"
 # Do not pour groups during hardening; pour once after the final formula passes.
+ATM_STEP
+)
 ```
 
 For a changed prerequisite of an existing sprint, update the index first;
@@ -217,6 +247,7 @@ run validate-plan. A failed command is an execution failure, not a PASS.
    `plan_bead` (the bead it is about). Then run:
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
 STEP='{{ step }}'
 bd show "$STEP" --json >"$TMPDIR/$STEP-show.json" 2>"$TMPDIR/$STEP-show.stderr"
@@ -243,6 +274,8 @@ done | tee "${TMPDIR:-/tmp}/$STEP-filed.txt"
 EXPECTED=$(jq length "${TMPDIR:-/tmp}/$STEP-findings.json")
 ACTUAL=$(wc -l < "${TMPDIR:-/tmp}/$STEP-filed.txt" | tr -d " ")
 test "$EXPECTED" = "$ACTUAL" || { echo "finding filing incomplete: expected $EXPECTED, filed $ACTUAL" >&2; exit 1; }
+ATM_STEP
+)
 ```
 
    Close a fix bead you verified with
@@ -261,9 +294,12 @@ test "$EXPECTED" = "$ACTUAL" || { echo "finding filing incomplete: expected $EXP
    {{ actor }}`) and return the failure envelope instead of running this close.
 
 ```bash
+(cd '{{ workdir }}' && BEADS_DIR='{{ beads_dir }}' TMPDIR='{{ scratch_dir }}/{{ step }}' bash <<'ATM_STEP'
 set -euo pipefail
 bd close {{ step }} --actor {{ actor }} \
   --reason "VERDICT=<PASS|FAIL> detected=<count> filed=<fix bead ids, comma separated, or none> verified=<closed fix bead ids or none>"
+ATM_STEP
+)
 ```
 
 {% if teammate -%}

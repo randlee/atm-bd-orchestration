@@ -30,12 +30,23 @@ printf '%s\n' "$planted_ids" | while IFS= read -r bead; do
         exit 1
     fi
 done
-# The final pour must have created each planned sprint's dev, sanity and QA.
+# Open sprint containers need groups; closed containers need a reason and none.
 sprints=$("$BD" list --parent "$root" -l stage:sprint --all -n 0 --json)
-printf '%s\n' "$sprints" | jq -er '.[].id' | while IFS= read -r sprint; do
+if ! printf '%s\n' "$sprints" | jq -e 'type == "array" and all(.[]; if .status == "closed" then (.close_reason | type == "string" and test("[^[:space:]]")) else true end)' >/dev/null; then
+    printf '%s\n' 'closed sprint lacks a close reason' >&2
+    exit 1
+fi
+printf '%s\n' "$sprints" | jq -er '.[] | [.id, (if .status == "closed" then "closed" else "open" end)] | @tsv' | while IFS="$(printf '\t')" read -r sprint state; do
+    groups=$("$BD" list --parent "$sprint" --all -n 0 --json)
+    printf '%s\n' "$groups" | jq -e 'type == "array"' >/dev/null
     for role in dev sanity qa; do
         id="$sprint.group-$role"
-        if ! "$BD" show "$id" --json | jq -e --arg id "$id" 'length == 1 and .[0].id == $id' >/dev/null; then
+        if printf '%s\n' "$groups" | jq -e --arg id "$id" 'any(.[]; .id == $id)' >/dev/null; then
+            if [ "$state" = closed ]; then
+                printf 'closed sprint has poured group bead %s\n' "$id" >&2
+                exit 1
+            fi
+        elif [ "$state" = open ]; then
             printf 'missing poured group bead %s\n' "$id" >&2
             exit 1
         fi
