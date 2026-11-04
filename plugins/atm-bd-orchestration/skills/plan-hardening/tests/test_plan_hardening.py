@@ -389,7 +389,7 @@ def test_adversary_rejects_invalid_rendered_toml(tmp_path, task):
     request = adversary_guard_request(tmp_path, "lead", task)
     rendered = run("sc-compose", "bead", "render", "--request", str(request), "--json", cwd=tmp_path)
     assert rendered.returncode == 0, rendered.stdout + rendered.stderr
-    assert adversary_guard(tmp_path, request, "python3 -c").returncode != 0
+    assert adversary_guard(tmp_path, request, "uv run --no-project --python '>=3.11' python -c").returncode != 0
 
 
 @pytest.mark.parametrize("area", ['bad"slug', "bad/slug", "Bad Slug"])
@@ -403,7 +403,7 @@ def test_adversary_guards_accept_valid_request(tmp_path):
     assert adversary_guard(tmp_path, request, "jq -e").returncode == 0
     rendered = run("sc-compose", "bead", "render", "--request", str(request), "--json", cwd=tmp_path)
     assert rendered.returncode == 0, rendered.stdout + rendered.stderr
-    assert adversary_guard(tmp_path, request, "python3 -c").returncode == 0
+    assert adversary_guard(tmp_path, request, "uv run --no-project --python '>=3.11' python -c").returncode == 0
 
 
 @pytest.mark.parametrize("batch", ["invalid_later", "valid"])
