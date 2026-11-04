@@ -196,6 +196,19 @@ def test_skill_names_three_modes():
         assert mode in text
 
 
+def test_skill_limits_runner_writes_to_template_commands():
+    text = skill_text().split("The runner's `bd` writes are limited", 1)[1].split("## Iterations", 1)[0]
+    for clause in (
+        "claim\nand close the step",
+        "create `stage:plan-fix` beads under the root",
+        "close\nverified fix beads or update their notes",
+        "planner\nmay also update plan beads to apply the assigned fixes",
+        "Any other `bd` write\nor any `git` write fails the step",
+        "reviewer agents remain read-only",
+    ):
+        assert clause in text
+
+
 def test_skill_mode_selection():
     text = skill_text()
     for clause in ("team is idle", "no assigned work", "interrupting", "frontier model", "mid-phase replan"):
