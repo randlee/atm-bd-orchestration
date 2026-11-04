@@ -134,6 +134,17 @@ Minor), and `plan_bead`. The finding block creates a `stage:plan-fix` bead
 under the phase root assigned to the planner, preserving the filing pass.
 The planner fixes or rebuts it; the filing pass verifies and closes it.
 
+## Filing reviewer output
+
+The runner converts reviewer JSON to the step template's filing array in
+one way: concatenate `findings` and `minor_wording`, then copy only `title`,
+`description`, `severity` and `plan_bead` from every entry. File both arrays,
+including Minor wording findings; do not drop `minor_wording`. The canonical
+`description` already states the problem and exact correction. Additional
+`issue`, `required_correction` and `target_refs` fields are diagnostic context,
+not alternative filing fields. The runner does not infer canonical fields
+from those extras. Both reviewer agents use this mapping.
+
 ## Planner with subagents
 
 The planner creates every iteration and the final wisp and runs every pass
