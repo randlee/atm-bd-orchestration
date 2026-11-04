@@ -122,7 +122,7 @@ def test_skill_names_three_modes():
 
 def test_skill_mode_selection():
     text = skill_text()
-    for clause in ("no assigned work", "interrupting", "frontier model", "mid-phase replan"):
+    for clause in ("team is idle", "no assigned work", "interrupting", "frontier model", "mid-phase replan"):
         assert clause in text
 
 
