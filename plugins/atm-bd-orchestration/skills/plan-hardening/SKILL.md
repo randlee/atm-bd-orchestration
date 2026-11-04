@@ -2,6 +2,15 @@
 name: plan-hardening
 version: 0.19.12
 description: Harden a phase plan in bd before the Plan Gate, using parallel scope and critical reviews, planner fixes, and final ceremony review. Use for new plans or replans; the Plan Gate remains a separate review.
+requires:
+  cli:
+    - name: bd
+      minimum_version: 1.3.0
+    - name: atm
+    - name: sc-compose
+      minimum_version: 1.7.0
+    - name: jq
+    - name: uv
 ---
 
 # Plan Hardening
@@ -10,6 +19,21 @@ The plan is the phase root and its sprint-container beads. Read
 `.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md` for planning
 rules. This skill changes plan beads through `bd`; it adds no script or hook.
 After hardening, hand the plan to the existing [Plan Gate](../atm-bd-orchestration/SKILL.md#plan-gate) unchanged.
+
+## Step 1 — Verify CLI Installation
+
+Run this before anything else in the skill:
+
+```bash
+for c in bd atm sc-compose jq uv; do command -v "$c" >/dev/null && echo "ok $c" || echo "MISSING $c"; done
+bd version          # 1.3.0 or newer
+sc-compose --version # 1.7.0 or newer
+uv --version
+```
+
+If anything is missing or too old, **read
+[`../atm-beads/references/installation-and-troubleshooting.md`](../atm-beads/references/installation-and-troubleshooting.md)
+before proceeding.**
 
 ## Run modes
 

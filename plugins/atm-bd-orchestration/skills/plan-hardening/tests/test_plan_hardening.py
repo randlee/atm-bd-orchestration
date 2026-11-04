@@ -208,6 +208,34 @@ def test_skill_plan_gate_references_resolve_from_skill_root():
             assert target.is_file(), (document, link)
 
 
+def test_skill_declares_and_verifies_cli_dependencies_first(tmp_path):
+    text = skill_text()
+    frontmatter = yaml.safe_load(text.split("---\n", 2)[1])
+    requirements = {item["name"]: item.get("minimum_version") for item in frontmatter["requires"]["cli"]}
+    assert requirements == {"bd": "1.3.0", "atm": None, "sc-compose": "1.7.0", "jq": None, "uv": None}
+    headings = re.findall(r"^## (.+)$", text, re.MULTILINE)
+    assert headings[0] == "Step 1 — Verify CLI Installation"
+    first_block = re.search(r"```bash\n(.*?)```", text, re.S)
+    assert first_block is not None
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls.txt"
+    for name in requirements:
+        tool = bin_dir / name
+        version = requirements[name] or "1.0.0"
+        tool.write_text(f'#!/bin/sh\nprintf "%s\\n" "{name} $*" >> "$CLI_CALLS"\nprintf "%s\\n" "{name} {version}"\n')
+        tool.chmod(0o755)
+    env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "CLI_CALLS": str(calls)}
+    result = subprocess.run(["bash", "-c", first_block.group(1)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30, check=False)
+    assert result.returncode == 0, result.stderr
+    assert {line for line in result.stdout.splitlines() if line.startswith("ok ")} == {"ok " + name for name in requirements}
+    assert calls.read_text().splitlines() == ["bd version", "sc-compose --version", "uv --version"]
+    reference = "../atm-beads/references/installation-and-troubleshooting.md"
+    links = re.findall(r"\[[^\]]+\]\(([^)]+)\)", text)
+    assert reference in links
+    assert (SKILL / reference).is_file()
+
+
 def test_skill_names_three_modes():
     headings = set(re.findall(r"^## (.+)$", skill_text(), re.MULTILINE))
     assert {"Planner with subagents", "Planner with teammates", "Lead adversarial"} <= headings
