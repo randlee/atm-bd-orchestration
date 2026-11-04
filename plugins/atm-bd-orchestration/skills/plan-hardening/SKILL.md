@@ -40,6 +40,13 @@ step. It reads the reviewer agent file named by the step description as its
 review rules. Those files remain read-only: the runner executes the template's
 `bd` and `atm` commands and files the findings.
 
+The runner's `bd` writes are limited to the step template's commands: claim
+and close the step, create `stage:plan-fix` beads under the root, and close
+verified fix beads or update their notes. In planner fix steps, the planner
+may also update plan beads to apply the assigned fixes. Any other `bd` write
+or any `git` write fails the step. These write permissions belong to the
+runner; reviewer agents remain read-only.
+
 ## Iterations
 
 Default to **2 iterations**; the lead or planner may set another number.
