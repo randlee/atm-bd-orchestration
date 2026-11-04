@@ -9,6 +9,9 @@ checker hash), the independent clone as
 `EVAL_WORKTREE`, and the cell's model as `EVAL_MODEL`. Before launching a cell,
 the dispatcher must prepare that disposable clone with no `.beads` path or
 symlink; move only clone-owned setup files aside, never the live database.
+The clone may show tracked `.beads` files as deleted after setup moves them
+aside and plan-hardening files as modified after the candidate skill is
+installed. These changes are expected in the disposable clone.
 
 | Cell | Agent | Runner | Run by |
 | --- | --- | --- | --- |

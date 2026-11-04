@@ -205,14 +205,18 @@ from `bd list -l phase-<p>,stage:plan-hardening --include-ephemeral --all --json
 filtered on `metadata.root` for the phase root. Retain the parent wisp ids for
 the final squash. Retry a step only while its bead is open; ensure the previous
 runner has stopped before reopening or dispatching it, and never run two copies
-of a step concurrently. A closed step is not retried. The filing block reuses
+of a step concurrently. A closed step is not retried except when verification
+returns unruled findings to the planner fix step as described below; reopen it
+only after its prior runner has stopped. The filing block reuses
 an existing finding with the same step, title, description, severity and plan
 bead, including closed findings, and files only missing entries from a partial
 batch. Preserve the same finding input when retrying.
 
-For a recoverable fix-step execution failure, stop the failed runner, leave
-or reopen its bead, and dispatch the same step once to a fresh runner with
-the failed return and evidence attached. If the retry fails, stop the run with
+For a recoverable execution failure in any step, stop the failed runner, leave
+or reopen its bead, and dispatch that step once to a fresh runner with the
+failed return and evidence attached. If verification fails because findings
+lack planner rulings, return those findings to the planner fix step once before
+retrying verification. If the retry fails, stop the run with
 `EXECUTION.STEP_FAILED`; never start two copies concurrently.
 
 ## Dispatch
@@ -241,7 +245,7 @@ Never hand-write a step prompt.
 For a teammate, set `runner=teammate`, `actor=<agent>`, and deliver with:
 
 ```bash
-atm task assign <agent> --task-id <step> --template <skill-root>/templates/plan-hardening-step.xml.j2 --vars <vars.json>
+atm send <agent> --task-id <step> --template <skill-root>/templates/plan-hardening-step.xml.j2 --vars <vars.json>
 ```
 
 For a subagent, set `runner=subagent`. For a fix step set `actor=<planner>`
@@ -259,7 +263,8 @@ review returns `success:true` and `error:null`, including when its review
 verdict is FAIL. An execution failure returns `success:false` with error
 `code`, `message`, `recoverable`, and `suggested_action`.
 
-Require one fenced JSON object. An unfenced, missing or malformed return,
+Require one fenced JSON object and reject a missing, unfenced or malformed
+return before reading any step close reason. An unfenced, missing or malformed return,
 `success:false`, or a returned verdict differing from the step bead's
 `close_reason` (`VERDICT=PASS` or `VERDICT=FAIL`) is a failed step. Read the
 recorded reason with `bd show <step> --json`; do not trust the return alone.

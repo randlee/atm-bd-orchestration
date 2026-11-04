@@ -46,6 +46,8 @@ ln -s "$BEADS_DIR" "$EVAL_WORKTREE/.beads"
 2. Read `.claude/skills/plan-hardening/SKILL.md`, run exactly one iteration (`iteration=1`, `iterations=1`) and the
    final formula. Use the supplied planner, dispatcher and lead identities. Assign every step as an ATM task with the shipped step template and vars. Each assigned teammate starts and closes its own task and claims and closes the step bead. The planner takes the fix steps. Use two distinct step teammates for
    parallel reviews; if only one is available, run them serially and record it.
+   Run the review steps at `EVAL_MODEL`; using that cell model instead of the
+   reviewers' configured models is expected in this evaluation.
    For a fix step that cannot finish, reopen the bead and close the ATM task
    refused with the template failure envelope; do not claim it completed. Set the shipped step-template vars `beads_dir` to
    the absolute `$BEADS_DIR`, `workdir` to `$EVAL_WORKTREE`, and `plan_index`

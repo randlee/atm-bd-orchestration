@@ -101,15 +101,26 @@ bd list -l phase-{{ phase }},stage:plan-hardening --include-ephemeral --all -n 0
    finding requires structural changes (including sprints, contracts, ADRs,
    sanity beads or edges), report it to the planner in planner modes or the
    phase lead in lead-adversarial mode. The planner owns and applies the
-   structural correction before continuing; never leave it unresolved.
+   structural correction before continuing; never leave it unresolved. In planner
+   modes do not return "needs lead ruling": the planner makes the ruling.
+   Before planning a sprint or structural fix, read `.claude/skills/atm-beads/resources/planning.md` sections "Sprint Container" (sprint fields, layer,
+   and pr_target) and "New Ids", and `.claude/skills/atm-beads/resources/atm-beads-plan-guidelines.md` sections "Ownership And Dependency Relations"
+   and "Sprint Bead Shape". Apply their rules to each changed container.
+   Never run `bd delete`. To drop or merge a sprint, move its supported scope
+   into another container and close the old container with a reason, or rebut
+   the finding with a cited reason. Plan-hardening fixes never write ADR or REQ
+   files. For a missing ADR or REQ, plan the deliverable in its owning sprint
+   (usually the contract sprint), using a `NEW:` id in `metadata.adrs` for
+   an ADR as specified by atm-beads `planning.md` New Ids; alternatively
+   rebut with a cited existing ADR or requirement.
 
-Before a fix step closes PASS, run this check. Every open finding must have a
+Before a fix step closes PASS, run this check. Every finding handled by this fix must have a
 terminal `fixed:` or `rebutted:` note; partial or mixed dispositions fail:
 
 ```bash
 set -euo pipefail
 bd list --parent '{{ root }}' -l stage:plan-fix --all -n 0 --json |
-  jq -r '.[] | select(.status != "closed") | .id' | while IFS= read -r id; do
+  jq -r '.[].id' | while IFS= read -r id; do
     bd show "$id" --json | jq -e '.[0].notes | type == "string" and
       (test("(^|\\n)[[:space:]]*fixed:[[:space:]]*[^[:space:]]"; "i") != test("(^|\\n)[[:space:]]*rebutted:[[:space:]]*[^[:space:]]"; "i")) and
       (test("in part|partial"; "i") | not)' >/dev/null || {
@@ -212,8 +223,10 @@ bd close {{ step }} --actor {{ actor }} \
 ```
 
 If execution failed, return this envelope with the actual error and a
-specific recovery action. `recoverable` is true only when that action can
-recover this step. {% if teammate %}Close the task with this fenced report
+specific recovery action. An unruled finding is recoverable: return it to
+the planner for a ruling; never mark that failure non-recoverable.
+`recoverable` means the planner can finish with its permitted writes;
+an unruled finding always meets that condition. {% if teammate %}Close the task with this fenced report
 using `atm task close {{ step }} refused --stdin`; this also applies to a
 planner fix step that cannot finish. Do not run the completed close.{% else %}Run no ATM command.{% endif %}
 
