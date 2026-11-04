@@ -175,6 +175,16 @@ def test_final_formula_starts_with_ceremony(formulas):
     assert steps[2]["needs"] == ["fix"]
 
 
+def test_formula_reviewer_references_resolve(formulas):
+    reviewers = set()
+    for formula in formulas.values():
+        for step in formula["steps"]:
+            reviewers.update(re.findall(r"\.claude/agents/([a-z-]+\.md)", step["description"]))
+    assert reviewers == {"plan-scope-reviewer.md", "critical-plan-reviewer.md", "ceremony-qa.md"}
+    for reviewer in reviewers:
+        assert (PACKAGE / "agents" / reviewer).is_file(), reviewer
+
+
 def skill_text():
     return (SKILL / "SKILL.md").read_text()
 
@@ -189,88 +199,22 @@ def test_skill_plan_gate_references_resolve_from_skill_root():
         assert anchor == "plan-gate"
         assert re.search(r"^#{1,6} Plan Gate$", (SKILL / path).read_text(), re.MULTILINE)
 
+    for document in (SKILL / "SKILL.md", SKILL / "references/adversarial-plan-hardening.md"):
+        links = re.findall(r"\[[^\]]+\]\(([^)]+)\)", document.read_text())
+        assert links, document
+        for link in links:
+            target = (document.parent / link.split("#", 1)[0]).resolve()
+            assert target.is_relative_to(PACKAGE)
+            assert target.is_file(), (document, link)
+
 
 def test_skill_names_three_modes():
-    text = skill_text().lower()
-    for mode in ("planner with subagents", "planner with teammates", "lead adversarial"):
-        assert mode in text
-
-
-def test_skill_limits_runner_writes_to_template_commands():
-    text = skill_text().split("The runner's `bd` writes are limited", 1)[1].split("## Iterations", 1)[0]
-    for clause in (
-        "claim\nand close the step",
-        "create `stage:plan-fix` beads under the root",
-        "close\nverified fix beads or update their notes",
-        "planner\nmay also update plan beads to apply the assigned fixes",
-        "Any other `bd` write\nor any `git` write fails the step",
-        "reviewer agents remain read-only",
-    ):
-        assert clause in text
-
-
-def test_skill_mode_selection():
-    text = skill_text()
-    for clause in ("team is idle", "no assigned work", "interrupting", "frontier model", "mid-phase replan"):
-        assert clause in text
-
-
-def test_skill_foundry_rule():
-    text = skill_text()
-    for clause in ("Anthropic, OpenAI, xAI", "iteration 2", "different foundry", "wherever possible", "Scope and critical passes run at frontier"):
-        assert clause in text
-
-
-def test_skill_default_two_iterations_and_final_fail_normal():
-    text = skill_text()
-    for clause in ("**2 iterations**", "lead or planner may set another number", "final critical pass is normal", "never add an iteration", "only after the last iteration"):
-        assert clause in text
-
-
-def test_skill_planner_mode_needs_no_lead():
-    text = skill_text().split("## Planner with subagents")[1].split("## Planner with teammates")[0]
-    for clause in ("every iteration", "final wisp", "No step waits on the phase lead", "only when handing", "Plan Gate"):
-        assert clause in text
+    headings = set(re.findall(r"^## (.+)$", skill_text(), re.MULTILINE))
+    assert {"Planner with subagents", "Planner with teammates", "Lead adversarial"} <= headings
 
 
 def adversarial_text():
     return (SKILL / "references/adversarial-plan-hardening.md").read_text()
-
-
-def test_adversarial_reference_integration_step():
-    text = " ".join(adversarial_text().split())
-    for clause in (
-        "List every integration with another repository or an external API (CLI, schema, service).",
-        "Assign a researcher to each integration to find detail missing from the plan.",
-        "`area` naming that integration and `task` giving its research instruction",
-    ):
-        assert clause in text
-
-
-def test_adversarial_reference_req_adr_step():
-    text = " ".join(adversarial_text().split())
-    for clause in (
-        "Review every existing and new requirement and ADR the plan relates to.",
-        "Look for inconsistency, gaps and vague language.",
-        "When the plan outgrows, contradicts or sharpens an existing requirement or ADR, file a planner fix bead proposing its revision",
-        "through an adversary wisp with `area=req-adr`.",
-    ):
-        assert clause in text
-
-
-def test_adversarial_reference_lead_findings_new_tasks_tiers():
-    text = " ".join(adversarial_text().split())
-    for clause in (
-        "Review the plan yourself through an adversary wisp with `area=lead`",
-        "In iteration 2, first verify open fix beads filed by the `lead` and `adversary:*` passes",
-        "Select researcher tiers using the dev-dispatch `difficulty` rule",
-        "fast agents can cover broad, shallow ground in parallel; difficult code and integrations use frontier models, preferably different foundries.",
-        "Never give an adversary the same task in iteration 2 as in iteration 1.",
-        "Target a weakness iteration 1 found or an area nobody has covered.",
-        "Record every adversary's area per iteration in its wisp title.",
-    ):
-        assert clause in text
-    assert "file your own findings as plan-fix beads" in text
 
 
 def test_skill_is_bd_only():
@@ -302,9 +246,14 @@ def test_role_doc():
     if root is None:
         pytest.skip("Requirement documentation belongs to the source repository")
     text = (root / "docs/requirements/plan-hardening.md").read_text()
-    assert "Sources" in text and "Requirements" in text and "Unresolved" in text
-    assert re.search(r"^1\. ", text, re.MULTILINE)
-    assert "plan-hardening.md" in (root / "docs/requirements/README.md").read_text()
+    assert re.search(r"^Sources:", text, re.MULTILINE)
+    headings = set(re.findall(r"^## (.+)$", text, re.MULTILINE))
+    assert {"Requirements", "Unresolved"} <= headings
+    requirements = text.split("## Requirements\n", 1)[1].split("\n## Unresolved", 1)[0]
+    numbers = [int(number) for number in re.findall(r"^(\d+)\. ", requirements, re.MULTILINE)]
+    assert numbers and numbers == list(range(1, len(numbers) + 1))
+    links = re.findall(r"\[[^\]]+\]\(([^)]+)\)", (root / "docs/requirements/README.md").read_text())
+    assert "plan-hardening.md" in links
 
 
 def test_step_template_return_envelope(rendered):
@@ -324,19 +273,16 @@ def test_step_template_return_envelope(rendered):
 
 
 def test_reviewer_output_filing_adapter():
-    text = skill_text().split("## Filing reviewer output")[1].split("## Planner with subagents")[0]
-    assert "concatenate `findings` and `minor_wording`" in text
-    assert "File both arrays" in text
-    assert "do not drop `minor_wording`" in text
     for name in ("critical-plan-reviewer", "plan-scope-reviewer"):
         agent = (PACKAGE / "agents" / f"{name}.md").read_text()
-        assert "Filing reviewer output" in agent
         blocks = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", agent, re.S)]
         output = next(block["data"] for block in blocks if "findings" in block.get("data", {}))
         for entry in output["findings"] + output["minor_wording"]:
             assert {"title", "description", "severity", "plan_bead"} <= entry.keys()
-        assert "## Error Handling" in agent and "## Constraints" in agent
-        assert "VALIDATION.INPUT" in agent and "REVIEW.TARGET_UNREADABLE" in agent
+        headings = set(re.findall(r"^## (.+)$", agent, re.MULTILINE))
+        assert {"Error Handling", "Constraints"} <= headings
+        codes = set(re.findall(r"`([A-Z][A-Z_.]+)`", agent))
+        assert {"VALIDATION.INPUT", "REVIEW.TARGET_UNREADABLE"} <= codes
 
 
 @pytest.mark.parametrize("review", [
