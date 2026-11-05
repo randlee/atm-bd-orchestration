@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Fixed
+- Console notices, counters, status and cron alerts identify their actual causes and recovery (#372, #599, #355, #350, #624, #601).
+- Stack linking reports duplicate and ghost layers with repairs, skips self notices, holds pending parents and selects the confirmed stack top (#826, #828, #604).
+- Close hooks preserve evidence and report failures, correct sanity reassignment and completion status, and resolve configuration consistently (#827, #671, #602, #606, #656, #651, #830, #607, #630).
+- Internal configuration no longer takes team, beads database or ATM executable from `ATM_TEAM`, `BEADS_DIR` or `ATM_BIN`.
+- Assignment templates avoid per-developer stack-view calls; finding reviewers must have sprint QA contracts (#154, #829, #605).
+- Fix pours use the phase code checkout, attach conflicts retain their actionable diagnostic, and plan validation warns for proxy doctor refusals and noncontiguous deliverables (#646, #811, #807, #644).
 - The sanity close takes `reviewers_round1` from the QA bead's metadata as a list: the dev and fix close hook copies it into the sanity assignment's `close_context`, and refuses the close before any write when the QA bead's value is not a non-empty list of names. The shared close-vars contract no longer defaults it to `""`; `sanity-close-vars` and the sanity close refuse an empty string or a bare name instead of rendering `qa-template.xml.j2` with it. A sc-compose sanity PASS could not be recorded until the lead hand-wrote the list (#821).
 
 ## [0.19.14] - 2026-11-05

@@ -110,6 +110,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/jev_client.py
     - skills/atm-bd-orchestration/scripts/post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/post_mortem_jev.py
+    - skills/atm-bd-orchestration/scripts/qa_reviewers.py
     - skills/atm-bd-orchestration/scripts/sanity-close-repair.py
     - skills/atm-bd-orchestration/scripts/sanity-close-vars
     - skills/atm-bd-orchestration/scripts/sanity-merge
@@ -148,6 +149,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/task_close_world.py
     - skills/atm-bd-orchestration/scripts/tests/test_agent_prompts.py
     - skills/atm-bd-orchestration/scripts/tests/test_assignment_gates.py
+    - skills/atm-bd-orchestration/scripts/tests/test_assignment_templates.py
     - skills/atm-bd-orchestration/scripts/tests/test_atm_hook_doctor.py
     - skills/atm-bd-orchestration/scripts/tests/test_atomic.py
     - skills/atm-bd-orchestration/scripts/tests/test_bd_cache.py
@@ -163,6 +165,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_context.py
     - skills/atm-bd-orchestration/scripts/tests/test_post_mortem_jev.py
     - skills/atm-bd-orchestration/scripts/tests/test_qa_report_contract.py
+    - skills/atm-bd-orchestration/scripts/tests/test_qa_reviewers.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_close_legacy.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_close_vars.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_merge.py

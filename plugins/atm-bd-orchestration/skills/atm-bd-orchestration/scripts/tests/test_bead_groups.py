@@ -57,7 +57,10 @@ class FindingGroupTests(unittest.TestCase):
                 output = subprocess.run(["sc-compose", "bead", "render", "--request", "request.json", "--json"],
                                         cwd=root, capture_output=True, text=True, timeout=30)
                 self.assertEqual(output.returncode, 0, output.stdout + output.stderr)
-                metadata = tomllib.loads((root / "rendered.formula.toml").read_text())["steps"][0]["metadata"]
+                steps = tomllib.loads((root / "rendered.formula.toml").read_text())["steps"]
+                assert steps[2]["metadata"]["reviewers_round1"] == ["flaky-test-qa"]
+                assert all(step["metadata"]["worktree"] == target["compose"]["worktree"] for step in steps)
+                metadata = steps[0]["metadata"]
                 if provenance is None:
                     self.assertNotIn("found_on_layer", metadata)
                 else:
@@ -111,7 +114,7 @@ class FoundOnLayerGuardTests(unittest.TestCase):
 
 
 class PhaseEndFindingTests(unittest.TestCase):
-    def targets(self, **extra):
+    def targets(self, code_checkout=None, **extra):
         loader = importlib.machinery.SourceFileLoader("bead_groups_phase_end", str(SCRIPTS / "bead-groups"))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         assert spec is not None
@@ -133,8 +136,13 @@ class PhaseEndFindingTests(unittest.TestCase):
             findings = runner.repo / "findings.json"
             findings.write_text(json.dumps({"sprint": "t-phase-d", "round": 1, "filed_by": "review",
                                             "found_at_commit": "a" * 40, "findings": [row]}))
-            with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d"}):
+            with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d", **({"code_checkout": code_checkout} if code_checkout else {})}):
                 return groups, runner.finding_targets(findings)
+
+    def test_code_checkout_controls_fix_worktree(self):
+        groups, result = self.targets(code_checkout="../code", difficulty="hard")
+        self.assertNotIsInstance(result[0], groups.TargetError)
+        self.assertIn("code-worktrees/fix/t-phase-d-pe-f1", result[0]["compose"]["worktree"])
 
     def test_non_qa_reviewers_are_refused_before_pour(self):
         for reviewer in ("team-lead", "rust-developer", "dev-sanity", "plan-scope-reviewer"):
@@ -240,3 +248,29 @@ class SprintGroupReviewersTests(unittest.TestCase):
             qa = [step["metadata"] for step in steps if step["metadata"].get("role") == "qa"]
             self.assertEqual([m["reviewers_round1"] for m in qa], [reviewers])
             self.assertTrue(all("reviewers_round1" not in step["metadata"] for step in steps if step["metadata"].get("role") != "qa"))
+
+
+def test_conflict_receipt_is_reported_and_retained(tmp_path, monkeypatch):
+    loader = importlib.machinery.SourceFileLoader("bead_groups_conflict", str(SCRIPTS / "bead-groups"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    groups = importlib.util.module_from_spec(spec)
+    loader.exec_module(groups)
+    runner = object.__new__(groups.Run)
+    runner.repo = tmp_path
+    runner.relations = lambda target, preview: ([], [])
+    template = tmp_path / "formula.toml.j2"
+    template.write_text("test")
+    monkeypatch.setattr(groups.bead_formulas, "template", lambda *_: template)
+    receipt = {"payload": {"outcome": {"refused": {"code": "BEADS_GRAPH_CONFLICT"}}, "stages": [
+        {"outcome": {"failed": {"code": "BEADS_GRAPH_CONFLICT"}},
+         "stderr_excerpt": "graph bead `phase.group-dev` conflicts: provenance_differs; inspect it or use a new ref (existing beads are never edited)"}]}, "diagnostics": []}
+    monkeypatch.setattr(groups.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 2, json.dumps(receipt), ""))
+    target = {"id": "phase.group", "formula": "sprint-group", "compose": {"parent": "phase", "ref": "group"}}
+    try:
+        runner.pour(target, preview=True)
+        assert False, "expected conflict"
+    except groups.TargetError as error:
+        assert error.code == "BEADS_GRAPH_CONFLICT"
+        assert all(part in str(error) for part in ("phase.group-dev", "metadata.sc_compose_graph", "use a new ref"))
+    assert json.loads(next((tmp_path / ".atm-bd/pour").glob("*.receipt.json")).read_text()) == receipt

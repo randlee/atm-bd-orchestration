@@ -3,6 +3,11 @@
 from pathlib import Path
 import re
 import yaml
+from typing import TypeGuard
+
+
+def is_object_mapping(value: object) -> TypeGuard[dict[object, object]]:
+    return isinstance(value, dict)
 
 
 def qa_capable_reviewer(name: str, templates_dir: Path) -> bool:
@@ -17,7 +22,7 @@ def qa_capable_reviewer(name: str, templates_dir: Path) -> bool:
         data = yaml.safe_load(front[1])
     except (OSError, UnicodeError, yaml.YAMLError):
         return False
-    if not isinstance(data, dict):
+    if not is_object_mapping(data):
         return False
     required = data.get("required_variables")
     return isinstance(required, list) and all(key in required for key in ("branch", "commit", "worktree_path", "review_targets"))
