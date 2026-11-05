@@ -5,6 +5,11 @@ import re
 import yaml
 from typing import TypeGuard
 
+# These reviewers use their agent contracts instead of orchestration assignment templates.
+RUST_REVIEWERS = frozenset({
+    "rust-qa-agent", "rust-code-reviewer", "rust-best-practices-agent", "rust-service-hardening-agent",
+})
+
 
 def is_object_mapping(value: object) -> TypeGuard[dict[object, object]]:
     return isinstance(value, dict)
@@ -13,6 +18,8 @@ def is_object_mapping(value: object) -> TypeGuard[dict[object, object]]:
 def qa_capable_reviewer(name: str, templates_dir: Path) -> bool:
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
         return False
+    if name in RUST_REVIEWERS:
+        return True
     path = templates_dir / f"{name}-assignment.json.j2"
     try:
         text = path.read_text(encoding="utf-8")
@@ -37,5 +44,6 @@ def qa_capable_reviewer(name: str, templates_dir: Path) -> bool:
 
 def qa_capable_reviewers(templates_dir: Path) -> list[str]:
     suffix = "-assignment.json.j2"
-    return sorted(name for path in templates_dir.glob(f"*{suffix}")
-                  if qa_capable_reviewer(name := path.name.removesuffix(suffix), templates_dir))
+    local = (name for path in templates_dir.glob(f"*{suffix}")
+             if qa_capable_reviewer(name := path.name.removesuffix(suffix), templates_dir))
+    return sorted(RUST_REVIEWERS | set(local))

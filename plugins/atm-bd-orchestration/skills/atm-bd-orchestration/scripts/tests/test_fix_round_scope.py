@@ -12,7 +12,6 @@ import pytest
 
 SCRIPT = Path(__file__).parents[1] / "fix-round-scope"
 sys.path.insert(0, str(SCRIPT.parent))
-from qa_reviewers import qa_capable_reviewers
 from subprocess_helpers import run_command
 
 LOADER = importlib.machinery.SourceFileLoader("fix_round_scope", str(Path(__file__).parents[1] / "fix-round-scope"))
@@ -165,7 +164,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(out.returncode, 2)
 
     def test_every_supported_filing_reviewer_can_run_locked_verification(self):
-        for reviewer in qa_capable_reviewers(SCRIPT.parent.parent / "templates"):
+        for reviewer in ("arch-qa", "flaky-test-qa", "req-qa", "ruthless-boundary-qa", "schema-reviewer",
+                         "rust-qa-agent", "rust-code-reviewer", "rust-best-practices-agent",
+                         "rust-service-hardening-agent"):
             with self.subTest(reviewer=reviewer):
                 carried = [{"id": "x-f9", "metadata": {"reviewer": reviewer, "finding_ref": "F-9"}}]
                 result = {"data": {"findings": [
