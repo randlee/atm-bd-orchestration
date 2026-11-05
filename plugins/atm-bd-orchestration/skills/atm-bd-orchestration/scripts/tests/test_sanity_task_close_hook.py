@@ -395,11 +395,13 @@ def test_stale_pass_from_previous_assignment_is_refused(world):
 
 
 def test_current_commit_mismatch_is_refused_without_journaling(world):
+    captured_commit = world.values["commit"]
     world.beads[world.dev]["metadata"]["commit"] = "b" * 40
     world.bd.touch(world.dev)
 
     reply = world.invoke()
 
+    assert world.values["commit"] == captured_commit
     assert reply["result"] == "refused"
     assert "commit" in reply["message"]
     assert not world.journal() and not world.spawned
