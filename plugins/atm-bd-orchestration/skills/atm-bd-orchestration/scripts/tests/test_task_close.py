@@ -137,7 +137,8 @@ def test_dev_handoff_is_immediate_and_closes_the_dev_task_as_the_dev(world, monk
 def test_beads_directory_ignores_caller_environment(world, monkeypatch):
     monkeypatch.setenv("BEADS_DIR", "/wrong/database")
     # bq-4 removes the environment read inside BdCache; isolate this hook's resolution here.
-    monkeypatch.setattr(hook.bd_cache, "database_identity", lambda root: ("testdb", "p-1"))
+    monkeypatch.setattr(hook.bd_cache, "database_identity",
+                        lambda root, beads_dir=None, phase=None: ("testdb", "p-1"))
     result = world.run()["ok"]
     assert result["beads_dir"] == str(world.root / ".beads")
     where = next(kwargs for argv, kwargs in world.calls if argv == ["bd", "where", "--json"])
@@ -147,7 +148,8 @@ def test_beads_directory_ignores_caller_environment(world, monkeypatch):
 
 
 def test_checks_record_contains_resolved_beads_directory(world, monkeypatch):
-    monkeypatch.setattr(hook.bd_cache, "database_identity", lambda root: ("testdb", "p-1"))
+    monkeypatch.setattr(hook.bd_cache, "database_identity",
+                        lambda root, beads_dir=None, phase=None: ("testdb", "p-1"))
     checker = hook.Hook("dev", world.values, world.path, world, lambda: 42, lambda _seconds: None, lambda: {})
     checker.beads_directory()
     assert not checker.snapshot(include_stack=True)

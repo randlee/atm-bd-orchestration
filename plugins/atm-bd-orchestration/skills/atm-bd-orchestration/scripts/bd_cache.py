@@ -280,7 +280,9 @@ class BdCache:
     def __init__(self, root, runner=subprocess.run, clock=time.time, db_path=None, beads_dir=None, phase=None):
         self.root = Path(root)
         self.runner, self.clock = runner, clock
-        self.database, self.project_id = database_identity(self.root, beads_dir=beads_dir, phase=phase)
+        self.beads_dir = (Path(beads_dir) if beads_dir is not None
+                          else phase_settings_module.beads_directory(self.root, phase)).resolve()
+        self.database, self.project_id = database_identity(self.root, beads_dir=self.beads_dir, phase=phase)
         self.path = Path(db_path) if db_path else self.root / CACHE_DIR / f"{self.database}.bd-cache.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
@@ -311,8 +313,10 @@ class BdCache:
 
     # -- backend (bd) --------------------------------------------------------
     def bd(self, command, timeout):
+        env = os.environ.copy()
+        env["BEADS_DIR"] = str(self.beads_dir)
         try:
-            return self.runner(command, cwd=self.root, text=True, capture_output=True, timeout=timeout)
+            return self.runner(command, cwd=self.root, env=env, text=True, capture_output=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as error:
             raise CacheError("BD_CACHE.BD_UNAVAILABLE", f"{' '.join(command[:3])}: {error}",
                              "transient backend outage: the drain retries; a hook escalates or defers", command=command)
