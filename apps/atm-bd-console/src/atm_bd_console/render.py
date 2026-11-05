@@ -142,10 +142,13 @@ def _pr_link(line: Text, number: int, snapshot: Snapshot) -> None:
 
 
 def _sent_line(action: Action, snapshot: Snapshot) -> Text:
-    beads = ", ".join(short_id(bead_id, snapshot.bead_prefix) for bead_id in action.bead_ids)
-    line = Text(f" {clock(action.at)} {beads} → ")
+    beads = ", ".join(action.bead_ids) or "phase notice"
+    template = (action.spec.template.rsplit("/", 1)[-1].removesuffix(".xml.j2").removesuffix(".j2")
+                if action.spec is not None else "notice")
+    line = Text(f" {clock(action.at)} → ")
     recipient = next((agent for agent in snapshot.agents if agent.name == action.to), None)
     line.append_text(render_agent(action.to, recipient))
+    line.append(f" {template} {beads}")
     matching = next((row for row in snapshot.prs if row.bead_id in action.bead_ids), None)
     if matching:
         _pr_link(line, matching.pr.number, snapshot)

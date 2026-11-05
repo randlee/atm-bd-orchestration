@@ -47,7 +47,7 @@ FIELDS: dict[str, str] = {
                   "reviewers_round1 plans_dir",
     "Config": "phase lead team github interval_s dry_run no_fetch repo_root state_dir notification_sender github_poll_interval_s github_quota_threshold code_root github_repo stack_trunk stack_number stack_repo",
     "DispatchContext": "step sprint phase_id phase_title lead commit base worktree_path pr layer_prs repo",
-    "Inputs": "now lead repo interval_s phase members tasks worktrees remotes merges prs gh task_beads closed_tasks stack_prs",
+    "Inputs": "now lead repo interval_s phase members tasks worktrees remotes merges prs gh task_beads closed_tasks stack_prs stack_ledger",
     "Row": "task_id state kind difficulty tag marker age_s description",
     "AgentView": "name status status_since depth rows agent_type model harness qa_state",
     "SectionRow": "bead_id age_s reason pr",
@@ -65,7 +65,7 @@ FIELDS: dict[str, str] = {
     "PhaseFile": "phase root_id label sprints depends_on lead templates code_checkout",
     "MergeFile": "checked_at merges",
     "PrsFile": "read_at gh prs attempted_at stack_number stack_prs",
-    "ActionLine": "at kind to bead text",
+    "ActionLine": "at kind to bead text template",
 }
 
 DIFFICULTY = ("hard", "normal", "fast")
@@ -154,7 +154,7 @@ def test_tick_context_contract_field_names_are_pinned() -> None:
     )
     assert tuple(field.name for field in fields(types.Inputs)) == (
         "now", "lead", "repo", "interval_s", "phase", "members", "tasks", "worktrees", "remotes", "merges",
-        "prs", "gh", "task_beads", "closed_tasks", "stack_prs",
+        "prs", "gh", "task_beads", "closed_tasks", "stack_prs", "stack_ledger",
     )
 
 

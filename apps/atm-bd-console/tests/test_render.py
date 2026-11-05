@@ -36,6 +36,7 @@ from atm_bd_console.timefmt import clock
 from atm_bd_console.types import (
     Action,
     AgentView,
+    DispatchSpec,
     GhStatus,
     Member,
     Metrics,
@@ -401,7 +402,16 @@ def test_running_contract_snapshot_renders_its_rows_unmodified() -> None:
     assert "lock_held: snapshot age 42s" in rendered
     assert "== Blocked (1)" in rendered
     assert "CI failing on the top layer PR #1850" in rendered
-    assert "bh-6.qa → ·quality-mgr" in rendered
+    assert "→ ·quality-mgr qa-template atm-bh-6.qa" in rendered
+
+
+def test_sent_rows_name_template_bead_and_recipient_for_dispatch_and_notice() -> None:
+    dispatch = Action(NOW, "assign", "team-lead", ("atm-bq-1.group-dev",), "sent",
+                      DispatchSpec(".claude/templates/dev-template.xml.j2", {}))
+    notice = Action(NOW, "batch", "team-lead", ("atm-bq-1.group-dev",), "notice", None)
+    rendered = dashboard(replace(snapshot(), sent=(dispatch, notice)), 160, 40).plain
+    assert "→ ·team-lead dev-template atm-bq-1.group-dev" in rendered
+    assert "→ ·team-lead notice atm-bq-1.group-dev" in rendered
 
 
 def test_stopped_snapshot_renders_beads_and_pr_history() -> None:

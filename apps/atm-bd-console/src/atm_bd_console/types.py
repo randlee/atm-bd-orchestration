@@ -255,6 +255,8 @@ class Inputs:
     # PR numbers registered+linked in the hosted phase stack (REST stack membership).
     # Ok = authoritative membership; None = not read; Err = read failed. See model._pr_rows.
     stack_prs: Result[tuple[int, ...]] | None = None
+    # PR numbers of linked layers in the bead ledger, in base-to-top order.
+    stack_ledger: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -441,6 +443,7 @@ class ActionLine:
     to: str | None
     bead: str | None
     text: str
+    template: str | None = None
 
 
 SpecFn: TypeAlias = Callable[[DispatchContext], Result[DispatchSpec]]

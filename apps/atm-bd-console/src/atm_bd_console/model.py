@@ -8,7 +8,7 @@ from rich.cells import cell_len
 
 from .agent_roles import agent_group
 from .dispatch import candidates, dispatch, sprint_of, verification_reason
-from .enums import BRANCH_KEYS, FAILING_CI, CiState, MergeState, PrState, QaState, SprintState
+from .enums import FAILING_CI, CiState, MergeState, PrState, QaState, SprintState
 from .icons import SPRINT_ICONS
 from .ids import short_id
 from .prs import active_pr
@@ -135,7 +135,7 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
         assigned = outcome.actions
         errors.extend(outcome.errors)
 
-    pr_rows, top_pr = _pr_rows(phase, prs, merges, inputs.stack_prs)
+    pr_rows, top_pr = _pr_rows(phase, prs, merges, inputs.stack_prs, inputs.stack_ledger)
     top_ci = top_pr.ci if top_pr else None
     proposed = _problems(phase, held, merges, prs, top_pr, inputs, state, now) if stopped is None else ()
     agents = _agent_views(members, tasks, phase, inputs.task_beads, now, inputs.repo.bead_prefix,
@@ -422,7 +422,7 @@ def _metrics(phase: Phase | None, now: datetime) -> Metrics:
 
 def _pr_rows(
     phase: Phase | None, prs: tuple[PullRequest, ...], merges: tuple[Merge, ...],
-    stack_prs: Result[tuple[int, ...]] | None = None,
+    stack_prs: Result[tuple[int, ...]] | None = None, stack_ledger: tuple[int, ...] | None = None,
 ) -> tuple[tuple[PrRow, ...], PullRequest | None]:
     if phase is None:
         return (), None
@@ -444,17 +444,23 @@ def _pr_rows(
     if isinstance(stack_prs, Ok):
         membership = stack_prs.value
         present = {pr.number for pr in prs}
-        # A PR snapshot older than the stack cannot name the canonical top. If the
-        # last linked entry is missing from the read, refuse: falling back to the
-        # newest linked PR we happen to hold names yesterday's top and advises
-        # editing a frozen layer.
-        if membership and membership[-1] not in present:
+        ledger_top = stack_ledger[-1] if stack_ledger else None
+        if ledger_top is not None and ledger_top in membership:
+            top = next((pr for pr in top_candidates if pr.number == ledger_top), None)
+        elif ledger_top is not None:
             top = None
         else:
-            # Membership is ordered base -> top: the last linked candidate wins.
-            order = {number: index for index, number in enumerate(membership)}
-            top = max((pr for pr in top_candidates if pr.number in order),
-                      key=lambda pr: order[pr.number], default=None)
+            # A PR snapshot older than the stack cannot name the canonical top. If the
+            # last linked entry is missing from the read, refuse: falling back to the
+            # newest linked PR we happen to hold names yesterday's top and advises
+            # editing a frozen layer.
+            if membership and membership[-1] not in present:
+                top = None
+            else:
+                # Membership is ordered base -> top: the last linked candidate wins.
+                order = {number: index for index, number in enumerate(membership)}
+                top = max((pr for pr in top_candidates if pr.number in order),
+                          key=lambda pr: order[pr.number], default=None)
     elif isinstance(stack_prs, Err):
         # Membership was configured but is unreadable: name no top at all rather
         # than fall back to a rule that can re-crown an unlinked checkpoint.
@@ -524,6 +530,9 @@ def _problems(
         if merge.state == MergeState.CONFLICT and (step := by_branch.get(merge.branch)) is not None
     }
     problems: list[Problem] = []
+    hosted_top = inputs.stack_prs.value[-1] if isinstance(inputs.stack_prs, Ok) and inputs.stack_prs.value else None
+    ledger_top = inputs.stack_ledger[-1] if inputs.stack_ledger else None
+    stack_mismatch = ledger_top is not None and hosted_top is not None and ledger_top != hosted_top
     if isinstance(inputs.stack_prs, Err):
         problems.append(Problem(
             "stack_membership:unavailable", None, inputs.lead,
@@ -554,7 +563,7 @@ def _problems(
                 problems.append(Problem(
                     f"hold:{step.bead_id}", step.bead_id, step.assignee or inputs.lead,
                     f"{step.bead_id} ({step.kind}) cannot be dispatched: missing branch configuration; "
-                    f"set {BRANCH_KEYS} of bead {step.bead_id}", now,
+                    f"set metadata.branch on {step.bead_id}", now,
                 ))
             continue
         if f"conflict:{step.branch}" in conflicts and row.reason.startswith("merge conflict with"):
@@ -567,6 +576,11 @@ def _problems(
     fresh_github = isinstance(inputs.prs, Ok) and inputs.gh.mode != "off" and inputs.gh.ok is True and (
         inputs.gh.at is not None and (state.last_cycle is None or inputs.gh.at > state.last_cycle)
     )
+    if fresh_github and stack_mismatch:
+        problems.append(Problem(
+            "stack_top_mismatch", None, inputs.lead,
+            f"ledger top #{ledger_top}, hosted top #{hosted_top}; run sanity-stack-link --check", now,
+        ))
     if fresh_github:
         heads = {pr.head for pr in prs if active_pr(pr)}
         remotes = inputs.remotes.value if isinstance(inputs.remotes, Ok) else state.remotes
@@ -602,13 +616,24 @@ def _problems(
                     f"{step.bead_id} ({step.kind}): pushed branch {branch} has no open PR; open a PR with "
                     f"head {branch} against its pr_target (a stacked layer is submitted by the stack writer)", now,
                 ))
-    if fresh_github and top_pr is not None and top_pr.ci in FAILING_CI:
-        checks = ", ".join(top_pr.failed_checks)
-        problems.append(Problem(
-            f"top_ci:{top_pr.head_sha}", owner.bead_id if (owner := by_branch.get(top_pr.head)) else None,
-            inputs.lead, f"top PR #{top_pr.number} ({top_pr.head}) CI failed: {checks}; "
-            f"open the failing checks on PR #{top_pr.number} and fix them on {top_pr.head}", now,
-        ))
+    if fresh_github and not stack_mismatch and top_pr is not None:
+        ledger_top = inputs.stack_ledger[-1] if inputs.stack_ledger else None
+        lower_fix = next((item for item in inputs.stack_ledger[:-1]
+                          if (lower := next((pr for pr in prs if pr.number == item), None)) is not None
+                          and lower.ci in FAILING_CI), None) if inputs.stack_ledger else None
+        if lower_fix is not None:
+            lower = next(pr for pr in prs if pr.number == lower_fix)
+            problems.append(Problem(
+                f"lower_ci:{lower.head_sha}", owner.bead_id if (owner := by_branch.get(lower.head)) else None,
+                inputs.lead, f"lower layer #{lower.number} is red; its fix is above it on #{ledger_top}", now,
+            ))
+        elif top_pr.ci in FAILING_CI:
+            checks = ", ".join(top_pr.failed_checks)
+            problems.append(Problem(
+                f"top_ci:{top_pr.head_sha}", owner.bead_id if (owner := by_branch.get(top_pr.head)) else None,
+                inputs.lead, f"top PR #{top_pr.number} ({top_pr.head}) CI failed: {checks}; "
+                f"open the failing checks on PR #{top_pr.number} and fix them on {top_pr.head}", now,
+            ))
     current_keys = {problem.key for problem in problems}
     refreshed_merges = {merge.branch for merge in merges if merge.state != MergeState.ERROR}
     for previous in state.problems:

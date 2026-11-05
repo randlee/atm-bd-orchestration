@@ -334,6 +334,7 @@ def test_stopped_tick_surfaces_malformed_action_history_from_real_store(monkeypa
         for index in range(6):
             assert store.append_action(ActionLine(
                 ACTION.at + timedelta(minutes=index), "send", "quality-mgr", "atm-bh-6.qa", f"action-{index}",
+                ".claude/templates/qa-template.xml.j2" if index == 5 else None,
             )) == Ok(None)
         with actions_path.open("a", encoding="utf-8") as handle:
             handle.write("{not-json}\n")
@@ -341,6 +342,8 @@ def test_stopped_tick_surfaces_malformed_action_history_from_real_store(monkeypa
 
     assert snapshot.stopped == "closed"
     assert [action.text for action in snapshot.sent] == [f"action-{index}" for index in range(1, 6)]
+    assert snapshot.sent[-1].spec is not None
+    assert snapshot.sent[-1].spec.template == ".claude/templates/qa-template.xml.j2"
     assert len(snapshot.errors) == 1
     assert isinstance(snapshot.errors[0], ParseFailed)
     assert snapshot.errors[0].source == f"{actions_path}:7"
@@ -1052,7 +1055,7 @@ def test_lead_problem_uses_tool_sender_and_assignment_stays_with_lead(github_run
 
     snapshot, _ = runner.step(config, INITIAL_STATE, False, store)
 
-    assert any(problem.to == "fenix" and "missing branch configuration; set metadata.branch / metadata.worktree" in problem.text for problem in snapshot.problems)
+    assert any(problem.to == "fenix" and "missing branch configuration; set metadata.branch on" in problem.text for problem in snapshot.problems)
     calls = fake_bin.argv()
     sends = [argv for argv in calls if argv[1] == "send"]
     assert sends == [("atm", "send", "fenix@atm-dev", "--as", sender, "--team", sender_team, "--stdin")]
