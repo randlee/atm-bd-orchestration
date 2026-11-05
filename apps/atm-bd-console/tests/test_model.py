@@ -604,7 +604,8 @@ def test_stack_ledger_and_hosted_top_mismatch_notifies_without_ci_alert() -> Non
     assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
     mismatch = [problem for problem in snapshot.problems if problem.key == "stack_top_mismatch"]
     assert len(mismatch) == 1
-    assert "ledger top #3, hosted top #4; run sanity-stack-link --check" in mismatch[0].text
+    assert "ledger top #3, hosted top #4\nFix: run sanity-stack-link --check" in mismatch[0].text
+    assert mismatch[0].bead_id == "atm-phase-bh.stack"
 
 
 def test_sprint_layer_above_holding_no_step_takes_its_sprint_layer_and_top() -> None:
