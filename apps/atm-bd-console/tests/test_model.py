@@ -413,14 +413,38 @@ def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None
                             "base" if number == 1 else f"branch-{number - 1}", f"sha{number}",
                             CiState.FAIL_BUG if number == 2 else CiState.PASS,
                             ("test",) if number == 2 else ()) for number in (1, 2, 3))
-    snapshot, _, _ = tick(inputs(
+    snapshot, actions, _ = tick(inputs(
         phase(*steps, sprints=sprints), prs=Ok(prs), stack_prs=Ok((1, 2, 3)), stack_ledger=(1, 2, 3),
         remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
         gh=GhStatus("graphql", True, None, NOW, False),
     ), STATE, NOW, render)
     assert snapshot.top_pr == 3 and snapshot.top_ci == CiState.PASS
     assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
-    assert any("lower layer #2 is red; its fix is above it on #3" in problem.text for problem in snapshot.problems)
+    assert not any(problem.key.startswith("lower_ci:") for problem in snapshot.problems)
+    assert not any("lower layer" in action.text for action in actions)
+    assert any("lower layer #2" in row.reason and "top PR #3" in row.reason
+               for section in snapshot.sections if section.label == "Lower CI" for row in section.rows)
+    assert not any("fix is above" in row.reason for section in snapshot.sections for row in section.rows)
+
+
+def test_red_top_and_lower_send_only_actionable_top_alert() -> None:
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+                  for number in (1, 2, 3))
+    prs = tuple(PullRequest(number, f"url{number}", f"branch-{number}",
+                            "base" if number == 1 else f"branch-{number - 1}", f"sha{number}",
+                            CiState.FAIL_BUG if number in (2, 3) else CiState.PASS,
+                            ("test",) if number in (2, 3) else ()) for number in (1, 2, 3))
+    snapshot, actions, _ = tick(inputs(
+        phase(*steps, sprints=(sprint(1), sprint(2), sprint(3))), prs=Ok(prs),
+        stack_prs=Ok((1, 2, 3)), stack_ledger=(1, 2, 3),
+        remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    ), STATE, NOW, render)
+    assert [problem.key for problem in snapshot.problems] == ["top_ci:sha3"]
+    assert len(actions) == 1 and "top PR #3" in actions[0].text
+    assert "fix them on branch-3" in actions[0].text
+    assert "lower layer" not in actions[0].text
+    assert "fix is above" not in actions[0].text
 
 
 def test_stack_ledger_and_hosted_top_mismatch_notifies_without_ci_alert() -> None:

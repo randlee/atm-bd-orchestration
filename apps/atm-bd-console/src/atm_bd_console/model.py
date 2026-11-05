@@ -28,6 +28,7 @@ from .types import (
     PullRequest,
     Row,
     Section,
+    SectionRow,
     Snapshot,
     SpecFn,
     SprintView,
@@ -142,6 +143,21 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
                           tasks_known=isinstance(inputs.tasks, Ok))
     sprint_views, mermaid = _sprint_views(phase, inputs.repo.bead_prefix, agents)
     sections = (Section("Held", held),) if held else ()
+    # Lower failures are context, not action items. A passing top does not prove it fixes them.
+    if (phase is not None and stopped is None and top_pr is not None and top_pr.ci == CiState.PASS
+            and isinstance(inputs.prs, Ok) and isinstance(inputs.stack_prs, Ok) and inputs.stack_ledger
+            and inputs.stack_prs.value and inputs.stack_ledger[-1] == inputs.stack_prs.value[-1] == top_pr.number
+            and inputs.gh.mode != "off" and inputs.gh.ok is True and inputs.gh.at is not None
+            and (state.last_cycle is None or inputs.gh.at > state.last_cycle)):
+        lower_numbers = set(inputs.stack_ledger[:-1])
+        owners = _branch_owners(phase)
+        lower_rows = tuple(
+            SectionRow(owners[pr.head].bead_id if pr.head in owners else phase.root_id, 0,
+                       f"lower layer #{pr.number} CI is red; top PR #{top_pr.number} CI passes", pr.number)
+            for pr in prs if pr.number in lower_numbers and pr.ci in FAILING_CI
+        )
+        if lower_rows:
+            sections += (Section("Lower CI", lower_rows),)
     snapshot = Snapshot(
         schema=1,
         generated_at=now,
@@ -616,24 +632,13 @@ def _problems(
                     f"{step.bead_id} ({step.kind}): pushed branch {branch} has no open PR; open a PR with "
                     f"head {branch} against its pr_target (a stacked layer is submitted by the stack writer)", now,
                 ))
-    if fresh_github and not stack_mismatch and top_pr is not None:
-        ledger_top = inputs.stack_ledger[-1] if inputs.stack_ledger else None
-        lower_fix = next((item for item in inputs.stack_ledger[:-1]
-                          if (lower := next((pr for pr in prs if pr.number == item), None)) is not None
-                          and lower.ci in FAILING_CI), None) if inputs.stack_ledger else None
-        if lower_fix is not None:
-            lower = next(pr for pr in prs if pr.number == lower_fix)
-            problems.append(Problem(
-                f"lower_ci:{lower.head_sha}", owner.bead_id if (owner := by_branch.get(lower.head)) else None,
-                inputs.lead, f"lower layer #{lower.number} is red; its fix is above it on #{ledger_top}", now,
-            ))
-        elif top_pr.ci in FAILING_CI:
-            checks = ", ".join(top_pr.failed_checks)
-            problems.append(Problem(
-                f"top_ci:{top_pr.head_sha}", owner.bead_id if (owner := by_branch.get(top_pr.head)) else None,
-                inputs.lead, f"top PR #{top_pr.number} ({top_pr.head}) CI failed: {checks}; "
-                f"open the failing checks on PR #{top_pr.number} and fix them on {top_pr.head}", now,
-            ))
+    if fresh_github and not stack_mismatch and top_pr is not None and top_pr.ci in FAILING_CI:
+        checks = ", ".join(top_pr.failed_checks)
+        problems.append(Problem(
+            f"top_ci:{top_pr.head_sha}", owner.bead_id if (owner := by_branch.get(top_pr.head)) else None,
+            inputs.lead, f"top PR #{top_pr.number} ({top_pr.head}) CI failed: {checks}; "
+            f"open the failing checks on PR #{top_pr.number} and fix them on {top_pr.head}", now,
+        ))
     current_keys = {problem.key for problem in problems}
     refreshed_merges = {merge.branch for merge in merges if merge.state != MergeState.ERROR}
     for previous in state.problems:
