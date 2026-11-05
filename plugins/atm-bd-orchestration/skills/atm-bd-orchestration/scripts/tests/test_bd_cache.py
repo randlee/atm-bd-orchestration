@@ -171,7 +171,7 @@ def test_beads_dir_environment_does_not_select_the_database(tmp_path, monkeypatc
     explicit.db.close()
 
 
-def test_no_phase_uses_phase_settings_code_checkout(tmp_path):
+def test_no_phase_uses_planning_repository_beads_dir_with_code_checkout(tmp_path, monkeypatch):
     workspace(tmp_path)
     checkout = tmp_path / "checkout"
     checkout.mkdir()
@@ -180,9 +180,18 @@ def test_no_phase_uses_phase_settings_code_checkout(tmp_path):
     settings.mkdir()
     (settings / "phase-x.toml").write_text('code_checkout = "checkout"\n')
 
-    assert bc.database_identity(tmp_path) == ("configureddb", "p-1")
+    called = []
+    resolve = bc.phase_settings_module.beads_directory
+
+    def phase_settings_beads_dir(root, phase=None):
+        called.append((Path(root), phase))
+        return resolve(root, phase)
+
+    monkeypatch.setattr(bc.phase_settings_module, "beads_directory", phase_settings_beads_dir)
+    assert bc.database_identity(tmp_path) == ("testdb", "p-1")
+    assert called == [(tmp_path, None)]
     cache = bc.BdCache(tmp_path, runner=FakeBd())
-    assert cache.database == "configureddb"
+    assert cache.database == "testdb"
     cache.db.close()
 
 

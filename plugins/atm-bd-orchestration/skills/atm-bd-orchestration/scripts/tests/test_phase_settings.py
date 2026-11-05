@@ -37,13 +37,13 @@ def test_missing_phase_and_default_team_has_named_fix(tmp_path):
         raise AssertionError("missing team should be refused")
 
 
-def test_code_checkout_moves_beads_directory(tmp_path):
+def test_code_checkout_does_not_move_beads_directory(tmp_path):
     root = repository(tmp_path, phase="x", phase_text='lead = "phase-lead"\nteam = "team"\ncode_checkout = "../checkout"\n')
     settings = phase_settings_module.phase_settings(root, "x")
     checkout = settings.code_checkout
     assert checkout is not None
     assert checkout == (root / "../checkout").resolve()
-    assert settings.beads_dir == checkout / ".beads"
+    assert settings.beads_dir == root / ".beads"
 
 
 def test_repository_tool_identity_override(tmp_path):
