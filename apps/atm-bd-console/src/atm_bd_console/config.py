@@ -116,12 +116,11 @@ def phase_caller(root: Path, phase: str) -> Result[Caller]:
     team = raw.get("team")
     if team is None:
         fallback = _team(root)
-        missing = isinstance(fallback, Err) and (isinstance(fallback.error, IoFailed)
-                                                 or getattr(fallback.error, "key", None) == "atm.default_team")
-        if missing:
-            return Err(ConfigInvalid("config_invalid", "team", getattr(fallback.error, "value", "unset"),
-                                     f"add team = \"<ATM team>\" to {path}, or set atm.default_team in {root / '.atm.toml'}"))
         if isinstance(fallback, Err):
+            error = fallback.error
+            if isinstance(error, IoFailed) or getattr(error, "key", None) == "atm.default_team":
+                return Err(ConfigInvalid("config_invalid", "team", getattr(error, "value", "unset"),
+                                         f"add team = \"<ATM team>\" to {path}, or set atm.default_team in {root / '.atm.toml'}"))
             return fallback
         team = fallback.value
     if not isinstance(team, str) or not team.strip():
