@@ -25,7 +25,9 @@ def qa_capable_reviewer(name: str, templates_dir: Path) -> bool:
     if not is_object_mapping(data):
         return False
     required = data.get("required_variables")
-    return isinstance(required, list) and all(key in required for key in ("branch", "commit", "worktree_path", "review_targets"))
+    defaults = data.get("defaults", {})
+    return (isinstance(required, list) and is_object_mapping(defaults)
+            and all(key in required and key not in defaults for key in ("branch", "commit", "worktree_path", "review_targets")))
 
 
 def qa_capable_reviewers(templates_dir: Path) -> list[str]:
