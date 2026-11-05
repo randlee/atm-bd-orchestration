@@ -306,7 +306,7 @@ class Linker:
         lean = self.lean_mode()
         pulls = self.pulls()
         hosted_prs = None
-        if not lean and layers:
+        if not lean and (layers or metadata['stack_number'] is not None):
             self.command(['git', 'fetch', 'origin'])
             stacks = self.stacks()
             known = {layer['pr'] for layer in layers}
@@ -321,7 +321,7 @@ class Linker:
             selected = select_confirmed_stack_top(layers, hosted_prs)
             if isinstance(selected, StackTopMismatch):
                 linked_prs = [layer['pr'] for layer in layers if layer['linked']]
-                if len(hosted_prs) <= len(linked_prs) or hosted_prs[:len(linked_prs)] != linked_prs:
+                if not layers or len(hosted_prs) <= len(linked_prs) or hosted_prs[:len(linked_prs)] != linked_prs:
                     raise StackError(f'stack top mismatch: ledger {selected.ledger_top}; hosted {selected.hosted_top}')
                 try:
                     self.reconcile(metadata, pulls, stacks)

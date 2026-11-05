@@ -958,3 +958,14 @@ def test_held_chain_is_released_in_git_order(world):
     assert result["top"]["pr"] == 3
     assert [(layer["pr"], layer["linked"]) for layer in world.bead["metadata"]["layers"]] == [(1, True), (2, True), (3, True)]
     assert world.stacks[0]["prs"] == [1, 2, 3]
+
+
+def test_empty_ledger_with_recorded_hosted_stack_is_not_silently_selected(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    world.bead["metadata"]["stack_number"] = 7
+    world.stacks = [{"number": 7, "base": "trunk", "prs": [1]}]
+    result = world.link(second)
+    assert result["result"] == "stack_failed"
+    assert "stack top mismatch" in result["evidence"]
+    assert world.bead["metadata"]["layers"] == []
