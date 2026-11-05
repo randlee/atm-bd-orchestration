@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 from typing import Any
@@ -29,6 +30,12 @@ HEARTBEAT_INTERVAL = 120
 
 class StackError(Exception):
     pass
+
+
+class LayerError(StackError):
+    def __init__(self, evidence, fix):
+        super().__init__(evidence)
+        self.fix = fix
 
 
 class Parser(argparse.ArgumentParser):
@@ -141,6 +148,17 @@ class Linker:
             raise StackError('filtered hosted stack list has invalid fields')
         return found
 
+    def invalid_layer(self, metadata, layer, invariant, *, remove=False):
+        repaired = copy.deepcopy(metadata)
+        index = next(i for i, item in enumerate(metadata['layers']) if item is layer)
+        if remove:
+            repaired['layers'].pop(index)
+        else:
+            repaired['layers'][index]['linked'] = False
+        command = f"bd update {shlex.quote(self.values['stack_bead'])} --metadata {shlex.quote(json.dumps(repaired, separators=(',', ':')))}"
+        raise LayerError(f"PR {layer.get('pr')} branch {layer.get('branch')} head {layer.get('head')}: {invariant}",
+                         command + "; --set-metadata stores a string")
+
     def reconcile(self, metadata, pulls, stacks):
         layers = metadata['layers']
         known = {entry['pr'] for entry in layers}
@@ -149,7 +167,10 @@ class Linker:
         if len(matching) > 1:
             raise StackError('ambiguous hosted stacks overlap the ledger')
         if not matching:
-            if metadata['stack_number'] is not None or any(layer['linked'] for layer in layers):
+            for layer in layers:
+                if layer['linked']:
+                    self.invalid_layer(metadata, layer, 'linked: true but absent from the hosted stack')
+            if metadata['stack_number'] is not None:
                 raise StackError('hosted stack missing for linked ledger')
             return
         stack = matching[0]
@@ -191,8 +212,9 @@ class Linker:
                     raise StackError('hosted-only stack layer is not uniquely attributable')
                 layers.append({'branch': pull['head'], 'pr': number, 'head': pull['sha'], 'base': previous, 'linked': True})
             previous = pull['head']
-        if any(layer['linked'] for layer in layers[len(stack['prs']):]):
-            raise StackError('linked ledger layer is absent from hosted stack')
+        for layer in layers[len(stack['prs']):]:
+            if layer['linked']:
+                self.invalid_layer(metadata, layer, 'linked: true but absent from the hosted stack')
         metadata['stack_number'] = stack['number']
 
     def write(self, metadata):
@@ -222,6 +244,8 @@ class Linker:
         previous = metadata['trunk']
         branches, numbers = set(), set()
         for layer in layers:
+            if isinstance(layer, dict) and layer.get('pr') in numbers:
+                self.invalid_layer(metadata, layer, 'duplicate pr in metadata.layers', remove=True)
             if (not isinstance(layer, dict) or not isinstance(layer.get('branch'), str) or not layer['branch'] or
                     type(layer.get('pr')) is not int or layer['pr'] <= 0 or not isinstance(layer.get('head'), str) or
                     not re.fullmatch(r'[0-9a-fA-F]{7,64}', layer['head']) or type(layer.get('linked')) is not bool or
@@ -369,6 +393,8 @@ def main(argv=None, runner=subprocess.run, clock=time.time):
                 result = linker.execute()
             except (StackError, OSError, ValueError, TypeError, KeyError) as error:
                 result = {'result': 'stack_failed', 'evidence': str(error)}
+                if isinstance(error, LayerError):
+                    result['fix'] = error.fix
         finally:
             try:
                 linker.release()
@@ -387,7 +413,9 @@ def main(argv=None, runner=subprocess.run, clock=time.time):
     if linker is not None and linker.mode is not None:
         result.update(mode=linker.mode, lean_reason=linker.lean_reason)
     lead = (args.notify_lead if args is not None else None) or (values.get('lead') if isinstance(values, dict) else None)
-    if lead and result['result'] != 'stacked':
+    if lead and result['result'] != 'stacked' and lead == os.environ.get('ATM_IDENTITY'):
+        result['notified'] = 'skipped (self)'
+    elif lead and result['result'] != 'stacked':
         try:
             notice = runner(['atm', 'send', lead,
                              'Sanity task already closed; stack handoff needs lead action: ' + json.dumps(result)],

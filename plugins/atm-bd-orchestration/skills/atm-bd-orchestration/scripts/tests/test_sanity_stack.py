@@ -752,3 +752,37 @@ def test_missing_input_key_is_stack_failed_and_releases(world, monkeypatch):
     monkeypatch.setattr(LINK.Linker, "execute", boom)
     result = world.link(values)
     assert result["result"] == "stack_failed" and "absent_key" in result["evidence"]
+
+
+def test_self_lead_notification_is_skipped(world):
+    values = world.branch("first", "trunk", 1)
+    values["lead"] = "sanity"
+    world.pulls[0]["draft"] = True
+    result = world.link(values)
+    assert result["result"] == "stack_failed"
+    assert result["notified"] == "skipped (self)"
+    assert not any(call[:2] == ["atm", "send"] for call in world.calls)
+
+
+def test_duplicate_layer_refusal_has_repair(world):
+    values = world.branch("first", "trunk", 1)
+    assert world.link(values)["result"] == "stacked"
+    layer = copy.deepcopy(world.bead["metadata"]["layers"][0])
+    layer.update(branch="duplicate", base="first")
+    world.bead["metadata"]["layers"].append(layer)
+    result = world.link(values)
+    assert result["result"] == "stack_failed"
+    assert all(text in result["evidence"] for text in ("PR 1", "duplicate", layer["head"], "duplicate pr"))
+    assert "bd update phase.stack --metadata" in result["fix"]
+    assert "--set-metadata stores a string" in result["fix"]
+
+
+def test_ghost_linked_layer_refusal_has_repair(world):
+    values = world.branch("first", "trunk", 1)
+    assert world.link(values)["result"] == "stacked"
+    world.bead["metadata"]["layers"][0]["linked"] = True
+    result = world.link(values)
+    assert result["result"] == "stack_failed"
+    assert all(text in result["evidence"] for text in ("PR 1", "first", values["commit"], "absent from the hosted stack"))
+    assert "bd update phase.stack --metadata" in result["fix"]
+    assert '"linked":false' in result["fix"]
