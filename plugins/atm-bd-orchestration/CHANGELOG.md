@@ -2,8 +2,10 @@
 
 ## [Unreleased]
 
+## [0.19.14] - 2026-11-05
+
 ### Fixed
-- `atm-bd` 0.19.13 on PyPI could not be installed: the console required `atm-bd-core` and `atm-bd-types`, which exist only as path sources in this repository (0.19.13 is yanked). Both move to a `lite` extra used only by the profile monitor tick; a phase that selects a profile on an install without it stops with exit 3 and the install command. CI now resolves the built wheel against PyPI alone. Publishing `atm-bd-core`, `atm-bd-types` 0.4.0 and `bd-cache-rs` to PyPI is deferred to the lite profile release.
+- `atm-bd` 0.19.13 on PyPI could not be installed: the console required `atm-bd-core` and `atm-bd-types`, which exist only as path sources in this repository (#820; 0.19.13 is yanked). Both move to a `lite` extra used only by the profile monitor tick; a phase that selects a profile on an install without it stops with exit 3 and the install command. CI now resolves the built wheel against PyPI alone. Publishing `atm-bd-core`, `atm-bd-types` 0.4.0 and `bd-cache-rs` to PyPI is deferred to the lite profile release.
 
 ## [0.19.13] - 2026-11-04
 
