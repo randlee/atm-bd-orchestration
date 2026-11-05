@@ -512,7 +512,6 @@ def _problems(
         return tuple(
             problem for problem in state.problems
             if problem.key.startswith(("missing_pr:", "conflict:"))
-            or (problem.key.startswith("top_ci:") and inputs.stack_prs is None and inputs.stack_ledger is None)
         )
     by_branch = _branch_owners(phase)
     by_id = {step.bead_id: step for step in phase.steps}
@@ -623,7 +622,8 @@ def _problems(
                     f"{step.bead_id} ({step.kind}): pushed branch {branch} has no open PR; open a PR with "
                     f"head {branch} against its pr_target (a stacked layer is submitted by the stack writer)", now,
                 ))
-    if fresh_github and not stack_mismatch and top_pr is not None and top_pr.ci in FAILING_CI:
+    if (fresh_github and not stack_mismatch and top_pr is not None and top_pr.ci in FAILING_CI
+            and not (inputs.stack_prs is None and inputs.stack_ledger is None)):
         checks = ", ".join(top_pr.failed_checks)
         problems.append(Problem(
             f"top_ci:{top_pr.head_sha}", owner.bead_id if (owner := by_branch.get(top_pr.head)) else None,
@@ -638,8 +638,8 @@ def _problems(
         if (
             previous.key.startswith("missing_pr:") and not fresh_github
             or previous.key.startswith("top_ci:") and not fresh_github
-            and ((inputs.stack_prs is None and inputs.stack_ledger is None)
-                 or (top_pr is not None and previous.key == f"top_ci:{top_pr.head_sha}"))
+            and not (inputs.stack_prs is None and inputs.stack_ledger is None)
+            and top_pr is not None and previous.key == f"top_ci:{top_pr.head_sha}"
             or previous.key.startswith("conflict:") and previous.key.removeprefix("conflict:") not in refreshed_merges
         ):
             problems.append(previous)

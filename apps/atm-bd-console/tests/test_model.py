@@ -396,6 +396,7 @@ def test_pr_rows_are_layer_ordered_and_only_top_ci_is_a_problem() -> None:
     )
     snapshot, _, _ = tick(inputs(
         phase(*steps, sprints=sprints), prs=Ok(prs),
+        stack_prs=Ok((1, 2, 3)), stack_ledger=Ok((1, 2, 3)),
         remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
         gh=GhStatus("graphql", True, None, NOW, False),
     ), STATE, NOW, render)
@@ -403,6 +404,57 @@ def test_pr_rows_are_layer_ordered_and_only_top_ci_is_a_problem() -> None:
     assert [row.top for row in snapshot.prs] == [False, False, True]
     assert snapshot.top_pr == 3 and snapshot.top_ci == CiState.FAIL_BUG
     assert [problem.key for problem in snapshot.problems] == ["top_ci:sha3"]
+
+
+def test_absent_stack_sources_suppress_inferred_top_ci_advice() -> None:
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+                  for number in (1, 2, 3))
+    sprints = (sprint(1), sprint(2), sprint(3))
+    prs = tuple(PullRequest(number, f"url{number}", f"branch-{number}",
+                            "base" if number == 1 else f"branch-{number - 1}", f"sha{number}",
+                            CiState.FAIL_BUG if number == 3 else CiState.PASS,
+                            ("test",) if number == 3 else ()) for number in (1, 2, 3))
+    value = inputs(
+        phase(*steps, sprints=sprints), prs=Ok(prs),
+        remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    )
+    assert value.stack_prs is None and value.stack_ledger is None
+
+    snapshot, actions, _ = tick(value, STATE, NOW, render)
+
+    # The layer-order inference remains useful for the display, but cannot
+    # authorize an actionable CI alert without either stack source.
+    assert snapshot.top_pr == 3 and snapshot.top_ci == CiState.FAIL_BUG
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    assert not any("CI failed" in action.text for action in actions)
+
+
+def test_absent_stack_sources_do_not_replay_stale_top_ci_advice() -> None:
+    value = phase(step("dev-3", "atm-bh-3", branch="branch-3", layer=3))
+    failed_pr = PullRequest(3, "url3", "branch-3", "base", "sha3", CiState.FAIL_BUG, ("test",))
+    prior = Problem("top_ci:sha3", "dev-3", "fenix", "top PR #3 CI failed", NOW - timedelta(minutes=11))
+    state = replace(STATE, problems=(prior,), batch_due={"fenix": NOW})
+
+    snapshot, actions, _ = tick(inputs(
+        value, prs=Ok((failed_pr,)),
+        gh=GhStatus("off", None, None, None, False),
+    ), state, NOW, render)
+
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    assert not any("top PR #3" in action.text for action in actions)
+
+
+def test_missing_phase_drops_stale_top_ci_advice() -> None:
+    prior = Problem("top_ci:sha3", "dev-3", "fenix", "top PR #3 CI failed", NOW - timedelta(minutes=11))
+    state = replace(STATE, problems=(prior,))
+    value = replace(inputs(phase()), phase=Err(NotFound("not_found", "phase", "restore phase config")),
+                    stack_prs=None, stack_ledger=None)
+
+    snapshot, actions, _ = tick(value, state, NOW, render)
+
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    assert not any("top PR #3" in action.text for action in actions)
 
 
 def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None:
@@ -630,11 +682,11 @@ def test_read_derived_problems_survive_missing_reads_without_duplicate_sends() -
 def test_ci_and_conflict_problems_survive_until_their_sources_are_refreshed() -> None:
     value = phase(step("dev", "atm-bh-1", branch="pushed", assignee="solar"))
     failed_pr = PullRequest(1, "url", "pushed", "base", "sha", CiState.FAIL_BUG, ("lint",))
-    first = inputs(value, prs=Ok((failed_pr,)), gh=GhStatus("graphql", True, None, NOW, False))
+    first = inputs(value, prs=Ok((failed_pr,)), stack_prs=Ok((1,)), stack_ledger=Ok((1,)),
+                   gh=GhStatus("graphql", True, None, NOW, False))
     snapshot, _, state = tick(first, STATE, NOW, render)
     assert [problem.key for problem in snapshot.problems] == ["top_ci:sha"]
-    unread = replace(first, prs=Err(NotFound("not_found", "prs", "retry")),
-                     gh=GhStatus("graphql", False, None, NOW, False))
+    unread = replace(first, gh=GhStatus("graphql", False, None, NOW, False))
     snapshot, actions, state = tick(unread, state, NOW + timedelta(minutes=5), render)
     assert [problem.key for problem in snapshot.problems] == ["top_ci:sha", "github_unavailable"]
     assert actions == ()
@@ -645,7 +697,8 @@ def test_ci_and_conflict_problems_survive_until_their_sources_are_refreshed() ->
     assert snapshot.problems == ()
 
     conflict = Merge("pushed", "base", MergeState.CONFLICT, ("model.py",), (), NOW)
-    with_merge = replace(first, prs=None, gh=GhStatus("off", None, None, None, False), merges=(Ok(conflict),))
+    with_merge = replace(first, prs=None, stack_prs=None, stack_ledger=None,
+                         gh=GhStatus("off", None, None, None, False), merges=(Ok(conflict),))
     snapshot, _, state = tick(with_merge, STATE, NOW, render)
     assert [problem.key for problem in snapshot.problems] == ["conflict:pushed", "github_unavailable"]
     snapshot, actions, state = tick(replace(with_merge, merges=(Err(NotFound("not_found", "merge", "retry")),)),
