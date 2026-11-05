@@ -545,14 +545,14 @@ def _problems(
         error = inputs.stack_ledger.error
         detail = error_text(error).removesuffix(f"; {error.fix}")
         problems.append(Problem("stack_ledger:unavailable", stack_bead, inputs.lead,
-                                f"stack ledger unavailable: {detail}; no top-dependent advice is sent.\nFix: {error.fix}", now))
+                                f"{stack_bead}: stack ledger unavailable: {detail}; no top-dependent advice is sent.\nFix: {error.fix}", now))
     elif inputs.stack_ledger is None and inputs.stack_prs is not None:
         problems.append(Problem("stack_ledger:unavailable", stack_bead, inputs.lead,
-                                f"stack ledger was not read; no top-dependent advice is sent.\nFix: configure and read {stack_bead}", now))
+                                f"{stack_bead}: stack ledger was not read; no top-dependent advice is sent.\nFix: configure and read {stack_bead}", now))
     if isinstance(inputs.stack_prs, Err):
         problems.append(Problem(
             "stack_membership:unavailable", stack_bead, inputs.lead,
-            f"hosted stack membership is unreadable ({inputs.stack_prs.error.kind}): no top PR is named and no "
+            f"{stack_bead}: hosted stack membership is unreadable ({inputs.stack_prs.error.kind}): no top PR is named and no "
             f"top-dependent advice is sent until the stack read succeeds.\nFix: {inputs.stack_prs.error.fix}; "
             f"check console.stack trunk/number in console.toml and GitHub access",
             now,
@@ -583,7 +583,7 @@ def _problems(
     if fresh_github and stack_mismatch:
         problems.append(Problem(
             "stack_top_mismatch", stack_bead, inputs.lead,
-            f"ledger top {f'#{ledger_top}' if ledger_top is not None else 'empty'}, "
+            f"{stack_bead}: ledger top {f'#{ledger_top}' if ledger_top is not None else 'empty'}, "
             f"hosted top {f'#{hosted_top}' if hosted_top is not None else 'empty'}\nFix: run sanity-stack-link --check", now,
         ))
     if fresh_github:
