@@ -171,6 +171,21 @@ def test_beads_dir_environment_does_not_select_the_database(tmp_path, monkeypatc
     explicit.db.close()
 
 
+def test_no_phase_uses_phase_settings_code_checkout(tmp_path):
+    workspace(tmp_path)
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    workspace(checkout, database="configureddb")
+    settings = tmp_path / ".atm-bd"
+    settings.mkdir()
+    (settings / "phase-x.toml").write_text('code_checkout = "checkout"\n')
+
+    assert bc.database_identity(tmp_path) == ("configureddb", "p-1")
+    cache = bc.BdCache(tmp_path, runner=FakeBd())
+    assert cache.database == "configureddb"
+    cache.db.close()
+
+
 def test_file_from_another_project_is_refused(world, tmp_path):
     workspace(tmp_path, project="p-2")
     with pytest.raises(bc.CacheError) as error:

@@ -101,7 +101,7 @@ def database_identity(root, beads_dir=None, phase=None):
     """dolt database name and project id from bd's workspace metadata; no bd process."""
     root = Path(root)
     if beads_dir is None:
-        beads_dir = phase_settings_module.phase_settings(root, phase).beads_dir if phase else root / ".beads"
+        beads_dir = phase_settings_module.beads_directory(root, phase)
     beads_dir = Path(beads_dir)
     path = beads_dir / "metadata.json"
     try:

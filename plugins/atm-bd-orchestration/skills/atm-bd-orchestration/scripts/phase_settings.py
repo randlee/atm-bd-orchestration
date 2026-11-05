@@ -28,6 +28,36 @@ class PhaseSettingsError(ValueError):
     """Phase or repository settings needed for an internal atm-bd call are invalid."""
 
 
+def beads_directory(repo_root: Path, phase: str | None = None) -> Path:
+    """Resolve the repository's beads directory, including callers without a phase.
+
+    A phase-specific caller uses its own setting. Generic cache callers have no
+    phase to select, so all configured code checkouts must agree on one path.
+    Older repositories without a code_checkout setting keep the repository root.
+    """
+    root = Path(repo_root).resolve()
+    if phase is not None:
+        return phase_settings(root, phase).beads_dir
+
+    settings_dir = root / ".atm-bd"
+    checkouts: set[Path] = set()
+    try:
+        for config_path in sorted(settings_dir.glob("phase-*.toml")):
+            data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+            value = data.get("code_checkout")
+            if value is not None:
+                if not isinstance(value, str) or not value.strip():
+                    raise PhaseSettingsError(f"code_checkout in {config_path} must be a nonempty path")
+                checkouts.add((root / value).resolve())
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+        raise PhaseSettingsError(f"cannot read phase settings under {settings_dir}: {exc}") from exc
+
+    if len(checkouts) > 1:
+        paths = ", ".join(str(path) for path in sorted(checkouts))
+        raise PhaseSettingsError(f"phase settings disagree on code_checkout ({paths}); pass an explicit phase")
+    return (next(iter(checkouts)) if checkouts else root) / ".beads"
+
+
 def phase_settings(repo_root: Path, phase: str) -> PhaseSettings:
     root = Path(repo_root).resolve()
     phase_path = root / ".atm-bd" / f"phase-{phase}.toml"
