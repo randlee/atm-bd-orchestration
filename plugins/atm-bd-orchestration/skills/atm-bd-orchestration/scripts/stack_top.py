@@ -54,6 +54,19 @@ class StackTopMismatch:
     hosted_top: int | None
 
 
+def select_passed_unlinked_top(layers: list[JsonValue]) -> StackTop | None:
+    """Return the passed first layer while it has no hosted stack, excluding holds."""
+    for layer in reversed(layers):
+        if not is_json_object(layer) or layer.get("held_on") or layer.get("linked") is not False:
+            continue
+        pr, branch, head = layer.get("pr"), layer.get("branch"), layer.get("head")
+        if type(pr) is not int or not isinstance(branch, str) or not branch.strip() or not isinstance(head, str) or not head.strip():
+            raise ValueError("passed stack layer must have a PR, branch and head")
+        assert isinstance(pr, int)
+        return StackTop(pr, branch, head)
+    return None
+
+
 def select_confirmed_stack_top(
     ledger_layers: list[JsonValue], hosted_prs: list[int] | None = None,
 ) -> StackTop | StackTopMismatch:
@@ -100,6 +113,10 @@ def select_stack_top(
     selected = select_confirmed_stack_top(layers)
     if isinstance(selected, StackTop) and selected.branch is not None and selected.head is not None:
         return selected.branch, selected.head
+    passed = select_passed_unlinked_top(layers)
+    if passed is not None:
+        assert passed.branch is not None and passed.head is not None
+        return passed.branch, passed.head
     if not isinstance(pr_target, str) or not pr_target.strip():
         raise ValueError("pr_target must be a non-empty string")
     head = resolve_head(pr_target)

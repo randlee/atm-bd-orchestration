@@ -28,3 +28,11 @@ def test_hosted_ahead_of_ledger_is_typed_mismatch():
 def test_empty_ledger_and_hosted_stack_selects_trunk_via_wrapper():
     assert select_confirmed_stack_top([], []) == StackTop(None, None, None)
     assert select_stack_top({"metadata": {"layers": []}}, "trunk", lambda _: "abc") == ("trunk", "abc")
+
+
+def test_passed_first_layer_wins_over_trunk_but_held_layers_do_not():
+    first = {"pr": 1, "branch": "first", "head": "aaa", "linked": False}
+    held = {"pr": 2, "branch": "held", "head": "bbb", "linked": False,
+            "held_on": {"pr": 1, "branch": "first"}}
+    assert select_stack_top({"metadata": {"layers": [first, held]}}, "trunk", lambda _: "ccc") == ("first", "aaa")
+    assert select_stack_top({"metadata": {"layers": [held]}}, "trunk", lambda _: "ccc") == ("trunk", "ccc")

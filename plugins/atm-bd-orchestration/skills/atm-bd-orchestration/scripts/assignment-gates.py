@@ -25,7 +25,7 @@ from typing import Any, Callable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from command_timeout import DEFAULT_COMMAND_TIMEOUT, RAISE_FIX, TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
-from stack_top import StackTop, StackTopMismatch, select_confirmed_stack_top, stack_bead_id
+from stack_top import StackTop, StackTopMismatch, select_confirmed_stack_top, select_passed_unlinked_top, stack_bead_id
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 IGNORED_STATUS_PATHS = (".beads.gate.lock", ".sc-compose/")
@@ -161,6 +161,9 @@ def stack_top(runner: Runner, args: argparse.Namespace) -> str:
         raise ValueError(f"stack top mismatch: ledger {selected.ledger_top}; hosted {selected.hosted_top}")
     if isinstance(selected, StackTop) and selected.branch is not None:
         return selected.branch
+    passed = select_passed_unlinked_top(layers)
+    if passed is not None and passed.branch is not None:
+        return passed.branch
     run(runner, "git", *git_dir(args), "rev-parse", f"origin/{args.pr_target}")
     return args.pr_target
 

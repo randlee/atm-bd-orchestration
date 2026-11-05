@@ -151,6 +151,14 @@ class PhaseEndFindingTests(unittest.TestCase):
         self.assertNotIsInstance(result[0], groups.TargetError)
         self.assertEqual(result[0]["compose"]["pr_target"], "linked")
 
+    def test_passed_unlinked_first_layer_is_the_fix_target(self):
+        layers = [{"pr": 1, "branch": "first", "head": "a" * 40, "base": "integrate/phase-d", "linked": False},
+                  {"pr": 2, "branch": "held", "head": "b" * 40, "base": "first", "linked": False,
+                   "held_on": {"pr": 1, "branch": "first"}}]
+        groups, result = self.targets(stack_layers=layers, difficulty="hard")
+        self.assertNotIsInstance(result[0], groups.TargetError)
+        self.assertEqual(result[0]["compose"]["pr_target"], "first")
+
     def test_code_checkout_controls_fix_worktree(self):
         groups, result = self.targets(code_checkout="../code", difficulty="hard")
         self.assertNotIsInstance(result[0], groups.TargetError)

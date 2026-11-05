@@ -19,7 +19,7 @@ from typing import Any
 import tempfile
 import time
 
-from stack_top import StackTop, StackTopMismatch, select_confirmed_stack_top
+from stack_top import StackTop, StackTopMismatch, select_confirmed_stack_top, select_passed_unlinked_top
 
 
 PULL_FILTER = '.[] | {number, base: .base.ref, head: .head.ref, sha: .head.sha, draft}'
@@ -348,9 +348,12 @@ class Linker:
         base = selected.branch if selected.branch is not None else metadata['trunk']
         recorded_head = selected.head if selected.head is not None else resolve_head(base)
         # A passed first layer has no hosted stack until its successor passes.
-        passed = [layer for layer in layers if not layer.get('held_on')]
-        if passed and not any(layer['linked'] for layer in passed):
-            base, recorded_head = passed[-1]['branch'], passed[-1]['head']
+        has_passed = any(not layer.get('held_on') for layer in layers)
+        if selected.branch is None:
+            passed_top = select_passed_unlinked_top(layers)
+            if passed_top is not None:
+                assert passed_top.branch is not None and passed_top.head is not None
+                base, recorded_head = passed_top.branch, passed_top.head
         parent = self.git_parent(candidate, pulls)
         parent_entry = next((layer for layer in layers if parent and layer['pr'] == parent['number']), None)
         if parent and (parent_entry is None or parent_entry.get('held_on')):
@@ -405,7 +408,7 @@ class Linker:
         if (lean or not layers) and candidate['base'] != base:
             raise StackError(f"pull request base {candidate['base']} differs from stack top {base}")
         new = recorded or {'branch': self.values['branch'], 'pr': self.values['pr_number'], 'head': self.values['commit'], 'base': base, 'linked': False}
-        if not passed and recorded is None:
+        if not has_passed and recorded is None:
             new['base_head'] = recorded_head
         self.verify_trunk_merge(metadata['trunk'], self.values['commit'])
         children = []
