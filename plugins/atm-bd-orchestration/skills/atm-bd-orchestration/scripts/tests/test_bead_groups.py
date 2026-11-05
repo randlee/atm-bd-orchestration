@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 SCRIPTS = Path(__file__).parents[1]
 sys.path.insert(0, str(SCRIPTS))
+from qa_reviewers import qa_capable_reviewers
 
 
 class FindingGroupTests(unittest.TestCase):
@@ -152,6 +153,13 @@ class PhaseEndFindingTests(unittest.TestCase):
             self.assertEqual(result[0].code, "BEAD_GROUPS_REVIEWER_INVALID")
             self.assertIn("flaky-test-qa", str(result[0]))
             self.assertIn("--reviewer <agent>", str(result[0]))
+
+    def test_every_supported_qa_reviewer_can_file_a_finding(self):
+        for reviewer in qa_capable_reviewers(SCRIPTS.parent / "templates"):
+            with self.subTest(reviewer=reviewer):
+                groups, result = self.targets(difficulty="hard", reviewer=reviewer)
+                self.assertNotIsInstance(result[0], groups.TargetError)
+                self.assertEqual(result[0]["compose"]["reviewer"], reviewer)
 
     def test_phase_epic_finding_pours_with_derived_facts(self):
         groups, result = self.targets(difficulty="hard")

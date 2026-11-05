@@ -10,6 +10,9 @@ import tempfile
 import unittest
 
 SCRIPT = Path(__file__).parents[1] / "fix-round-scope"
+sys.path.insert(0, str(SCRIPT.parent))
+from qa_reviewers import qa_capable_reviewers
+
 LOADER = importlib.machinery.SourceFileLoader("fix_round_scope", str(Path(__file__).parents[1] / "fix-round-scope"))
 SPEC = importlib.util.spec_from_loader("fix_round_scope", LOADER)
 assert SPEC is not None
@@ -148,6 +151,25 @@ class CliTests(unittest.TestCase):
         (self.dir / "r.json").write_text(json.dumps({"data": {"findings": []}}))
         out = self.run_cli("filter", "--carried", "carried.json", "--reviewer", "req-qa", "--result", "r.json")
         self.assertEqual(out.returncode, 2)
+
+    def test_every_supported_filing_reviewer_can_run_locked_verification(self):
+        for reviewer in qa_capable_reviewers(SCRIPT.parent.parent / "templates"):
+            with self.subTest(reviewer=reviewer):
+                carried = [{"id": "x-f9", "metadata": {"reviewer": reviewer, "finding_ref": "F-9"}}]
+                result = {"data": {"findings": [
+                    {"id": "F-9", "disposition": "fixed", "evidence": "the carried finding is fixed"},
+                    {"id": "UNRELATED", "disposition": "fixed", "evidence": "out of scope"},
+                ]}}
+                (self.dir / "carried.json").write_text(json.dumps(carried))
+                (self.dir / "r.json").write_text(json.dumps(result))
+                out = self.run_cli("filter", "--carried", "carried.json", "--reviewer", reviewer, "--result", "r.json")
+                self.assertEqual(out.returncode, 0, out.stderr)
+                filtered = json.loads(out.stdout)
+                self.assertEqual(filtered["dispositions"], [
+                    {"bead": "x-f9", "finding_ref": "F-9", "disposition": "fixed", "evidence": "the carried finding is fixed"}
+                ])
+                self.assertEqual(filtered["new_findings"], [])
+                self.assertEqual(len(filtered["dropped_out_of_scope"]), 1)
 
     def test_inline_json_or_a_missing_file_is_a_named_error(self):
         out = self.run_cli("filter", "--carried", "carried.json", "--reviewer", "arch-qa", "--result", '{"data": {"findings": []}}')
