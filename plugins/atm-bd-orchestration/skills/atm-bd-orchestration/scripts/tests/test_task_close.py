@@ -381,6 +381,7 @@ def test_github_ok_result_carries_no_github_error(world):
     assert "github_error" not in result
     assert result["ledger_top"] is None
     assert result["pr_base"] == {"branch": "deliberately-different", "pr": None}
+    assert "rebased_onto" not in result
     assert "base_difference" not in result
 
 

@@ -261,7 +261,9 @@ class CacheFirstReadTests(unittest.TestCase):
         result = close_vars_cli.cached_then_fresh(attempt)
         self.assertEqual(seen, [False, True])
         self.assertIn("ASSIGN_VARS.NOT_PLANNED on cached rows", result["read_fallback"][0])
-        self.assertIn("informational: the cache lagged bd; the row was re-read; no action needed", result["read_fallback"][0])
+        self.assertEqual(result["read_fallback"][0],
+                         "ASSIGN_VARS.NOT_PLANNED on cached rows (t-qa: metadata lacks layer); informational: "
+                         "the cache lagged bd; the row was re-read; no action needed")
 
     def test_other_refusals_and_a_second_miss_are_not_retried(self):
         def refuse(code):

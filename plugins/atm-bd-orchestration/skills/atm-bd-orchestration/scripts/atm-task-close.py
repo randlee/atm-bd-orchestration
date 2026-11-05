@@ -393,6 +393,7 @@ class Hook:
         self.beads_dir = ""
         self.ledger_top = None
         self.base_evidence = None
+        self.rebased_onto = ""
         self.base_difference = ""
 
     def run(self, argv, *, lead=False, git=False, check=True):
@@ -649,7 +650,7 @@ class Hook:
         if layers:
             layer = layers[-1]
             self.ledger_top = {"branch": layer["branch"], "pr": layer.get("pr"), "head": layer["head"]}
-        values["rebased_onto"] = top_head
+        self.rebased_onto = top_head
         ancestor = self.run(["git", "merge-base", "--is-ancestor", f"origin/{top}", head], git=True, check=False)
         if ancestor.returncode == 1:
             raise CloseError("BASE.NOT_ANCESTOR", top, f"Rebase onto origin/{top}, push, then rerun the hook.")
@@ -849,6 +850,7 @@ class Hook:
                 return
             if not skip:
                 self.checks()
+                values["rebased_onto"] = self.rebased_onto
             else:
                 self.keep_recorded_pr()
                 values["rebased_onto"] = self.run(["git", "rev-parse", f"origin/{values['pr_target']}"], git=True).stdout.strip()
