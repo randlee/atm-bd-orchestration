@@ -114,6 +114,7 @@ class World:
         self.root_closed = False
         self.now = T0
         self.linked: tuple[int, ...] = (1, 2)
+        self.ledger: tuple[int, ...] = (1, 2)
         self.prs_fail = False
         self.stack_error = None
         self.calls: list[str] = []
@@ -131,8 +132,15 @@ class World:
         monkeypatch.setattr(runner, "create_console_logger", lambda *_: Err(CommandFailed("command_failed", (), 1, "", "")))
         monkeypatch.setattr(runner.atm_bd, "phase_file", lambda *_: Ok(world.file))
         monkeypatch.setattr(runner.atm_bd, "repo_config", lambda *_: Ok(REPO_CONFIG))
-        monkeypatch.setattr(runner.beads_source, "show",
-                            lambda ids: Ok((root_bead(),) if world.file.root_id in ids else ()))
+        def show(ids):
+            if world.file.root_id in ids:
+                return Ok((root_bead(),))
+            if f"{world.file.root_id}.stack" in ids:
+                layers = [{"pr": number, "linked": True} for number in world.ledger]
+                return Ok((replace(BEAD, id=f"{world.file.root_id}.stack", metadata={"layers": layers}),))
+            return Ok(())
+
+        monkeypatch.setattr(runner.beads_source, "show", show)
         monkeypatch.setattr(runner.beads_source, "open_rows", lambda *_: Ok(runner.beads_source.BeadRows((), ())))
         monkeypatch.setattr(runner.beads_source, "ready", lambda *_: Ok(()))
         monkeypatch.setattr(runner.atm_bd, "phase",
@@ -197,6 +205,7 @@ def test_a_new_link_between_polls_raises_no_false_stale_alert(world, tmp_path) -
     assert snapshot.top_pr == 2, "between polls the cached membership and PR list agree on the previous top"
 
     world.now = T0 + timedelta(seconds=600)
+    world.ledger = (1, 2, 3)
     snapshot, _ = tick(world, tmp_path)
     assert "stack_snapshot:stale" not in keys(snapshot)
     assert snapshot.top_pr == 3

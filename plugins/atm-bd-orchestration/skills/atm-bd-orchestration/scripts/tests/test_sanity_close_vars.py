@@ -54,6 +54,12 @@ def test_fail_retains_verbatim_deliverable_reason_and_stack_result(inputs):
     assert result["deliverables_complete"] == 1
 
 
+def test_role_fix_finding_carries_forward(inputs):
+    manifest, selected = inputs
+    manifest["checked_bead_data"] = {"title": "finding", "labels": ["stage:finding"], "metadata": {"role": "fix"}}
+    assert CLOSE.build(manifest, selected)["carry_forward"] == manifest["dev_bead"]
+
+
 @pytest.mark.parametrize("field", ["run_id", "commit", "task_id", "checked_bead"])
 def test_pinned_identity_mismatch_is_rejected(inputs, field):
     manifest, selected = inputs

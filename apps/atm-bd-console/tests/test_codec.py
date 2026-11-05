@@ -49,8 +49,8 @@ TEST_SANITY_MEMBER = "test-sanity"
 TEST_QA_MEMBER = "test-qa"
 TEST_REVIEWER = "test-reviewer"
 ALLOW_EMPTY = {"stack_trunk", "stack_repo"}  # an unconfigured optional config block
-OPTIONAL_ADDITIONS = {"agent_type", "model", "harness", "qa_state", "close_reason", "severity", "qa_row", "checked_row", "assignee", "code_checkout",
-                      "core_remaining", "core_limit", "core_reset", "graphql_remaining", "graphql_limit",
+OPTIONAL_ADDITIONS = {"agent_type", "model", "harness", "qa_state", "close_reason", "severity", "qa_row", "checked_row", "assignee", "code_checkout", "stack_ledger",
+                      "template", "core_remaining", "core_limit", "core_reset", "graphql_remaining", "graphql_limit",
                       "graphql_reset", "quota_at", "stack_prs", "stack_trunk", "stack_number", "stack_repo"}
 
 
@@ -361,3 +361,15 @@ def test_error_kind_decoder_map_matches_error_union() -> None:
         for error_type in get_args(result.Error)
     }
     assert _ERRORS == expected
+
+
+def test_stack_ledger_result_round_trip_and_legacy_array_migration() -> None:
+    error = NotFound("not_found", "phase.stack", "restore the stack bead")
+    for ledger in (None, Ok(()), Ok((1, 2)), Err(error)):
+        value = replace(INPUTS, stack_ledger=ledger)
+        assert from_json(Inputs, to_json(value)) == Ok(value)
+    legacy = json.loads(to_json(INPUTS))
+    legacy["stack_ledger"] = [1, 2]
+    decoded = from_json(Inputs, json.dumps(legacy))
+    assert isinstance(decoded, Ok)
+    assert decoded.value.stack_ledger == Ok((1, 2))

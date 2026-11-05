@@ -35,8 +35,11 @@ class Sender:
 def setup(tmp_path):
     root = workspace(tmp_path)
     (root / ".atm-bd").mkdir(exist_ok=True)
-    (root / ".atm-bd" / "phase-x.toml").write_text('root = "root-x"\nlead = "lead-x"\n')
-    (root / ".atm-bd" / "phase-y.toml").write_text('root = "root-y"\nlead = "lead-y"\n')
+    (root / ".atm-bd" / "phase-x.toml").write_text('root = "root-x"\nlead = "lead-x"\nteam = "team"\n')
+    (root / ".atm-bd" / "phase-y.toml").write_text('root = "root-y"\nlead = "lead-y"\nteam = "team"\n')
+    config = root / ".claude/project/atm-bd-orchestration.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("max_sanity_rounds: 5\n")
     bd = FakeBd()
     bd.add("root-x", labels=["phase-x"])
     bd.add("root-y", labels=["phase-y"], status="closed")
@@ -199,11 +202,12 @@ def test_send_runs_atm_send_as_atm_bd_at_tool_and_reports_delivery(monkeypatch, 
         return subprocess.CompletedProcess(argv, code, "", "" if code == 0 else "refused")
 
     monkeypatch.setattr(cron.subprocess, "run", run)
+    monkeypatch.setenv("ATM_BIN", "/wrong/atm")
     monkeypatch.setenv("ATM_IDENTITY", "someone")
     monkeypatch.setenv("ATM_TEAM", "elsewhere")
     ok, _detail = cron.send("dev-team", "lead", "body")
     assert ok is delivered
     [(argv, kwargs)] = calls
-    assert argv == [cron.ATM, "send", "lead@dev-team", "--team", "tool", "--stdin", "--json"]
+    assert argv == ["atm", "send", "lead@dev-team", "--team", "tool", "--stdin", "--json"]
     assert kwargs["input"] == "body"
     assert (kwargs["env"]["ATM_IDENTITY"], kwargs["env"]["ATM_TEAM"]) == ("atm-bd", "tool")

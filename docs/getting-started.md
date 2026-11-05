@@ -42,7 +42,7 @@ You need these command-line tools and three Python packages. Check them once per
 
 | Tool | Why | Needs | Install | Check |
 | --- | --- | --- | --- | --- |
-| `python3` | Runs the installed scripts | 3.11 only | your system package manager | `python3 --version` |
+| `python3` | Runs the installed scripts; the installer accepts 3.11+ when its dependency probe passes | 3.11 for scripts | your system package manager | `python3 --version` |
 | `atm-bd` | The console and the skill installer | 0.19.2 for these steps | `uv tool install atm-bd` | `atm-bd --version` |
 | `atm` | Agent messaging, task assignment, hooks and crons | 1.6.3 or newer | the GitHub prerelease from [randlee/atm-core](https://github.com/randlee/atm-core/releases) until a stable release has `atm hook`; `brew install randlee/tap/atm` gives 1.6.1, which lacks `atm hook` and `atm cron` | `atm --version`, `atm hook --help` |
 | `bd` | Beads, the issue tracker the work runs on | 1.3.0 or newer | `brew install beads` | `bd --version` |
@@ -57,11 +57,7 @@ You need these command-line tools and three Python packages. Check them once per
 
 atm-bd 0.19.2 is the first release that adds the dev-sanity member and lists its changes when it installs. With 0.19.1, add the dev-sanity member by hand (see "Setting up the team").
 
-The host `python3` also needs pydantic, PyYAML and the sc-compose wheel, because the installed scripts run with plain `python3`. The wheel must be the same version as the `sc-compose` CLI; the installer checks both and refuses a mismatch. Pin it to the CLI's version:
-
-```bash
-python3 -m pip install pydantic pyyaml "sc-compose==$(sc-compose --version | awk '{print $NF}')"
-```
+The installer checks that its own `uv tool` interpreter can import pydantic, PyYAML and the same sc-compose wheel version as the CLI. The `python3` on PATH is not used for installed scripts; their inline metadata selects Python 3.11.
 
 `atm-bd` carries its own copy of the sc-compose wheel, inside its uv tool environment, and the installer checks that one against the CLI too ("the installer interpreter wheel"). When they differ, reinstall `atm-bd` with the CLI's version:
 
@@ -293,4 +289,4 @@ Every error names the setting or tool at fault, so paste it to Claude and ask fo
 
 The console only reads files in the folder you start it from; it does not look in parent folders.
 
-The installer and host `python3` require Python 3.11: sc-compose 1.7.0 ships cp311 wheels only. [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).
+The installer accepts Python 3.11 or newer when its interpreter can import pydantic, PyYAML and the same sc-compose wheel version as the CLI; if that probe fails, reinstall with `uv tool install atm-bd --python 3.11`. Installed scripts still use Python 3.11 from their inline metadata. Internal `atm` and `bd` calls use the phase team, lead and code checkout plus repository `tool_identity` configuration; the caller's environment identifies the caller and never selects those settings.

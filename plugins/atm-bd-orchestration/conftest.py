@@ -4,7 +4,8 @@ import tomllib
 from pathlib import Path
 
 PKG = Path(__file__).resolve().parent
-for path in (PKG, PKG / "tests", PKG / "skills/atm-bd-orchestration/scripts/tests"):
+for path in (PKG, PKG / "tests", PKG / "skills/atm-bd-orchestration/scripts",
+             PKG / "skills/atm-bd-orchestration/scripts/tests"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 

@@ -93,6 +93,7 @@ class LargeRepo:
 @pytest.fixture
 def large(monkeypatch):
     world = World(monkeypatch)
+    world.ledger = (2249, 2250)
     monkeypatch.setattr(runner.github_source, "open_prs", REAL_OPEN_PRS)
     monkeypatch.setattr(runner.github_source, "stack_membership", REAL_STACK_MEMBERSHIP)
     return world, LargeRepo(monkeypatch)

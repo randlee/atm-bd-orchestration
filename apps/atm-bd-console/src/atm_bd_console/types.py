@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Literal, TypeAlias
 
 from .enums import CiState, MergeState, PrState, QaState, SprintState
-from .migrations import migrate_pull_request_ci, migrate_snapshot_ci
+from .migrations import migrate_pull_request_ci, migrate_snapshot_ci, migrate_stack_ledger
 from .result import Error, Result
 from .step_result import StepResult
 
@@ -255,6 +255,8 @@ class Inputs:
     # PR numbers registered+linked in the hosted phase stack (REST stack membership).
     # Ok = authoritative membership; None = not read; Err = read failed. See model._pr_rows.
     stack_prs: Result[tuple[int, ...]] | None = None
+    # None = unconfigured; Ok = linked ledger (possibly empty); Err preserves the read/parse failure.
+    stack_ledger: Result[tuple[int, ...]] | None = field(default=None, metadata={"json_migration": migrate_stack_ledger})
 
 
 @dataclass(frozen=True)
@@ -441,6 +443,7 @@ class ActionLine:
     to: str | None
     bead: str | None
     text: str
+    template: str | None = None
 
 
 SpecFn: TypeAlias = Callable[[DispatchContext], Result[DispatchSpec]]

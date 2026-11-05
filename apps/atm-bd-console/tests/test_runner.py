@@ -334,6 +334,7 @@ def test_stopped_tick_surfaces_malformed_action_history_from_real_store(monkeypa
         for index in range(6):
             assert store.append_action(ActionLine(
                 ACTION.at + timedelta(minutes=index), "send", "quality-mgr", "atm-bh-6.qa", f"action-{index}",
+                ".claude/templates/qa-template.xml.j2" if index == 5 else None,
             )) == Ok(None)
         with actions_path.open("a", encoding="utf-8") as handle:
             handle.write("{not-json}\n")
@@ -341,6 +342,8 @@ def test_stopped_tick_surfaces_malformed_action_history_from_real_store(monkeypa
 
     assert snapshot.stopped == "closed"
     assert [action.text for action in snapshot.sent] == [f"action-{index}" for index in range(1, 6)]
+    assert snapshot.sent[-1].spec is not None
+    assert snapshot.sent[-1].spec.template == ".claude/templates/qa-template.xml.j2"
     assert len(snapshot.errors) == 1
     assert isinstance(snapshot.errors[0], ParseFailed)
     assert snapshot.errors[0].source == f"{actions_path}:7"
@@ -1052,7 +1055,7 @@ def test_lead_problem_uses_tool_sender_and_assignment_stays_with_lead(github_run
 
     snapshot, _ = runner.step(config, INITIAL_STATE, False, store)
 
-    assert any(problem.to == "fenix" and "missing branch configuration; set metadata.branch / metadata.worktree" in problem.text for problem in snapshot.problems)
+    assert any(problem.to == "fenix" and "missing branch configuration; set metadata.branch on" in problem.text for problem in snapshot.problems)
     calls = fake_bin.argv()
     sends = [argv for argv in calls if argv[1] == "send"]
     assert sends == [("atm", "send", "fenix@atm-dev", "--as", sender, "--team", sender_team, "--stdin")]
@@ -1525,3 +1528,51 @@ def test_a_failed_merge_check_is_one_errors_row_and_one_error_merge_row(github_r
     assert snapshot.errors.count(COMMAND_FAILED) == 1
     merges = [result.value for result in inputs[0].merges if isinstance(result, Ok)]
     assert [merge.state for merge in merges] == [MergeState.ERROR, MergeState.ERROR]
+
+
+def test_stack_ledger_preserves_read_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    error = CommandFailed("command_failed", ("bd", "show"), 17, "database unavailable", "retry bd")
+    monkeypatch.setattr(runner.beads_source, "show", lambda _ids: Err(error))
+    logger = TickLog(runner.create_console_logger(CONFIG.repo_root))
+    assert runner._stack_ledger("phase", logger) == Err(error)
+
+
+@pytest.mark.parametrize("layers", [None, {}, [None], [{"pr": "3", "linked": True}],
+                                    [{"pr": 3, "linked": "true"}], [{"pr": 0, "linked": False}],
+                                    [{"pr": 3, "linked": True}, {"pr": 3, "linked": False}]])
+def test_stack_ledger_rejects_malformed_layers(monkeypatch: pytest.MonkeyPatch, layers: object) -> None:
+    bead = replace(BEAD, id="phase.stack", metadata={"layers": layers})
+    monkeypatch.setattr(runner.beads_source, "show", lambda _ids: Ok((bead,)))
+    logger = TickLog(runner.create_console_logger(CONFIG.repo_root))
+    result = runner._stack_ledger("phase", logger)
+    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
+    assert "phase.stack.metadata.layers" in result.error.source
+    assert "repair metadata.layers" in result.error.fix
+
+
+def test_stack_ledger_preserves_valid_empty_and_linked_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    ledger = {"layers": []}
+    monkeypatch.setattr(runner.beads_source, "show", lambda _ids: Ok((replace(BEAD, id="phase.stack", metadata=ledger),)))
+    logger = TickLog(runner.create_console_logger(CONFIG.repo_root))
+    assert runner._stack_ledger("phase", logger) == Ok(())
+    ledger["layers"] = [{"pr": 1, "linked": True}, {"pr": 2, "linked": False}, {"pr": 3, "linked": True}]
+    assert runner._stack_ledger("phase", logger) == Ok((1, 3))
+
+
+def test_stack_ledger_missing_and_duplicate_bead_reads_are_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = []
+    monkeypatch.setattr(runner.beads_source, "show", lambda _ids: Ok(tuple(rows)))
+    logger = TickLog(runner.create_console_logger(CONFIG.repo_root))
+    missing = runner._stack_ledger("phase", logger)
+    assert isinstance(missing, Err) and isinstance(missing.error, NotFound)
+    rows.extend((BEAD, BEAD))
+    malformed = runner._stack_ledger("phase", logger)
+    assert isinstance(malformed, Err) and isinstance(malformed.error, ParseFailed)
+
+
+def test_stack_ledger_rejects_a_different_bead(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner.beads_source, "show", lambda _ids: Ok((BEAD,)))
+    logger = TickLog(runner.create_console_logger(CONFIG.repo_root))
+    result = runner._stack_ledger("phase", logger)
+    assert isinstance(result, Err) and isinstance(result.error, ParseFailed)
+    assert BEAD.id in result.error.message

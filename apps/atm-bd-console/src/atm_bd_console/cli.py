@@ -99,6 +99,13 @@ def main(argv: list[str] | None = None) -> int:
         interval=getattr(args, "interval", None), github_poll_interval=getattr(args, "github_poll_interval", None),
         github_quota_threshold=getattr(args, "github_quota_threshold", None),
         dry_run=getattr(args, "dry_run", False), no_fetch=getattr(args, "no_fetch", False))
+    if parsed.command in ("console", "cron", "show", "snapshot") and parsed.phase is None:
+        phase, selection_error = monitor_source.default_open_phase(config_source.repo_root())
+        if selection_error is not None:
+            print(f"{CONSOLE_NAME}: {selection_error}")
+            return 3
+        args.phase = phase
+        parsed = replace(parsed, phase=phase)
     startup_error = None
     def today_command(values):
         return _run_today(values, selected_route, startup_error)

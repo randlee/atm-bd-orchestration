@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 SCRIPTS = Path(__file__).parents[1]
 sys.path.insert(0, str(SCRIPTS))
+from qa_reviewers import qa_capable_reviewers
 
 
 class FindingGroupTests(unittest.TestCase):
@@ -41,12 +42,12 @@ class FindingGroupTests(unittest.TestCase):
             findings = root / "findings.json"
             shutil.copyfile(formula, root / "formula.toml.j2")
             for provenance in (15, None):
-                row: dict[str, object] = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "qa", "title": "issue", "remedy": "fix"}
+                row: dict[str, object] = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix"}
                 if provenance is not None:
                     row["found_on_layer"] = provenance
                 findings.write_text(json.dumps({"sprint": "d-1", "round": 1, "filed_by": "qa",
                                                 "found_at_commit": "a" * 40, "findings": [row]}))
-                with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d"}), \
+                with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d", "code_checkout": "../code"}), \
                      patch.object(groups, "stack_bead_id", wraps=groups.stack_bead_id) as stack_id:
                     target = runner.finding_targets(findings)[0]
                 stack_id.assert_called_once_with("t-phase-d")
@@ -57,7 +58,11 @@ class FindingGroupTests(unittest.TestCase):
                 output = subprocess.run(["sc-compose", "bead", "render", "--request", "request.json", "--json"],
                                         cwd=root, capture_output=True, text=True, timeout=30)
                 self.assertEqual(output.returncode, 0, output.stdout + output.stderr)
-                metadata = tomllib.loads((root / "rendered.formula.toml").read_text())["steps"][0]["metadata"]
+                steps = tomllib.loads((root / "rendered.formula.toml").read_text())["steps"]
+                assert steps[2]["metadata"]["reviewers_round1"] == ["flaky-test-qa"]
+                assert "code-worktrees/fix/d-1-qa1-f1" in target["compose"]["worktree"]
+                assert all(step["metadata"]["worktree"] == target["compose"]["worktree"] for step in steps)
+                metadata = steps[0]["metadata"]
                 if provenance is None:
                     self.assertNotIn("found_on_layer", metadata)
                 else:
@@ -80,7 +85,7 @@ class FoundOnLayerGuardTests(unittest.TestCase):
                                                      "requirements": ["REQ-1"], "adrs": ["NONE"]}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else container
         runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
-        row = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "qa", "title": "issue", "remedy": "fix"}
+        row = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix"}
         if layer is not None:
             row["found_on_layer"] = layer
         with tempfile.TemporaryDirectory() as directory:
@@ -111,7 +116,7 @@ class FoundOnLayerGuardTests(unittest.TestCase):
 
 
 class PhaseEndFindingTests(unittest.TestCase):
-    def targets(self, **extra):
+    def targets(self, code_checkout=None, stack_layers=None, **extra):
         loader = importlib.machinery.SourceFileLoader("bead_groups_phase_end", str(SCRIPTS / "bead-groups"))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         assert spec is not None
@@ -123,18 +128,56 @@ class PhaseEndFindingTests(unittest.TestCase):
         runner.bd = Mock()
         runner.bd.show.return_value = None
         stack = {"id": "t-phase-d.stack", "metadata": {"trunk": "integrate/phase-d", "stack_number": None, "layers": []}}
+        if stack_layers is not None:
+            stack["metadata"]["layers"] = stack_layers
         epic = {"status": "open", "title": "phase-d: feature", "metadata": {"integration_branch": "integrate/phase-d", "phase": "d", "plan_scope": "epic"}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else epic
         runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
-        row = {"ref": "pe-f1", "severity": "blocking", "reviewer": "review", "title": "issue", "remedy": "fix",
+        row = {"ref": "pe-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix",
                "requirements": ["REQ-1"], "adrs": ["NONE"], **extra}
         with tempfile.TemporaryDirectory() as directory:
             runner.repo = Path(directory)
             findings = runner.repo / "findings.json"
             findings.write_text(json.dumps({"sprint": "t-phase-d", "round": 1, "filed_by": "review",
                                             "found_at_commit": "a" * 40, "findings": [row]}))
-            with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d"}):
+            with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d", **({"code_checkout": code_checkout} if code_checkout else {})}):
                 return groups, runner.finding_targets(findings)
+
+    def test_held_last_layer_is_not_the_fix_target(self):
+        layers = [{"pr": 1, "branch": "linked", "head": "a" * 40, "base": "integrate/phase-d", "linked": True},
+                  {"pr": 3, "branch": "held", "head": "c" * 40, "base": "pending", "linked": False,
+                   "held_on": {"pr": 2, "branch": "pending"}}]
+        groups, result = self.targets(stack_layers=layers, difficulty="hard")
+        self.assertNotIsInstance(result[0], groups.TargetError)
+        self.assertEqual(result[0]["compose"]["pr_target"], "linked")
+
+    def test_passed_unlinked_first_layer_is_the_fix_target(self):
+        layers = [{"pr": 1, "branch": "first", "head": "a" * 40, "base": "integrate/phase-d", "linked": False},
+                  {"pr": 2, "branch": "held", "head": "b" * 40, "base": "first", "linked": False,
+                   "held_on": {"pr": 1, "branch": "first"}}]
+        groups, result = self.targets(stack_layers=layers, difficulty="hard")
+        self.assertNotIsInstance(result[0], groups.TargetError)
+        self.assertEqual(result[0]["compose"]["pr_target"], "first")
+
+    def test_code_checkout_controls_fix_worktree(self):
+        groups, result = self.targets(code_checkout="../code", difficulty="hard")
+        self.assertNotIsInstance(result[0], groups.TargetError)
+        self.assertIn("code-worktrees/fix/t-phase-d-pe-f1", result[0]["compose"]["worktree"])
+
+    def test_non_qa_reviewers_are_refused_before_pour(self):
+        for reviewer in ("team-lead", "rust-developer", "dev-sanity", "plan-scope-reviewer"):
+            groups, result = self.targets(difficulty="hard", reviewer=reviewer)
+            self.assertIsInstance(result[0], groups.TargetError)
+            self.assertEqual(result[0].code, "BEAD_GROUPS_REVIEWER_INVALID")
+            self.assertIn("flaky-test-qa", str(result[0]))
+            self.assertIn("--reviewer <agent>", str(result[0]))
+
+    def test_every_supported_qa_reviewer_can_file_a_finding(self):
+        for reviewer in qa_capable_reviewers(SCRIPTS.parent / "templates"):
+            with self.subTest(reviewer=reviewer):
+                groups, result = self.targets(difficulty="hard", reviewer=reviewer)
+                self.assertNotIsInstance(result[0], groups.TargetError)
+                self.assertEqual(result[0]["compose"]["reviewer"], reviewer)
 
     def test_phase_epic_finding_pours_with_derived_facts(self):
         groups, result = self.targets(difficulty="hard")
@@ -232,3 +275,29 @@ class SprintGroupReviewersTests(unittest.TestCase):
             qa = [step["metadata"] for step in steps if step["metadata"].get("role") == "qa"]
             self.assertEqual([m["reviewers_round1"] for m in qa], [reviewers])
             self.assertTrue(all("reviewers_round1" not in step["metadata"] for step in steps if step["metadata"].get("role") != "qa"))
+
+
+def test_conflict_receipt_is_reported_and_retained(tmp_path, monkeypatch):
+    loader = importlib.machinery.SourceFileLoader("bead_groups_conflict", str(SCRIPTS / "bead-groups"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    groups = importlib.util.module_from_spec(spec)
+    loader.exec_module(groups)
+    runner = object.__new__(groups.Run)
+    runner.repo = tmp_path
+    runner.relations = lambda target, preview: ([], [])
+    template = tmp_path / "formula.toml.j2"
+    template.write_text("test")
+    monkeypatch.setattr(groups.bead_formulas, "template", lambda *_: template)
+    receipt = {"payload": {"outcome": {"refused": {"code": "BEADS_GRAPH_CONFLICT"}}, "stages": [
+        {"outcome": {"failed": {"code": "BEADS_GRAPH_CONFLICT"}},
+         "stderr_excerpt": "graph bead `phase.group-dev` conflicts: provenance_differs; inspect it or use a new ref (existing beads are never edited)"}]}, "diagnostics": []}
+    monkeypatch.setattr(groups.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 2, json.dumps(receipt), ""))
+    target = {"id": "phase.group", "formula": "sprint-group", "compose": {"parent": "phase", "ref": "group"}}
+    try:
+        runner.pour(target, preview=True)
+        assert False, "expected conflict"
+    except groups.TargetError as error:
+        assert error.code == "BEADS_GRAPH_CONFLICT"
+        assert all(part in str(error) for part in ("phase.group-dev", "metadata.sc_compose_graph", "use a new ref"))
+    assert json.loads(next((tmp_path / ".atm-bd/pour").glob("*.receipt.json")).read_text()) == receipt

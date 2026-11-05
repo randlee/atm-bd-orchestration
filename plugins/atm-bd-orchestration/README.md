@@ -307,4 +307,4 @@ until upstream carries it, then drops it from this list.
   - `skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json`:
     `"qa_round": 2`.
 
-The installer's own interpreter and the scripts' inline metadata require Python 3.11: sc-compose 1.7.0 ships cp311 wheels only. The `python3` on PATH does not matter; `uv` supplies 3.11 to every script run. [Stable-ABI wheel request](https://github.com/randlee/sc-compose/issues/820) (supersedes #819); once it ships, the pin widens.
+The installer accepts Python 3.11 or newer when its interpreter can import pydantic, PyYAML and the same sc-compose wheel version as the CLI; if that probe fails, reinstall with `uv tool install atm-bd --python 3.11`. Installed scripts still use Python 3.11 from their inline metadata. Internal `atm` and `bd` calls use the phase team, lead and code checkout plus repository `tool_identity` configuration; the caller's environment identifies the caller and never selects those settings.
