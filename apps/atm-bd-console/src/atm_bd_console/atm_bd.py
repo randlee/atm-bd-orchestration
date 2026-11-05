@@ -335,10 +335,14 @@ def step(bead: Bead, parents: Mapping[str, Bead]) -> Result[Step]:
     rows = (_row(bead), _row(checked_bead)) if kind == QA_KIND and checked_bead is not None else (None, None)
     top = _top_epic(bead, parents)
     prefix = (top or bead.id).split("-", 1)[0]
+    container = parents.get(str(metadata.get(SPRINT_BEAD_KEY))) if metadata.get(SPRINT_BEAD_KEY) else None
+    branch = metadata.get(BRANCH_KEY) or (container.metadata.get(BRANCH_KEY) if container else None)
+    pr_target = metadata.get(PR_TARGET_KEY) or (container.metadata.get(PR_TARGET_KEY) if container else None)
+    worktree = metadata.get(WORKTREE_KEY) or (container.metadata.get(WORKTREE_KEY) if container else None)
     return Ok(Step(
         bead.id, metadata.get(SPRINT_KEY), kind, bool(metadata.get(QUICK_FIX_KEY)), ANCHOR_LABEL in bead.labels,
-        bead.status, False, bead.assignee, metadata.get(BRANCH_KEY), metadata.get(PR_TARGET_KEY),
-        metadata.get(WORKTREE_KEY), metadata.get(LAYER_KEY), metadata.get(DIFFICULTY_KEY),
+        bead.status, False, bead.assignee, branch, pr_target,
+        worktree, metadata.get(LAYER_KEY), metadata.get(DIFFICULTY_KEY),
         short_id(top or bead.id, prefix), top, bead.claimed_at, bead.closed_at, bead.title,
         checked, sprint_bead, qa_round, carry, bead.close_reason, _severity(bead),
         *rows,
@@ -355,8 +359,9 @@ def closed_show_ids(file: PhaseFile, known: tuple[Bead, ...]) -> tuple[str, ...]
     """The plan-derived sprint containers and group beads not among `known` (the open and ready beads):
     the ids for the one batched `show` that brings in closed sprints, never a closed sweep."""
     seen = {bead.id for bead in known}
-    ids = (bead_id for sprint_id in file.sprints for bead_id in (sprint_id, *group_ids(sprint_id)))
-    return tuple(bead_id for bead_id in ids if bead_id not in seen)
+    referenced = (bead.metadata.get(key) for bead in known for key in ("checked_bead", "dev_bead"))
+    ids = (*(bead_id for sprint_id in file.sprints for bead_id in (sprint_id, *group_ids(sprint_id))), *referenced)
+    return tuple(dict.fromkeys(bead_id for bead_id in ids if isinstance(bead_id, str) and bead_id not in seen))
 
 
 def _finding_of(bead: Bead, sprint_id: str) -> bool:

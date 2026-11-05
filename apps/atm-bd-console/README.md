@@ -5,7 +5,7 @@ Beads orchestration. It also bundles the orchestration skills for installation
 into a repository.
 
 New to the workflow? Start with
-[Getting going with atm-bd](../../docs/getting-started.md).
+[Getting going with atm-bd](https://github.com/randlee/atm-bd-orchestration/blob/main/docs/getting-started.md).
 
 ## Development validation
 
@@ -51,7 +51,7 @@ plugin's `install.py`, with the same checks and install plan, and adds manifest
 verification and the install record. Like `install.py`, it renders
 `.claude/project/atm-bd-orchestration.yaml` and provisions the `atm-bd@tool`
 team member. The consuming-repository prerequisites are listed in the
-[plugin README](../../plugins/atm-bd-orchestration/README.md#install).
+[plugin README](https://github.com/randlee/atm-bd-orchestration/blob/main/plugins/atm-bd-orchestration/README.md#install).
 
 ## Skill install integrity contract
 

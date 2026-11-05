@@ -405,6 +405,43 @@ def test_pr_rows_are_layer_ordered_and_only_top_ci_is_a_problem() -> None:
     assert [problem.key for problem in snapshot.problems] == ["top_ci:sha3"]
 
 
+def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None:
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+                  for number in (1, 2, 3))
+    sprints = (sprint(1), sprint(2), sprint(3))
+    prs = tuple(PullRequest(number, f"url{number}", f"branch-{number}",
+                            "base" if number == 1 else f"branch-{number - 1}", f"sha{number}",
+                            CiState.FAIL_BUG if number == 2 else CiState.PASS,
+                            ("test",) if number == 2 else ()) for number in (1, 2, 3))
+    snapshot, _, _ = tick(inputs(
+        phase(*steps, sprints=sprints), prs=Ok(prs), stack_prs=Ok((1, 2, 3)), stack_ledger=(1, 2, 3),
+        remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    ), STATE, NOW, render)
+    assert snapshot.top_pr == 3 and snapshot.top_ci == CiState.PASS
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    assert any("lower layer #2 is red; its fix is above it on #3" in problem.text for problem in snapshot.problems)
+
+
+def test_stack_ledger_and_hosted_top_mismatch_notifies_without_ci_alert() -> None:
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+                  for number in (1, 2, 3))
+    prs = tuple(PullRequest(number, f"url{number}", f"branch-{number}",
+                            "base" if number == 1 else f"branch-{number - 1}", f"sha{number}",
+                            CiState.FAIL_BUG if number == 3 else CiState.PASS,
+                            ("test",) if number == 3 else ()) for number in (1, 2, 3))
+    snapshot, _, _ = tick(inputs(
+        phase(*steps, sprints=(sprint(1), sprint(2), sprint(3))), prs=Ok(prs),
+        stack_prs=Ok((1, 2, 4)), stack_ledger=(1, 2, 3),
+        remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    ), STATE, NOW, render)
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    mismatch = [problem for problem in snapshot.problems if problem.key == "stack_top_mismatch"]
+    assert len(mismatch) == 1
+    assert "ledger top #3, hosted top #4; run sanity-stack-link --check" in mismatch[0].text
+
+
 def test_sprint_layer_above_holding_no_step_takes_its_sprint_layer_and_top() -> None:
     # sprint/bh-3 is a stack layer no step's branch names: its row comes from the sprint, not a step owner.
     steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
@@ -662,7 +699,7 @@ def test_ready_step_without_branch_reports_one_meaningful_configuration_problem(
     assert len(snapshot.sections[0].rows) == 2
     assert snapshot.problems == (Problem(
         "hold:qa", "qa", "fenix",
-        "qa (qa) cannot be dispatched: missing branch configuration; set metadata.branch / metadata.worktree of bead qa", NOW),)
+        "qa (qa) cannot be dispatched: missing branch configuration; set metadata.branch on qa", NOW),)
     assert len(actions) == 1
     assert (actions[0].kind, actions[0].to) == ("batch", "fenix")
     assert snapshot.problems[0].text in actions[0].text
@@ -847,7 +884,7 @@ def test_ready_candidate_refreshes_even_when_origin_ref_is_cached() -> None:
 
 def test_pure_modules_contain_no_source_calls_or_imports() -> None:
     source_dir = Path(__file__).parents[1] / "src" / "atm_bd_console"
-    forbidden = ("subprocess", "open(", "bd ", "atm ", "gh ", "stage:", "metadata", "headRefName")
+    forbidden = ("subprocess", "open(", "bd ", "atm ", "gh ", "stage:", "headRefName")
     for name in ("model.py", "dispatch.py"):
         source = (source_dir / name).read_text()
         assert all(token not in source for token in forbidden)

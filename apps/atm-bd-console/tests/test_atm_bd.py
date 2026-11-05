@@ -490,6 +490,23 @@ def test_step_maps_a_dev_bead_with_its_top_epic_and_tag() -> None:
     assert (result.value.branch, result.value.target, result.value.layer, result.value.difficulty) == ("b", "t", 4, "normal")
 
 
+def test_group_step_inherits_branch_target_and_worktree_from_sprint_container() -> None:
+    container = _bead("atm-bq-1", "atm-phase-bq", ("stage:sprint",),
+                      {"branch": "sprint/bq-1", "pr_target": "integrate/phase-bq", "worktree": "/worktrees/bq-1"})
+    sanity = _bead("atm-bq-1.group-sanity", "atm-bq-1", ("stage:dev-sanity",),
+                   {"dev_bead": "atm-bq-1.group-dev", "sprint_bead": "atm-bq-1"})
+    mapped = _ok(step(sanity, {container.id: container}))
+    assert (mapped.branch, mapped.target, mapped.worktree) == (
+        "sprint/bq-1", "integrate/phase-bq", "/worktrees/bq-1")
+
+
+def test_closed_checked_bead_is_added_to_closed_show_batch() -> None:
+    qa = _bead("atm-bq-1.group-qa", "atm-bq-1", ("stage:qa",),
+               {"checked_bead": "atm-bq-1.fix-1", "round": 1, "sprint_bead": "atm-bq-1"})
+    file = replace(_ok(phase_file(str(REPO), "bh")), sprints=("atm-bq-1",))
+    assert "atm-bq-1.fix-1" in closed_show_ids(file, (qa,))
+
+
 @pytest.mark.parametrize("suffix,kind,metadata", (
     ("dev", "dev", {}),
     ("sanity", "sanity", {"dev_bead": "atm-bh-4.group-dev"}),
@@ -723,6 +740,11 @@ def test_a_checked_bead_without_a_recorded_pr_is_refused_never_sent_empty() -> N
     unrecorded = replace(DEV, metadata={k: v for k, v in DEV.metadata.items() if k != "pr_number"})
     for pr in (PR, None):
         assert _code(_qa_spec(SPRINT_QA, unrecorded, pr)) == f"{SPRINT_QA.id}: ASSIGN_VARS.NOT_RECORDED"
+
+
+def test_qa_spec_accepts_a_closed_checked_bead_read_from_the_ledger() -> None:
+    closed = replace(DEV, status=SprintState.CLOSED, raw_status="closed")
+    assert isinstance(_qa_spec(SPRINT_QA, closed), Ok)
 
 
 def test_an_unpoured_qa_bead_is_refused_with_the_backfill_fix() -> None:
