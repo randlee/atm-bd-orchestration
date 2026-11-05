@@ -815,11 +815,41 @@ class Hook:
 
     def derive_local(self):
         # The completion fields the fixer used to type come from the worktree and the open PR instead.
-        head = self.run(["git", "rev-parse", "HEAD"], git=True).stdout.strip()
+        head = (getattr(self, "checked_worktree_head", None)
+                or self.run(["git", "rev-parse", "HEAD"], git=True).stdout.strip())
         self.values.update(commit=head, generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                            pr_number="", pr_url="", rebased_onto="")
+        if self.role == "fix" and self.values["outcome"] == "not_reproducible":
+            self.values["branch"] = self.checked_worktree_branch
         self.require_completion_identity(("commit",))
         self.key = [self.task, self.values.get("verdict", ""), head]
+
+    def validate_not_reproducible_checkout(self, metadata):
+        """Pin a not-reproducible handoff to the checked bead's selected checkout."""
+        branch = metadata.get("branch")
+        worktree = metadata.get("worktree")
+        if not branch or not worktree:
+            raise CloseError("BEAD.INVALID", f"{self.values['checked_bead']}: metadata lacks branch or worktree",
+                             f"Run `bd update {self.values['checked_bead']} --metadata '<full metadata JSON with branch and worktree>'`, then retry.")
+        recorded_worktree = Path(worktree)
+        if not recorded_worktree.is_absolute():
+            recorded_worktree = self.root / recorded_worktree
+        recorded_worktree = recorded_worktree.resolve()
+        if recorded_worktree != self.worktree:
+            raise CloseError("CHECKOUT.MISMATCH",
+                             f"{self.values['checked_bead']} records worktree {recorded_worktree}, but the selected worktree is {self.worktree}",
+                             f"Select the checked bead's worktree or repair its metadata with `bd update {self.values['checked_bead']} --metadata '<full metadata JSON with the correct worktree>'`, then retry.")
+        actual_branch = self.run(["git", "branch", "--show-current"], git=True).stdout.strip()
+        actual_head = self.run(["git", "rev-parse", "HEAD"], git=True).stdout.strip()
+        expected_head = metadata.get("commit")
+        if actual_branch != branch or (expected_head and actual_head != expected_head):
+            expected = f"{branch}@{expected_head or '(commit not recorded)'}"
+            actual = f"{actual_branch or '(detached)'}@{actual_head or '(unknown)'}"
+            raise CloseError("CHECKOUT.MISMATCH",
+                             f"{self.values['checked_bead']} records {expected}, but the selected worktree is {actual}",
+                             f"Check out the recorded branch and commit in {self.worktree}, or repair the checked bead's branch/commit metadata with `bd update {self.values['checked_bead']} --metadata '<full metadata JSON with the correct branch and commit>'`, then retry.")
+        self.checked_worktree_branch = actual_branch
+        self.checked_worktree_head = actual_head
 
     def verify_not_reproducible_evidence(self):
         evidence = str(self.values.get("evidence", ""))
@@ -863,12 +893,8 @@ class Hook:
         with tempfile.TemporaryDirectory(prefix="atm-task-close-") as directory:
             completion = Path(directory) / "completion-vars.json"
             if values["outcome"] == "not_reproducible":
-                metadata = record.get("metadata") or {}
-                branch, worktree = metadata.get("branch"), metadata.get("worktree")
-                if not branch or not worktree:
-                    raise CloseError("BEAD.INVALID", f"{values['checked_bead']}: metadata lacks branch or worktree",
-                                     f"Run `bd update {values['checked_bead']} --metadata '<full metadata JSON with branch and worktree>'`, then retry.")
-                assignment = {**values, "branch": branch, "commit": values["commit"], "worktree_path": str(self.worktree)}
+                assignment = {**values, "branch": self.checked_worktree_branch, "commit": self.checked_worktree_head,
+                              "worktree_path": str(self.worktree)}
                 assignment_path = Path(directory) / "sanity-vars.json"
                 assignment_path.write_text(json.dumps(assignment), encoding="utf-8")
                 self.render(template)
@@ -1021,10 +1047,7 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
         if args.role == "fix" and values.get("outcome") == "not_reproducible":
             checked = hook.read_bead(values["checked_bead"])
             metadata = checked.get("metadata") or {}
-            if not metadata.get("worktree"):
-                raise CloseError("BEAD.INVALID", f"{values['checked_bead']}: metadata lacks worktree",
-                                 f"Run `bd update {values['checked_bead']} --metadata '<full metadata JSON with worktree>'`, then retry.")
-            hook.worktree = (hook.root / metadata["worktree"]).resolve()
+            hook.validate_not_reproducible_checkout(metadata)
             hook.verify_not_reproducible_evidence()
         started = clock()
         escalated = hook.dev(args.skip_checks) if args.role in ("dev", "fix") else hook.sanity() if args.role == "sanity" else hook.qa()

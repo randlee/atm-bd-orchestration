@@ -178,12 +178,50 @@ def test_not_reproducible_fix_closes_its_task_with_the_evidence_reason(world):
 def test_not_reproducible_uses_checked_worktree_and_its_head(world):
     checked = world.values["checked_bead"]
     world.beads[checked]["metadata"].update(role="fix", branch="fix/fresh", worktree=str(world.root))
+    world.actual_branch = "fix/fresh"
     world.head = "c" * 40
     world.values.pop("commit", None)
     result = world.run("fix", outcome="not_reproducible")
     assert "ok" in result, result
     dispatch = next(m["values"] for m in world.messages if m["type"] == "dev-sanity-task")
     assert (dispatch["branch"], dispatch["commit"], dispatch["worktree_path"]) == ("fix/fresh", world.head, str(world.root))
+
+
+@pytest.mark.parametrize(("recorded_branch", "selected_branch", "recorded_head", "selected_head"), [
+    ("fix/recorded", "fix/selected", "b" * 40, "b" * 40),
+    ("fix/selected", "fix/selected", "a" * 40, "b" * 40),
+])
+def test_not_reproducible_refuses_mismatched_checked_checkout_before_dispatch(
+        world, recorded_branch, selected_branch, recorded_head, selected_head):
+    checked = world.values["checked_bead"]
+    world.beads[checked]["metadata"].update(role="fix", branch=recorded_branch, worktree=str(world.root),
+                                             commit=recorded_head)
+    world.actual_branch = selected_branch
+    world.head = selected_head
+    world.values.pop("commit")
+
+    result = world.run("fix", outcome="not_reproducible")
+
+    assert result["err"]["code"] == "CHECKOUT.MISMATCH"
+    assert recorded_branch + "@" + recorded_head in result["err"]["message"]
+    assert selected_branch + "@" + selected_head in result["err"]["message"]
+    assert "bd update " + checked in result["err"]["fix"]
+    assert world.messages == []
+    assert world.writes == []
+
+
+def test_not_reproducible_refuses_a_different_selected_worktree(world):
+    checked = world.values["checked_bead"]
+    world.beads[checked]["metadata"].update(role="fix", branch=world.values["branch"],
+                                             worktree=str(world.root / "other"))
+
+    result = world.run("fix", outcome="not_reproducible")
+
+    assert result["err"]["code"] == "CHECKOUT.MISMATCH"
+    assert "selected worktree" in result["err"]["message"]
+    assert "bd update " + checked in result["err"]["fix"]
+    assert world.messages == []
+    assert world.writes == []
 
 
 def test_finding_fix_handoff_carries_fix_and_qa_reviewers(world):

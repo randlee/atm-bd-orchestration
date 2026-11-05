@@ -52,6 +52,7 @@ class World:
         (root / "scripts/example.py").write_text("pass\n")
         # HEAD is stable even when a test removes commit from the dispatch values.
         self.head = self.values["commit"]
+        self.actual_branch = self.values["branch"]
         self.pr_number = self.values["pr_number"]
         (root / ".atm-bd").mkdir()
         (root / ".beads").mkdir()
@@ -211,6 +212,8 @@ class World:
                 output = self.values.get("commit", self.head) if argv[2] == "HEAD" else "b" * 40
                 if "branch" in self.values and argv[2] == f"refs/remotes/origin/{self.values['branch']}":
                     output = self.values.get("commit", self.head)
+            elif argv[1:4] == ["branch", "--show-current"]:
+                output = self.actual_branch
             elif argv[1] == "ls-remote":
                 output = self.values.get("commit", self.head) + "\trefs/heads/branch"
             elif argv[1:4] == ["remote", "get-url", "origin"]:
