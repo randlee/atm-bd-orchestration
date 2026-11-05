@@ -118,6 +118,14 @@ def test_dev_handoff_is_immediate_and_closes_the_dev_task_as_the_dev(world, monk
             assert kwargs["env"].get("ATM_TEAM") == before.get("ATM_TEAM")
 
 
+def test_beads_directory_ignores_caller_environment(world, monkeypatch):
+    monkeypatch.setenv("BEADS_DIR", "/wrong/database")
+    closer = hook.Hook("dev", world.values, world.path, world, lambda: 42)
+    assert closer.beads_directory() == str(world.root / ".beads")
+    where = next(kwargs for argv, kwargs in world.calls if argv == ["bd", "where", "--json"])
+    assert "BEADS_DIR" not in where["env"]
+
+
 def test_dev_rerun_after_the_task_is_closed_does_not_close_it_again(world):
     assert "ok" in world.run()
     assert "ok" in world.run()

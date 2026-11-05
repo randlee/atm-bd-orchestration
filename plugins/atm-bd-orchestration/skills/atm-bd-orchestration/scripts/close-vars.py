@@ -156,7 +156,7 @@ def cached_then_fresh(attempt) -> dict:
     except close_fields.CloseFieldsError as error:
         if error.code not in MISSING:
             raise
-        fallback.append(f"{error.code} on cached rows ({error}); re-read from bd")
+        fallback.append(f"{error.code} on cached rows ({error}); informational: the cache lagged bd; the row was re-read; no action needed")
         return attempt(True, fallback)
 
 

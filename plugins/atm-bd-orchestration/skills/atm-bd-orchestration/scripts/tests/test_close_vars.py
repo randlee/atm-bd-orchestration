@@ -116,6 +116,10 @@ class QaAssignmentTests(unittest.TestCase):
         with self.assertRaises(close_fields.CloseFieldsError) as caught:
             close_fields.qa_assignment_vars(unlinked, FIX, REPO)
         self.assertEqual(caught.exception.code, "ASSIGN_VARS.NOT_PLANNED")
+        self.assertIn("1-based position", caught.exception.fix)
+        self.assertIn("metadata.layers", caught.exception.fix)
+        self.assertIn("bd update", caught.exception.fix)
+        self.assertIn("--metadata", caught.exception.fix)
 
 
     def test_base_is_the_pr_base_the_checked_bead_recorded_not_the_poured_target(self):
@@ -238,6 +242,7 @@ class CacheFirstReadTests(unittest.TestCase):
         result = close_vars_cli.cached_then_fresh(attempt)
         self.assertEqual(seen, [False, True])
         self.assertIn("ASSIGN_VARS.NOT_PLANNED on cached rows", result["read_fallback"][0])
+        self.assertIn("informational: the cache lagged bd; the row was re-read; no action needed", result["read_fallback"][0])
 
     def test_other_refusals_and_a_second_miss_are_not_retried(self):
         def refuse(code):

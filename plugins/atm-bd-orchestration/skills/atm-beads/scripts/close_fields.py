@@ -24,6 +24,10 @@ POURED = ("role", "phase", "sprint", "sprint_bead", "stack", "stack_bead", "bran
 HOST = ("primary_checkout", "worktree_path")
 
 
+def is_fix_bead(bead: dict) -> bool:
+    return (bead.get("metadata") or {}).get("role") == "fix" or "stage:fix" in (bead.get("labels") or [])
+
+
 class CloseFieldsError(ValueError):
     def __init__(self, code: str, message: str, fix: str):
         super().__init__(message)
@@ -111,9 +115,14 @@ def qa_assignment_vars(qa_row: dict, checked_row: dict, repo: Path) -> dict:
                                f"Correct the stale value on {qa_row['id']} to the checked bead's recorded close.")
     for name in ("layer", "round", "reviewers_round1"):
         if metadata.get(name) in (None, "", []):
+            if name == "layer":
+                raise CloseFieldsError("ASSIGN_VARS.NOT_PLANNED", f"{qa_row['id']}: metadata lacks layer",
+                                       f"layer is the 1-based position of the checked PR in the stack bead's metadata.layers, set when linked. "
+                                       f"Run `bd update {qa_row['id']} --metadata '<full metadata JSON with \"layer\": <n>>'`; "
+                                       "--set-metadata stores a string.")
             raise CloseFieldsError("ASSIGN_VARS.NOT_PLANNED", f"{qa_row['id']}: metadata lacks {name}",
                                    f"Set {name} on {qa_row['id']} (layer when its PR is linked, round and reviewers at pour).")
-    is_fix = checked.get("role") == "fix" or "stage:fix" in (checked_row.get("labels") or [])
+    is_fix = is_fix_bead(checked_row)
     return {"task_id": qa_row["id"], "qa_task_id": qa_row["id"], "checked_bead": values["checked_bead"],
             "dev_task_id": values["checked_bead"], "sanity_task_id": metadata.get("sanity_bead") or "",
             "phase": metadata["phase"], "phase_feature": metadata["phase_feature"], "sprint": metadata["sprint"],

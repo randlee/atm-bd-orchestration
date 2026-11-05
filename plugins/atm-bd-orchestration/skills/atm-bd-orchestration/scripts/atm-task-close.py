@@ -427,8 +427,11 @@ class Hook:
 
     def _run_once(self, argv, *, lead=False, git=False):
         try:
+            env = self.lead_env if lead else self.env
+            if argv[:3] == ["bd", "where", "--json"]:
+                env = {key: value for key, value in env.items() if key != "BEADS_DIR"}
             return self.runner(list(argv), cwd=self.worktree if git else self.root,
-                               env=self.lead_env if lead else self.env, capture_output=True, text=True,
+                               env=env, capture_output=True, text=True,
                                timeout=COMMAND_TIMEOUT)
         except subprocess.TimeoutExpired as error:
             raise CloseError("COMMAND.FAILED", f"{list(argv)!r} timed out after {COMMAND_TIMEOUT}s",
@@ -463,13 +466,10 @@ class Hook:
         return self.json(["atm", "task", "events", task, "--all", "--json"])["events"]
 
     def beads_directory(self):
-        configured = self.env.get("BEADS_DIR")
-        if configured:
-            return configured
         location = self.json(["bd", "where", "--json"])
         path = location.get("path") if isinstance(location, dict) else None
         if not isinstance(path, str) or not Path(path).is_absolute():
-            raise CloseError("BEADS_DIR.INVALID", repr(path), "Set BEADS_DIR or repair `bd where --json` to return an absolute beads path.")
+            raise CloseError("BEADS_DIR.INVALID", repr(path), "Repair repository configuration so `bd where --json` returns an absolute beads path.")
         return path
 
     def snapshot(self, *, include_stack=False):
