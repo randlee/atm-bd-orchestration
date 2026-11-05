@@ -344,6 +344,28 @@ class SprintGroupReviewersTests(unittest.TestCase):
             self.assertTrue(all("reviewers_round1" not in step["metadata"] for step in steps if step["metadata"].get("role") != "qa"))
 
 
+def test_compose_timeout_is_typed_and_actionable_for_preview_and_attach(tmp_path, monkeypatch):
+    groups = load_groups("bead_groups_timeout")
+    runner = object.__new__(groups.Run)
+    runner.repo = tmp_path
+    runner.relations = lambda target, preview: ([], [])
+    template = tmp_path / "formula.toml.j2"
+    template.write_text("test")
+    monkeypatch.setattr(groups.bead_formulas, "template", lambda *_: template)
+    target = {"id": "phase.group", "formula": "sprint-group", "compose": {"parent": "phase", "ref": "group"}}
+    for preview, operation in ((True, "preview-attach"), (False, "attach")):
+        with patch.object(groups.subprocess, "run", side_effect=subprocess.TimeoutExpired("sc-compose", groups.SC_COMPOSE_TIMEOUT_SECONDS)) as run:
+            try:
+                runner.pour(target, preview=preview)
+                assert False, "expected timeout"
+            except groups.TargetError as error:
+                request = tmp_path / ".atm-bd/pour/phase.group.group.sprint-group.request.json"
+                assert error.code == "BEAD_GROUPS_POUR_TIMEOUT"
+                assert all(part in str(error) for part in (f"sc-compose bead {operation}", str(request),
+                           str(groups.SC_COMPOSE_TIMEOUT_SECONDS), "inspect", "before retrying"))
+                assert run.call_args.kwargs["timeout"] == groups.SC_COMPOSE_TIMEOUT_SECONDS
+
+
 def test_conflict_receipt_is_reported_and_retained(tmp_path, monkeypatch):
     loader = importlib.machinery.SourceFileLoader("bead_groups_conflict", str(SCRIPTS / "bead-groups"))
     spec = importlib.util.spec_from_loader(loader.name, loader)
