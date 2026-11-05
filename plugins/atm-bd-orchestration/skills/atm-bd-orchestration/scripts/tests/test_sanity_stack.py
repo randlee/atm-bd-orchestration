@@ -909,3 +909,35 @@ def test_malformed_held_parent_is_a_repairable_refusal(world):
     assert result["result"] == "stack_failed"
     assert "invalid held_on" in result["evidence"]
     assert "bd update phase.stack --metadata" in result["fix"]
+
+
+def test_unrelated_held_branch_is_not_released(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    parent_a = world.branch("parent-a", "second", 3)
+    child_a = world.branch("child-a", "parent-a", 4)
+    parent_b = world.branch("parent-b", "second", 5)
+    child_b = world.branch("child-b", "parent-b", 6)
+    assert world.link(first)["result"] == "stacked"
+    assert world.link(second)["result"] == "stacked"
+    assert world.link(child_a)["result"] == "held"
+    assert world.link(child_b)["result"] == "held"
+    result = world.link(parent_a)
+    assert result["result"] == "stacked"
+    assert world.stacks[0]["prs"] == [1, 2, 3, 4]
+    remaining = world.bead["metadata"]["layers"][-1]
+    assert remaining["pr"] == 6 and remaining["linked"] is False
+    assert remaining["held_on"] == {"pr": 5, "branch": "parent-b"}
+
+
+def test_lean_parent_keeps_held_child_until_full_retry(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    assert world.link(second)["result"] == "held"
+    first["budget"] = "lean"
+    assert world.link(first)["result"] == "stacked"
+    assert not world.stacks
+    assert world.bead["metadata"]["layers"][-1]["held_on"] == {"pr": 1, "branch": "first"}
+    first["budget"] = "full"
+    assert world.link(first)["result"] == "stacked"
+    assert world.stacks[0]["prs"] == [1, 2]

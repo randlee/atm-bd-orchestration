@@ -384,7 +384,7 @@ class Linker:
                     self.write(metadata)
                 return {'result': 'stacked', 'top': next(layer for layer in reversed(layers) if layer['linked']),
                         'stack_number': metadata.get('stack_number')}
-            if recorded is not layers[-1]:
+            if any(not entry.get('held_on') for entry in layers[layers.index(recorded) + 1:]):
                 raise StackError('checked unlinked layer is not the next stack layer')
             base = recorded['base']
             recorded_head = resolve_head(base)
@@ -423,26 +423,35 @@ class Linker:
                 raise StackError('held child does not contain its parent')
             children.append(child)
             next_parent = child
+        if children and lean:
+            if recorded is None:
+                insertion = next((i for i, entry in enumerate(layers) if entry.get('held_on')), len(layers))
+                layers.insert(insertion, new)
+            self.write(metadata)
+            return {'result': 'stacked', 'top': new, 'stack_number': metadata.get('stack_number')}
         if children:
             layers[:] = [entry for entry in layers if entry not in children]
             if recorded is None:
-                layers.append(new)
+                insertion = next((i for i, entry in enumerate(layers) if entry.get('held_on')), len(layers))
+                layers.insert(insertion, new)
                 recorded = new
-            layers.extend(children)
+            insertion = layers.index(new) + 1
+            layers[insertion:insertion] = children
         pending, stack_number = [], metadata.get('stack_number')
         if not lean and layers:
-            pending = [entry for entry in layers if not entry['linked']]
+            pending = [entry for entry in layers if not entry['linked'] and (not entry.get('held_on') or entry in children)]
             if new not in pending and not new['linked']:
                 pending.append(new)
         # Layer 0 alone cannot form a stack (gh stack link needs two PRs): it waits unlinked until layer 1 links with it.
         if not lean and layers and (stack_number is not None or len(pending) > 1):
             if stack_number is None or children:
-                self.command(['gh', 'stack', 'link', '--base', metadata['trunk']] + [str(entry['pr']) for entry in layers] + ([] if new in layers else [str(new['pr'])]))
+                link_layers = [entry for entry in layers if entry['linked'] or entry in pending]
+                self.command(['gh', 'stack', 'link', '--base', metadata['trunk']] + [str(entry['pr']) for entry in link_layers] + ([] if new in layers else [str(new['pr'])]))
             else:
                 for entry in pending:
                     self.command(['gh', 'stack', 'link', str(stack_number), str(entry['pr'])])
             hosted = self.stacks()
-            expected = [entry['pr'] for entry in layers]
+            expected = [entry['pr'] for entry in layers if entry['linked'] or entry in pending]
             if new not in layers:
                 expected.append(new['pr'])
             matches = [stack for stack in hosted if stack['base'] == metadata['trunk'] and stack['prs'] == expected
@@ -456,7 +465,8 @@ class Linker:
                     entry['base'] = entry['held_on']['branch']
                 entry.pop('held_on', None)
         if recorded is None:
-            layers.append(new)
+            insertion = next((i for i, entry in enumerate(layers) if entry.get('held_on')), len(layers))
+            layers.insert(insertion, new)
         self.write(metadata)
         return {'result': 'stacked', 'top': children[-1] if children else new, 'stack_number': metadata.get('stack_number')}
 
