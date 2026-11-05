@@ -48,14 +48,14 @@ def test_qa_reviewers_leave_upstream_owned_installed_content_to_the_lead():
         "Upstream-owned installed `.claude/` skill, agent and template content is out of QA reviewer scope", "")
 
 
-def test_qa_template_names_the_installed_stack_view_skill_only():
-    """#357: the QA template names `sc-gh-stack-view`, with no `gh-stack-view` fallback."""
+def test_qa_template_does_not_request_stack_view():
+    """#154: QA assignments do not spend GraphQL quota on stack views."""
     template = (AGENTS.parent / "skills/atm-bd-orchestration/templates/qa-template.xml.j2").read_text()
-    assert "the `sc-gh-stack-view` skill" in template
+    assert "sc-gh-stack-view" not in template
     assert "`gh-stack-view`" not in template
     examples = AGENTS.parent / "skills/atm-bd-orchestration/examples"
     for example in ("qa-template-vars.json", "qa-template-fix-round-vars.json"):
         rendered = subprocess.run(["sc-compose", "render", "--strict", "--file", str(AGENTS.parent / "skills/atm-bd-orchestration/templates/qa-template.xml.j2"),
                                    "--var-file", str(examples / example)], capture_output=True, text=True, check=True).stdout
-        assert ("the `sc-gh-stack-view` skill" in rendered) == (example == "qa-template-vars.json")  # step h needs a PR
+        assert "sc-gh-stack-view" not in rendered
         assert "`gh-stack-view`" not in rendered

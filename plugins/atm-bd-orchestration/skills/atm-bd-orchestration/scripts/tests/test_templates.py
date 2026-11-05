@@ -596,7 +596,7 @@ class DevAssignmentTests(unittest.TestCase):
                 self.assertIn("any other exit prints `GATE_CANNOT_RUN`: never guess, refuse with it by step ", result.stdout)
                 self.assertNotIn("no output means the top is", result.stdout)
                 self.assertNotIn("gh_stack_view.py", result.stdout)
-                self.assertIn("run `/sc-gh-stack-view` (read-only) and keep its output verbatim", result.stdout)
+                self.assertNotIn("sc-gh-stack-view", result.stdout)
                 self.assertIn("`git rebase origin/<top>`", result.stdout)
                 self.assertRegex(result.stdout, r"`gh pr create --base <top> --head \S+ --title \"<one-line title>\" "
                                                 r"--body-file <scratch>/[^`\s]*(?:\{\{ bead_prefix \}\})?[^`\s]*-pr-body\.md`")
