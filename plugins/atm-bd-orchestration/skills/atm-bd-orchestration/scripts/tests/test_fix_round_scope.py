@@ -8,10 +8,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import pytest
 
 SCRIPT = Path(__file__).parents[1] / "fix-round-scope"
 sys.path.insert(0, str(SCRIPT.parent))
 from qa_reviewers import qa_capable_reviewers
+from subprocess_helpers import run_command
 
 LOADER = importlib.machinery.SourceFileLoader("fix_round_scope", str(Path(__file__).parents[1] / "fix-round-scope"))
 SPEC = importlib.util.spec_from_loader("fix_round_scope", LOADER)
@@ -108,7 +110,17 @@ class CliTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run([sys.executable, str(SCRIPT), *args], cwd=self.dir, capture_output=True, text=True)
+        command = [sys.executable, str(SCRIPT), *args]
+        return run_command(command, cwd=self.dir, capture_output=True, text=True)
+
+    def test_cli_timeout_is_bounded_and_actionable(self):
+        def timeout(command, **kwargs):
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=b"stdout detail", stderr=b"stderr detail")
+
+        with pytest.raises(pytest.fail.Exception, match="timed out after 30s") as error:
+            run_command([sys.executable, str(SCRIPT)], capture_output=True, text=True, runner=timeout)
+        assert "stdout detail" in str(error.value)
+        assert "stderr detail" in str(error.value)
 
     def test_non_qa_reviewers_are_refused(self):
         for reviewer in ("team-lead", "rust-developer", "dev-sanity", "plan-scope-reviewer"):

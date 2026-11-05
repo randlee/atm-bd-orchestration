@@ -1,8 +1,16 @@
 from pathlib import Path
-import subprocess
+
+from subprocess_helpers import run_command
 
 
 AGENTS = Path(__file__).resolve().parents[4] / "agents"
+TEMPLATE = AGENTS.parent / "skills/atm-bd-orchestration/templates/qa-template.xml.j2"
+EXAMPLES = AGENTS.parent / "skills/atm-bd-orchestration/examples"
+
+
+def render_qa_template(example: str) -> str:
+    command = ["sc-compose", "render", "--strict", "--file", str(TEMPLATE), "--var-file", str(EXAMPLES / example)]
+    return run_command(command, capture_output=True, text=True, check=True).stdout
 
 
 def test_sanity_prompts_close_before_ordered_stack_handoff():
@@ -53,9 +61,7 @@ def test_qa_template_does_not_request_stack_view():
     template = (AGENTS.parent / "skills/atm-bd-orchestration/templates/qa-template.xml.j2").read_text()
     assert "sc-gh-stack-view" not in template
     assert "`gh-stack-view`" not in template
-    examples = AGENTS.parent / "skills/atm-bd-orchestration/examples"
     for example in ("qa-template-vars.json", "qa-template-fix-round-vars.json"):
-        rendered = subprocess.run(["sc-compose", "render", "--strict", "--file", str(AGENTS.parent / "skills/atm-bd-orchestration/templates/qa-template.xml.j2"),
-                                   "--var-file", str(examples / example)], capture_output=True, text=True, check=True).stdout
+        rendered = render_qa_template(example)
         assert "sc-gh-stack-view" not in rendered
         assert "`gh-stack-view`" not in rendered
