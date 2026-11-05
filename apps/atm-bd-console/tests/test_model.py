@@ -414,7 +414,7 @@ def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None
                             CiState.FAIL_BUG if number == 2 else CiState.PASS,
                             ("test",) if number == 2 else ()) for number in (1, 2, 3))
     snapshot, actions, _ = tick(inputs(
-        phase(*steps, sprints=sprints), prs=Ok(prs), stack_prs=Ok((1, 2, 3)), stack_ledger=(1, 2, 3),
+        phase(*steps, sprints=sprints), prs=Ok(prs), stack_prs=Ok((1, 2, 3)), stack_ledger=Ok((1, 2, 3)),
         remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
         gh=GhStatus("graphql", True, None, NOW, False),
     ), STATE, NOW, render)
@@ -426,7 +426,7 @@ def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None
                for section in snapshot.sections if section.label == "Lower CI" for row in section.rows)
     assert not any("fix is above" in row.reason for section in snapshot.sections for row in section.rows)
     cached, cached_actions, _ = tick(inputs(
-        phase(*steps, sprints=sprints), prs=Ok(prs), stack_prs=Ok((1, 2, 3)), stack_ledger=(1, 2, 3),
+        phase(*steps, sprints=sprints), prs=Ok(prs), stack_prs=Ok((1, 2, 3)), stack_ledger=Ok((1, 2, 3)),
         remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
         gh=GhStatus("graphql", True, None, NOW, False),
     ), replace(STATE, last_cycle=NOW), NOW + timedelta(seconds=1), render)
@@ -443,7 +443,7 @@ def test_red_top_and_lower_send_only_actionable_top_alert() -> None:
                             ("test",) if number in (2, 3) else ()) for number in (1, 2, 3))
     snapshot, actions, _ = tick(inputs(
         phase(*steps, sprints=(sprint(1), sprint(2), sprint(3))), prs=Ok(prs),
-        stack_prs=Ok((1, 2, 3)), stack_ledger=(1, 2, 3),
+        stack_prs=Ok((1, 2, 3)), stack_ledger=Ok((1, 2, 3)),
         remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
         gh=GhStatus("graphql", True, None, NOW, False),
     ), STATE, NOW, render)
@@ -452,6 +452,88 @@ def test_red_top_and_lower_send_only_actionable_top_alert() -> None:
     assert "fix them on branch-3" in actions[0].text
     assert "lower layer" not in actions[0].text
     assert "fix is above" not in actions[0].text
+
+
+@pytest.mark.parametrize("ledger", [None, Ok(()), Err(NotFound("not_found", "stack bead", "restore it"))])
+def test_unconfirmed_ledger_never_advises_on_hosted_only_top(ledger) -> None:
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+                  for number in (1, 2, 3))
+    prs = tuple(PullRequest(number, f"url{number}", f"branch-{number}",
+                            "base" if number == 1 else f"branch-{number - 1}", f"sha{number}",
+                            CiState.FAIL_BUG if number == 3 else CiState.PASS,
+                            ("test",) if number == 3 else ()) for number in (1, 2, 3))
+    snapshot, actions, _ = tick(inputs(
+        phase(*steps, sprints=(sprint(1), sprint(2), sprint(3))), prs=Ok(prs),
+        stack_prs=Ok((1, 2, 3)), stack_ledger=ledger,
+        remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    ), STATE, NOW, render)
+    assert snapshot.top_pr is None and snapshot.top_ci is None
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    assert not any("top PR #3" in action.text for action in actions)
+
+
+def test_confirmed_linked_top_remains_top_with_unlinked_child() -> None:
+    steps = tuple(step(f"dev-{n}", f"atm-bh-{n}", branch=f"branch-{n}", layer=n) for n in (1, 2, 3, 4))
+    prs = tuple(PullRequest(n, f"url{n}", f"branch-{n}", "base" if n == 1 else f"branch-{n - 1}",
+                            f"sha{n}", CiState.FAIL_BUG if n == 3 else CiState.PASS,
+                            ("test",) if n == 3 else ()) for n in (1, 2, 3, 4))
+    value = inputs(phase(*steps, sprints=(sprint(1), sprint(2), sprint(3), sprint(4))), prs=Ok(prs),
+                   stack_prs=Ok((1, 2, 3)), stack_ledger=Ok((1, 2, 3)),
+                   remotes=Ok(tuple(RemoteRef(pr.head, pr.head_sha) for pr in prs)),
+                   gh=GhStatus("graphql", True, None, NOW, False))
+    snapshot, actions, _ = tick(value, STATE, NOW, render)
+    assert snapshot.top_pr == 3
+    assert any("top PR #3" in action.text for action in actions)
+    assert not any("top PR #4" in action.text for action in actions)
+
+
+def test_empty_ledger_and_nonempty_hosted_stack_notifies_mismatch() -> None:
+    pr = PullRequest(3, "url3", "branch-3", "base", "sha3", CiState.FAIL_BUG, ("test",))
+    value = inputs(phase(step("dev-3", "atm-bh-3", branch="branch-3", layer=3)), prs=Ok((pr,)),
+                   stack_prs=Ok((3,)), stack_ledger=Ok(()), remotes=Ok((RemoteRef(pr.head, pr.head_sha),)),
+                   gh=GhStatus("graphql", True, None, NOW, False))
+    snapshot, actions, _ = tick(value, STATE, NOW, render)
+    assert snapshot.top_pr is None
+    assert any("ledger top empty, hosted top #3" in action.text for action in actions)
+    assert not any("CI failed" in action.text for action in actions)
+
+
+def test_nonempty_ledger_and_empty_hosted_stack_notifies_mismatch() -> None:
+    pr = PullRequest(3, "url3", "branch-3", "base", "sha3", CiState.FAIL_BUG, ("test",))
+    value = inputs(phase(step("dev-3", "atm-bh-3", branch="branch-3", layer=3)), prs=Ok((pr,)),
+                   stack_prs=Ok(()), stack_ledger=Ok((3,)), remotes=Ok((RemoteRef(pr.head, pr.head_sha),)),
+                   gh=GhStatus("graphql", True, None, NOW, False))
+    snapshot, actions, _ = tick(value, STATE, NOW, render)
+    assert snapshot.top_pr is None
+    assert any("ledger top #3, hosted top empty" in action.text for action in actions)
+    assert not any("CI failed" in action.text for action in actions)
+
+
+def test_ledger_read_error_is_visible_and_never_generates_ci_advice() -> None:
+    error = NotFound("not_found", "phase.stack", "restore the stack bead")
+    pr = PullRequest(3, "url3", "branch-3", "base", "sha3", CiState.FAIL_BUG, ("test",))
+    value = inputs(phase(step("dev-3", "atm-bh-3", branch="branch-3", layer=3)), prs=Ok((pr,)),
+                   stack_prs=Ok((3,)), stack_ledger=Err(error), remotes=Ok((RemoteRef(pr.head, pr.head_sha),)),
+                   gh=GhStatus("graphql", True, None, NOW, False))
+    snapshot, actions, _ = tick(value, STATE, NOW, render)
+    assert snapshot.top_pr is None and error in snapshot.errors
+    assert any("phase.stack" in action.text and "restore the stack bead" in action.text for action in actions)
+    assert not any("top PR #3" in action.text for action in actions)
+
+
+def test_unavailable_ledger_does_not_replay_stale_top_ci_notice() -> None:
+    error = NotFound("not_found", "phase.stack", "restore the stack bead")
+    prior = Problem("top_ci:sha3", "dev-3", "fenix", "top PR #3 CI failed", NOW - timedelta(minutes=11))
+    state = replace(STATE, problems=(prior,), batch_due={"fenix": NOW}, last_cycle=NOW)
+    pr = PullRequest(3, "url3", "branch-3", "base", "sha3", CiState.FAIL_BUG, ("test",))
+    value = inputs(phase(step("dev-3", "atm-bh-3", branch="branch-3", layer=3)), prs=Ok((pr,)),
+                   stack_prs=Ok((3,)), stack_ledger=Err(error), remotes=Ok((RemoteRef(pr.head, pr.head_sha),)),
+                   gh=GhStatus("graphql", True, None, NOW, False))
+    snapshot, actions, _ = tick(value, state, NOW + timedelta(seconds=1), render)
+    assert snapshot.top_pr is None
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    assert not any("top PR #3" in action.text for action in actions)
 
 
 def test_stack_ledger_and_hosted_top_mismatch_notifies_without_ci_alert() -> None:
@@ -463,7 +545,7 @@ def test_stack_ledger_and_hosted_top_mismatch_notifies_without_ci_alert() -> Non
                             ("test",) if number == 3 else ()) for number in (1, 2, 3))
     snapshot, _, _ = tick(inputs(
         phase(*steps, sprints=(sprint(1), sprint(2), sprint(3))), prs=Ok(prs),
-        stack_prs=Ok((1, 2, 4)), stack_ledger=(1, 2, 3),
+        stack_prs=Ok((1, 2, 4)), stack_ledger=Ok((1, 2, 3)),
         remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
         gh=GhStatus("graphql", True, None, NOW, False),
     ), STATE, NOW, render)

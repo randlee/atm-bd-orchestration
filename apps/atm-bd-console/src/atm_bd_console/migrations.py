@@ -22,3 +22,8 @@ def migrate_pull_request_ci(value: Any, fields: dict[str, Any], metadata: Mappin
     if value == "failure" and isinstance(checks, list) and all(isinstance(check, str) for check in checks):
         ci = ci_failure_key(tuple(checks))
     return ci.value
+
+
+def migrate_stack_ledger(value: Any, fields: dict[str, Any], metadata: Mapping[str, Any]) -> Any:
+    """Accept snapshots written before the ledger acquired an explicit Result."""
+    return {"ok": value} if isinstance(value, list) else value

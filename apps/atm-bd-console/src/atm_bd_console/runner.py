@@ -13,7 +13,7 @@ from .closed_cache import ClosedBeads
 from .dispatch import candidates, sprint_of, verification_reason
 from .enums import MergeState, PrState, SprintState
 from .log import EventAction, TickLog, create_console_logger, error_message
-from .result import Err, Error, NotFound, Ok, Result
+from .result import Err, Error, NotFound, Ok, ParseFailed, Result
 from .state import StateStore, read_snapshot
 from .types import (
     Action,
@@ -190,16 +190,38 @@ def _stack_input(config: Config, cached: tuple[int, ...] | None, read) -> Result
                         "wait for the next GitHub poll (github_poll_interval) or force a GitHub refresh"))
 
 
-def _stack_ledger(root_id: str, logger: TickLog) -> tuple[int, ...] | None:
-    """Read the linked layer PRs from the phase stack bead in ledger order."""
-    shown = logger.result("beads.show_stack", beads_source.show((f"{root_id}.stack",)), task_ids=[f"{root_id}.stack"])
-    if isinstance(shown, Err) or not shown.value:
-        return None
+def _stack_ledger(root_id: str, logger: TickLog) -> Result[tuple[int, ...]]:
+    """Read the linked ledger without collapsing read, malformed and empty states."""
+    bead_id = f"{root_id}.stack"
+    shown = logger.result("beads.show_stack", beads_source.show((bead_id,)), task_ids=[bead_id])
+    if isinstance(shown, Err):
+        return shown
+    if not shown.value:
+        return Err(NotFound("not_found", bead_id, f"inspect `bd show {bead_id} --json` and restore the stack bead"))
+    if len(shown.value) != 1:
+        return Err(ParseFailed("parse_failed", bead_id, "expected exactly one stack bead",
+                               f"inspect `bd show {bead_id} --json` and repair the stack bead"))
+    if shown.value[0].id != bead_id:
+        return Err(ParseFailed("parse_failed", bead_id, f"read returned {shown.value[0].id}",
+                               f"inspect `bd show {bead_id} --json` and repair the stack bead"))
     layers = shown.value[0].metadata.get("layers")
+    fix = f"inspect `bd show {bead_id} --json` and repair metadata.layers"
     if not isinstance(layers, list):
-        return None
-    return tuple(layer["pr"] for layer in layers
-                 if isinstance(layer, dict) and layer.get("linked") is True and type(layer.get("pr")) is int)
+        return Err(ParseFailed("parse_failed", f"{bead_id}.metadata.layers", "expected an array", fix))
+    linked = []
+    seen: set[int] = set()
+    for index, layer in enumerate(layers):
+        if (not isinstance(layer, dict) or type(layer.get("pr")) is not int or layer["pr"] <= 0
+                or type(layer.get("linked")) is not bool):
+            return Err(ParseFailed("parse_failed", f"{bead_id}.metadata.layers[{index}]",
+                                   "expected a positive pr and boolean linked", fix))
+        if layer["pr"] in seen:
+            return Err(ParseFailed("parse_failed", f"{bead_id}.metadata.layers[{index}]",
+                                   f"duplicate pr {layer['pr']}", fix))
+        seen.add(layer["pr"])
+        if layer["linked"]:
+            linked.append(layer["pr"])
+    return Ok(tuple(linked))
 
 
 def _show_closed(closed: ClosedBeads, ids: tuple[str, ...], logger: TickLog) -> Result[tuple[Bead, ...]]:

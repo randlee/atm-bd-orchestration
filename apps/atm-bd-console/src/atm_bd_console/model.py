@@ -9,6 +9,7 @@ from rich.cells import cell_len
 from .agent_roles import agent_group
 from .dispatch import candidates, dispatch, sprint_of, verification_reason
 from .enums import FAILING_CI, CiState, MergeState, PrState, QaState, SprintState
+from .error_text import error_text
 from .icons import SPRINT_ICONS
 from .ids import short_id
 from .prs import active_pr
@@ -145,10 +146,11 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
     sections = (Section("Held", held),) if held else ()
     # Lower failures are context, not action items. A passing top does not prove it fixes them.
     if (phase is not None and stopped is None and top_pr is not None and top_pr.ci == CiState.PASS
-            and isinstance(inputs.prs, Ok) and isinstance(inputs.stack_prs, Ok) and inputs.stack_ledger
-            and inputs.stack_prs.value and inputs.stack_ledger[-1] == inputs.stack_prs.value[-1] == top_pr.number
+            and isinstance(inputs.prs, Ok) and isinstance(inputs.stack_prs, Ok)
+            and isinstance(inputs.stack_ledger, Ok) and inputs.stack_ledger.value
+            and inputs.stack_prs.value and inputs.stack_ledger.value[-1] == inputs.stack_prs.value[-1] == top_pr.number
             and inputs.gh.mode != "off" and inputs.gh.ok is True and inputs.gh.at is not None):
-        lower_numbers = set(inputs.stack_ledger[:-1])
+        lower_numbers = set(inputs.stack_ledger.value[:-1])
         owners = _branch_owners(phase)
         lower_rows = tuple(
             SectionRow(owners[pr.head].bead_id if pr.head in owners else phase.root_id, 0,
@@ -229,7 +231,7 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
 
 def _read_errors(inputs: Inputs) -> list[Error]:
     results = (inputs.phase, inputs.members, inputs.tasks, inputs.worktrees, inputs.remotes, inputs.prs,
-               inputs.task_beads, inputs.closed_tasks)
+               inputs.task_beads, inputs.closed_tasks, inputs.stack_ledger)
     errors = [result.error for result in results if isinstance(result, Err)]
     errors.extend(result.error for result in inputs.merges or () if isinstance(result, Err))
     return errors
@@ -437,7 +439,7 @@ def _metrics(phase: Phase | None, now: datetime) -> Metrics:
 
 def _pr_rows(
     phase: Phase | None, prs: tuple[PullRequest, ...], merges: tuple[Merge, ...],
-    stack_prs: Result[tuple[int, ...]] | None = None, stack_ledger: tuple[int, ...] | None = None,
+    stack_prs: Result[tuple[int, ...]] | None = None, stack_ledger: Result[tuple[int, ...]] | None = None,
 ) -> tuple[tuple[PrRow, ...], PullRequest | None]:
     if phase is None:
         return (), None
@@ -458,34 +460,16 @@ def _pr_rows(
     top_candidates = [pr for pr in relevant if active_pr(pr) and pr.head not in bases]
     if isinstance(stack_prs, Ok):
         membership = stack_prs.value
-        present = {pr.number for pr in prs}
-        ledger_top = stack_ledger[-1] if stack_ledger else None
-        if ledger_top is not None and ledger_top in membership:
-            top = next((pr for pr in top_candidates if pr.number == ledger_top), None)
-        elif ledger_top is not None:
-            top = None
+        if (isinstance(stack_ledger, Ok) and stack_ledger.value and membership
+                and stack_ledger.value[-1] == membership[-1]):
+            top = next((pr for pr in relevant if active_pr(pr) and pr.number == membership[-1]), None)
         else:
-            # A PR snapshot older than the stack cannot name the canonical top. If the
-            # last linked entry is missing from the read, refuse: falling back to the
-            # newest linked PR we happen to hold names yesterday's top and advises
-            # editing a frozen layer.
-            if membership and membership[-1] not in present:
-                top = None
-            else:
-                # Membership is ordered base -> top: the last linked candidate wins.
-                order = {number: index for index, number in enumerate(membership)}
-                top = max((pr for pr in top_candidates if pr.number in order),
-                          key=lambda pr: order[pr.number], default=None)
-    elif isinstance(stack_prs, Err):
-        # Membership was configured but is unreadable: name no top at all rather
-        # than fall back to a rule that can re-crown an unlinked checkpoint.
+            top = None
+    elif isinstance(stack_prs, Err) or stack_ledger is not None:
         top = None
     else:
         layered = [(layer_of(pr.head), pr) for pr in top_candidates]
         known = [(layer, pr) for layer, pr in layered if layer is not None]
-        # Without layer information the canonical top is unprovable. Do NOT fall
-        # back to PR number: a number-ordered guess can silently authorize
-        # editing a frozen lower layer, so report no top instead.
         top = max(known, key=lambda pair: (pair[0], pair[1].number))[1] if known else None
     merge_by_branch = {merge.branch: merge for merge in merges}
     rows = tuple(PrRow(
@@ -527,7 +511,8 @@ def _problems(
     if phase is None:
         return tuple(
             problem for problem in state.problems
-            if problem.key.startswith(("missing_pr:", "top_ci:", "conflict:"))
+            if problem.key.startswith(("missing_pr:", "conflict:"))
+            or (problem.key.startswith("top_ci:") and inputs.stack_prs is None and inputs.stack_ledger is None)
         )
     by_branch = _branch_owners(phase)
     by_id = {step.bead_id: step for step in phase.steps}
@@ -546,8 +531,14 @@ def _problems(
     }
     problems: list[Problem] = []
     hosted_top = inputs.stack_prs.value[-1] if isinstance(inputs.stack_prs, Ok) and inputs.stack_prs.value else None
-    ledger_top = inputs.stack_ledger[-1] if inputs.stack_ledger else None
-    stack_mismatch = ledger_top is not None and hosted_top is not None and ledger_top != hosted_top
+    ledger_top = inputs.stack_ledger.value[-1] if isinstance(inputs.stack_ledger, Ok) and inputs.stack_ledger.value else None
+    stack_mismatch = isinstance(inputs.stack_prs, Ok) and isinstance(inputs.stack_ledger, Ok) and ledger_top != hosted_top
+    if isinstance(inputs.stack_ledger, Err):
+        problems.append(Problem("stack_ledger:unavailable", None, inputs.lead,
+                                f"stack ledger unavailable: {error_text(inputs.stack_ledger.error)}; no top-dependent advice is sent", now))
+    elif inputs.stack_ledger is None and inputs.stack_prs is not None:
+        problems.append(Problem("stack_ledger:unavailable", None, inputs.lead,
+                                "stack ledger was not read; configure and read the phase stack bead before top-dependent advice", now))
     if isinstance(inputs.stack_prs, Err):
         problems.append(Problem(
             "stack_membership:unavailable", None, inputs.lead,
@@ -594,7 +585,8 @@ def _problems(
     if fresh_github and stack_mismatch:
         problems.append(Problem(
             "stack_top_mismatch", None, inputs.lead,
-            f"ledger top #{ledger_top}, hosted top #{hosted_top}; run sanity-stack-link --check", now,
+            f"ledger top {f'#{ledger_top}' if ledger_top is not None else 'empty'}, "
+            f"hosted top {f'#{hosted_top}' if hosted_top is not None else 'empty'}; run sanity-stack-link --check", now,
         ))
     if fresh_github:
         heads = {pr.head for pr in prs if active_pr(pr)}
@@ -644,7 +636,10 @@ def _problems(
         if previous.key in current_keys:
             continue
         if (
-            previous.key.startswith(("missing_pr:", "top_ci:")) and not fresh_github
+            previous.key.startswith("missing_pr:") and not fresh_github
+            or previous.key.startswith("top_ci:") and not fresh_github
+            and ((inputs.stack_prs is None and inputs.stack_ledger is None)
+                 or (top_pr is not None and previous.key == f"top_ci:{top_pr.head_sha}"))
             or previous.key.startswith("conflict:") and previous.key.removeprefix("conflict:") not in refreshed_merges
         ):
             problems.append(previous)

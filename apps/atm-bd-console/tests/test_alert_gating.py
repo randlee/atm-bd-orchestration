@@ -116,7 +116,7 @@ def test_unknown_layer_metadata_never_authorizes_a_frozen_branch_edit() -> None:
 
 
 def test_unlinked_higher_layer_checkpoint_is_not_selected_as_top() -> None:
-    """Hosted-stack membership beats layer order: an unlinked checkpoint loses.
+    """Confirmed ledger and hosted membership beat layer order: an unlinked checkpoint loses.
 
     Defect 3: a checkpoint/sprint PR claiming a higher layer but not registered
     and linked in the hosted stack must never become the top.
@@ -132,16 +132,16 @@ def test_unlinked_higher_layer_checkpoint_is_not_selected_as_top() -> None:
         pr(2208, "sprint/bk-26-ckpt", "main"),
     ))
 
-    snapshot, _, _ = tick(inputs(value, prs=prs, stack_prs=Ok((2206,))), STATE, NOW, render)
+    snapshot, _, _ = tick(inputs(value, prs=prs, stack_prs=Ok((2206,)), stack_ledger=Ok((2206,))), STATE, NOW, render)
 
     assert snapshot.top_pr == 2206, f"expected linked top 2206, got {snapshot.top_pr}"
 
-    # Membership order is the SSOT: when the stack lists 2208 before 2206, 2206 is
+    # When both sources list 2208 before 2206, 2206 is
     # the last linked entry and therefore the top, even though 2208 claims a
     # higher layer.
     snapshot, _, _ = tick(inputs(value, prs=Ok((pr(2206, "sprint/bk-26", "main"),
                                                pr(2208, "sprint/bk-26-ckpt", "main"))),
-                              stack_prs=Ok((2208, 2206))), STATE, NOW, render)
+                              stack_prs=Ok((2208, 2206)), stack_ledger=Ok((2208, 2206))), STATE, NOW, render)
     assert snapshot.top_pr == 2206, f"expected last-linked top 2206, got {snapshot.top_pr}"
 
 
@@ -197,7 +197,7 @@ def test_snapshot_behind_stack_names_no_top_and_says_so() -> None:
     # Snapshot only holds #2208; the stack's last entry is #2211, absent here.
     prs = Ok((pr(2208, "sprint/bk-26", "main"),))
 
-    snapshot, _, _ = tick(inputs(value, prs=prs, stack_prs=Ok((2206, 2208, 2211))), STATE, NOW, render)
+    snapshot, _, _ = tick(inputs(value, prs=prs, stack_prs=Ok((2206, 2208, 2211)), stack_ledger=Ok((2206, 2208, 2211))), STATE, NOW, render)
 
     assert snapshot.top_pr is None
     assert "stack_snapshot:stale" in {problem.key for problem in snapshot.problems}

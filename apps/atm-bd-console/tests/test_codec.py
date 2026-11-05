@@ -361,3 +361,15 @@ def test_error_kind_decoder_map_matches_error_union() -> None:
         for error_type in get_args(result.Error)
     }
     assert _ERRORS == expected
+
+
+def test_stack_ledger_result_round_trip_and_legacy_array_migration() -> None:
+    error = NotFound("not_found", "phase.stack", "restore the stack bead")
+    for ledger in (None, Ok(()), Ok((1, 2)), Err(error)):
+        value = replace(INPUTS, stack_ledger=ledger)
+        assert from_json(Inputs, to_json(value)) == Ok(value)
+    legacy = json.loads(to_json(INPUTS))
+    legacy["stack_ledger"] = [1, 2]
+    decoded = from_json(Inputs, json.dumps(legacy))
+    assert isinstance(decoded, Ok)
+    assert decoded.value.stack_ledger == Ok((1, 2))
