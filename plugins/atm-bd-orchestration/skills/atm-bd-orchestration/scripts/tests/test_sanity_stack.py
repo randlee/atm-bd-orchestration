@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from stack_top import select_stack_top
+from stack_top import StackTop, select_confirmed_stack_top
 from task_close_world import World as HookWorld, hook as close_hook
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -123,7 +123,7 @@ class World:
             elif argv[3] == "--base" and len(argv) < 7:
                 status, error = 1, "accepts between 2 and 255 arg(s), received 1"   # gh: a stack needs two PRs
             elif argv[3] == "--base":
-                self.stacks.append({"number": 7, "base": argv[4], "prs": [int(value) for value in argv[5:]]})
+                self.stacks[:] = [{"number": 7, "base": argv[4], "prs": [int(value) for value in argv[5:]]}]
             else:
                 stack = next(item for item in self.stacks if item["number"] == int(argv[3]))
                 stack["prs"].append(int(argv[4]))
@@ -328,29 +328,30 @@ def test_failed_post_close_handoff_notifies_lead_without_task_writes(world):
 def test_stack_top_selector_drives_empty_and_populated_ledgers(world, monkeypatch):
     selected = []
 
-    def capture(bead, fallback, resolve_head):
-        top = select_stack_top(bead, fallback, resolve_head)
-        selected.append((copy.deepcopy(bead['metadata']['layers']), fallback, top))
+    def capture(layers, hosted=None):
+        top = select_confirmed_stack_top(layers, hosted)
+        selected.append((copy.deepcopy(layers), hosted, top))
         return top
 
-    monkeypatch.setattr(LINK, 'select_stack_top', capture)
+    monkeypatch.setattr(LINK, 'select_confirmed_stack_top', capture)
     first = world.branch('first', 'trunk', 1)
     second = world.branch('second', 'first', 2)
     assert world.link(first)['result'] == 'stacked'
     assert world.link(second)['result'] == 'stacked'
-    assert selected[0] == ([], 'trunk', ('trunk', world.git('rev-parse', 'origin/trunk')))
-    assert selected[1][0][-1]['branch'] == 'first'
-    assert selected[1][1:] == ('trunk', ('first', first['commit']))
+    assert selected[0] == ([], None, StackTop(None, None, None))
+    assert any(layers and layers[-1]['branch'] == 'first' for layers, _, _ in selected)
 
 
 @pytest.mark.parametrize('replay', [False, True])
 def test_recorded_head_check_uses_selected_head(world, monkeypatch, replay):
     first = world.branch('first', 'trunk', 1)
     second = world.branch('second', 'first', 2)
+    third = world.branch('third', 'second', 3)
     assert world.link(first)['result'] == 'stacked'
+    assert world.link(second)['result'] == 'stacked'
     before = copy.deepcopy(world.bead['metadata'])
-    monkeypatch.setattr(LINK, 'select_stack_top', lambda bead, fallback, resolve: ('first', 'wrong-head'))
-    result = world.link(first if replay else second)
+    monkeypatch.setattr(LINK, 'select_confirmed_stack_top', lambda layers, hosted=None: StackTop(2, 'second', 'wrong-head'))
+    result = world.link(first if replay else third)
     assert result['result'] == 'stack_failed'
     assert ('recorded stack top' if replay else 'recorded head') in result['evidence']
     assert world.bead['metadata'] == before
@@ -459,7 +460,11 @@ def test_rebase_required_inside_top_history_names_relink(world):
     upper = world.branch("upper", "lower", 3)
     world.pulls[2].update(base="first")
     assert world.link(first)["result"] == "stacked"
-    assert world.link(upper)["result"] == "stacked"
+    # Historical stack created before held-parent enforcement linked upper first.
+    world.bead["metadata"]["layers"].append({"pr": 3, "branch": "upper", "head": upper["commit"], "base": "first", "linked": True})
+    world.bead["metadata"]["layers"][0]["linked"] = True
+    world.bead["metadata"]["stack_number"] = 7
+    world.stacks = [{"number": 7, "base": "trunk", "prs": [1, 3]}]
     result = world.link(lower)
     assert result["result"] == "rebase_required"
     assert [step["option"] for step in result["next_steps"]] == ["relink_in_git_order"]
@@ -786,3 +791,88 @@ def test_ghost_linked_layer_refusal_has_repair(world):
     assert all(text in result["evidence"] for text in ("PR 1", "first", values["commit"], "absent from the hosted stack"))
     assert "bd update phase.stack --metadata" in result["fix"]
     assert '"linked":false' in result["fix"]
+
+
+def test_out_of_order_parent_holds_then_links_in_git_order(world):
+    f1 = world.branch("f1", "trunk", 1)
+    f2 = world.branch("f2", "f1", 2)
+    f3 = world.branch("f3", "f2", 3)
+    f4 = world.branch("f4", "f3", 4)
+    assert world.link(f1)["result"] == "stacked"
+    assert world.link(f2)["result"] == "stacked"
+    world.calls.clear()
+    held = world.link(f4)
+    assert held["result"] == "held"
+    assert held["held_on"] == {"pr": 3, "branch": "f3"}
+    assert not any(call[:3] == ["gh", "stack", "link"] for call in world.calls)
+    assert world.bead["metadata"]["layers"][-1]["held_on"] == held["held_on"]
+    world.calls.clear()
+    assert world.link(f3)["result"] == "stacked"
+    assert [item["pr"] for item in world.bead["metadata"]["layers"]] == [1, 2, 3, 4]
+    assert all(item["linked"] for item in world.bead["metadata"]["layers"])
+    assert [call for call in world.calls if call[:3] == ["gh", "stack", "link"]] == [["gh", "stack", "link", "--base", "trunk", "1", "2", "3", "4"]]
+
+
+def test_open_linked_parent_does_not_hold_child(world):
+    f1 = world.branch("f1", "trunk", 1)
+    f2 = world.branch("f2", "f1", 2)
+    f3 = world.branch("f3", "f2", 3)
+    f4 = world.branch("f4", "f3", 4)
+    for layer in (f1, f2, f3):
+        assert world.link(layer)["result"] == "stacked"
+    assert world.link(f4)["result"] == "stacked"
+    assert world.stacks[0]["prs"] == [1, 2, 3, 4]
+
+
+def test_hosted_ahead_without_ancestry_refuses_with_both_tops(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    rival = world.branch("rival", "trunk", 3)
+    candidate = world.branch("candidate", "second", 4)
+    assert world.link(first)["result"] == "stacked"
+    assert world.link(second)["result"] == "stacked"
+    world.pulls[2]["base"] = "second"
+    world.stacks[0]["prs"].append(3)
+    before = copy.deepcopy(world.bead["metadata"])
+    result = world.link(candidate)
+    assert result["result"] == "stack_failed"
+    assert "stack top mismatch" in result["evidence"]
+    assert "second" in result["evidence"] and "hosted 3" in result["evidence"]
+    assert world.bead["metadata"] == before
+
+
+def test_first_parent_pass_releases_held_successor(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    assert world.link(second)["result"] == "held"
+    assert world.link(first)["result"] == "stacked"
+    assert [layer["pr"] for layer in world.bead["metadata"]["layers"]] == [1, 2]
+    assert world.stacks[0]["prs"] == [1, 2]
+
+
+def test_moved_held_child_cannot_be_linked(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    assert world.link(second)["result"] == "held"
+    world.git("commit", "--allow-empty", "-m", "moved held child")
+    world.git("push", "origin", "second")
+    world.pulls[1]["sha"] = world.git("rev-parse", "HEAD")
+    result = world.link(first)
+    assert result["result"] == "stack_failed"
+    assert "pinned commit" in result["evidence"]
+    assert not world.stacks
+
+
+def test_torn_link_recovers_held_children_in_order(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    third = world.branch("third", "second", 3)
+    fourth = world.branch("fourth", "third", 4)
+    assert world.link(first)["result"] == "stacked"
+    assert world.link(second)["result"] == "stacked"
+    assert world.link(fourth)["result"] == "held"
+    world.fail_verification = True
+    assert world.link(third)["result"] == "stack_failed"
+    world.fail_verification = False
+    assert world.link(third)["result"] == "stacked"
+    assert [(layer["pr"], layer["linked"]) for layer in world.bead["metadata"]["layers"]] == [(1, True), (2, True), (3, True), (4, True)]
