@@ -161,7 +161,7 @@ class Linker:
         command = f"bd update {shlex.quote(self.values['stack_bead'])} --metadata {shlex.quote(json.dumps(repaired, separators=(',', ':')))}"
         fields = layer if isinstance(layer, dict) else {}
         raise LayerError(f"PR {fields.get('pr')} branch {fields.get('branch')} head {fields.get('head')}: {invariant}",
-                         command + "; --set-metadata stores a string")
+                         command + " # --set-metadata stores a string")
 
     def reconcile(self, metadata, pulls, stacks):
         layers = metadata['layers']
