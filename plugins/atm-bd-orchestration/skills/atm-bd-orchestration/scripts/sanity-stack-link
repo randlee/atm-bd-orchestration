@@ -237,11 +237,16 @@ class Linker:
                 self.invalid_layer(metadata, layer, 'linked: true but absent from the hosted stack')
         metadata['stack_number'] = stack['number']
 
-    def git_parent(self, candidate, pulls):
+    def git_parent(self, candidate, pulls, base_head):
         ancestors = []
         for pull in pulls:
             if pull['number'] == candidate['number'] or pull['draft']:
                 continue
+            contained = self.command(['git', 'merge-base', '--is-ancestor', pull['sha'], base_head], check=False)
+            if contained.returncode == 0:
+                continue
+            if contained.returncode != 1:
+                raise StackError('cannot determine parent ancestry relative to stack base')
             result = self.command(['git', 'merge-base', '--is-ancestor', pull['sha'], candidate['sha']], check=False)
             if result.returncode == 0:
                 ancestors.append(pull)
@@ -354,7 +359,9 @@ class Linker:
             if passed_top is not None:
                 assert passed_top.branch is not None and passed_top.head is not None
                 base, recorded_head = passed_top.branch, passed_top.head
-        parent = self.git_parent(candidate, pulls)
+        if layers and resolve_head(base) != recorded_head:
+            raise StackError('recorded stack top differs from its recorded head')
+        parent = self.git_parent(candidate, pulls, recorded_head)
         parent_entry = next((layer for layer in layers if parent and layer['pr'] == parent['number']), None)
         if parent and (parent_entry is None or parent_entry.get('held_on')):
             ancestor = self.command(['git', 'merge-base', '--is-ancestor', 'origin/' + base, self.values['commit']], check=False)

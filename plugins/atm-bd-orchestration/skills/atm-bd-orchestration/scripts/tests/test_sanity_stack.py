@@ -217,6 +217,20 @@ def test_world_git_runner_ignores_host_hooks(tmp_path, monkeypatch):
     assert not marker.exists()
 
 
+def test_open_pr_already_in_trunk_is_not_a_pending_parent(world):
+    trunk = world.git('rev-parse', 'origin/trunk')
+    world.git('branch', 'unrelated', trunk)
+    world.git('push', 'origin', 'unrelated')
+    world.pulls.append({'number': 9, 'base': 'trunk', 'head': 'unrelated', 'sha': trunk, 'draft': False})
+    first = world.branch('first', 'trunk', 1)
+
+    result = world.link(first)
+
+    assert result['result'] == 'stacked'
+    assert world.bead['metadata']['layers'][0]['branch'] == 'first'
+    assert 'held_on' not in world.bead['metadata']['layers'][0]
+
+
 def test_already_linked_lower_layer_at_pinned_commit_is_stacked(world):
     first = world.branch('first', 'trunk', 1)
     second = world.branch('second', 'first', 2)
