@@ -21,6 +21,11 @@ from unittest.mock import patch
 
 from task_close_world import DERIVED, EXAMPLES, SCRIPTS, World, cache_call, example_values, hook
 
+
+def record_checked_commit(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["commit"] = world.head
+
+
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     return World(tmp_path, monkeypatch)
@@ -170,6 +175,7 @@ def test_dev_rerun_after_the_task_is_closed_does_not_close_it_again(world):
 
 def test_not_reproducible_fix_closes_its_task_with_the_evidence_reason(world):
     world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
     assert "ok" in world.run("fix", outcome="not_reproducible")
     close = next(argv for argv, _sender in world.writes if argv[:4] == ["atm", "task", "close", world.values["dev_task_id"]])
     assert close[4:] == ["completed", f"not reproducible: {world.values['evidence']}"]
@@ -177,7 +183,9 @@ def test_not_reproducible_fix_closes_its_task_with_the_evidence_reason(world):
 
 def test_not_reproducible_uses_checked_worktree_and_its_head(world):
     checked = world.values["checked_bead"]
-    world.beads[checked]["metadata"].update(role="fix", branch="fix/fresh", worktree=str(world.root))
+    world.beads[checked]["metadata"].update(
+        role="fix", branch="fix/fresh", worktree=str(world.root), commit="c" * 40
+    )
     world.actual_branch = "fix/fresh"
     world.head = "c" * 40
     world.values.pop("commit", None)
@@ -185,6 +193,23 @@ def test_not_reproducible_uses_checked_worktree_and_its_head(world):
     assert "ok" in result, result
     dispatch = next(m["values"] for m in world.messages if m["type"] == "dev-sanity-task")
     assert (dispatch["branch"], dispatch["commit"], dispatch["worktree_path"]) == ("fix/fresh", world.head, str(world.root))
+
+
+def test_not_reproducible_refuses_missing_checked_commit_before_dispatch(world):
+    checked = world.values["checked_bead"]
+    world.beads[checked]["metadata"].update(
+        role="fix", branch=world.values["branch"], worktree=str(world.root)
+    )
+    world.beads[checked]["metadata"].pop("commit", None)
+
+    result = world.run("fix", outcome="not_reproducible")
+
+    assert result["err"]["code"] == "CHECKOUT.MISMATCH"
+    assert f"{world.values['branch']}@(commit not recorded)" in result["err"]["message"]
+    assert f"{world.actual_branch}@{world.head}" in result["err"]["message"]
+    assert "correct branch and commit" in result["err"]["fix"]
+    assert world.messages == []
+    assert world.writes == []
 
 
 @pytest.mark.parametrize(("recorded_branch", "selected_branch", "recorded_head", "selected_head"), [
@@ -313,6 +338,7 @@ def test_every_role_required_field_is_validated_before_commands(world, role):
 
 
 def test_not_reproducible_missing_pr_identity_is_fix_only(world):
+    record_checked_commit(world)
     for field in ("branch", "commit", "pr_number"):
         world.values.pop(field, None)
     assert world.run("fix", outcome="not_reproducible")["ok"]
@@ -513,6 +539,7 @@ def test_dev_preconditions_do_not_write(world, argv, response, code):
 
 
 def test_not_reproducible_assigns_runtime_top_without_rewriting_input(world):
+    record_checked_commit(world)
     for field in ("branch", "commit", "pr_number"):
         del world.values[field]
     result = world.run("fix", outcome="not_reproducible")
@@ -532,6 +559,7 @@ def test_not_reproducible_assigns_runtime_top_without_rewriting_input(world):
 
 
 def test_not_reproducible_fix_without_stack_bead_uses_pr_target(world):
+    record_checked_commit(world)
     world.values.pop("stack_bead")
     for field in ("branch", "commit", "pr_number"):
         world.values.pop(field, None)
@@ -544,6 +572,7 @@ def test_not_reproducible_fix_without_stack_bead_uses_pr_target(world):
 
 
 def test_not_reproducible_hook_verifies_the_cited_file_and_line(world):
+    record_checked_commit(world)
     result = world.run("fix", outcome="not_reproducible", evidence="missing.py:1")
     assert result["err"]["code"] == "EVIDENCE.INVALID"
     assert "missing.py:1" in result["err"]["message"]
@@ -918,6 +947,7 @@ def test_dev_changed_sha_after_completed_sanity_is_conflict(world):
 
 @pytest.mark.parametrize("boundary", [1, 2, 3, 4])
 def test_not_reproducible_retry_uses_current_stack_top(world, boundary):
+    record_checked_commit(world)
     for field in ("branch", "commit", "pr_number"):
         del world.values[field]
     world.fail_after = boundary
@@ -1373,6 +1403,7 @@ def sanity_close_vars():
 def test_sanity_close_context_carries_only_the_fields_the_sanity_close_reads(world, role, outcome):
     if outcome == "not_reproducible":
         world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+        record_checked_commit(world)
     assert "ok" in world.run(role, outcome=outcome)
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
     context = assignment["close_context"]

@@ -842,7 +842,7 @@ class Hook:
         actual_branch = self.run(["git", "branch", "--show-current"], git=True).stdout.strip()
         actual_head = self.run(["git", "rev-parse", "HEAD"], git=True).stdout.strip()
         expected_head = metadata.get("commit")
-        if actual_branch != branch or (expected_head and actual_head != expected_head):
+        if not expected_head or actual_branch != branch or actual_head != expected_head:
             expected = f"{branch}@{expected_head or '(commit not recorded)'}"
             actual = f"{actual_branch or '(detached)'}@{actual_head or '(unknown)'}"
             raise CloseError("CHECKOUT.MISMATCH",
