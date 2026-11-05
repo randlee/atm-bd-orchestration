@@ -321,7 +321,9 @@ class Linker:
             selected = select_confirmed_stack_top(layers, hosted_prs)
             if isinstance(selected, StackTopMismatch):
                 linked_prs = [layer['pr'] for layer in layers if layer['linked']]
-                if not layers or len(hosted_prs) <= len(linked_prs) or hosted_prs[:len(linked_prs)] != linked_prs:
+                anchors = [layer['pr'] for layer in layers if not layer.get('held_on')]
+                if (not anchors or len(hosted_prs) <= len(linked_prs) or
+                        hosted_prs[:len(anchors)] != anchors):
                     raise StackError(f'stack top mismatch: ledger {selected.ledger_top}; hosted {selected.hosted_top}')
                 try:
                     self.reconcile(metadata, pulls, stacks)

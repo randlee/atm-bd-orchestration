@@ -972,3 +972,17 @@ def test_empty_ledger_with_recorded_hosted_stack_is_not_silently_selected(world)
     assert result["result"] == "stack_failed"
     assert "stack top mismatch" in result["evidence"]
     assert world.bead["metadata"]["layers"] == []
+
+
+def test_hosted_ahead_must_include_the_unlinked_ledger_anchor(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    rival = world.branch("rival", "trunk", 3)
+    rival_child = world.branch("rival-child", "rival", 4)
+    assert world.link(first)["result"] == "stacked"
+    world.bead["metadata"]["stack_number"] = 7
+    world.stacks = [{"number": 7, "base": "trunk", "prs": [3, 4]}]
+    result = world.link(second)
+    assert result["result"] == "stack_failed"
+    assert "stack top mismatch" in result["evidence"]
+    assert [layer["pr"] for layer in world.bead["metadata"]["layers"]] == [1]
