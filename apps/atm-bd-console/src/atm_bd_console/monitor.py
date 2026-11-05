@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import enum
+import importlib.util
+import sys
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -82,6 +84,34 @@ class TodayMonitor:
         return Exit(self._command(args))
 
 
+FRAMEWORK = ("atm_bd_types", "atm_bd_core")
+
+
+class MissingFramework:
+    """A profile phase on an install without the `lite` extra: every command stops with the named fix."""
+
+    def __init__(self, phase: str, missing: list[str]):
+        self.message = (f"atm-bd: phase {phase} selects an atm-bd profile, which needs {', '.join(missing)}; "
+                        "install atm-bd with the lite extra: uv tool install './apps/atm-bd-console[lite]' "
+                        "from an atm-bd-orchestration checkout")
+
+    def refuse(self) -> Exit:
+        print(self.message, file=sys.stderr)
+        return Exit.CONFIG
+
+    def queues(self, args: MonitorArgs) -> Exit:
+        return self.refuse()
+
+    def snapshot(self, args: MonitorArgs) -> Exit:
+        return self.refuse()
+
+    def cron(self, args: MonitorArgs) -> Exit:
+        return self.refuse()
+
+    def step(self, *_args: object, **_kwargs: object) -> StepResult:
+        raise RuntimeError(self.message)
+
+
 def route(repo_root, args, command, step):
     """Select once from the phase file; old phases retain the existing runner."""
     from . import atm_bd
@@ -143,9 +173,13 @@ def route(repo_root, args, command, step):
     except FileNotFoundError:
         return today()
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
-        return policy({"_route_error": str(error)})
-    if "profile" not in phase_data and "profile_path" not in phase_data:
+        phase_data = {"_route_error": str(error)}
+    if "_route_error" not in phase_data and "profile" not in phase_data and "profile_path" not in phase_data:
         return today()
+    missing = [name for name in FRAMEWORK if importlib.util.find_spec(name) is None]
+    if missing:
+        refusal = MissingFramework(phase, missing)
+        return Route(refusal, None, str(phase_data.get("root") or f"atm-phase-{phase}"), refusal.step, lambda _startup_error: int(refusal.refuse()))
     return policy(phase_data)
 
 
