@@ -144,6 +144,14 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
                           tasks_known=isinstance(inputs.tasks, Ok))
     sprint_views, mermaid = _sprint_views(phase, inputs.repo.bead_prefix, agents)
     sections = (Section("Held", held),) if held else ()
+    if (phase is not None and stopped is None and isinstance(inputs.stack_prs, Ok)
+            and inputs.stack_prs.value and inputs.stack_prs.value[-1] not in {pr.number for pr in prs}):
+        number = inputs.stack_prs.value[-1]
+        sections += (Section("Diagnostics", (SectionRow(
+            f"{phase.root_id}.stack", 0,
+            f"PR snapshot is behind hosted stack: top #{number} is absent; the snapshot refreshes on the github_poll_interval cadence",
+            None,
+        ),)),)
     # Lower failures are context, not action items. A passing top does not prove it fixes them.
     if (phase is not None and stopped is None and top_pr is not None and top_pr.ci == CiState.PASS
             and isinstance(inputs.prs, Ok) and isinstance(inputs.stack_prs, Ok)
@@ -529,33 +537,24 @@ def _problems(
         if merge.state == MergeState.CONFLICT and (step := by_branch.get(merge.branch)) is not None
     }
     problems: list[Problem] = []
+    stack_bead = f"{phase.root_id}.stack"
     hosted_top = inputs.stack_prs.value[-1] if isinstance(inputs.stack_prs, Ok) and inputs.stack_prs.value else None
     ledger_top = inputs.stack_ledger.value[-1] if isinstance(inputs.stack_ledger, Ok) and inputs.stack_ledger.value else None
     stack_mismatch = isinstance(inputs.stack_prs, Ok) and isinstance(inputs.stack_ledger, Ok) and ledger_top != hosted_top
     if isinstance(inputs.stack_ledger, Err):
-        problems.append(Problem("stack_ledger:unavailable", None, inputs.lead,
-                                f"stack ledger unavailable: {error_text(inputs.stack_ledger.error)}; no top-dependent advice is sent", now))
+        error = inputs.stack_ledger.error
+        detail = error_text(error).removesuffix(f"; {error.fix}")
+        problems.append(Problem("stack_ledger:unavailable", stack_bead, inputs.lead,
+                                f"{stack_bead}: stack ledger unavailable: {detail}; no top-dependent advice is sent.\nFix: {error.fix}", now))
     elif inputs.stack_ledger is None and inputs.stack_prs is not None:
-        problems.append(Problem("stack_ledger:unavailable", None, inputs.lead,
-                                "stack ledger was not read; configure and read the phase stack bead before top-dependent advice", now))
+        problems.append(Problem("stack_ledger:unavailable", stack_bead, inputs.lead,
+                                f"{stack_bead}: stack ledger was not read; no top-dependent advice is sent.\nFix: configure and read {stack_bead}", now))
     if isinstance(inputs.stack_prs, Err):
         problems.append(Problem(
-            "stack_membership:unavailable", None, inputs.lead,
-            f"hosted stack membership is unreadable ({inputs.stack_prs.error.kind}): no top PR is named and no "
-            f"top-dependent advice is sent until the stack read succeeds; check console.stack trunk/number in "
-            f"console.toml and GitHub access",
-            now,
-        ))
-    elif (
-        isinstance(inputs.stack_prs, Ok)
-        and inputs.stack_prs.value
-        and inputs.stack_prs.value[-1] not in {pr.number for pr in prs}
-    ):
-        problems.append(Problem(
-            "stack_snapshot:stale", None, inputs.lead,
-            f"the PR snapshot is behind the hosted stack: canonical top #{inputs.stack_prs.value[-1]} is absent "
-            f"from this read, so no top PR is named and no top-dependent advice is sent; the snapshot refreshes "
-            f"on the github_poll_interval cadence",
+            "stack_membership:unavailable", stack_bead, inputs.lead,
+            f"{stack_bead}: hosted stack membership is unreadable ({inputs.stack_prs.error.kind}): no top PR is named and no "
+            f"top-dependent advice is sent until the stack read succeeds.\nFix: {inputs.stack_prs.error.fix}; "
+            f"check console.stack trunk/number in console.toml and GitHub access",
             now,
         ))
     not_ready = {row.bead_id for row in held if row.reason == "not ready"}
@@ -583,9 +582,9 @@ def _problems(
     )
     if fresh_github and stack_mismatch:
         problems.append(Problem(
-            "stack_top_mismatch", None, inputs.lead,
-            f"ledger top {f'#{ledger_top}' if ledger_top is not None else 'empty'}, "
-            f"hosted top {f'#{hosted_top}' if hosted_top is not None else 'empty'}; run sanity-stack-link --check", now,
+            "stack_top_mismatch", stack_bead, inputs.lead,
+            f"{stack_bead}: ledger top {f'#{ledger_top}' if ledger_top is not None else 'empty'}, "
+            f"hosted top {f'#{hosted_top}' if hosted_top is not None else 'empty'}\nFix: run sanity-stack-link --check", now,
         ))
     if fresh_github:
         heads = {pr.head for pr in prs if active_pr(pr)}

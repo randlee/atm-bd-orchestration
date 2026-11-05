@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from atm_bd_console.enums import CiState, PrState, SprintState
 from atm_bd_console.model import tick
 from atm_bd_console.result import Err, NotFound, Ok
@@ -200,4 +202,42 @@ def test_snapshot_behind_stack_names_no_top_and_says_so() -> None:
     snapshot, _, _ = tick(inputs(value, prs=prs, stack_prs=Ok((2206, 2208, 2211)), stack_ledger=Ok((2206, 2208, 2211))), STATE, NOW, render)
 
     assert snapshot.top_pr is None
-    assert "stack_snapshot:stale" in {problem.key for problem in snapshot.problems}
+    assert any("#2211" in row.reason for section in snapshot.sections if section.label == "Diagnostics" for row in section.rows)
+
+
+def test_empty_pr_snapshot_is_diagnostic_without_sending_a_batch() -> None:
+    value = make_phase(sprints=())
+    snapshot, actions, _ = tick(inputs(value, prs=Ok(()), stack_prs=Ok((99,)), stack_ledger=Ok((99,))), STATE, NOW, render)
+
+    rows = [row for section in snapshot.sections if section.label == "Diagnostics" for row in section.rows]
+    assert len(rows) == 1 and rows[0].bead_id == "atm-phase-bk.stack" and "#99" in rows[0].reason
+    assert not any(action.kind == "batch" for action in actions)
+    assert not any(problem.key == "stack_snapshot:stale" for problem in snapshot.problems)
+
+
+def test_stack_read_errors_name_bead_and_explicit_fix() -> None:
+    value = make_phase(sprints=())
+    failure = Err(NotFound("not_found", "stack", "restore the stack"))
+    snapshot, actions, _ = tick(inputs(value, stack_prs=failure, stack_ledger=failure), STATE, NOW, render)
+
+    problems = [p for p in snapshot.problems if p.key in ("stack_ledger:unavailable", "stack_membership:unavailable")]
+    assert len(problems) == 2
+    assert all(p.bead_id == "atm-phase-bk.stack" and "Fix:" in p.text for p in problems)
+    assert any(action.kind == "batch" and "atm-phase-bk.stack" in action.bead_ids for action in actions)
+
+
+@pytest.mark.parametrize("ledger,hosted,expected", [
+    (Err(NotFound("not_found", "metadata", "restore ledger")), Ok(()), "stack ledger unavailable"),
+    (None, Ok(()), "stack ledger was not read"),
+    (Ok(()), Err(NotFound("not_found", "hosted", "repair access")), "hosted stack membership is unreadable"),
+    (Ok((1,)), Ok((2,)), "ledger top #1, hosted top #2"),
+])
+def test_each_outbound_stack_notice_contains_its_bead_id(ledger, hosted, expected) -> None:
+    snapshot, actions, _ = tick(inputs(make_phase(sprints=()), prs=Ok(()), stack_prs=hosted, stack_ledger=ledger),
+                                STATE, NOW, render)
+    assert snapshot.problems
+    batches = [action for action in actions if action.kind == "batch"]
+    assert len(batches) == 1
+    assert "atm-phase-bk.stack" in batches[0].text
+    assert expected in batches[0].text
+    assert "Fix:" in batches[0].text

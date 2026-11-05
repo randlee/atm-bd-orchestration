@@ -217,6 +217,22 @@ def test_world_git_runner_ignores_host_hooks(tmp_path, monkeypatch):
     assert not marker.exists()
 
 
+def test_equal_sha_open_parents_are_refused_as_ambiguous(world):
+    parent = world.branch('parent', 'trunk', 1)
+    world.git('branch', 'twin', parent['commit'])
+    world.git('push', 'origin', 'twin')
+    world.pulls.append({'number': 2, 'base': 'trunk', 'head': 'twin', 'sha': parent['commit'], 'draft': False})
+    child = world.branch('child', 'parent', 3)
+    before = copy.deepcopy(world.bead['metadata'])
+
+    result = world.link(child)
+
+    assert result['result'] == 'stack_failed'
+    assert 'multiple incomparable open pull request parents' in result['evidence']
+    assert world.bead['metadata'] == before
+    assert not any(call[:3] == ['gh', 'stack', 'link'] for call in world.calls)
+
+
 def test_open_pr_already_in_trunk_is_not_a_pending_parent(world):
     trunk = world.git('rev-parse', 'origin/trunk')
     world.git('branch', 'unrelated', trunk)

@@ -41,7 +41,7 @@ class World:
                               "branch": "sprint/test", "worktree": str(tmp_path)})
         self.histories = {self.task: [{"event": "assigned", "assignee": "test-sanity", "message_id": "assign-s", "to_state": "assigned"}],
                           self.dev: [{"event": "assigned", "assignee": "test-dev", "message_id": "assign-d", "to_state": "assigned"}]}
-        self.values = {"task_id": self.task, "checked_bead": self.dev, "commit": self.sha,
+        self.values = {"task_id": self.task, "checked_bead": self.dev, "assignment_id": "assign-s", "commit": self.sha,
                        "reviewer": "sanity-selected", "run_id": "run-1", "verdict": "PASS", "findings": []}
         self.request = {"schema_version": "1.0.0", "hook": "task.close", "team": "test-team", "phase": "test",
                         "caller": {"identity": "test-sanity"}, "custom": {},
@@ -374,11 +374,37 @@ def test_all_escalations_route_to_phase_lead(world, owner):
     assert send[3] == "test-lead"
 
 
-def test_commit_metadata_is_not_a_pin(world):
-    world.beads[world.task]["metadata"].pop("commit")
-    world.beads[world.dev]["metadata"]["commit"] = "implementation-tweaked"
-    world.values.pop("commit")
+def test_stale_pass_from_previous_assignment_is_refused(world):
     assert world.invoke()["result"] == "handled"
+    old_journal = world.journal()
+    old_spawned = list(world.spawned)
+    world.beads[world.task]["status"] = "open"
+    world.beads[world.task]["assignee"] = "test-sanity"
+    world.bd.touch(world.task)
+    world.histories[world.task].append({"event": "reopened", "assignee": "test-sanity",
+                                        "message_id": "assign-s2", "seq": 2, "to_state": "assigned"})
+    world.commands.clear()
+
+    reply = world.invoke()
+
+    assert reply["result"] == "refused"
+    assert "assignment_id" in reply["message"]
+    assert world.journal() == old_journal
+    assert world.spawned == old_spawned
+    assert not world.bd_writes()
+
+
+def test_current_commit_mismatch_is_refused_without_journaling(world):
+    captured_commit = world.values["commit"]
+    world.beads[world.dev]["metadata"]["commit"] = "b" * 40
+    world.bd.touch(world.dev)
+
+    reply = world.invoke()
+
+    assert world.values["commit"] == captured_commit
+    assert reply["result"] == "refused"
+    assert "commit" in reply["message"]
+    assert not world.journal() and not world.spawned
 
 
 def test_escalation_assignment_renders_and_is_sent_once(world):

@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bd_cache
 import close_fields
+import phase_settings
 import repo_config
 import sc_render
 from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
@@ -386,7 +387,10 @@ class Hook:
         config = read_config(self.root, role, values.get("verdict", ""))
         self.config = config
         self.lead = read_toml_setting(self.root / ".atm-bd" / f"phase-{values['phase']}.toml", ("lead",))
-        team = read_toml_setting(self.root / ".atm.toml", ("atm", "default_team"))
+        try:
+            team = phase_settings.phase_settings(self.root, values["phase"]).team
+        except phase_settings.PhaseSettingsError as error:
+            raise CloseError("CONFIG.INVALID", str(error), str(error)) from error
         self.env = dict(os.environ)
         self.lead_env = {**self.env, "ATM_IDENTITY": self.lead, "ATM_TEAM": team}
         self.github = "ok"

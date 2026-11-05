@@ -41,7 +41,6 @@ def phase_settings(repo_root: Path, phase: str) -> PhaseSettings:
     phase_path = root / ".atm-bd" / f"phase-{phase}.toml"
     try:
         phase_data = tomllib.loads(phase_path.read_text(encoding="utf-8"))
-        atm_data = tomllib.loads((root / ".atm.toml").read_text(encoding="utf-8")) if (root / ".atm.toml").exists() else {}
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
         raise PhaseSettingsError(f"cannot read {phase_path}: {exc}") from exc
 
@@ -50,6 +49,11 @@ def phase_settings(repo_root: Path, phase: str) -> PhaseSettings:
         raise PhaseSettingsError(f"set lead in {phase_path} to a nonempty ATM identity")
     team = phase_data.get("team")
     if team is None:
+        atm_path = root / ".atm.toml"
+        try:
+            atm_data = tomllib.loads(atm_path.read_text(encoding="utf-8")) if atm_path.exists() else {}
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+            raise PhaseSettingsError(f"cannot read atm.default_team from {atm_path}: {exc}") from exc
         atm = atm_data.get("atm") if isinstance(atm_data, dict) else None
         team = atm.get("default_team") if isinstance(atm, dict) else None
     if not isinstance(team, str) or not team.strip():

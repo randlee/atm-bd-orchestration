@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -163,6 +164,72 @@ class PhaseEndFindingTests(unittest.TestCase):
         groups, result = self.targets(code_checkout="../code", difficulty="hard")
         self.assertNotIsInstance(result[0], groups.TargetError)
         self.assertIn("code-worktrees/fix/t-phase-d-pe-f1", result[0]["compose"]["worktree"])
+
+    @unittest.skipUnless(shutil.which("sc-compose") and os.environ.get("ATM_TEST_BD"),
+                         "sc-compose and the CI-pinned embedded bd are required")
+    def test_code_checkout_pour_persists_worktrees_for_all_three_beads(self):
+        groups = load_groups("bead_groups_code_checkout_pour")
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, checkout, bin_dir = base / "planning", base / "code", base / "bin"
+            root.mkdir()
+            checkout.mkdir()
+            bin_dir.mkdir()
+            bd_path = bin_dir / ("bd.exe" if os.name == "nt" else "bd")
+            shutil.copy2(os.environ["ATM_TEST_BD"], bd_path)
+            env = {key: value for key, value in os.environ.items()
+                   if not key.startswith(("BEADS_", "BD_", "DOLT_"))}
+            env.update(HOME=str(root), PATH=str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+            for args in (("init", "--prefix", "t", "--non-interactive", "--quiet"),
+                         ("create", "phase", "--id", "t-phase-d"),
+                         ("create", "review", "--id", "t-phase-d-review")):
+                result = subprocess.run([str(bd_path), *args], cwd=root, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            phase_dir = root / ".atm-bd"
+            phase_dir.mkdir(exist_ok=True)
+            template_path = ".claude/skills/atm-bd-orchestration/templates/fixture.j2"
+            template = root / template_path
+            template.parent.mkdir(parents=True)
+            template.write_text("fixture")
+            (phase_dir / "phase-d.toml").write_text(
+                'plan = "plan.jsonl"\nroot = "t-phase-d"\nintegration_branch = "integrate/phase-d"\n'
+                'lead = "lead"\ncode_checkout = "../code"\n[templates]\n'
+                + "".join(f'{key} = "{template_path}"\n' for key in
+                          ("dev", "fix", "sanity", "qa", "plan_review", "review"))
+            )
+            formula_dir = phase_dir / "formula"
+            formula_dir.mkdir()
+            for suffix in ("formula.toml.j2", "relations.json"):
+                shutil.copy2(SCRIPTS.parent / "formulas" / f"finding-group.{suffix}",
+                             formula_dir / f"finding-group.{suffix}")
+            findings = root / "findings.json"
+            findings.write_text(json.dumps({"sprint": "t-phase-d", "round": 1, "filed_by": "t-phase-d-review",
+                "found_at_commit": "a" * 40, "findings": [{"ref": "pe-f1", "severity": "blocking",
+                "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix", "difficulty": "hard",
+                "requirements": ["REQ-1"], "adrs": ["NONE"]}]}))
+            runner = object.__new__(groups.Run)
+            runner.repo, runner.option, runner.sidecars = root, None, {}
+            runner.config = {"worktree_base": "/worktrees", "lint_command": "just lint",
+                             "policy_path": "policy.md", "max_sanity_rounds": 5}
+            runner.bd = Mock()
+            runner.bd.show.return_value = None
+            stack = {"id": "t-phase-d.stack", "metadata": {"trunk": "integrate/phase-d", "stack_number": None, "layers": []}}
+            epic = {"status": "open", "title": "phase-d: feature", "metadata": {"integration_branch": "integrate/phase-d", "phase": "d", "plan_scope": "epic"}}
+            runner.show = lambda bead: stack if bead == "t-phase-d.stack" else epic
+            with patch.dict(os.environ, env, clear=True):
+                target = runner.finding_targets(findings)[0]
+                self.assertNotIsInstance(target, groups.TargetError)
+                receipt = runner.pour(target, preview=False)
+            expected = Path(str(checkout) + "-worktrees") / "fix/t-phase-d-pe-f1"
+            self.assertEqual(set(receipt["ids"]), {"fix", "sanity", "qa"})
+            for role, bead in receipt["ids"].items():
+                result = subprocess.run([str(bd_path), "show", bead, "--json"], cwd=root, env=env,
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                record = json.loads(result.stdout)[0]
+                self.assertEqual(record["metadata"]["worktree"], str(expected), role)
+                self.assertEqual(record["metadata"]["branch"], "fix/t-phase-d-pe-f1", role)
 
     def test_non_qa_reviewers_are_refused_before_pour(self):
         for reviewer in ("team-lead", "rust-developer", "dev-sanity", "plan-scope-reviewer"):
