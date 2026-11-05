@@ -783,10 +783,10 @@ def test_duplicate_layer_refusal_has_repair(world):
     assert result["result"] == "stack_failed"
     assert all(text in result["evidence"] for text in ("PR 1", "duplicate", layer["head"], "duplicate pr"))
     assert "bd update phase.stack --metadata" in result["fix"]
-    command = shlex.split(result["fix"], comments=True)
+    command = shlex.split(result["fix"])
     assert command[:4] == ["bd", "update", "phase.stack", "--metadata"]
     assert len(json.loads(command[4])["layers"]) == 1
-    assert "--set-metadata stores a string" in result["fix"]
+    assert "--set-metadata stores a string" in result["evidence"]
 
 
 def test_ghost_linked_layer_refusal_has_repair(world):
