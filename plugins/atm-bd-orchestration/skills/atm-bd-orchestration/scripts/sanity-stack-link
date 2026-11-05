@@ -382,7 +382,8 @@ class Linker:
                 self.verify_trunk_merge(metadata['trunk'], selected_head)
                 if metadata != original:
                     self.write(metadata)
-                return {'result': 'stacked', 'top': layers[-1], 'stack_number': metadata.get('stack_number')}
+                return {'result': 'stacked', 'top': next(layer for layer in reversed(layers) if layer['linked']),
+                        'stack_number': metadata.get('stack_number')}
             if recorded is not layers[-1]:
                 raise StackError('checked unlinked layer is not the next stack layer')
             base = recorded['base']
@@ -457,7 +458,7 @@ class Linker:
         if recorded is None:
             layers.append(new)
         self.write(metadata)
-        return {'result': 'stacked', 'top': new, 'stack_number': metadata.get('stack_number')}
+        return {'result': 'stacked', 'top': children[-1] if children else new, 'stack_number': metadata.get('stack_number')}
 
 
 def rebase_steps(values, top, metadata, contained):

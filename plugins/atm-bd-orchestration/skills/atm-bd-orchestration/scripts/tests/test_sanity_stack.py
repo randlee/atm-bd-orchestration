@@ -809,8 +809,11 @@ def test_out_of_order_parent_holds_then_links_in_git_order(world):
     assert held["held_on"] == {"pr": 3, "branch": "f3"}
     assert not any(call[:3] == ["gh", "stack", "link"] for call in world.calls)
     assert world.bead["metadata"]["layers"][-1]["held_on"] == held["held_on"]
+    assert world.link(f1)["top"]["pr"] == 2
     world.calls.clear()
-    assert world.link(f3)["result"] == "stacked"
+    released = world.link(f3)
+    assert released["result"] == "stacked"
+    assert released["top"]["pr"] == 4
     assert [item["pr"] for item in world.bead["metadata"]["layers"]] == [1, 2, 3, 4]
     assert all(item["linked"] for item in world.bead["metadata"]["layers"])
     assert [call for call in world.calls if call[:3] == ["gh", "stack", "link"]] == [["gh", "stack", "link", "--base", "trunk", "1", "2", "3", "4"]]
