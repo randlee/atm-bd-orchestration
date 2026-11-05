@@ -84,6 +84,8 @@ from stack_top import stack_bead_id  # noqa: E402
 
 SCHEMA = "atm-bd-orchestration/bead-groups/v1"
 SUCCESS, FAILED, USAGE, PROBLEMS = 0, 2, 3, 5
+from qa_reviewers import qa_capable_reviewer, qa_capable_reviewers
+
 SPRINT_KEYS = ("phase", "sprint", "stack", "layer", "difficulty", "branch", "worktree", "pr_target")
 FINDING_FIELDS = ("ref", "severity", "reviewer", "title", "remedy")
 REF = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
@@ -580,6 +582,10 @@ class Run:
                     lacking.append("difficulty (a phase-end finding has no sprint to take it from)")
                 if lacking:
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} lacks {', '.join(lacking)}")
+                templates_dir = Path(__file__).resolve().parent.parent / "templates"
+                if not qa_capable_reviewer(finding["reviewer"], templates_dir):
+                    raise TargetError("BEAD_GROUPS_REVIEWER_INVALID", f"finding {ref}: reviewer {finding['reviewer']} is not QA-capable; "
+                                      f"choose --reviewer <agent> from {', '.join(qa_capable_reviewers(templates_dir))}")
                 remedy = finding.get("remedy")
                 if not isinstance(remedy, str):
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} lacks remedy")

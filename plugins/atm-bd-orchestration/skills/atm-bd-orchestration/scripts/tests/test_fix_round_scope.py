@@ -107,6 +107,14 @@ class CliTests(unittest.TestCase):
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(SCRIPT), *args], cwd=self.dir, capture_output=True, text=True)
 
+    def test_non_qa_reviewers_are_refused(self):
+        for reviewer in ("team-lead", "rust-developer", "dev-sanity", "plan-scope-reviewer"):
+            (self.dir / "carried.json").write_text(json.dumps([{"id": "finding", "metadata": {"reviewer": reviewer, "finding_ref": "F1"}}]))
+            out = self.run_cli("owned", "--carried", "carried.json")
+            self.assertEqual(out.returncode, 2)
+            self.assertIn("flaky-test-qa", out.stderr)
+            self.assertIn("--reviewer <agent>", out.stderr)
+
     def test_owned_needs_no_repository_configuration(self):
         out = self.run_cli("owned", "--carried", "carried.json")
         self.assertEqual(out.returncode, 0, out.stderr)

@@ -41,7 +41,7 @@ class FindingGroupTests(unittest.TestCase):
             findings = root / "findings.json"
             shutil.copyfile(formula, root / "formula.toml.j2")
             for provenance in (15, None):
-                row: dict[str, object] = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "qa", "title": "issue", "remedy": "fix"}
+                row: dict[str, object] = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix"}
                 if provenance is not None:
                     row["found_on_layer"] = provenance
                 findings.write_text(json.dumps({"sprint": "d-1", "round": 1, "filed_by": "qa",
@@ -80,7 +80,7 @@ class FoundOnLayerGuardTests(unittest.TestCase):
                                                      "requirements": ["REQ-1"], "adrs": ["NONE"]}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else container
         runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
-        row = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "qa", "title": "issue", "remedy": "fix"}
+        row = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix"}
         if layer is not None:
             row["found_on_layer"] = layer
         with tempfile.TemporaryDirectory() as directory:
@@ -126,7 +126,7 @@ class PhaseEndFindingTests(unittest.TestCase):
         epic = {"status": "open", "title": "phase-d: feature", "metadata": {"integration_branch": "integrate/phase-d", "phase": "d", "plan_scope": "epic"}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else epic
         runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
-        row = {"ref": "pe-f1", "severity": "blocking", "reviewer": "review", "title": "issue", "remedy": "fix",
+        row = {"ref": "pe-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix",
                "requirements": ["REQ-1"], "adrs": ["NONE"], **extra}
         with tempfile.TemporaryDirectory() as directory:
             runner.repo = Path(directory)
@@ -135,6 +135,14 @@ class PhaseEndFindingTests(unittest.TestCase):
                                             "found_at_commit": "a" * 40, "findings": [row]}))
             with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d"}):
                 return groups, runner.finding_targets(findings)
+
+    def test_non_qa_reviewers_are_refused_before_pour(self):
+        for reviewer in ("team-lead", "rust-developer", "dev-sanity", "plan-scope-reviewer"):
+            groups, result = self.targets(difficulty="hard", reviewer=reviewer)
+            self.assertIsInstance(result[0], groups.TargetError)
+            self.assertEqual(result[0].code, "BEAD_GROUPS_REVIEWER_INVALID")
+            self.assertIn("flaky-test-qa", str(result[0]))
+            self.assertIn("--reviewer <agent>", str(result[0]))
 
     def test_phase_epic_finding_pours_with_derived_facts(self):
         groups, result = self.targets(difficulty="hard")
