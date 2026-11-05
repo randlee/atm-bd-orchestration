@@ -849,25 +849,43 @@ def parse_escalation_list(value: JsonValue) -> EscalationList:
             if isinstance(recipients, list) else []}
 
 
-def escalation_recipients() -> list[str]:
-    """Read the daemon's default escalation list; phase announcements use their configured lead directly."""
+def escalation_recipients(team: str | None = None) -> list[str]:
+    """Read a team's escalation list, or the daemon default when no team is supplied."""
+    argv = ["atm", "escalation", "list"]
+    if team:
+        argv.extend(("--team", team))
+    argv.append("--json")
     try:
-        result = subprocess.run(["atm", "escalation", "list", "--json"], text=True, capture_output=True, timeout=15)
+        result = subprocess.run(argv, text=True, capture_output=True, timeout=15)
         value: JsonValue = json.loads(result.stdout) if result.returncode == 0 else {}
     except (OSError, subprocess.TimeoutExpired, ValueError):
         value = {}
     return parse_escalation_list(value)["recipients"]
 
 
-def announce(message: str, recipient: str, tool_identity: str) -> None:
-    """Send `message` to the phase lead as the configured atm-bd tool identity."""
-    try:
-        sent = subprocess.run(["atm", "send", recipient, "--as", tool_identity, "--stdin"], input=message,
-                              text=True, capture_output=True, timeout=15)
-        if sent.returncode:
-            print(f"Announcement to {recipient} failed; coordinator must report the error via ATM.", file=sys.stderr)
-    except (OSError, subprocess.TimeoutExpired):
-        print(f"Announcement to {recipient} unavailable; coordinator must report the error via ATM.", file=sys.stderr)
+def oversight_recipients(settings: phase_settings_module.PhaseSettings) -> tuple[list[str], bool]:
+    """Use phase oversight, then daemon oversight, then the lead with an explicit fallback note."""
+    recipients = escalation_recipients(settings.team)
+    if recipients:
+        return recipients, False
+    recipients = escalation_recipients()
+    if recipients:
+        return recipients, False
+    return [f"{settings.lead}@{settings.team}"], True
+
+
+def announce(message: str, recipients: list[str], tool_identity: str, *, no_recipient_fallback: bool = False) -> None:
+    """Send `message` to oversight as the repository-configured atm-bd tool identity."""
+    if no_recipient_fallback:
+        message = f"No escalation recipient is set; sending to the phase lead. {message}"
+    for recipient in recipients:
+        try:
+            sent = subprocess.run(["atm", "send", recipient, "--as", tool_identity, "--stdin"], input=message,
+                                  text=True, capture_output=True, timeout=15)
+            if sent.returncode:
+                print(f"Announcement to {recipient} failed; coordinator must report the error via ATM.", file=sys.stderr)
+        except (OSError, subprocess.TimeoutExpired):
+            print(f"Announcement to {recipient} unavailable; coordinator must report the error via ATM.", file=sys.stderr)
 
 
 class JevArguments(argparse.Namespace):
@@ -958,31 +976,36 @@ def main(argv: list[str] | None = None, *, clock: Callable[[], float] = time.mon
         parser.error("--announce requires --startup or --error and an explicit --phase")
     if args.error is not None and (not args.announce or not args.error.strip()):
         parser.error("--error requires --announce and a nonempty error")
-    phase_recipient = None
+    recipients: list[str] = []
+    no_recipient_fallback = False
     tool_identity = None
     if args.phase:
         try:
             settings = phase_settings_module.phase_settings(repo_config.repo_root(), args.phase)
-            phase_recipient = f"{settings.lead}@{settings.team}"
+            if args.announce:
+                recipients, no_recipient_fallback = oversight_recipients(settings)
             tool_identity = settings.tool_identity
         except (repo_config.ConfigError, RuntimeError, OSError, ValueError) as exc:
             parser.error(str(exc))
     if args.error is not None:
-        assert phase_recipient is not None and tool_identity is not None
+        assert recipients and tool_identity is not None
         if args.error.startswith("SANITY.JEV_REQUEST_TOO_LARGE"):
             # An oversized request is the caller's to rebuild; it never hands the slot to an LLM or haiku check (#365).
             announce(f"dev-sanity Jev request oversized after the lossless split: {args.error}. The deliverable's Jev slot "
-                     "keeps this error; no LLM or haiku check replaces Jev for it.", phase_recipient, tool_identity)
+                     "keeps this error; no LLM or haiku check replaces Jev for it.", recipients, tool_identity,
+                     no_recipient_fallback=no_recipient_fallback)
         else:
-            announce(f"dev-sanity Jev child failed: {args.error}. Selection takes the LLM reply for JEV slots until a Jev child succeeds.", phase_recipient, tool_identity)
+            announce(f"dev-sanity Jev child failed: {args.error}. Selection takes the LLM reply for JEV slots until a Jev child succeeds.",
+                     recipients, tool_identity, no_recipient_fallback=no_recipient_fallback)
         print(json.dumps({"success": True, "data": {"announced": args.error}, "error": None}))
         return 0
     result = evaluation_result(args, clock=clock, sleep=sleep)
     if args.announce and not result["success"]:
-        assert phase_recipient is not None and tool_identity is not None
+        assert recipients and tool_identity is not None
         error = result["error"]
         assert isinstance(error, dict)
-        announce(f"dev-sanity Jev startup failed: {error['code']}: {error['message']}. No sc-sanity-jev checks run; dev-sanity records every JEV slot as unavailable until a startup probe passes.", phase_recipient, tool_identity)
+        announce(f"dev-sanity Jev startup failed: {error['code']}: {error['message']}. No sc-sanity-jev checks run; dev-sanity records every JEV slot as unavailable until a startup probe passes.",
+                 recipients, tool_identity, no_recipient_fallback=no_recipient_fallback)
     print(json.dumps(result, allow_nan=False))
     return 0 if result["success"] else 2
 

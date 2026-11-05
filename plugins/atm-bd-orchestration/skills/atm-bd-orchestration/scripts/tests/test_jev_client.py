@@ -54,8 +54,11 @@ class JevClientTests(unittest.TestCase):
     def startup(self, argv, team, daemon, environ=None, phase_lead="appointed-lead", tool_identity="atm-bd@tool"):
         """Run the startup probe with an explicit repository and phase configuration."""
         def run(cmd, **kwargs):
-            listed = {"--team": team} if "--team" in cmd else {"": daemon}
-            recipients = next(iter(listed.values()))
+            if "--team" in cmd:
+                requested_team = cmd[cmd.index("--team") + 1]
+                recipients = team if requested_team == "phase-team" else []
+            else:
+                recipients = daemon
             return MagicMock(returncode=0 if recipients is not None else 1, stdout=json.dumps({"recipients": recipients or []}))
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
@@ -78,15 +81,22 @@ class JevClientTests(unittest.TestCase):
         sends = [(c.args[0][2], c.kwargs["input"], c.args[0]) for c in send.call_args_list if c.args[0][:2] == ["atm", "send"]]
         return rc, json.loads(output.getvalue()), sends
 
-    def test_startup_announcement_uses_phase_team_and_configured_tool_sender(self):
-        rc, result, sends = self.startup(["--startup", "--announce", "--phase", "x"], ["oversight@team"], ["daemon@host"])
+    def test_startup_announcement_uses_configured_phase_recipients_despite_conflicting_environment(self):
+        rc, result, sends = self.startup(["--startup", "--announce", "--phase", "x"],
+                                         ["oversight-one@phase-team", "oversight-two@phase-team"], ["daemon@host"],
+                                         environ={"ATM_TEAM": "conflicting-team"})
         self.assertEqual(rc, 2)
         self.assertTrue(result["error"]["recoverable"])
         self.assertEqual(set(result["error"]), {"code", "message", "recoverable", "suggested_action"})
-        self.assertEqual([to for to, _, _ in sends], ["appointed-lead@phase-team"])
-        self.assertIn(result["error"]["message"], sends[0][1])
-        self.assertEqual(sends[0][2][sends[0][2].index("--as") + 1], "atm-bd@tool")
-        self.assertEqual(len(sends), 1)
+        self.assertEqual([to for to, _, _ in sends], ["oversight-one@phase-team", "oversight-two@phase-team"])
+        for _, text, argv in sends:
+            self.assertIn(result["error"]["message"], text)
+            self.assertEqual(argv[argv.index("--as") + 1], "atm-bd@tool")
+        self.assertEqual(len(sends), 2)
+
+    def test_announcement_falls_back_to_daemon_recipients(self):
+        _, _, sends = self.startup(["--startup", "--announce", "--phase", "x"], [], ["daemon-one@host", "daemon-two@host"])
+        self.assertEqual([to for to, _, _ in sends], ["daemon-one@host", "daemon-two@host"])
 
     def test_announcement_uses_repository_tool_identity_override(self):
         _, _, sends = self.startup(["--startup", "--announce", "--phase", "x"], [], None,
@@ -119,7 +129,7 @@ class JevClientTests(unittest.TestCase):
                                              environ={"ATM_TEAM": "t", "TYPESAFE_API_KEY": "test-only-key"})
             http.assert_not_called()
         self.assertEqual((rc, result), (0, {"success": True, "data": {"announced": error}, "error": None}))
-        self.assertEqual([to for to, _, _ in sends], ["appointed-lead@phase-team"])
+        self.assertEqual([to for to, _, _ in sends], ["oversight@team"])
         self.assertIn(error, sends[0][1])
         for argv in (["--error", error], ["--announce", "--error", "", "--phase", "x"],
                      ["--announce", "--error", error], ["--startup", "--error", error, "--announce", "--phase", "x"],
@@ -127,12 +137,13 @@ class JevClientTests(unittest.TestCase):
             with self.subTest(argv=argv), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 client.main(argv, sleep=no_sleep)
 
-    def test_announcement_uses_the_selected_phase_lead_despite_environment_and_yaml(self):
+    def test_announcement_falls_back_to_phase_lead_with_no_recipient_note(self):
         for lead in ("phase-owner-one", "phase-owner-two"):
             with self.subTest(lead=lead):
                 _, _, sends = self.startup(["--startup", "--announce", "--phase", "x"], [], None,
                                            environ={"ATM_IDENTITY": "wrong-environment-lead"}, phase_lead=lead)
                 self.assertEqual([recipient for recipient, _, _ in sends], [f"{lead}@phase-team"])
+                self.assertIn("no escalation recipient is set", sends[0][1].lower())
 
     def test_missing_phase_settings_stop_before_probe_or_send(self):
         with tempfile.TemporaryDirectory() as directory:
