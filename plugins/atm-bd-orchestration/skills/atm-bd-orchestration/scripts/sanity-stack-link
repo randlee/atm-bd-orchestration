@@ -218,6 +218,10 @@ class Linker:
                     layers.insert(index, {'branch': pull['head'], 'pr': number, 'head': pull['sha'], 'base': previous, 'linked': True})
             if index < len(layers):
                 layer = layers[index]
+                if layer.get('held_on'):
+                    if layer['held_on']['branch'] != previous:
+                        raise StackError('hosted stack conflicts with held parent')
+                    layer['base'] = previous
                 if (layer['pr'], layer['branch'], layer['head'], layer['base']) != (number, pull['head'], pull['sha'], previous):
                     raise StackError('hosted stack conflicts with ledger ancestry')
                 layer['linked'] = True
@@ -284,7 +288,7 @@ class Linker:
                 held_on = layer['held_on']
                 if (not isinstance(held_on, dict) or type(held_on.get('pr')) is not int or held_on['pr'] <= 0 or
                         not isinstance(held_on.get('branch'), str) or not held_on['branch'] or
-                        layer.get('linked') is not False or layer.get('base') != held_on['branch'] or
+                        layer.get('linked') is not False or ('base' in layer and layer['base'] != held_on['branch']) or
                         held_on['pr'] == layer.get('pr')):
                     self.invalid_layer(metadata, layer, 'invalid held_on parent or linked state', remove=True)
             if isinstance(layer, dict) and type(layer.get('pr')) is int and layer['pr'] in numbers:
@@ -358,7 +362,7 @@ class Linker:
                     raise StackError('checked held layer differs from fetched branch head')
                 if held is None:
                     held = {'branch': candidate['head'], 'pr': candidate['number'], 'head': candidate['sha'],
-                            'base': parent['head'], 'linked': False, 'held_on': {'pr': parent['number'], 'branch': parent['head']}}
+                            'linked': False, 'held_on': {'pr': parent['number'], 'branch': parent['head']}}
                     layers.append(held)
                     self.write(metadata)
                 return {'result': 'held', 'held_on': held['held_on']}
@@ -447,6 +451,8 @@ class Linker:
             metadata['stack_number'] = matches[0]['number']
             for entry in pending:
                 entry['linked'] = True
+                if entry.get('held_on'):
+                    entry['base'] = entry['held_on']['branch']
                 entry.pop('held_on', None)
         if recorded is None:
             layers.append(new)
