@@ -153,12 +153,14 @@ class Linker:
         index = next(i for i, item in enumerate(metadata['layers']) if item is layer)
         if remove:
             removed = repaired['layers'].pop(index)
-            if index < len(repaired['layers']) and repaired['layers'][index].get('base') == removed.get('branch'):
+            if (isinstance(removed, dict) and index < len(repaired['layers']) and
+                    isinstance(repaired['layers'][index], dict) and repaired['layers'][index].get('base') == removed.get('branch')):
                 repaired['layers'][index]['base'] = removed.get('base')
         else:
             repaired['layers'][index]['linked'] = False
         command = f"bd update {shlex.quote(self.values['stack_bead'])} --metadata {shlex.quote(json.dumps(repaired, separators=(',', ':')))}"
-        raise LayerError(f"PR {layer.get('pr')} branch {layer.get('branch')} head {layer.get('head')}: {invariant}",
+        fields = layer if isinstance(layer, dict) else {}
+        raise LayerError(f"PR {fields.get('pr')} branch {fields.get('branch')} head {fields.get('head')}: {invariant}",
                          command + "; --set-metadata stores a string")
 
     def reconcile(self, metadata, pulls, stacks):
@@ -278,13 +280,13 @@ class Linker:
         previous = metadata['trunk']
         branches, numbers = set(), set()
         for layer in layers:
-            if isinstance(layer, dict) and layer.get('pr') in numbers:
+            if isinstance(layer, dict) and type(layer.get('pr')) is int and layer['pr'] in numbers:
                 self.invalid_layer(metadata, layer, 'duplicate pr in metadata.layers', remove=True)
             if (not isinstance(layer, dict) or not isinstance(layer.get('branch'), str) or not layer['branch'] or
                     type(layer.get('pr')) is not int or layer['pr'] <= 0 or not isinstance(layer.get('head'), str) or
                     not re.fullmatch(r'[0-9a-fA-F]{7,64}', layer['head']) or type(layer.get('linked')) is not bool or
                     (not layer.get('held_on') and layer.get('base') != previous) or layer['branch'] in branches or layer['pr'] in numbers):
-                raise StackError('stack bead has an invalid layer')
+                self.invalid_layer(metadata, layer, 'invalid layer fields, base ancestry, or duplicate branch in metadata.layers', remove=True)
             if not layer.get('held_on'):
                 previous = layer['branch']
             branches.add(layer['branch'])
@@ -520,7 +522,7 @@ def main(argv=None, runner=subprocess.run, clock=time.time):
     if linker is not None and linker.mode is not None:
         result.update(mode=linker.mode, lean_reason=linker.lean_reason)
     lead = (args.notify_lead if args is not None else None) or (values.get('lead') if isinstance(values, dict) else None)
-    if lead and result['result'] != 'stacked' and lead == os.environ.get('ATM_IDENTITY'):
+    if lead and lead == os.environ.get('ATM_IDENTITY'):
         result['notified'] = 'skipped (self)'
     elif lead and result['result'] != 'stacked':
         try:

@@ -8,8 +8,11 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from stack_top import StackTop, select_confirmed_stack_top
 from task_close_world import World as HookWorld, hook as close_hook
@@ -876,3 +879,21 @@ def test_torn_link_recovers_held_children_in_order(world):
     world.fail_verification = False
     assert world.link(third)["result"] == "stacked"
     assert [(layer["pr"], layer["linked"]) for layer in world.bead["metadata"]["layers"]] == [(1, True), (2, True), (3, True), (4, True)]
+
+
+def test_invalid_layer_includes_copy_paste_repair(world):
+    values = world.branch("first", "trunk", 1)
+    world.bead["metadata"]["layers"] = [{"pr": 1, "branch": "first", "head": values["commit"], "base": "wrong", "linked": False}]
+    result = world.link(values)
+    assert result["result"] == "stack_failed"
+    assert all(text in result["evidence"] for text in ("PR 1", "first", values["commit"], "base ancestry"))
+    assert "bd update phase.stack --metadata" in result["fix"]
+
+
+def test_self_lead_success_returns_link_result_without_send(world):
+    values = world.branch("first", "trunk", 1)
+    values["lead"] = "sanity"
+    result = world.link(values)
+    assert result["result"] == "stacked"
+    assert result["notified"] == "skipped (self)"
+    assert not any(call[:2] == ["atm", "send"] for call in world.calls)
