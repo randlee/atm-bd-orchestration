@@ -1,8 +1,8 @@
-from stack_top import StackTop, StackTopMismatch, select_confirmed_stack_top, select_stack_top
+from stack_top import JsonValue, StackTop, StackTopMismatch, select_confirmed_stack_top, select_stack_top
 
 
 def test_confirmed_top_agrees_and_ignores_pending():
-    layers = [{"pr": 1, "branch": "one", "head": "aaa", "linked": True},
+    layers: list[JsonValue] = [{"pr": 1, "branch": "one", "head": "aaa", "linked": True},
               {"pr": 2, "branch": "two", "head": "bbb", "linked": False}]
     expected = StackTop(1, "one", "aaa")
     assert select_confirmed_stack_top(layers, [1]) == expected
@@ -10,13 +10,13 @@ def test_confirmed_top_agrees_and_ignores_pending():
 
 
 def test_ledger_ahead_of_hosted_is_typed_mismatch():
-    layers = [{"pr": 1, "branch": "one", "head": "aaa", "linked": True},
+    layers: list[JsonValue] = [{"pr": 1, "branch": "one", "head": "aaa", "linked": True},
               {"pr": 2, "branch": "two", "head": "bbb", "linked": True}]
     assert select_confirmed_stack_top(layers, [1]) == StackTopMismatch(StackTop(2, "two", "bbb"), 1)
 
 
 def test_hosted_ahead_of_ledger_is_typed_mismatch():
-    layers = [{"pr": 1, "branch": "one", "head": "aaa", "linked": True}]
+    layers: list[JsonValue] = [{"pr": 1, "branch": "one", "head": "aaa", "linked": True}]
     assert select_confirmed_stack_top(layers, [1, 2]) == StackTopMismatch(StackTop(1, "one", "aaa"), 2)
 
 
