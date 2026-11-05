@@ -869,7 +869,8 @@ def test_daemon_sanity_has_no_pin_gate_or_build_running_merge():
     assert result.returncode == 0, result.stderr
     assert "assignment-gates.py" not in result.stdout
     assert "bd-validation" in result.stdout
-    assert "not a planning pin or a close prerequisite" in result.stdout
+    assert "record its message_id" in result.stdout
+    assert "assignment_id and commit against current task history and checked bead" in result.stdout
     assert "do not invoke Cargo" in result.stdout
     assert "sanity-task-close.md.j2" in result.stdout
 

@@ -298,8 +298,12 @@ def prepare(runtime, sanity):
     direct_finding_fix = "stage:finding" in labels and (dev.get("metadata") or {}).get("sanity_bead") == task
     require(bool({"stage:dev", "stage:fix"}.intersection(labels)) or direct_finding_fix,
             "checked_bead", "must be a dev/fix bead or a finding linked to this sanity bead", "phase-lead")
-    # Commit is descriptive evidence, not a frozen implementation constraint.
-    commit = values.get("commit") or (dev.get("metadata") or {}).get("commit") or "unspecified"
+    checked_commit = (dev.get("metadata") or {}).get("commit")
+    require(isinstance(checked_commit, str) and checked_commit,
+            "checked_bead.metadata.commit", "current checked commit is required", "phase-lead")
+    commit = values.get("commit")
+    require(isinstance(commit, str) and commit, "commit", "selected result must name the checked commit")
+    require(commit == checked_commit, "commit", "does not match the checked bead's current commit", "phase-lead")
     values["commit"] = commit
     require(values.get("reviewer") == "sanity-selected", "reviewer", "must be sanity-selected")
     require(isinstance(values.get("run_id"), str) and values["run_id"], "run_id", "selected run ID required")
@@ -326,6 +330,13 @@ def prepare(runtime, sanity):
     require(bool(assignments), "assignment", "sanity task has no assignment", "phase-lead")
     assignment = assignments[-1]
     require(assignment.get("assignee") == runtime.identity, "caller", "only assigned sanity agent may close")
+    assignment_ref = assignment.get("message_id") or assignment.get("seq")
+    require(assignment_ref is not None, "assignment", "current assignment has no message id or sequence", "phase-lead")
+    submitted_assignment_ref = values.get("assignment_id")
+    require(isinstance(submitted_assignment_ref, str) and submitted_assignment_ref,
+            "assignment_id", "selected result must name the current assignment")
+    require(submitted_assignment_ref == str(assignment_ref), "assignment_id",
+            "does not match the newest sanity assignment", "phase-lead")
     dev_history = runtime.events(dev_id)
     dev_assignments = [event for event in dev_history if event.get("event") in ASSIGNMENTS]
     require(bool(dev_assignments), "dev assignment", "dev task has no assignment", "phase-lead")
@@ -333,8 +344,8 @@ def prepare(runtime, sanity):
     require(isinstance(dev_agent, str) and bool(dev_agent), "dev assignee", "missing dev task assignee", "phase-lead")
     require(dev.get("assignee") == dev_agent, "dev assignee", "bead and task assignees differ", "phase-lead")
     lead = runtime.lead()
-    key = digest([runtime.team, task, assignment.get("message_id") or assignment.get("seq")])
-    signature = digest([values.get("run_id"), verdict, findings])
+    key = digest([runtime.team, task, assignment_ref])
+    signature = digest([submitted_assignment_ref, commit, values.get("run_id"), verdict, findings])
     prior = runtime.state().get(key)
     require(prior is None or prior["signature"] == signature, "result", "conflicts with an already prepared close; lead must reconcile", "phase-lead")
     done = bool(dev_history and dev_history[-1].get("to_state") == "complete")

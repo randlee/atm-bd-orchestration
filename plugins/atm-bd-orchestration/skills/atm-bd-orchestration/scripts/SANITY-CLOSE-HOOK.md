@@ -54,11 +54,15 @@ neither the cache nor bd refuses and escalates.
 The hook resolves stage from bead labels, dev ID from sanity metadata, the
 blocking dependency from the bead graph, current assignees from ATM task events,
 and phase lead from the phase configuration. `bd-validation` owns required bead
-data, including the dev relationship and blocking dependency. There is no commit
-pin requirement or extra dispatch checklist; implementation tweaks remain possible.
-An observed commit may be retained as evidence provenance. The selected result
-supplies verdict, run ID and missing-item numbers/reasons (deliverable zero denotes
-a verification-wide evidence deficiency).
+data, including the dev relationship and blocking dependency. Dispatch does not
+freeze a commit, so implementation tweaks remain possible while sanity is underway.
+At close, the selected result must include `assignment_id` (the newest assignment
+event message ID, or its sequence when no message ID exists) and `commit` (the
+checked bead's current metadata commit). The hook refuses either value if it no
+longer matches current task history or the checked bead. This prevents an old PASS
+from closing a reopened assignment or a different implementation. The selected
+result also supplies verdict, run ID and missing-item numbers/reasons (deliverable
+zero denotes a verification-wide evidence deficiency).
 
 All validation precedes mutations. Bead writes go to the bd-cache journal, not
 to bd: PASS journals the sanity close; FAIL journals its findings in the checked bead notes, then the dev reopen (precondition:
