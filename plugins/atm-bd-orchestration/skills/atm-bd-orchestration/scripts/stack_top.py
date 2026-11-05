@@ -90,6 +90,13 @@ def select_stack_top(
     layers = metadata.get("layers", []) if metadata is not None else []
     if not isinstance(layers, list):
         raise ValueError("stack bead metadata.layers must be an array")
+    if layers:
+        last = layers[-1]
+        if not is_json_object(last):
+            raise ValueError("last stack layer must have non-empty branch and head strings")
+        branch, head = last.get("branch"), last.get("head")
+        if not isinstance(branch, str) or not branch.strip() or not isinstance(head, str) or not head.strip():
+            raise ValueError("last stack layer must have non-empty branch and head strings")
     selected = select_confirmed_stack_top(layers)
     if isinstance(selected, StackTop) and selected.branch is not None and selected.head is not None:
         return selected.branch, selected.head
