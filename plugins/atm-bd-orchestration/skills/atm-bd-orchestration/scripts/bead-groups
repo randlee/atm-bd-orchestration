@@ -83,6 +83,7 @@ from operation_models import JsonObject, JsonValue, matches_typeddict  # noqa: E
 from stack_top import select_stack_top, stack_bead_id  # noqa: E402
 
 SCHEMA = "atm-bd-orchestration/bead-groups/v1"
+SC_COMPOSE_TIMEOUT_SECONDS = 120
 SUCCESS, FAILED, USAGE, PROBLEMS = 0, 2, 3, 5
 from qa_reviewers import qa_capable_reviewer, qa_capable_reviewers
 
@@ -685,7 +686,12 @@ class Run:
         path = out / f"{stem}.request.json"
         path.write_text(json.dumps(request, indent=2) + "\n")
         subcommand = operation.replace("_", "-")
-        proc = subprocess.run(["sc-compose", "bead", subcommand, "--request", str(path), "--json"], cwd=self.repo, text=True, capture_output=True)
+        command = ["sc-compose", "bead", subcommand, "--request", str(path), "--json"]
+        try:
+            proc = subprocess.run(command, cwd=self.repo, text=True, capture_output=True, timeout=SC_COMPOSE_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            raise TargetError("BEAD_GROUPS_POUR_TIMEOUT", f"{' '.join(command)} timed out after {SC_COMPOSE_TIMEOUT_SECONDS} seconds; "
+                              f"inspect request {path} and any partially created beads before retrying") from exc
         (out / f"{stem}.{subcommand}.receipt.json").write_text(proc.stdout)
         try:
             decoded: object = json.loads(proc.stdout)
