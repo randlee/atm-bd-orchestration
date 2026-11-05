@@ -557,6 +557,44 @@ def test_check_tools_ignores_the_python3_on_path(tmp_path, monkeypatch):
     install.check_tools()
 
 
+def test_check_tools_accepts_python_313_when_installer_wheel_imports(tmp_path, monkeypatch):
+    import builtins
+    import importlib.metadata
+    import types
+
+    shim_sc_compose(tmp_path / "bin", "1.7.0", "1.7.0")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.7.0")
+    original_import = builtins.__import__
+
+    def import_with_sc_compose(name, *args, **kwargs):
+        return types.ModuleType("sc_compose") if name == "sc_compose" else original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_with_sc_compose)
+    install._check_python_version((3, 13, 15), "installer interpreter")
+    install.check_tools()
+
+
+def test_check_tools_names_reinstall_for_missing_installer_wheel(tmp_path, monkeypatch):
+    import builtins
+    import importlib.metadata
+    shim_sc_compose(tmp_path / "bin", "1.7.0", "1.7.0")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: (_ for _ in ()).throw(importlib.metadata.PackageNotFoundError("sc-compose")))
+    original_import = builtins.__import__
+
+    def import_without_sc_compose(name, *args, **kwargs):
+        if name == "sc_compose":
+            raise ImportError("wheel unavailable")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_sc_compose)
+    with pytest.raises(install.InstallError) as error:
+        install.check_tools()
+    assert "installer interpreter" in str(error.value)
+    assert "uv tool install atm-bd --python 3.11" in str(error.value)
+
+
 def test_check_tools_requires_uv_for_the_script_runtime(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
     shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
@@ -574,7 +612,7 @@ def test_check_tools_reports_a_script_runtime_that_cannot_resolve(tmp_path, monk
                                 "echo 'error: No interpreter found for Python >=3.11, <3.12' >&2; exit 2; fi\n")
     monkeypatch.setenv("PATH", str(bin_dir))
 
-    with pytest.raises(install.InstallError, match=r"SCRIPT_RUNTIME: .*No interpreter found for Python >=3\.11.*uv python install 3\.11"):
+    with pytest.raises(install.InstallError, match=r"SCRIPT_RUNTIME: .*No interpreter found for Python >=3\.11.*uv tool install atm-bd --python 3\.11"):
         install.check_tools()
 
 
@@ -1305,10 +1343,15 @@ def test_sc_install_hook_flow_matches_standalone(tmp_path):
     assert norm(a, hooked) == norm(b, standalone)
 
 
-@pytest.mark.parametrize("version", [(3, 10, 9), (3, 12, 0), (3, 14, 0)])
+@pytest.mark.parametrize("version", [(3, 10, 9), (3, 9, 19)])
 def test_python_boundary_refuses_unsupported_interpreters(version):
     with pytest.raises(install.UnsupportedPythonError, match="UNSUPPORTED_PYTHON.*Python 3.11"):
         install._check_python_version(version, "test interpreter")
+
+
+@pytest.mark.parametrize("version", [(3, 11, 0), (3, 13, 15)])
+def test_python_boundary_accepts_supported_interpreters(version):
+    install._check_python_version(version, "test interpreter")
 
 
 def test_prepare_does_not_refuse_on_the_host_python3(tmp_path, monkeypatch):
@@ -1322,10 +1365,10 @@ def test_prepare_does_not_refuse_on_the_host_python3(tmp_path, monkeypatch):
     assert "UNSUPPORTED_PYTHON" not in str(result)
 
 
-def test_prepare_refuses_unsupported_installer_before_dependencies(tmp_path, monkeypatch):
-    monkeypatch.setattr(install.sys, "version_info", (3, 14, 0))
+def test_prepare_refuses_installer_below_python_floor(tmp_path, monkeypatch):
+    monkeypatch.setattr(install.sys, "version_info", (3, 10, 9))
     destination = tmp_path / ".claude"
     result = install.prepare(str(PKG), str(destination), {})
     assert "UNSUPPORTED_PYTHON: installer interpreter" in result["message"]
-    assert "Python 3.11" in result["message"]
+    assert "uv tool install atm-bd --python 3.11" in result["message"]
     assert not destination.exists()

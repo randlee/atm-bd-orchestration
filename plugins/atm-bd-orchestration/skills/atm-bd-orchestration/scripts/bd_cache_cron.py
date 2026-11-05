@@ -31,7 +31,7 @@ except ModuleNotFoundError:  # Python < 3.11
 TIMEOUT_MS = 2500
 CRON_TIMEOUT_MS = 30000
 TICK_BUDGET_S = 25.0
-ATM = os.environ.get("ATM_BIN", "atm")
+ATM = "atm"
 
 
 def phases(root, only=None):

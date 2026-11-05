@@ -155,10 +155,20 @@ def test_missing_metadata_is_typed(tmp_path):
     assert error.value.code == "BD_CACHE.NO_DATABASE"
 
 
-def test_beads_dir_env_names_the_database(tmp_path, monkeypatch):
-    workspace(tmp_path / "elsewhere", database="otherdb") if (tmp_path / "elsewhere").mkdir() is None else None
-    monkeypatch.setenv("BEADS_DIR", str(tmp_path / "elsewhere" / ".beads"))
-    assert bc.cache_path(tmp_path).name == "otherdb.bd-cache.sqlite3"
+def test_beads_dir_environment_does_not_select_the_database(tmp_path, monkeypatch):
+    workspace(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    workspace(elsewhere, database="otherdb")
+    monkeypatch.setenv("BEADS_DIR", str(elsewhere / ".beads"))
+    assert bc.cache_path(tmp_path).name == "testdb.bd-cache.sqlite3"
+    assert bc.cache_path(tmp_path, beads_dir=elsewhere / ".beads").name == "otherdb.bd-cache.sqlite3"
+    cache = bc.BdCache(tmp_path, runner=FakeBd())
+    assert cache.database == "testdb"
+    cache.db.close()
+    explicit = bc.BdCache(tmp_path, runner=FakeBd(), beads_dir=elsewhere / ".beads")
+    assert explicit.database == "otherdb"
+    explicit.db.close()
 
 
 def test_file_from_another_project_is_refused(world, tmp_path):

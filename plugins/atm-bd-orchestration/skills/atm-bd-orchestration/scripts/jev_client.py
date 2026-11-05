@@ -23,10 +23,12 @@ import sys
 import time
 from typing import Literal, NotRequired, TypedDict
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 import repo_config
+import phase_settings as phase_settings_module
 from operation_models import matches_typeddict
-from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value, load_phase_config, string_list
+from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value, string_list
 
 MODEL = "jev-1.13.0"
 HOST = "api.typesafe.ai"
@@ -837,43 +839,15 @@ def parts(requests: list[JsonObject], responses: list[JsonObject], key: str) -> 
     return {"model": MODEL, "parts": values}
 
 
-class EscalationList(TypedDict):
-    recipients: list[str]
-
-
-def parse_escalation_list(value: JsonValue) -> EscalationList:
-    recipients = value.get("recipients") if isinstance(value, dict) else None
-    return {"recipients": [r for r in recipients if isinstance(r, str) and r] if isinstance(recipients, list) else []}
-
-
-def escalation_recipients() -> list[str]:
-    """ATM's escalation recipients: the team's (`ATM_TEAM`), else the daemon default; [] when neither is set or readable."""
-    team = os.environ.get("ATM_TEAM", "")
-    for argv in ([["atm", "escalation", "list", "--team", team, "--json"]] if team else []) + [["atm", "escalation", "list", "--json"]]:
-        try:
-            listed = subprocess.run(argv, text=True, capture_output=True, timeout=15)
-            value: JsonValue = json.loads(listed.stdout) if listed.returncode == 0 else {}
-        except (OSError, subprocess.TimeoutExpired, ValueError):
-            value = {}
-        found = parse_escalation_list(value)["recipients"]
-        if found:
-            return found
-    return []
-
-
-def announce(message: str, lead: str) -> None:
-    """Send `message` to ATM's escalation recipients, else to `lead` saying none is set."""
-    recipients = escalation_recipients()
-    if not recipients:
-        recipients, message = [lead], message + " No escalation recipient is set."
-    for recipient in recipients:
-        try:
-            sent = subprocess.run(["atm", "send", recipient, "--stdin"], input=message,
-                                  text=True, capture_output=True, timeout=15)
-            if sent.returncode:
-                print(f"Announcement to {recipient} failed; coordinator must report the error via ATM.", file=sys.stderr)
-        except (OSError, subprocess.TimeoutExpired):
-            print(f"Announcement to {recipient} unavailable; coordinator must report the error via ATM.", file=sys.stderr)
+def announce(message: str, recipient: str, tool_identity: str) -> None:
+    """Send `message` to the phase lead as the configured atm-bd tool identity."""
+    try:
+        sent = subprocess.run(["atm", "send", recipient, "--as", tool_identity, "--stdin"], input=message,
+                              text=True, capture_output=True, timeout=15)
+        if sent.returncode:
+            print(f"Announcement to {recipient} failed; coordinator must report the error via ATM.", file=sys.stderr)
+    except (OSError, subprocess.TimeoutExpired):
+        print(f"Announcement to {recipient} unavailable; coordinator must report the error via ATM.", file=sys.stderr)
 
 
 class JevArguments(argparse.Namespace):
@@ -964,28 +938,31 @@ def main(argv: list[str] | None = None, *, clock: Callable[[], float] = time.mon
         parser.error("--announce requires --startup or --error and an explicit --phase")
     if args.error is not None and (not args.announce or not args.error.strip()):
         parser.error("--error requires --announce and a nonempty error")
-    phase_lead = None
+    phase_recipient = None
+    tool_identity = None
     if args.phase:
         try:
-            phase_lead = load_phase_config(repo_config.repo_root(), args.phase)["lead"]
+            settings = phase_settings_module.phase_settings(repo_config.repo_root(), args.phase)
+            phase_recipient = f"{settings.lead}@{settings.team}"
+            tool_identity = settings.tool_identity
         except (repo_config.ConfigError, RuntimeError, OSError, ValueError) as exc:
             parser.error(str(exc))
     if args.error is not None:
-        assert phase_lead is not None
+        assert phase_recipient is not None and tool_identity is not None
         if args.error.startswith("SANITY.JEV_REQUEST_TOO_LARGE"):
             # An oversized request is the caller's to rebuild; it never hands the slot to an LLM or haiku check (#365).
             announce(f"dev-sanity Jev request oversized after the lossless split: {args.error}. The deliverable's Jev slot "
-                     "keeps this error; no LLM or haiku check replaces Jev for it.", phase_lead)
+                     "keeps this error; no LLM or haiku check replaces Jev for it.", phase_recipient, tool_identity)
         else:
-            announce(f"dev-sanity Jev child failed: {args.error}. Selection takes the LLM reply for JEV slots until a Jev child succeeds.", phase_lead)
+            announce(f"dev-sanity Jev child failed: {args.error}. Selection takes the LLM reply for JEV slots until a Jev child succeeds.", phase_recipient, tool_identity)
         print(json.dumps({"success": True, "data": {"announced": args.error}, "error": None}))
         return 0
     result = evaluation_result(args, clock=clock, sleep=sleep)
     if args.announce and not result["success"]:
-        assert phase_lead is not None
+        assert phase_recipient is not None and tool_identity is not None
         error = result["error"]
         assert isinstance(error, dict)
-        announce(f"dev-sanity Jev startup failed: {error['code']}: {error['message']}. No sc-sanity-jev checks run; dev-sanity records every JEV slot as unavailable until a startup probe passes.", phase_lead)
+        announce(f"dev-sanity Jev startup failed: {error['code']}: {error['message']}. No sc-sanity-jev checks run; dev-sanity records every JEV slot as unavailable until a startup probe passes.", phase_recipient, tool_identity)
     print(json.dumps(result, allow_nan=False))
     return 0 if result["success"] else 2
 
