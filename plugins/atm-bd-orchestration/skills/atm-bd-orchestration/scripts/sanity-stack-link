@@ -254,7 +254,7 @@ class Linker:
                 raise StackError('cannot determine parent ancestry')
         closest = []
         for parent in ancestors:
-            if not any(other is not parent and self.command(
+            if not any(other is not parent and other['sha'] != parent['sha'] and self.command(
                     ['git', 'merge-base', '--is-ancestor', parent['sha'], other['sha']], check=False).returncode == 0
                     for other in ancestors):
                 closest.append(parent)
