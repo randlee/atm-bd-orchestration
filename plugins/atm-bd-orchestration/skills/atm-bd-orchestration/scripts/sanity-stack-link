@@ -240,7 +240,7 @@ class Linker:
     def git_parent(self, candidate, pulls, base_head):
         ancestors = []
         for pull in pulls:
-            if pull['number'] == candidate['number'] or pull['draft']:
+            if pull['number'] == candidate['number']:
                 continue
             contained = self.command(['git', 'merge-base', '--is-ancestor', pull['sha'], base_head], check=False)
             if contained.returncode == 0:

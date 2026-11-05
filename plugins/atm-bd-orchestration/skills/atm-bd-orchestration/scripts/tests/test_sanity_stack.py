@@ -231,6 +231,19 @@ def test_open_pr_already_in_trunk_is_not_a_pending_parent(world):
     assert 'held_on' not in world.bead['metadata']['layers'][0]
 
 
+def test_ready_child_of_draft_parent_is_held_and_draft_candidate_is_refused(world):
+    parent = world.branch('parent', 'trunk', 1)
+    child = world.branch('child', 'parent', 2)
+    world.pulls[0]['draft'] = True
+
+    refused = world.link(parent)
+    assert refused['result'] == 'stack_failed'
+    assert 'draft' in refused['evidence']
+    held = world.link(child)
+    assert held['result'] == 'held'
+    assert held['held_on'] == {'pr': 1, 'branch': 'parent'}
+
+
 def test_already_linked_lower_layer_at_pinned_commit_is_stacked(world):
     first = world.branch('first', 'trunk', 1)
     second = world.branch('second', 'first', 2)
