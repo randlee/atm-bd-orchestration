@@ -839,6 +839,26 @@ def parts(requests: list[JsonObject], responses: list[JsonObject], key: str) -> 
     return {"model": MODEL, "parts": values}
 
 
+class EscalationList(TypedDict):
+    recipients: list[str]
+
+
+def parse_escalation_list(value: JsonValue) -> EscalationList:
+    recipients = value.get("recipients") if isinstance(value, dict) else None
+    return {"recipients": [item for item in recipients if isinstance(item, str) and item]
+            if isinstance(recipients, list) else []}
+
+
+def escalation_recipients() -> list[str]:
+    """Read the daemon's default escalation list; phase announcements use their configured lead directly."""
+    try:
+        result = subprocess.run(["atm", "escalation", "list", "--json"], text=True, capture_output=True, timeout=15)
+        value: JsonValue = json.loads(result.stdout) if result.returncode == 0 else {}
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        value = {}
+    return parse_escalation_list(value)["recipients"]
+
+
 def announce(message: str, recipient: str, tool_identity: str) -> None:
     """Send `message` to the phase lead as the configured atm-bd tool identity."""
     try:
