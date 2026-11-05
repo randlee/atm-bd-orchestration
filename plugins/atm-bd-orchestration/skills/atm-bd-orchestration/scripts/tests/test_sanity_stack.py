@@ -14,6 +14,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "atm-beads/scripts"))
 
 from stack_top import StackTop, select_confirmed_stack_top
 from task_close_world import World as HookWorld, hook as close_hook
@@ -813,6 +814,8 @@ def test_out_of_order_parent_holds_then_links_in_git_order(world):
     assert held["held_on"] == {"pr": 3, "branch": "f3"}
     assert not any(call[:3] == ["gh", "stack", "link"] for call in world.calls)
     assert world.bead["metadata"]["layers"][-1]["held_on"] == held["held_on"]
+    from bead_schema import StackMetadata
+    assert StackMetadata.model_validate(world.bead["metadata"]).layers[-1].base == "f3"
     assert world.link(f1)["top"]["pr"] == 2
     world.calls.clear()
     released = world.link(f3)

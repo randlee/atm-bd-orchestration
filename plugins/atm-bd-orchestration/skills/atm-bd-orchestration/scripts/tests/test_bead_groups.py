@@ -116,7 +116,7 @@ class FoundOnLayerGuardTests(unittest.TestCase):
 
 
 class PhaseEndFindingTests(unittest.TestCase):
-    def targets(self, code_checkout=None, **extra):
+    def targets(self, code_checkout=None, stack_layers=None, **extra):
         loader = importlib.machinery.SourceFileLoader("bead_groups_phase_end", str(SCRIPTS / "bead-groups"))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         assert spec is not None
@@ -128,6 +128,8 @@ class PhaseEndFindingTests(unittest.TestCase):
         runner.bd = Mock()
         runner.bd.show.return_value = None
         stack = {"id": "t-phase-d.stack", "metadata": {"trunk": "integrate/phase-d", "stack_number": None, "layers": []}}
+        if stack_layers is not None:
+            stack["metadata"]["layers"] = stack_layers
         epic = {"status": "open", "title": "phase-d: feature", "metadata": {"integration_branch": "integrate/phase-d", "phase": "d", "plan_scope": "epic"}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else epic
         runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
@@ -140,6 +142,14 @@ class PhaseEndFindingTests(unittest.TestCase):
                                             "found_at_commit": "a" * 40, "findings": [row]}))
             with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d", **({"code_checkout": code_checkout} if code_checkout else {})}):
                 return groups, runner.finding_targets(findings)
+
+    def test_held_last_layer_is_not_the_fix_target(self):
+        layers = [{"pr": 1, "branch": "linked", "head": "a" * 40, "base": "integrate/phase-d", "linked": True},
+                  {"pr": 3, "branch": "held", "head": "c" * 40, "base": "pending", "linked": False,
+                   "held_on": {"pr": 2, "branch": "pending"}}]
+        groups, result = self.targets(stack_layers=layers, difficulty="hard")
+        self.assertNotIsInstance(result[0], groups.TargetError)
+        self.assertEqual(result[0]["compose"]["pr_target"], "linked")
 
     def test_code_checkout_controls_fix_worktree(self):
         groups, result = self.targets(code_checkout="../code", difficulty="hard")

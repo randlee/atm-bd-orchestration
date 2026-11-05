@@ -80,7 +80,7 @@ import repo_config  # noqa: E402
 import sprint_index_common  # noqa: E402
 from bead_formulas import Bd, BdError, attach_id  # noqa: E402
 from operation_models import JsonObject, JsonValue, matches_typeddict  # noqa: E402
-from stack_top import stack_bead_id  # noqa: E402
+from stack_top import select_stack_top, stack_bead_id  # noqa: E402
 
 SCHEMA = "atm-bd-orchestration/bead-groups/v1"
 SUCCESS, FAILED, USAGE, PROBLEMS = 0, 2, 3, 5
@@ -568,7 +568,8 @@ class Run:
         if issues:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", "; ".join(issues))
         stack_meta = bead_schema.StackMetadata.model_validate(bead_metadata(stack))
-        pr_target = stack_meta.layers[-1].branch if stack_meta.layers else stack_meta.trunk
+        # This pour needs only the branch; no Git head lookup is needed for the trunk fallback.
+        pr_target, _ = select_stack_top(stack_json, stack_meta.trunk, lambda _: "unused")
         out: list[Target | TargetError] = []
         for finding in findings:
             ref = finding["ref"]

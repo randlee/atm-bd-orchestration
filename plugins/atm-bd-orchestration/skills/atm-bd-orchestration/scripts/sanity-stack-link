@@ -362,7 +362,7 @@ class Linker:
                     raise StackError('checked held layer differs from fetched branch head')
                 if held is None:
                     held = {'branch': candidate['head'], 'pr': candidate['number'], 'head': candidate['sha'],
-                            'linked': False, 'held_on': {'pr': parent['number'], 'branch': parent['head']}}
+                            'base': parent['head'], 'linked': False, 'held_on': {'pr': parent['number'], 'branch': parent['head']}}
                     layers.append(held)
                     self.write(metadata)
                 return {'result': 'held', 'held_on': held['held_on']}
