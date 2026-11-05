@@ -12,6 +12,13 @@ from rendering import render
 
 ROOT = Path(__file__).parents[2]
 class TemplateContractTests(unittest.TestCase):
+    def test_assignments_do_not_request_stack_view(self):
+        for name in ("dev-template", "fix-assignment", "qa-template"):
+            with self.subTest(template=name):
+                result = render(ROOT / f"templates/{name}.xml.j2", ROOT / f"examples/{name}-vars.json")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("sc-gh-stack-view", result.stdout)
+
     def test_refusal_assignments_do_not_require_workflow_class_beads_or_citations(self):
         for name in (
             "dev-template",
