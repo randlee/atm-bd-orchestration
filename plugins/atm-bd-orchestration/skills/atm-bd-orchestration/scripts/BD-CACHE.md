@@ -326,10 +326,12 @@ root closes.
 
 ## Cron module (`bd_cache_cron.py`, ADR-069)
 
-One schedule per repository, started from the beads root with
-`custom = {"team": <ATM team of the phase leads>}`; `TIMEOUT_MS` 2500,
-`CRON_TIMEOUT_MS` 30000. Phases are `.atm-bd/phase-*.toml` (`root`, `lead`);
-a phase is active while its root bead is not closed (uncached roots are read
+One schedule per repository, started from the beads root. The optional
+`custom.phases` list limits the phase names handled by a tick; it does not
+select a team. Phase `root`, `lead` and `team` values come from
+`.atm-bd/phase-*.toml`, with `team` falling back to `.atm.toml`'s
+`[atm].default_team`. `TIMEOUT_MS` is 2500 and `CRON_TIMEOUT_MS` is 30000.
+A phase is active while its root bead is not closed (uncached roots are read
 in one `bd list --id`).
 
 `cron.tick`, within a 25 s budget: drain with the deadline 5 s before the
