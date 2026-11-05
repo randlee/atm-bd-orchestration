@@ -46,7 +46,7 @@ class FindingGroupTests(unittest.TestCase):
                     row["found_on_layer"] = provenance
                 findings.write_text(json.dumps({"sprint": "d-1", "round": 1, "filed_by": "qa",
                                                 "found_at_commit": "a" * 40, "findings": [row]}))
-                with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d"}), \
+                with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d", "code_checkout": "../code"}), \
                      patch.object(groups, "stack_bead_id", wraps=groups.stack_bead_id) as stack_id:
                     target = runner.finding_targets(findings)[0]
                 stack_id.assert_called_once_with("t-phase-d")
@@ -59,6 +59,7 @@ class FindingGroupTests(unittest.TestCase):
                 self.assertEqual(output.returncode, 0, output.stdout + output.stderr)
                 steps = tomllib.loads((root / "rendered.formula.toml").read_text())["steps"]
                 assert steps[2]["metadata"]["reviewers_round1"] == ["flaky-test-qa"]
+                assert "code-worktrees/fix/d-1-qa1-f1" in target["compose"]["worktree"]
                 assert all(step["metadata"]["worktree"] == target["compose"]["worktree"] for step in steps)
                 metadata = steps[0]["metadata"]
                 if provenance is None:
