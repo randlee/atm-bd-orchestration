@@ -68,7 +68,8 @@ def test_cancelled_sanity_assignment_does_not_conflict_with_new_pass(world):
 
 @pytest.mark.parametrize("template", ["dev-template", "fix-assignment"])
 @pytest.mark.parametrize("layers,expected", [
-    ([{"branch": "older", "head": "a" * 40}, {"branch": "ledger-top", "head": "b" * 40}], "ledger-top"),
+    ([{"pr": 1, "linked": True, "branch": "older", "head": "a" * 40},
+      {"pr": 2, "linked": True, "branch": "ledger-top", "head": "b" * 40}], "ledger-top"),
     ([], "lower-target"),
 ])
 def test_template_rebase_and_hook_ancestry_use_the_same_stack_top(world, template, layers, expected):
@@ -87,6 +88,9 @@ def test_template_rebase_and_hook_ancestry_use_the_same_stack_top(world, templat
     argv = shlex.split(match.group(1))[1:]
 
     def gate_runner(command, **kwargs):
+        if command[:3] == ["gh", "api", "repos/{owner}/{repo}/stacks"]:
+            stacks = [{"number": 7, "base": "integrate/phase-bj", "prs": [1, 2]}] if layers else []
+            return subprocess.CompletedProcess(command, 0, json.dumps(stacks), "")
         if command[:2] == ["git", "-C"]:
             command = ["git", *command[3:]]
         return world(command, **kwargs)
