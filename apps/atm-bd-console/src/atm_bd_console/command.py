@@ -1,6 +1,7 @@
 """The one subprocess runner for the source modules: a timeout on every call and one failure shape."""
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -20,6 +21,13 @@ NO_EXIT_CODE = -1
 class Output:
     code: int
     stdout: str
+
+
+def repo_env(**overrides: str) -> dict[str, str]:
+    """The child environment for a read the repository decides: the caller's BEADS_DIR would point bd at
+    another database, so it is removed; `overrides` (ATM_IDENTITY, ATM_TEAM) replace the caller's."""
+    env = {key: value for key, value in os.environ.items() if key != "BEADS_DIR"}
+    return env | overrides
 
 
 def run(argv: Sequence[str], fix: str, *, cwd: str | Path | None = None, timeout_s: int = DEFAULT_TIMEOUT_S,

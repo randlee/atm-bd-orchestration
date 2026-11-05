@@ -58,9 +58,10 @@ def _command_error(result: Err) -> str:
     return f"{error.kind}: {error}: inspect the command output and repair the source"
 
 
-def run_json(argv: list[str], *, cwd: str | Path, runner=command.run) -> Any:
-    """Run one read command with a 20-second bound and decode its JSON response."""
-    result = runner(argv, f"repair the source and retry `{' '.join(argv)}`", cwd=cwd)
+def run_json(argv: list[str], *, cwd: str | Path, runner=command.run, env: dict[str, str] | None = None) -> Any:
+    """Run one read command with a 20-second bound and decode its JSON response. The repository decides the
+    child environment (`command.repo_env`), never the caller's shell."""
+    result = runner(argv, f"repair the source and retry `{' '.join(argv)}`", cwd=cwd, env=env or command.repo_env())
     if isinstance(result, Err):
         raise QueueFailure(_command_error(result))
     try:
@@ -145,11 +146,12 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
     """Read open, ready, task and relevant closed rows once each and classify the phase."""
     now = now or datetime.now(UTC)
     root, integration_branch, code_root, _ = _resolve(args, repo_root)
-    # The repository's team, the one the console reads: the caller's ATM_TEAM may name another team.
-    team = config._team(repo_root)
-    if isinstance(team, Err):
-        raise QueueFailure(f"atm-bd queues: {error_message(asdict(team.error))}")
     phase = root.rsplit("-phase-", 1)[-1]
+    # The phase decides the ATM team and identity, as in the console; the caller's ATM_TEAM and ATM_IDENTITY never do.
+    caller = config.phase_caller(repo_root, phase)
+    if isinstance(caller, Err):
+        raise QueueFailure(f"atm-bd queues: {error_message(asdict(caller.error))}")
+    team, lead = caller.value.team, caller.value.lead
     label = f"phase-{phase}"
     scoped = ["-l", label, "--exclude-label", "anchor", "-n", "0", "--json"]
     beads = _array(run_json(["bd", "--readonly", "list", *scoped], cwd=repo_root, runner=runner), "bd list")
@@ -159,7 +161,8 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
     integration_branch = integration_branch or _meta(by_id[root]).get("integration_branch")
     ready_rows = _array(run_json(["bd", "ready", *scoped], cwd=repo_root, runner=runner), "bd ready")
     ready = {_valid_id(bead, "bd ready") for bead in ready_rows}
-    tasks = _array(run_json(["atm", "task", "list", "--all", "--team", team.value, "--json"], cwd=repo_root, runner=runner), "atm task list")
+    tasks = _array(run_json(["atm", "task", "list", "--all", "--json", "--team", team, "--as", lead], cwd=repo_root,
+                            runner=runner, env=command.repo_env(ATM_IDENTITY=lead, ATM_TEAM=team)), "atm task list")
     task_by_id = {}
     for task in tasks:
         task_id = task.get("task_id")
