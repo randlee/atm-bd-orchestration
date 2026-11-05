@@ -299,6 +299,10 @@ def validate_command_json(argv, data):
     return data
 
 
+def reviewer_list(value):
+    return isinstance(value, list) and bool(value) and all(isinstance(item, str) and item.strip() for item in value)
+
+
 def validate(values, role):
     if role == "dev" and values.get("outcome") == "not_reproducible":
         raise CloseError("VARS.INVALID", "not_reproducible is a fix outcome", "Use the fix role for an unreproducible finding.")
@@ -339,6 +343,9 @@ def validate(values, role):
         raise CloseError("VARS.INVALID", "verdict must be PASS, FAIL or CANNOT_RUN", "Supply the selected review verdict.")
     if role == "sanity" and (isinstance(values["round"], bool) or not isinstance(values["round"], int) or values["round"] < 1):
         raise CloseError("VARS.INVALID", "round must be a positive integer", "Supply the current sanity assignment round.")
+    if role == "sanity" and not reviewer_list(values["reviewers_round1"]):
+        raise CloseError("VARS.INVALID", f"reviewers_round1 must be a non-empty list of reviewer names, got {json.dumps(values['reviewers_round1'])}",
+                         "Take reviewers_round1 from the QA bead's metadata (close-vars.py <bead> --out <vars.json> does); never an empty string.")
     if role == "qa" and values["verdict"] == "CANNOT_RUN":
         raise CloseError("VARS.INVALID", "QA CANNOT_RUN is not a completed review", "Use the QA refusal workflow.")
     undone = values.get("undone", []) if role in ("dev", "fix") else values["undone"]
@@ -687,6 +694,15 @@ class Hook:
             return
         self.run(["atm", "send", recipient, *args])
 
+    def qa_reviewers(self, qa_bead):
+        """`metadata.reviewers_round1` of the QA bead as the list qa-template.xml.j2 iterates; anything else is refused before any write."""
+        reviewers = (self.read_bead(qa_bead).get("metadata") or {}).get("reviewers_round1")
+        if not reviewer_list(reviewers):
+            raise CloseError("BEAD.INVALID", f"{qa_bead} metadata.reviewers_round1 must be a non-empty list of reviewer names, got {json.dumps(reviewers)}",
+                             f"Add reviewers_round1 (a JSON list of names) to {qa_bead}'s metadata with `bd update {qa_bead} --metadata <full metadata JSON>` "
+                             "(--set-metadata stores a string; qa-bead.json.j2 pours the list from the repository's reviewers_round1), then rerun the hook.")
+        return reviewers
+
     def sanity_dispatch(self, context):
         """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
         template = "dev-sanity-template.xml.j2"
@@ -695,6 +711,8 @@ class Hook:
             # The checked PR is the one layer sanity-split must read (`--layer-pr`): its body is the dev's evidence (#636).
             context = {**context, "layer_prs": [pr_number]}
         close_context = {name: context[name] for name in SANITY_CLOSE_CONTEXT if name in context}
+        # The QA reviewer list is planned on the QA bead (qa-bead.json.j2); the sanity close renders qa-template with it (#821).
+        close_context["reviewers_round1"] = self.qa_reviewers(context["qa_bead"])
         close_context.update(phase_lead=self.lead, budget=context.get("budget", "full"))
         dispatch = {**context, "close_context": close_context, "beads_dir": self.beads_directory()}
         phase = str(context.get("phase") or "")

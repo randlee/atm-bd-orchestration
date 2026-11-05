@@ -71,7 +71,8 @@ def test_lint_only_failure_marks_numbered_deliverables_undone(inputs):
 
 def test_minimal_documented_dev_dispatch_needs_no_hand_built_fields(inputs):
     manifest, selected = inputs
-    manifest["close_context"] = json.loads((ROOT / "examples/task-close-vars-dev.json").read_text())
+    # The dev close hook adds the QA bead's reviewer list to close_context (atm-task-close.py sanity_dispatch, #821).
+    manifest["close_context"] = {**json.loads((ROOT / "examples/task-close-vars-dev.json").read_text()), "reviewers_round1": ["req-qa"]}
     result = CLOSE.build(manifest, selected)
     assert result["evidence"] == "" and result["outcome"] == "fixed"
     assert result["round"] == 1 and result["findings_blocking"] == 0
@@ -119,3 +120,19 @@ def test_stack_input_requires_assignment_budget(inputs, tmp_path):
     manifest["close_context"].pop("budget")
     with pytest.raises(ValueError, match="budget"):
         CLOSE.write_stack_input(stack_file, values, manifest)
+
+
+@pytest.mark.parametrize("reviewers", ["", [], "req-qa", ["req-qa", ""]])
+def test_an_untyped_reviewer_list_is_refused_at_emission_not_at_the_qa_template(inputs, reviewers):
+    """#821: a legacy close_context carried reviewers_round1 as ""; qa-template.xml.j2 iterates a list."""
+    manifest, selected = inputs
+    manifest["close_context"]["reviewers_round1"] = reviewers
+    with pytest.raises(ValueError, match="reviewers_round1 must be a non-empty list of reviewer names"):
+        CLOSE.build(manifest, selected)
+
+
+def test_a_close_context_without_reviewers_is_refused_not_defaulted(inputs):
+    manifest, selected = inputs
+    del manifest["close_context"]["reviewers_round1"]
+    with pytest.raises(ValueError, match="lacks reviewers_round1"):
+        CLOSE.build(manifest, selected)

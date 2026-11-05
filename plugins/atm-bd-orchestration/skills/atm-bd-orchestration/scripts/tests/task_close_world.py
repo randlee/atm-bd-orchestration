@@ -72,6 +72,7 @@ class World:
         self.beads[self.values["checked_bead"]]["metadata"].update(
             pr_number=self.pr_number, pr_url=self.values["pr_url"])
         self.beads[self.values["sanity_bead"]]["metadata"]["dev_bead"] = self.values["checked_bead"]
+        self.beads[self.values["qa_bead"]]["metadata"]["reviewers_round1"] = list(self.values["reviewers_round1"])
         self.beads["atm-phase-bj.stack"] = json.loads((SCRIPTS / "tests/fixtures/stack-bead.json").read_text())
         self.tasks = {self.values[name]: [] for name in ("dev_task_id", "sanity_task_id", "qa_task_id")}
         self.tasks[self.values["dev_task_id"]].append(self.assignment(1))

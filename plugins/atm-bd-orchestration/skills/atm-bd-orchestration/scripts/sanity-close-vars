@@ -58,6 +58,10 @@ def build(manifest, selected, stacked=None):
         missing -= {"stack_bead"}
     if missing:
         raise ValueError("assignment close_context lacks " + ", ".join(sorted(missing)))
+    reviewers = values["reviewers_round1"]
+    if not (isinstance(reviewers, list) and reviewers and all(isinstance(item, str) and item.strip() for item in reviewers)):
+        raise ValueError(f"assignment close_context reviewers_round1 must be a non-empty list of reviewer names, got {json.dumps(reviewers)}; "
+                         "the dev close copies it from the QA bead's metadata (atm-task-close.py sanity_dispatch)")
     if values.get("outcome") != "not_reproducible":
         required_dispatch = ("stack_bead",)
         empty = [name for name in required_dispatch if not str(values.get(name) or "").strip()]
