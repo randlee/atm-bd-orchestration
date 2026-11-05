@@ -58,6 +58,33 @@ def test_route_selects_profile_or_existing_runner(tmp_path):
     assert isinstance(monitor.route(tmp_path, monitor.MonitorArgs("queues", phase="zz"), lambda _: 0, lambda *args: None).monitor, monitor.PolicyMonitor)
 
 
+@pytest.mark.parametrize("command", ["queues", "snapshot", "cron", "console"])
+def test_a_profile_phase_without_the_lite_extra_stops_with_the_named_fix(tmp_path, monkeypatch, capsys, command):
+    _lite(tmp_path)
+    present = monitor.importlib.util.find_spec
+    monkeypatch.setattr(monitor.importlib.util, "find_spec",
+                        lambda name, *rest: None if name == "atm_bd_core" else present(name, *rest))
+    calls = []
+    args = monitor.MonitorArgs(command, phase="zz")
+    selected = monitor.route(tmp_path, args, lambda actual: calls.append(actual) or 0, lambda *items: None)
+
+    assert isinstance(selected.monitor, monitor.MissingFramework)
+    assert selected.root_id == "atm-phase-zz"
+    code = selected.launch(None) if command == "console" else getattr(selected.monitor, command)(args)
+    assert code == monitor.Exit.CONFIG
+    assert calls == []
+    assert capsys.readouterr().err.strip() == (
+        "atm-bd: phase zz selects an atm-bd profile, which needs atm_bd_core; install atm-bd with the lite extra: "
+        "uv tool install './apps/atm-bd-console[lite]' from an atm-bd-orchestration checkout")
+
+
+def test_a_phase_without_a_profile_never_needs_the_framework(tmp_path, monkeypatch):
+    _phase(tmp_path, 'lead="lead"\n')
+    monkeypatch.setattr(monitor.importlib.util, "find_spec", lambda *_: None)
+    args = monitor.MonitorArgs("queues", phase="zz")
+    assert isinstance(monitor.route(tmp_path, args, lambda _: 0, lambda *items: None).monitor, monitor.TodayMonitor)
+
+
 def test_route_leaves_invalid_phase_ids_to_today_validation(tmp_path):
     calls = []
     args = monitor.MonitorArgs("queues", phase="bad-phase")

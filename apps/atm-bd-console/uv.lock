@@ -16,8 +16,6 @@ name = "atm-bd"
 version = "0.19.13"
 source = { editable = "." }
 dependencies = [
-    { name = "atm-bd-core" },
-    { name = "atm-bd-types" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -27,8 +25,16 @@ dependencies = [
     { name = "textual" },
 ]
 
+[package.optional-dependencies]
+lite = [
+    { name = "atm-bd-core" },
+    { name = "atm-bd-types" },
+]
+
 [package.dev-dependencies]
 dev = [
+    { name = "atm-bd-core" },
+    { name = "atm-bd-types" },
     { name = "hatchling" },
     { name = "pyright" },
     { name = "pytest" },
@@ -37,8 +43,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "atm-bd-core", editable = "../../plugins/atm-bd-orchestration/core" },
-    { name = "atm-bd-types", editable = "../../crates/atm-bd-types" },
+    { name = "atm-bd-core", marker = "extra == 'lite'", editable = "../../plugins/atm-bd-orchestration/core" },
+    { name = "atm-bd-types", marker = "extra == 'lite'", editable = "../../crates/atm-bd-types" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich", specifier = ">=15.0.0,<16" },
@@ -47,9 +53,12 @@ requires-dist = [
     { name = "sc-sha", specifier = ">=1.7.0,<2" },
     { name = "textual", specifier = ">=8.2.8,<9" },
 ]
+provides-extras = ["lite"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "atm-bd-core", editable = "../../plugins/atm-bd-orchestration/core" },
+    { name = "atm-bd-types", editable = "../../crates/atm-bd-types" },
     { name = "hatchling", specifier = "==1.31.0" },
     { name = "pyright" },
     { name = "pytest" },
