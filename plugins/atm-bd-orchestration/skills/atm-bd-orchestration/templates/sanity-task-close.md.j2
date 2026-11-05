@@ -5,6 +5,7 @@ format: markdown
 required_variables:
   - task_id
 defaults:
+  assignment_id: ""
   checked_bead: ""
   verdict: ""
   commit: ""
@@ -18,6 +19,7 @@ metadata:
 ---
 # Sanity {{ verdict }}
 Task: {{ task_id }}
+Assignment: {{ assignment_id }}
 Checked bead: {{ checked_bead }} at {{ commit }}
 Run: {{ run_id }}
 
