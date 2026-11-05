@@ -502,6 +502,12 @@ class LivePlan(Repo):
             self.assertIn("proxy.doctor.unsupported", out.stderr)
             self.assertIn("proxied doctor unavailable", out.stderr)
 
+    def test_null_description_is_accepted(self):
+        beads = copy.deepcopy(VALID)
+        beads.append({"id": "x-t-closed", "status": "closed", "labels": ["phase-t"], "description": None})
+        out = self.live(beads, "--phase", "t", "--no-doctor")
+        self.assertEqual(out.returncode, 0, out.stderr)
+
     def test_noncontiguous_deliverables_are_a_warning(self):
         beads = broken("x-t-1", lambda b: b.update(description="## Deliverables\n1. a\n8. b\n2. c\n3. d\n4. e\n5. f\n6. g\n7. h\n"))
         out = self.live(beads, "--phase", "t", "--no-doctor")

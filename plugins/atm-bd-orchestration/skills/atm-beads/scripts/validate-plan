@@ -81,7 +81,7 @@ class Bead(TypedDict):
     issue_type: NotRequired[str]
     created_at: NotRequired[str]
     assignee: NotRequired[str]
-    description: NotRequired[str]
+    description: NotRequired[str | None]
 
 
 class BeadRows(TypedDict):
