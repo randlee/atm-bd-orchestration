@@ -142,6 +142,15 @@ def test_beads_directory_ignores_caller_environment(world, monkeypatch):
                for argv, kwargs in world.calls if argv[0] == "bd" and argv[1] != "where")
 
 
+def test_checks_record_contains_resolved_beads_directory(world, monkeypatch):
+    monkeypatch.setattr(hook.bd_cache, "database_identity", lambda root: ("testdb", "p-1"))
+    checker = hook.Hook("dev", world.values, world.path, world, lambda: 42, lambda _seconds: None, lambda: {})
+    checker.beads_directory()
+    assert not checker.snapshot(include_stack=True)
+    checks = checker.checks()
+    assert checks["beads_dir"] == str(world.root / ".beads")
+
+
 def test_dev_rerun_after_the_task_is_closed_does_not_close_it_again(world):
     assert "ok" in world.run()
     assert "ok" in world.run()

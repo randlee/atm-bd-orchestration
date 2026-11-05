@@ -393,6 +393,7 @@ class Hook:
         self.beads_dir = ""
         self.ledger_top = None
         self.base_evidence = None
+        self.check_record = {}
         self.rebased_onto = ""
         self.base_difference = ""
 
@@ -609,6 +610,7 @@ class Hook:
 
     def checks(self):
         values = self.values
+        checks: dict[str, object] = {"beads_dir": self.beads_dir}
         head = values["commit"]
         dirty = self.run(["git", "status", "--porcelain"], git=True).stdout.strip()
         if dirty:
@@ -650,6 +652,7 @@ class Hook:
         if layers:
             layer = layers[-1]
             self.ledger_top = {"branch": layer["branch"], "pr": layer.get("pr"), "head": layer["head"]}
+        checks["ledger_top"] = self.ledger_top
         self.rebased_onto = top_head
         ancestor = self.run(["git", "merge-base", "--is-ancestor", f"origin/{top}", head], git=True, check=False)
         if ancestor.returncode == 1:
@@ -663,7 +666,9 @@ class Hook:
         owner, repo = match.groups()
         if self.github == "unavailable":
             self.keep_recorded_pr()
-            return
+            checks["pr_base"] = self.base_evidence
+            self.check_record = checks
+            return checks
         for _attempt in range(3):
             try:
                 prs = self.json(["gh", "api", f"repos/{owner}/{repo}/pulls?head={owner}:{values['branch']}&state=open"], git=True)
@@ -687,9 +692,16 @@ class Hook:
                 self.base_difference = f"ledger top {self.ledger_top['branch']} (#{self.ledger_top['pr']}) differs from PR base {self.pr_base}"
                 if self.base_evidence["pr"] is not None:
                     self.base_difference += f" (#{self.base_evidence['pr']})"
-            return
+            checks["pr_base"] = self.base_evidence
+            if self.base_difference:
+                checks["base_difference"] = self.base_difference
+            self.check_record = checks
+            return checks
         self.github = "unavailable"
         self.keep_recorded_pr()
+        checks["pr_base"] = self.base_evidence
+        self.check_record = checks
+        return checks
 
     def keep_recorded_pr(self):
         # Without GitHub the PR identity is the one the bead already records.
@@ -849,7 +861,7 @@ class Hook:
                 self.finish_dev(sanity, template, path=assignment_path)
                 return
             if not skip:
-                self.checks()
+                self.check_record = self.checks()
                 values["rebased_onto"] = self.rebased_onto
             else:
                 self.keep_recorded_pr()
@@ -1000,9 +1012,11 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
             hook.verify_not_reproducible_evidence()
         started = clock()
         escalated = hook.dev(args.skip_checks) if args.role in ("dev", "fix") else hook.sanity() if args.role == "sanity" else hook.qa()
-        result = {"role": args.role, "bead": hook.task, "commit": values.get("commit", ""), "pr_number": values.get("pr_number", ""), "beads_dir": hook.beads_dir,
+        result = {"role": args.role, "bead": hook.task, "commit": values.get("commit", ""), "pr_number": values.get("pr_number", ""),
+                  "beads_dir": hook.check_record.get("beads_dir", hook.beads_dir),
                   "github": hook.github, "assigned": hook.assigned, "closed": hook.closed, "elapsed_s": max(0, clock() - started)}
-        result.update(ledger_top=hook.ledger_top, pr_base=hook.base_evidence)
+        result.update(ledger_top=hook.check_record.get("ledger_top", hook.ledger_top),
+                      pr_base=hook.check_record.get("pr_base", hook.base_evidence))
         if hook.base_difference:
             result["base_difference"] = hook.base_difference
         if hook.github == "unavailable":
