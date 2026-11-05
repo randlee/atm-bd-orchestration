@@ -143,6 +143,43 @@ def test_dev_handoff_is_immediate_and_closes_the_dev_task_as_the_dev(world, monk
             assert kwargs["env"].get("ATM_TEAM") == before.get("ATM_TEAM")
 
 
+
+@pytest.mark.parametrize("default", ['[atm]\ndefault_team = "other-team"\n', '[atm\n', None])
+def test_phase_team_routes_hook_lookup_and_assignment_without_default(world, default):
+    phase = world.root / ".atm-bd/phase-bj.toml"
+    phase.write_text('team = "phase-team"\n' + phase.read_text())
+    atm_config = world.root / ".atm.toml"
+    if default is None:
+        atm_config.unlink()
+    else:
+        atm_config.write_text(default)
+    result = world.run()
+    assert "ok" in result, result
+    lead_calls = [(argv, kwargs) for argv, kwargs in world.calls
+                  if argv[:3] in (["atm", "hook", "list"], ["atm", "task", "assign"])]
+    assert {tuple(argv[:3]) for argv, _ in lead_calls} == {("atm", "hook", "list"), ("atm", "task", "assign")}
+    assert all(kwargs["env"]["ATM_TEAM"] == "phase-team" for _, kwargs in lead_calls)
+    assert all(kwargs["env"]["ATM_IDENTITY"] == "phase-lead" for _, kwargs in lead_calls)
+
+
+def test_missing_phase_and_default_team_is_typed_and_has_no_side_effects(world):
+    (world.root / ".atm.toml").unlink()
+    result = world.run()
+    assert result["err"]["code"] == "CONFIG.INVALID"
+    assert "team" in result["err"]["message"].lower()
+    assert ".atm-bd/phase-bj.toml" in result["err"]["fix"]
+    assert "atm.default_team" in result["err"]["fix"]
+    assert world.calls == []
+
+
+def test_invalid_phase_team_does_not_fall_back_to_default(world):
+    phase = world.root / ".atm-bd/phase-bj.toml"
+    phase.write_text('team = ""\n' + phase.read_text())
+    result = world.run()
+    assert result["err"]["code"] == "CONFIG.INVALID"
+    assert "team" in result["err"]["message"].lower()
+    assert world.calls == []
+
 def test_beads_directory_ignores_caller_environment(world, monkeypatch):
     monkeypatch.setenv("BEADS_DIR", "/wrong/database")
     # bq-4 removes the environment read inside BdCache; isolate this hook's resolution here.

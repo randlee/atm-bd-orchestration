@@ -25,6 +25,12 @@ def test_phase_team_wins_over_repository_default_team(tmp_path):
     assert settings.beads_dir == root / ".beads"
 
 
+
+def test_phase_team_does_not_read_unneeded_malformed_default(tmp_path):
+    root = repository(tmp_path, phase="x", phase_text='lead = "phase-lead"\nteam = "phase-team"\n',
+                      atm_text='[atm\n')
+    assert phase_settings_module.phase_settings(root, "x").team == "phase-team"
+
 def test_missing_phase_and_default_team_has_named_fix(tmp_path):
     root = repository(tmp_path, phase="x", phase_text='lead = "phase-lead"\n')
     try:
