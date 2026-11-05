@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from atm_bd_console.command import Output
-from atm_bd_console.config import load_config, repo_root
+from atm_bd_console.config import Caller, load_config, phase_caller, repo_root
 from atm_bd_console.result import CommandFailed, ConfigInvalid, Err, IoFailed, Ok, Timeout
 
 
@@ -209,14 +209,31 @@ def test_undecodable_console_toml_is_a_typed_io_error(tmp_path) -> None:
     assert result.error.path == str(tmp_path / ".atm-bd" / "console.toml")
 
 
-def test_missing_atm_toml_is_a_typed_io_error_naming_the_file(tmp_path) -> None:
+def _lead_only_phase(tmp_path) -> None:
+    (tmp_path / ".atm-bd").mkdir(exist_ok=True)
+    (tmp_path / ".atm-bd" / "phase-bh.toml").write_text('lead = "fenix"\n')
+
+
+def _no_team_fix(tmp_path) -> str:
+    return f'add team = "<ATM team>" to {tmp_path / ".atm-bd" / "phase-bh.toml"}, or set atm.default_team in {tmp_path / ".atm.toml"}'
+
+
+def test_no_phase_team_and_no_atm_toml_names_both_lines_to_add(tmp_path) -> None:
+    _lead_only_phase(tmp_path)
     result = load_config(tmp_path, "bh")
-    assert isinstance(result, Err) and isinstance(result.error, IoFailed)
-    assert result.error.path == str(tmp_path / ".atm.toml")
-    assert "restore the repository .atm.toml" in result.error.fix
+    assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
+    assert result.error.key == "team" and result.error.fix == _no_team_fix(tmp_path)
+
+
+def test_the_phase_team_wins_without_any_atm_toml(tmp_path) -> None:
+    _lead_only_phase(tmp_path)
+    (tmp_path / ".atm-bd" / "phase-bh.toml").write_text('lead = "fenix"\nteam = "sc-compose"\n')
+    caller = phase_caller(tmp_path, "bh")
+    assert caller == Ok(Caller("sc-compose", "fenix"))
 
 
 def test_malformed_atm_toml_is_config_invalid_naming_the_file(tmp_path) -> None:
+    _lead_only_phase(tmp_path)
     (tmp_path / ".atm.toml").write_text("[atm\ndefault_team = ")
     result = load_config(tmp_path, "bh")
     assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
@@ -234,11 +251,12 @@ def test_malformed_atm_toml_is_config_invalid_naming_the_file(tmp_path) -> None:
     ids=["absent", "empty", "non-string"],
 )
 def test_absent_empty_or_non_string_default_team_is_config_invalid(tmp_path, text, value) -> None:
+    _lead_only_phase(tmp_path)
     (tmp_path / ".atm.toml").write_text(text)
     result = load_config(tmp_path, "bh")
     assert isinstance(result, Err) and isinstance(result.error, ConfigInvalid)
-    assert result.error.key == "atm.default_team" and result.error.value == value
-    assert "set atm.default_team in .atm.toml to a nonempty team name" in result.error.fix
+    assert result.error.key == "team" and result.error.value == value
+    assert result.error.fix == _no_team_fix(tmp_path)
 
 
 def test_stack_membership_config_is_parsed_and_validated(tmp_path) -> None:

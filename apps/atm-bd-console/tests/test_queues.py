@@ -14,6 +14,13 @@ from atm_bd_console.result import CommandFailed, Err, Ok
 
 NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
 ROOT = "atm-phase-bj"
+REAL_CALLER = config.phase_caller
+
+
+@pytest.fixture(autouse=True)
+def phase_caller(monkeypatch):
+    """Fixture repositories have no phase file; the caller tests below read a real one."""
+    monkeypatch.setattr(config, "phase_caller", lambda root, phase: Ok(config.Caller("phase-team", "phase-lead")))
 
 
 def bead(ident: str, stage: str, *, status: str = "open", parent: str | None = None, **extra):
@@ -105,7 +112,7 @@ def test_build_classifies_each_queue_from_fixed_json_and_uses_four_batched_reads
     assert len(calls) == 4
     assert calls[0][0] == ["bd", "--readonly", "list", "-l", "phase-bj", "--exclude-label", "anchor", "-n", "0", "--json"]
     assert calls[1][0] == ["bd", "ready", "-l", "phase-bj", "--exclude-label", "anchor", "-n", "0", "--json"]
-    assert calls[2][0] == ["atm", "task", "list", "--all", "--json"]
+    assert calls[2][0] == ["atm", "task", "list", "--all", "--json", "--team", "phase-team", "--as", "phase-lead"]
     assert calls[3][0] == ["bd", "list", "--status", "closed", "-n", "0", "--id", "dev-closed", "--json"]
     assert all(cwd == Path("/fixture/product") for _, cwd in calls)
 
@@ -478,3 +485,48 @@ def test_failed_merge_base_read_is_reported_not_treated_as_no_issue() -> None:
     with pytest.raises(queues.QueueFailure) as raised:
         check(failing)
     assert "git merge-base --is-ancestor" in str(raised.value) and "fatal: bad object" in str(raised.value)
+
+
+
+def env_runner(seen):
+    run, calls = fixed_runner()
+    def wrapped(argv, fix, *, cwd=None, env=None, **kwargs):
+        seen.append((argv[0], env))
+        return run(argv, fix, cwd=cwd, **kwargs)
+    return wrapped, calls
+
+
+@pytest.mark.parametrize("phase_line, atm_toml, team", [
+    ('team = "sc-compose"\n', None, "sc-compose"),
+    ("", '[atm]\ndefault_team = "sc-lint"\n', "sc-lint"),
+])
+def test_the_phase_decides_team_identity_and_bd_database_not_the_callers_env(
+        monkeypatch, tmp_path: Path, phase_line, atm_toml, team):
+    (tmp_path / ".atm-bd").mkdir()
+    (tmp_path / ".atm-bd" / "phase-bj.toml").write_text(f'lead = "comps"\n{phase_line}')
+    if atm_toml:
+        (tmp_path / ".atm.toml").write_text(atm_toml)
+    monkeypatch.setattr(config, "phase_caller", REAL_CALLER)
+    monkeypatch.setenv("ATM_TEAM", "hermes")
+    monkeypatch.setenv("ATM_IDENTITY", "omega-prime")
+    monkeypatch.setenv("BEADS_DIR", "/elsewhere")
+    seen = []
+    run, calls = env_runner(seen)
+    result = queues.build(SimpleNamespace(phase=None, root=ROOT, stack=False), tmp_path, now=NOW, runner=run)
+    assert calls[2][0] == ["atm", "task", "list", "--all", "--json", "--team", team, "--as", "comps"]
+    assert all("BEADS_DIR" not in env for _, env in seen)
+    atm_env = next(env for program, env in seen if program == "atm")
+    assert (atm_env["ATM_TEAM"], atm_env["ATM_IDENTITY"]) == (team, "comps")
+    assert [row["id"] for row in result["queues"]["in_flight"]] == ["dev-flight"]
+
+
+def test_no_phase_team_and_no_default_team_is_a_named_error_before_any_read(monkeypatch, tmp_path: Path, capsys):
+    (tmp_path / ".atm-bd").mkdir()
+    (tmp_path / ".atm-bd" / "phase-bj.toml").write_text('lead = "comps"\n')
+    monkeypatch.setattr(config, "phase_caller", REAL_CALLER)
+    run, calls = fixed_runner()
+    args = SimpleNamespace(phase=None, root=ROOT, stack=False, json=False, all=False, min_age=10, state_file=None)
+    assert queues.main(args, repo_root=tmp_path, runner=run, now=NOW) == 2
+    err = capsys.readouterr().err
+    assert f'add team = "<ATM team>" to {tmp_path}/.atm-bd/phase-bj.toml, or set atm.default_team in {tmp_path}/.atm.toml' in err
+    assert calls == []

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -11,7 +12,7 @@ import yaml
 from . import command
 from .atm_bd import REPO_CONFIG_PATH, phase_file
 from .paths import console_config_path, state_directory
-from .result import ConfigInvalid, Err, IoFailed, Ok, Result
+from .result import ConfigInvalid, Err, IoFailed, NotFound, Ok, ParseFailed, Result
 from .types import DEFAULT_NOTIFICATION_SENDER, Config
 
 _GITHUB = frozenset(("graphql", "rest", "off"))
@@ -91,6 +92,42 @@ def _team(root: Path) -> Result[str]:
     return Ok(team)
 
 
+@dataclass(frozen=True)
+class Caller:
+    team: str
+    lead: str
+
+
+def phase_caller(root: Path, phase: str) -> Result[Caller]:
+    """The ATM team and identity internal calls use for a phase: the phase file's `team`, else .atm.toml
+    `[atm] default_team`, and its `lead`. The caller's ATM_TEAM and ATM_IDENTITY never apply."""
+    path = root / ".atm-bd" / f"phase-{phase}.toml"
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return Err(NotFound("not_found", str(path), f"commit {path} with lead and team for phase {phase}"))
+    except (OSError, UnicodeDecodeError) as error:
+        return Err(IoFailed("io_failed", str(path), str(error), f"make {path} readable"))
+    except tomllib.TOMLDecodeError as error:
+        return Err(ParseFailed("parse_failed", str(path), str(error), f"repair the TOML in {path}"))
+    lead = raw.get("lead")
+    if not isinstance(lead, str) or not lead.strip():
+        return Err(ConfigInvalid("config_invalid", "lead", repr(lead), f"set lead in {path} to a nonempty ATM identity"))
+    team = raw.get("team")
+    if team is None:
+        fallback = _team(root)
+        if isinstance(fallback, Err):
+            error = fallback.error
+            if isinstance(error, IoFailed) or getattr(error, "key", None) == "atm.default_team":
+                return Err(ConfigInvalid("config_invalid", "team", getattr(error, "value", "unset"),
+                                         f"add team = \"<ATM team>\" to {path}, or set atm.default_team in {root / '.atm.toml'}"))
+            return fallback
+        team = fallback.value
+    if not isinstance(team, str) or not team.strip():
+        return Err(ConfigInvalid("config_invalid", "team", repr(team), f"set team in {path} to a nonempty ATM team"))
+    return Ok(Caller(team, lead))
+
+
 def load_config(
     repo_root: str | Path,
     phase: str,
@@ -108,9 +145,10 @@ def load_config(
     file must supply the lead and all assignment template paths.
     """
     root = Path(repo_root)
-    team = _team(root)
-    if isinstance(team, Err):
-        return team
+    caller = phase_caller(root, phase)
+    if isinstance(caller, Err):
+        return caller
+    team = Ok(caller.value.team)
     config_path = console_config_path(root)
     values: object = {}
     if config_path.exists():

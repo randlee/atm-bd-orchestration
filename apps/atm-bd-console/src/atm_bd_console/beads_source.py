@@ -34,7 +34,7 @@ def _bead(raw: dict[str, Any]) -> Bead:
 
 def _raw(argv: list[str], *, cwd: str | None = None) -> Result[list[dict[str, Any]]]:
     line = " ".join(argv)
-    completed = command.run(argv, f"run `{line}` by hand and repair what it reports", cwd=cwd)
+    completed = command.run(argv, f"run `{line}` by hand and repair what it reports", cwd=cwd, env=command.repo_env())
     if isinstance(completed, Err):
         error = completed.error
         if isinstance(error, Timeout):
