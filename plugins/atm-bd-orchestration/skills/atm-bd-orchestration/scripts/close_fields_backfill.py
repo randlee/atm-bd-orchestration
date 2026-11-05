@@ -91,7 +91,20 @@ def plan(rows: list[dict], *, phase_feature: str, stack_bead: str, config: dict)
             "policy_path": config["policy_path"],
             "max_sanity_rounds": config["max_sanity_rounds"],
         }
-        derived["base"] = derived["pr_target"]
+        derived["base"] = None if "stage:finding" in (work.get("labels") or []) else derived["pr_target"]
+        if "stage:finding" in (work.get("labels") or []):
+            for related_id in (derived["sanity_bead"], derived["qa_bead"]):
+                related = (by_id.get(related_id or "") or {}).get("metadata") or {}
+                for name in ("branch", "worktree", "pr_target", "base"):
+                    value = related.get(name)
+                    if not value:
+                        continue
+                    current = derived.get(name)
+                    if current and current != value:
+                        problems.append(f"{row['id']}: metadata.{name} is {current!r} but {related_id} gives {value!r}; left unchanged")
+                    elif not current:
+                        derived[name] = value
+        derived["base"] = derived["base"] or derived["pr_target"]
         if role == "qa" and meta.get("quick_fix") and not derived["sanity_bead"]:
             derived["sanity_bead"] = ""
         fill, lacking = {}, []

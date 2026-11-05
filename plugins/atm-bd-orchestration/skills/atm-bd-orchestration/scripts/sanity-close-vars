@@ -9,8 +9,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
+import close_fields  # noqa: E402
 
 
 def build(manifest, selected, stacked=None):
@@ -49,7 +53,7 @@ def build(manifest, selected, stacked=None):
                   evidence=context.get("evidence", ""), outcome=context.get("outcome", "fixed"),
                   findings_blocking=0, findings_important=0, findings_minor=0, findings_ceremony=0,
                   notes_md=json.dumps({"selection": selected.get("selection"), "fallbacks": selected.get("fallbacks", [])}))
-    if "stage:fix" in manifest.get("checked_bead_data", {}).get("labels", []):
+    if close_fields.is_fix_bead(manifest.get("checked_bead_data", {})):
         values["carry_forward"] = manifest["dev_bead"]
     allowed = set(contract["required_variables"]) | set(contract.get("defaults", {}))
     values = {key: value for key, value in values.items() if key in allowed}

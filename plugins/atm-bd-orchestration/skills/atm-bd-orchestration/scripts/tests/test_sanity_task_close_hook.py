@@ -24,7 +24,11 @@ class World:
         monkeypatch.delenv("BEADS_DIR", raising=False)
         monkeypatch.setenv("ATM_IDENTITY", "test-sanity")
         (tmp_path / ".atm-bd").mkdir()
-        (tmp_path / ".atm-bd/phase-test.toml").write_text('lead = "test-lead"\n')
+        (tmp_path / ".atm-bd/phase-test.toml").write_text('lead = "test-lead"\nroot = "atm-phase-test"\n[templates]\ndev = "templates/dev-template.xml.j2"\nfix = "templates/fix-assignment.xml.j2"\n')
+        (tmp_path / "templates").symlink_to(SCRIPTS.parent / "templates", target_is_directory=True)
+        config = tmp_path / ".claude/project/atm-bd-orchestration.yaml"
+        config.parent.mkdir(parents=True)
+        config.write_text('test_command: just test\nlint_command: just lint\npolicy_path: policy.md\nrequirements_globs: ["docs/requirements.md"]\nadr_globs: ["docs/adr/*.md"]\n')
         self.task = "atm-test-1.sanity"
         self.dev = "atm-test-1.dev"
         self.sha = "a" * 40
@@ -33,7 +37,8 @@ class World:
                     metadata={"dev_bead": self.dev, "commit": self.sha})
         self.bd.edge(self.task, self.dev, "blocks")
         self.bd.add(self.dev, status="closed", assignee="test-dev", labels=["phase-test", "stage:dev"],
-                    metadata={"commit": self.sha})
+                    metadata={"commit": self.sha, "sprint": "test-1", "stack": "phase-test", "pr_target": "main",
+                              "branch": "sprint/test", "worktree": str(tmp_path)})
         self.histories = {self.task: [{"event": "assigned", "assignee": "test-sanity", "message_id": "assign-s", "to_state": "assigned"}],
                           self.dev: [{"event": "assigned", "assignee": "test-dev", "message_id": "assign-d", "to_state": "assigned"}]}
         self.values = {"task_id": self.task, "checked_bead": self.dev, "commit": self.sha,
@@ -130,26 +135,46 @@ def test_fail_reopens_dev_leaves_sanity_blocked_and_notifies_dev_before_close(wo
     world.values.update(verdict="FAIL", findings=[{"deliverable": 2, "issue": "missing behavior"}])
     before = list(world.beads[world.task]["dependencies"])
     actions = world.invoke()["atm-action"]
-    assert world.journal() == [(world.dev, "update", {"status": "open"}, "pending"),
-                               (world.task, "update", {"status": "open", "assignee": ""}, "pending")]
+    assert world.journal() == [(world.dev, "update", {"append_notes": f"sanity FAIL round 1 at {world.sha}:\n2. missing behavior"}, "applied"),
+                               (world.dev, "update", {"status": "open"}, "applied"),
+                               (world.task, "update", {"status": "open", "assignee": ""}, "applied")]
     view = world.cache()
     assert view.get(world.dev)["status"] == "open" and view.get(world.task)["assignee"] == ""
-    assert [a["command"] for a in actions] == ["send", "task.close"]
+    assert [a["command"] for a in actions] == ["task.assign", "task.close"]
     assert actions[0]["request"]["to"] == {"agent": "test-dev", "team": "test-team"}
-    assert actions[0]["request"]["message_source"]["Template"]["var_file_values"]["findings"] == world.values["findings"]
-    assert world.cache().drain()["applied"] == [1, 2]
+    assert actions[0]["request"]["task_id"] == world.dev
+    assert actions[0]["request"]["message_source"]["Template"]["var_file_values"]["branch"] == "sprint/test"
     assert world.beads[world.dev]["status"] == "open"
     assert (world.beads[world.task]["status"], world.beads[world.task]["assignee"]) == ("open", "")
     assert world.beads[world.task]["dependencies"] == before
 
 
-def test_reassigned_dev_before_drain_escalates_instead_of_reopening(world):
+def test_pending_drain_refuses_then_retry_assigns_without_repeating_writes(world, monkeypatch):
     world.values.update(verdict="FAIL", findings=[{"deliverable": 1, "issue": "missing"}])
-    world.invoke()
+    original = bd_cache.BdCache.drain
+    monkeypatch.setattr(bd_cache.BdCache, "drain", lambda *args, **kwargs: {"busy": True})
+    result = world.invoke()
+    assert result["result"] == "refused"
+    assert json.loads(result["message"])["code"] == "BEADS.WRITE_PENDING"
+    assert len(world.journal()) == 3
+    monkeypatch.setattr(bd_cache.BdCache, "drain", original)
+    result = world.invoke()
+    assert result["result"] == "handled"
+    assert result["atm-action"][0]["command"] == "task.assign"
+    assert len(world.journal()) == 3
+    assert all(row[3] == "applied" for row in world.journal())
+
+
+def test_dev_reassigned_while_drain_pending_is_not_reopened(world, monkeypatch):
+    world.values.update(verdict="FAIL", findings=[{"deliverable": 1, "issue": "missing"}])
+    original = bd_cache.BdCache.drain
+    monkeypatch.setattr(bd_cache.BdCache, "drain", lambda *args, **kwargs: {"busy": True})
+    assert world.invoke()["result"] == "refused"
     world.beads[world.dev]["assignee"] = "another-dev"
     world.bd.touch(world.dev)
+    monkeypatch.setattr(bd_cache.BdCache, "drain", original)
     report = world.cache().drain()
-    assert [e["seq"] for e in report["escalated"]] == [1]
+    assert [entry["seq"] for entry in report["escalated"]] == [1]
     assert world.beads[world.dev]["status"] == "closed"
 
 
@@ -256,7 +281,7 @@ def test_panic_after_partial_journal_reports_progress(world, monkeypatch):
     monkeypatch.setattr(bd_cache.BdCache, "write", second_panics)
     error = json.loads(world.invoke()["message"])
     assert error["code"] == "SANITY_CLOSE.INTERNAL"
-    assert error["progress"] == {"journaled": [1], "last_attempted_write": [world.task, "update"]}
+    assert error["progress"] == {"journaled": [1, 2], "last_attempted_write": [world.task, "update"]}
     assert error["notified"]
 
 
@@ -272,6 +297,12 @@ def test_failed_escalation_is_retained_for_doctor(world):
     world.fail = lambda c: c[:3] == ["atm", "task", "assign"]
     assert world.invoke()["result"] == "refused"
     assert hook.doctor(world.request)["findings"][0]["code"] == "SANITY_CLOSE.ESCALATION_PENDING"
+
+
+def test_doctor_does_not_report_retired_repair_obligations(world):
+    journal = hook.Journal(world.root / ".atm-bd/sanity-close/journal.sqlite3")
+    journal.put("old", {"repair_task": "retired.bd-repair-key", "repaired": False})
+    assert not any(item["code"] == "SANITY_CLOSE.REPAIR_PENDING" for item in hook.doctor(world.request)["findings"])
 
 
 def test_task_lock_contention_refuses_without_writes(world):
@@ -299,7 +330,7 @@ def test_conflicting_repeat_verdict_rejected(world):
 def test_new_templates_render_with_real_composer(world):
     sys.path.insert(0, str(SCRIPTS.parents[1] / "atm-beads/scripts"))
     import sc_render
-    for name in ("sanity-task-close.md.j2", "sanity-failed-template.md.j2", "sanity-dev-close.md.j2"):
+    for name in ("sanity-task-close.md.j2", "sanity-dev-close.md.j2"):
         assert sc_render.render(hook.TEMPLATES / name, world.values)
 
 
@@ -396,13 +427,16 @@ def test_bd_reads_use_the_remaining_work_deadline(world):
     assert budgets == [pytest.approx(1.8), pytest.approx(1.3)]  # miss read, refresh leaving reply time
 
 
-def test_reassigned_sanity_before_drain_escalates_instead_of_reopening(world):
+def test_reassigned_sanity_before_drain_escalates_instead_of_reopening(world, monkeypatch):
     world.values.update(verdict="FAIL", findings=[{"deliverable": 1, "issue": "missing"}])
+    original = bd_cache.BdCache.drain
+    monkeypatch.setattr(bd_cache.BdCache, "drain", lambda *args, **kwargs: {"busy": True})
     world.invoke()
     world.beads[world.task]["assignee"] = "other-sanity"
     world.bd.touch(world.task)
+    monkeypatch.setattr(bd_cache.BdCache, "drain", original)
     report = world.cache().drain()
-    assert [e["seq"] for e in report["escalated"]] == [2]
+    assert [e["seq"] for e in report["escalated"]] == [3]
     assert world.beads[world.task]["assignee"] == "other-sanity"
 
 

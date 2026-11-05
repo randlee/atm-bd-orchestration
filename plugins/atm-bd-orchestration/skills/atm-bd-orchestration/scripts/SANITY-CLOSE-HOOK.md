@@ -61,7 +61,7 @@ supplies verdict, run ID and missing-item numbers/reasons (deliverable zero deno
 a verification-wide evidence deficiency).
 
 All validation precedes mutations. Bead writes go to the bd-cache journal, not
-to bd: PASS journals the sanity close; FAIL journals the dev reopen (precondition:
+to bd: PASS journals the sanity close; FAIL journals its findings in the checked bead notes, then the dev reopen (precondition:
 the dev bead's assignee is the dev task's assignee) and the sanity reopen to
 open/unassigned (precondition: its assignee is unchanged). Each entry's
 idempotency key is derived from the close plan and the operation, so a retried
@@ -69,9 +69,14 @@ close never journals a write twice. The hook then starts a detached
 `bd_cache.py drain` (stderr appended to `<db>.bd-cache.drain.log`); if it
 cannot start, the bd-cache cron drains within one tick. PASS closes the sanity bead, then returns
 unhooked ATM actions to close the dev task (unless already terminal) and sanity
-task. FAIL reopens the dev bead, returns sanity to open/unassigned while keeping
-its blocking edge, sends the developer a failure template, and closes sanity's
-ATM task. PASS and FAIL are the only accepted verdicts. Missing deliverables
+task. FAIL waits within the remaining hook budget for its writes to apply before
+returning an action that reassigns the checked task id with the phase dev or fix
+template and variables rebuilt from the bead and repository configuration. If the
+writes are pending, it refuses with `BEADS.WRITE_PENDING`; retry the same close
+after the drain applies them. The bead notes carry the verbatim findings. The
+sanity task then closes. Replay compares only the current assignment, ignoring
+earlier cancelled assignments. Close evidence names the ledger top and PR base
+separately and reports differing branches. PASS and FAIL are the only accepted verdicts. Missing deliverables
 or missing/stale evidence are FAIL; sanity does not build. Legacy CANNOT_RUN
 results are rejected with SANITY_CLOSE.LEGACY_VERDICT and escalated to the
 phase lead without changing task/bead state. An assignment conflict, required
@@ -112,14 +117,6 @@ bd-cache cron, once per entry) any write whose precondition no longer holds,
 that `bd` refuses (exit 13), that names an absent bead, or that fails five
 times. The lead sets the bead by hand and runs `bd_cache.py resolve <seq>`.
 The daemon hook has no retry/sleep loop; its 2.5-second limit is unchanged.
-
-Repair tasks assigned before the bd-cache cutover (`<sanity-id>.bd-repair-<key>`)
-finish as before: the assignee runs `sanity-close-repair.py --journal <path> --key
-<key>`, which uses the frozen pre-cutover hook `sanity_close_legacy.py`, and the
-hook lets the repair task close only once its journal record says `repaired`;
-`atm doctor` shows each unfinished one as `SANITY_CLOSE.REPAIR_PENDING`. No new
-repair task is created. Delete the runner, `sanity_close_legacy.py`, the
-`sanity-bead-repair.xml.j2` template and their tests once none remains open.
 
 External ATM actions are sequential and are not a transaction. A notification
 may repeat if delivery succeeded but acknowledgement was lost; never claim

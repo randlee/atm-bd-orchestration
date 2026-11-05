@@ -54,6 +54,18 @@ def test_assignment_details_requires_an_assignment():
     assert error.value.fix == "Assign the tracked task before closing it."
 
 
+def test_cancelled_sanity_assignment_does_not_conflict_with_new_pass(world):
+    bead = world.values["sanity_bead"]
+    world.beads[bead]["status"] = "closed"
+    world.beads[bead]["close_reason"] = "FAIL at old-sha"
+    world.beads[bead]["metadata"]["sanity_round_key"] = [bead, "assignment-1", "FAIL", "old-sha"]
+    world.tasks[bead] = [world.assignment(1), {"event": "cancelled", "to_state": "complete"},
+                         {**world.assignment(2), "event": "reopened"}]
+    result = world.run("sanity", verdict="PASS")
+    assert "ok" in result, result
+    assert world.beads[bead]["close_reason"] == f"PASS at {world.values['commit']}"
+
+
 @pytest.mark.parametrize("template", ["dev-template", "fix-assignment"])
 @pytest.mark.parametrize("layers,expected", [
     ([{"branch": "older", "head": "a" * 40}, {"branch": "ledger-top", "head": "b" * 40}], "ledger-top"),
@@ -120,10 +132,14 @@ def test_dev_handoff_is_immediate_and_closes_the_dev_task_as_the_dev(world, monk
 
 def test_beads_directory_ignores_caller_environment(world, monkeypatch):
     monkeypatch.setenv("BEADS_DIR", "/wrong/database")
-    closer = hook.Hook("dev", world.values, world.path, world, lambda: 42)
-    assert closer.beads_directory() == str(world.root / ".beads")
+    # bq-4 removes the environment read inside BdCache; isolate this hook's resolution here.
+    monkeypatch.setattr(hook.bd_cache, "database_identity", lambda root: ("testdb", "p-1"))
+    result = world.run()["ok"]
+    assert result["beads_dir"] == str(world.root / ".beads")
     where = next(kwargs for argv, kwargs in world.calls if argv == ["bd", "where", "--json"])
     assert "BEADS_DIR" not in where["env"]
+    assert all(kwargs["env"]["BEADS_DIR"] == str(world.root / ".beads")
+               for argv, kwargs in world.calls if argv[0] == "bd" and argv[1] != "where")
 
 
 def test_dev_rerun_after_the_task_is_closed_does_not_close_it_again(world):
@@ -138,6 +154,29 @@ def test_not_reproducible_fix_closes_its_task_with_the_evidence_reason(world):
     assert "ok" in world.run("fix", outcome="not_reproducible")
     close = next(argv for argv, _sender in world.writes if argv[:4] == ["atm", "task", "close", world.values["dev_task_id"]])
     assert close[4:] == ["completed", f"not reproducible: {world.values['evidence']}"]
+
+
+def test_not_reproducible_uses_checked_worktree_and_its_head(world):
+    checked = world.values["checked_bead"]
+    world.beads[checked]["metadata"].update(role="fix", branch="fix/fresh", worktree=str(world.root))
+    world.head = "c" * 40
+    world.values.pop("commit", None)
+    result = world.run("fix", outcome="not_reproducible")
+    assert "ok" in result, result
+    dispatch = next(m["values"] for m in world.messages if m["type"] == "dev-sanity-task")
+    assert (dispatch["branch"], dispatch["commit"], dispatch["worktree_path"]) == ("fix/fresh", world.head, str(world.root))
+
+
+def test_finding_fix_handoff_carries_fix_and_qa_reviewers(world):
+    checked = world.values["checked_bead"]
+    world.beads[checked]["labels"] = ["stage:finding"]
+    world.beads[checked]["metadata"]["role"] = "fix"
+    assert "ok" in world.run("fix")
+    dispatch = next(m["values"] for m in world.messages if m["type"] == "dev-sanity-task")
+    assert dispatch["close_context"]["carry_forward"] == checked
+    assert dispatch["close_context"]["reviewers_round1"] == world.beads[world.values["qa_bead"]]["metadata"]["reviewers_round1"]
+    assert "ok" in world.run("sanity", verdict="PASS", carry_forward=checked)
+    assert any(m["type"] == "qa-task" for m in world.messages)
 
 
 def test_preview_and_native_send_use_identical_completion_vars(world, monkeypatch):
@@ -340,6 +379,9 @@ def test_github_ok_result_carries_no_github_error(world):
     result = world.run()["ok"]
     assert result["github"] == "ok"
     assert "github_error" not in result
+    assert result["ledger_top"] is None
+    assert result["pr_base"] == {"branch": "deliberately-different", "pr": None}
+    assert "base_difference" not in result
 
 
 def test_ledger_top_overrides_static_target(world):
@@ -353,7 +395,10 @@ def test_ledger_top_overrides_static_target(world):
     assert len(metadata["layers"]) == 2
     assert metadata["layers"][-1]["branch"] == "new-top"
     assert metadata["layers"][-1]["head"] == "b" * 40
-    assert "ok" in world.run()
+    result = world.run()["ok"]
+    assert result["ledger_top"] == {"branch": "new-top", "pr": 351, "head": "b" * 40}
+    assert result["pr_base"] == {"branch": "deliberately-different", "pr": None}
+    assert result["base_difference"] == "ledger top new-top (#351) differs from PR base deliberately-different"
     calls = [argv for argv, _kwargs in world.calls]
     assert ["git", "merge-base", "--is-ancestor", "origin/new-top", world.values["commit"]] in calls
     assert not any("irrelevant-broken-lower-layer" in str(argv) for argv in calls)
@@ -419,8 +464,8 @@ def test_not_reproducible_assigns_runtime_top_without_rewriting_input(world):
     assert json.loads(world.path.read_text()) == {name: value for name, value in world.values.items()
                                                  if name not in results and name not in DERIVED}
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")
-    assert assignment["values"]["branch"] == "integrate/phase-bj"
-    assert assignment["values"]["commit"] == "b" * 40
+    assert assignment["values"]["branch"] == world.beads[world.values["checked_bead"]]["metadata"]["branch"]
+    assert assignment["values"]["commit"] == world.head
     assert assignment["values"]["beads_dir"] == str(world.root / ".beads")
     assert any(argv == ["bd", "where", "--json"] for argv, _kwargs in world.calls)
     assert set(assignment["values"]) == set(world.values) | {"branch", "commit", *contract["derived_variables"],
@@ -434,7 +479,7 @@ def test_not_reproducible_fix_without_stack_bead_uses_pr_target(world):
         world.values.pop(field, None)
     result = world.run("fix", outcome="not_reproducible")
     assert "ok" in result, result
-    assert any(argv == ["git", "rev-parse", "origin/integrate/phase-bj"] for argv, _kwargs in world.calls)
+    assert not any(argv == ["git", "rev-parse", "origin/integrate/phase-bj"] for argv, _kwargs in world.calls)
     assert not any(argv[:2] == ["bd", "show"] and argv[2] == "atm-phase-bj.stack" for argv, _kwargs in world.calls)
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")
     assert "stack_bead" not in assignment["values"]
@@ -496,18 +541,14 @@ def test_sanity_fail_message_contains_exact_undone_deliverables(world):
     undone = [{"number": 2, "reason": "missing source evidence"},
               {"number": 5, "reason": "line 5 needs review"}]
     assert "ok" in world.run("sanity", verdict="FAIL", undone=undone)
-    messages = [message for message in world.messages if message["type"] == "sanity-fail"]
-    assert len(messages) == 1
-    root = ET.fromstring(messages[0]["body"])
-    assert root.attrib == {"bead": world.values["checked_bead"], "sprint": world.values["sprint"]}
-    description = root.find("description")
-    assert description is not None and description.text is not None
-    lines = description.text.splitlines()
-    assert lines == [
-        f"{world.values['checked_title']}: sanity round {world.values['round']} of {world.values['max_sanity_rounds']}.",
-        f"Branch {world.values['branch']}, PR #{world.values['pr_number']}, commit {world.values['commit']}.",
-        "2. NOT complete: missing source evidence", "5. NOT complete: line 5 needs review",
-    ]
+    checked = world.values["checked_bead"]
+    assert world.beads[checked]["notes"] == (f"sanity FAIL round 1 at {world.values['commit']}:\n"
+                                                "2. missing source evidence\n5. line 5 needs review")
+    assigns = [argv for argv, _ in world.writes if argv[:3] == ["atm", "task", "assign"]]
+    assert len(assigns) == 1 and assigns[0][assigns[0].index("--task-id") + 1] == checked
+    assert not any(argv[:2] == ["atm", "send"] for argv, _ in world.writes)
+    assert world.beads[world.values["sanity_bead"]]["status"] == "open"
+    assert world.beads[world.values["sanity_bead"]]["assignee"] == ""
 
 
 def test_metadata_update_preserves_concurrent_keys_and_writes_fail_counter_atomically(world):
@@ -664,7 +705,10 @@ def test_replay_after_every_committed_write_converges(tmp_path, monkeypatch, rol
         world.fail_after = None
         result = world.run(role)
         assert "ok" in result, (boundary, result)
-        assert world.beads == baseline.beads
+        actual_beads, expected_beads = copy.deepcopy(world.beads), copy.deepcopy(baseline.beads)
+        actual_beads[world.values["checked_bead"]]["metadata"]["worktree"] = "<worktree>"
+        expected_beads[baseline.values["checked_bead"]]["metadata"]["worktree"] = "<worktree>"
+        assert actual_beads == expected_beads
         for task in baseline.tasks:
             if role in ("dev", "fix") and task == world.values["sanity_bead"]:
                 assert world.tasks[task][-1]["to_state"] == "assigned"
@@ -677,6 +721,8 @@ def test_replay_after_every_committed_write_converges(tmp_path, monkeypatch, rol
             gate = baseline.writes[boundary][0]
             assert gate[:3] in (["atm", "task", "close"], ["atm", "task", "assign"]), (boundary, gate[:4])
             expected[notice_of[gated[boundary]]] += 1
+        if role == "sanity" and verdict == "FAIL" and baseline.writes[boundary - 1][0][:3] == ["atm", "task", "assign"]:
+            expected[("dev-task", "developer")] += 1
         assert actual == expected, (boundary, world.writes[-1][0][:4])
         assert not any(argv[:2] == ["atm", "search"] for argv, _ in world.calls)
 
@@ -761,7 +807,7 @@ def test_rebase_required_rerun_updates_same_open_sanity_task(world, role):
     assignments = [message for message in world.messages if message["type"] == "dev-sanity-task"]
     assert [message["values"]["commit"] for message in assignments] == [old, new]
     assert world.tasks[sanity][-1]["to_state"] == "assigned"
-    assert world.tasks[sanity][-1]["event"] == "reassigned"
+    assert world.tasks[sanity][-1]["event"] == "assigned"  # same-assignee resend refreshes the body
     assert world.beads[world.values["checked_bead"]]["metadata"]["commit"] == new
     assert world.beads[world.values["checked_bead"]]["close_reason"] == original_close_reason
     assert len([task for task in world.tasks if task == sanity]) == 1
@@ -796,9 +842,9 @@ def test_not_reproducible_retry_uses_current_stack_top(world, boundary):
     world.fail_after = None
     assert "ok" in world.run("fix")
     assignments = [item for item in world.messages if item["type"] == "dev-sanity-task"]
-    assert len(assignments) == (2 if boundary == 4 else 1)  # a replay after a moved top re-assigns the new sha
-    assert assignments[-1]["values"]["branch"] == "moved-top"
-    assert assignments[-1]["values"]["commit"] == "c" * 40
+    assert len(assignments) == 1
+    assert assignments[-1]["values"]["branch"] == world.beads[world.values["checked_bead"]]["metadata"]["branch"]
+    assert assignments[-1]["values"]["commit"] == world.head
     # a crash after the report (boundary 3) makes the replay report again; after the assign (boundary 4)
     # the sanity task is open, so the replay assigns the moved sha without a second report
     assert len([item for item in world.messages if item["type"] == "fix-complete"]) == (2 if boundary == 3 else 1)
@@ -810,7 +856,7 @@ def test_shared_contract_covers_all_role_templates_and_ids(world):
     assert declared == set(contract["derived_variables"]).union(
         *map(set, contract["required_variables_by_role"].values()),
         *map(set, contract["result_variables_by_role"].values()))
-    names = ("dev-complete.md.j2", "fix-complete.md.j2", "dev-sanity-template.xml.j2", "sanity-fail.xml.j2",
+    names = ("dev-complete.md.j2", "fix-complete.md.j2", "dev-sanity-template.xml.j2",
              "dev-sanity-complete.md.j2", "qa-template.xml.j2", "qa-complete.md.j2")
     for name in names:
         dispatch_only = {"beads_dir", "close_context"} if name == "dev-sanity-template.xml.j2" else set()
@@ -819,8 +865,7 @@ def test_shared_contract_covers_all_role_templates_and_ids(world):
                   "close_context": {**world.values, "phase_lead": "phase-lead"}}
         body = hook.sc_render.render(hook.TEMPLATES / name, values)
         role_id = "sanity_task_id" if name.startswith("dev-sanity") else "qa_task_id" if name.startswith("qa-") else "dev_task_id"
-        if name != "sanity-fail.xml.j2":
-            assert world.values[role_id] in body
+        assert world.values[role_id] in body
     rebase = ET.fromstring(hook.sc_render.render(hook.TEMPLATES / "rebase-required.xml.j2", world.values))
     assert rebase.attrib["bead"] == world.values["checked_bead"]
     description_node = rebase.find("description")
@@ -840,7 +885,7 @@ def test_each_role_example_renders_every_shared_template(world, role):
         values = {**world.values, **values}
     values.update(beads_dir=str(world.root / ".beads"),
                   close_context={**values, "phase_lead": "phase-lead"})
-    common = ("dev-sanity-complete.md.j2", "sanity-fail.xml.j2", "qa-template.xml.j2", "qa-complete.md.j2")
+    common = ("dev-sanity-complete.md.j2", "qa-template.xml.j2", "qa-complete.md.j2")
     names = {
         "dev": ("dev-complete.md.j2", "dev-sanity-template.xml.j2", *common, "rebase-required.xml.j2"),
         "fix": ("fix-complete.md.j2", "dev-sanity-template.xml.j2", *common, "rebase-required.xml.j2"),
@@ -1058,7 +1103,7 @@ def test_close_from_documented_dispatch_and_result_files_derives_handoff(world, 
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", assignment["values"]["generated_at"])
     update = next(argv for argv, _ in world.writes if argv[:3] == ["bd", "update", dispatch["checked_bead"]])
     written = dict(update[index + 1].split("=", 1) for index, flag in enumerate(update) if flag == "--set-metadata")
-    assert written == {"branch": dispatch["branch"], "pr_base": "deliberately-different",
+    assert written == {"pr_base": "deliberately-different",
                        **{name: derived[name] for name in ("commit", "pr_number", "pr_url")}}
     assert json.loads(world.path.read_text()) == dispatch
     assert json.loads(world.result_path.read_text()) == result
@@ -1248,6 +1293,7 @@ def test_sanity_close_context_carries_only_the_fields_the_sanity_close_reads(wor
     context = assignment["close_context"]
     assert set(context) == (SANITY_READ & set(assignment)) | {"phase_lead", "budget"}
     assert context == {**{name: assignment[name] for name in SANITY_READ & set(assignment)},
+                       **({"carry_forward": world.values["checked_bead"]} if outcome == "not_reproducible" else {}),
                        "phase_lead": "phase-lead", "budget": "full"}
     # No other top-level field is written a second time inside close_context, and nothing nests.
     assert not (set(assignment) - SANITY_READ) & set(context)
@@ -1320,7 +1366,7 @@ def test_sanity_close_context_subset_builds_the_same_sanity_close(world):
     full_values, full_stack = built(full, "full")
     assert subset_stack == full_stack
     read = set(hook.header(hook.TEMPLATES / "task-close-vars.j2")["render_variables_by_role"]["sanity"]) | {"carry_forward"}
-    for name in ("dev-sanity-complete.md.j2", "sanity-fail.xml.j2", "qa-template.xml.j2"):
+    for name in ("dev-sanity-complete.md.j2", "qa-template.xml.j2"):
         header = hook.header(hook.TEMPLATES / name)
         read |= set(header["required_variables"]) | set(header.get("defaults") or {})
     assert {name: subset_values.get(name) for name in read} == {name: full_values.get(name) for name in read}
@@ -1329,22 +1375,24 @@ def test_sanity_close_context_subset_builds_the_same_sanity_close(world):
     assert differing and not differing & read
 
 
-def test_the_incident_stack_view_fits_in_one_sanity_assignment(world):
-    # 785,090 bytes: the stack view whose sanity assignment, sent twice over, exceeded ATM's limit (#557).
-    assert "ok" in world.run(stack_view="x" * 785_090)
-    command = next(argv for argv, _ in world.calls if argv[:3] == ["atm", "task", "assign"])
+def test_dev_close_ignores_legacy_stack_view(world):
+    assert "ok" in world.run(stack_view="x" * 1_200_000)
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
-    assert assignment["stack_view"] == "x" * 785_090
-    assert len(json.dumps(assignment).encode()) + len(Path(command[command.index("--template") + 1]).read_bytes()) <= 1_114_112
+    assert "stack_view" not in assignment
+
+
+def test_dev_close_requires_no_stack_view(world):
+    world.values.pop("stack_view", None)
+    assert "ok" in world.run()
 
 
 @pytest.mark.parametrize("role", ["dev", "fix"])
 def test_oversized_sanity_assignment_is_refused_before_the_bead_closes(world, role):
-    output = world.run(role, stack_view="x" * 1_200_000)
+    output = world.run(role, deliverables_md="x" * 1_200_000)
     assert output["err"]["code"] == "ASSIGNMENT.TOO_LARGE", output
     assert "1114112" in output["err"]["message"]
-    assert "stack_view (1200002 bytes)" in output["err"]["message"]
-    assert "--compact-json" in output["err"]["fix"]
+    assert "deliverables_md (1200002 bytes)" in output["err"]["message"]
+    assert "deliverables_md" in output["err"]["fix"]
     assert not any(argv[:2] == ["bd", "close"] for argv, _ in world.calls)
     assert world.writes == []
 

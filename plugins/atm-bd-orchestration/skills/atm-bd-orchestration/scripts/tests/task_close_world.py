@@ -57,11 +57,12 @@ class World:
         (root / ".beads").mkdir()
         (root / ".beads/metadata.json").write_text(json.dumps({"dolt_database": "testdb", "project_id": "p-1"}))
         self.stamps = 0
-        (root / ".atm-bd/phase-bj.toml").write_text('lead = "phase-lead"\n')
+        (root / ".atm-bd/phase-bj.toml").write_text('lead = "phase-lead"\nroot = "atm-phase-bj"\n[templates]\ndev = "templates/dev-template.xml.j2"\nfix = "templates/fix-assignment.xml.j2"\n')
+        (root / "templates").symlink_to(SCRIPTS.parent / "templates", target_is_directory=True)
         (root / ".atm.toml").write_text('[atm]\ndefault_team = "test-team"\n')
         config = root / hook.repo_config.RELATIVE_PATH
         config.parent.mkdir(parents=True)
-        config.write_text('bead_prefix: atm\ndev_sanity_member: sanity\nqa_member: quality\nteam_lead_member: team-lead\n')
+        config.write_text('bead_prefix: atm\ndev_sanity_member: sanity\nqa_member: quality\nteam_lead_member: team-lead\ntest_command: just test\nlint_command: just lint\npolicy_path: policy.md\nrequirements_globs: ["docs/requirements.md"]\nadr_globs: ["docs/adr/*.md"]\n')
         self.path = root / "dispatch.json"
         self.result_path = root / "result.json"
         self.beads = {}
@@ -70,7 +71,8 @@ class World:
             self.beads[bead] = bd_row(bead, status="in_progress", assignee="developer")
         self.beads[self.values["checked_bead"]]["metadata"]["sanity_bead"] = self.values["sanity_bead"]
         self.beads[self.values["checked_bead"]]["metadata"].update(
-            pr_number=self.pr_number, pr_url=self.values["pr_url"])
+            pr_number=self.pr_number, pr_url=self.values["pr_url"], branch=self.values["branch"],
+            worktree=str(root), sprint=self.values["sprint"], stack=self.values["stack"], pr_target=self.values["pr_target"])
         self.beads[self.values["sanity_bead"]]["metadata"]["dev_bead"] = self.values["checked_bead"]
         self.beads[self.values["qa_bead"]]["metadata"]["reviewers_round1"] = list(self.values["reviewers_round1"])
         self.beads["atm-phase-bj.stack"] = json.loads((SCRIPTS / "tests/fixtures/stack-bead.json").read_text())
@@ -101,6 +103,7 @@ class World:
         extra = []
         if role in ("dev", "fix"):
             fields = hook.header(hook.TEMPLATES / "task-close-vars.j2")["result_variables_by_role"][role]
+            fields = [*fields, "stack_view"]  # accepted as an obsolete result field and ignored
             self.result_path.write_text(json.dumps({name: self.values[name] for name in fields if name in self.values}))
             self.path.write_text(json.dumps({name: value for name, value in self.values.items()
                                              if name not in fields and name not in DERIVED}))
@@ -141,6 +144,8 @@ class World:
         elif argv[:2] == ["bd", "update"]:
             write = True
             record = self.beads[argv[2]]
+            if "--append-notes" in argv:
+                record["notes"] = (record.get("notes", "") + "\n" + argv[argv.index("--append-notes") + 1]).strip()
             if self.concurrent_metadata:
                 record["metadata"].update(self.concurrent_metadata)
                 self.concurrent_metadata = None
@@ -193,9 +198,12 @@ class World:
                 assert task in body
                 events = self.tasks[task]
                 event = self.assignment(len(events) + 1)
-                if events:
+                if events and events[-1].get("to_state") == "assigned":
+                    event = None  # ATM resending the same open assignment does not create an event.
+                elif events:
                     event["event"] = "reopened" if events[-1].get("to_state") in hook.TERMINAL_STATES else "reassigned"
-                events.append(event)
+                if event is not None:
+                    events.append(event)
             self.messages.append(dict(type=template_type, values=values, sender=kwargs["env"]["ATM_IDENTITY"],
                                       recipient=recipient, body=body, at="2026-10-19T23:00:00Z"))
         elif argv[0] == "git":

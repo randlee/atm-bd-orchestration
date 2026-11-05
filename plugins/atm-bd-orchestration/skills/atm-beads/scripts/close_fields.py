@@ -9,6 +9,7 @@ host paths, projected onto the role's fields in `task-close-vars.j2`. It reads n
 from __future__ import annotations
 
 from pathlib import Path
+import tomllib
 
 import yaml
 
@@ -26,6 +27,18 @@ HOST = ("primary_checkout", "worktree_path")
 
 def is_fix_bead(bead: dict) -> bool:
     return (bead.get("metadata") or {}).get("role") == "fix" or "stage:fix" in (bead.get("labels") or [])
+
+
+def reassignment(root: Path, phase: str, bead: dict, config: dict) -> tuple[Path, dict]:
+    meta = bead.get("metadata") or {}
+    phase_config = tomllib.loads((root / ".atm-bd" / f"phase-{phase}.toml").read_text())
+    template = root / phase_config["templates"]["fix" if is_fix_bead(bead) else "dev"]
+    values = {name: meta[name] for name in ("sprint", "stack", "pr_target", "branch")}
+    values.update(task_id=bead["id"], worktree_path=meta["worktree"], phase_root=phase_config["root"],
+                  primary_checkout=str(root))
+    values.update({name: config[name] for name in ("test_command", "lint_command", "policy_path",
+                                                    "requirements_globs", "adr_globs")})
+    return template, values
 
 
 class CloseFieldsError(ValueError):
