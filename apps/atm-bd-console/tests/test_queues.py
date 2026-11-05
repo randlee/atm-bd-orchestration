@@ -14,6 +14,13 @@ from atm_bd_console.result import CommandFailed, Err, Ok
 
 NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
 ROOT = "atm-phase-bj"
+REAL_TEAM = config._team
+
+
+@pytest.fixture(autouse=True)
+def phase_team(monkeypatch):
+    """Fixture repositories have no .atm.toml; the team tests below read a real one."""
+    monkeypatch.setattr(config, "_team", lambda root: Ok("phase-team"))
 
 
 def bead(ident: str, stage: str, *, status: str = "open", parent: str | None = None, **extra):
@@ -105,7 +112,7 @@ def test_build_classifies_each_queue_from_fixed_json_and_uses_four_batched_reads
     assert len(calls) == 4
     assert calls[0][0] == ["bd", "--readonly", "list", "-l", "phase-bj", "--exclude-label", "anchor", "-n", "0", "--json"]
     assert calls[1][0] == ["bd", "ready", "-l", "phase-bj", "--exclude-label", "anchor", "-n", "0", "--json"]
-    assert calls[2][0] == ["atm", "task", "list", "--all", "--json"]
+    assert calls[2][0] == ["atm", "task", "list", "--all", "--team", "phase-team", "--json"]
     assert calls[3][0] == ["bd", "list", "--status", "closed", "-n", "0", "--id", "dev-closed", "--json"]
     assert all(cwd == Path("/fixture/product") for _, cwd in calls)
 
@@ -478,3 +485,23 @@ def test_failed_merge_base_read_is_reported_not_treated_as_no_issue() -> None:
     with pytest.raises(queues.QueueFailure) as raised:
         check(failing)
     assert "git merge-base --is-ancestor" in str(raised.value) and "fatal: bad object" in str(raised.value)
+
+
+def test_task_list_uses_the_repository_team_not_the_callers(monkeypatch, tmp_path: Path):
+    (tmp_path / ".atm.toml").write_text('[atm]\ndefault_team = "sc-compose"\n')
+    monkeypatch.setattr(config, "_team", REAL_TEAM)
+    monkeypatch.setenv("ATM_TEAM", "hermes")
+    run, calls = fixed_runner()
+    result = queues.build(SimpleNamespace(phase=None, root=ROOT, stack=False), tmp_path, now=NOW, runner=run)
+    assert calls[2][0] == ["atm", "task", "list", "--all", "--team", "sc-compose", "--json"]
+    assert [row["id"] for row in result["queues"]["in_flight"]] == ["dev-flight"]
+
+
+def test_missing_default_team_is_a_named_error_before_any_read(monkeypatch, tmp_path: Path, capsys):
+    (tmp_path / ".atm.toml").write_text('[atm]\nidentity = "lead"\n')
+    monkeypatch.setattr(config, "_team", REAL_TEAM)
+    run, calls = fixed_runner()
+    args = SimpleNamespace(phase=None, root=ROOT, stack=False, json=False, all=False, min_age=10, state_file=None)
+    assert queues.main(args, repo_root=tmp_path, runner=run, now=NOW) == 2
+    assert "set atm.default_team in .atm.toml to a nonempty team name" in capsys.readouterr().err
+    assert calls == []

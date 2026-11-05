@@ -145,6 +145,10 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
     """Read open, ready, task and relevant closed rows once each and classify the phase."""
     now = now or datetime.now(UTC)
     root, integration_branch, code_root, _ = _resolve(args, repo_root)
+    # The repository's team, the one the console reads: the caller's ATM_TEAM may name another team.
+    team = config._team(repo_root)
+    if isinstance(team, Err):
+        raise QueueFailure(f"atm-bd queues: {error_message(asdict(team.error))}")
     phase = root.rsplit("-phase-", 1)[-1]
     label = f"phase-{phase}"
     scoped = ["-l", label, "--exclude-label", "anchor", "-n", "0", "--json"]
@@ -155,7 +159,7 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
     integration_branch = integration_branch or _meta(by_id[root]).get("integration_branch")
     ready_rows = _array(run_json(["bd", "ready", *scoped], cwd=repo_root, runner=runner), "bd ready")
     ready = {_valid_id(bead, "bd ready") for bead in ready_rows}
-    tasks = _array(run_json(["atm", "task", "list", "--all", "--json"], cwd=repo_root, runner=runner), "atm task list")
+    tasks = _array(run_json(["atm", "task", "list", "--all", "--team", team.value, "--json"], cwd=repo_root, runner=runner), "atm task list")
     task_by_id = {}
     for task in tasks:
         task_id = task.get("task_id")
