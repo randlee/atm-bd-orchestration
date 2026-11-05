@@ -835,9 +835,11 @@ class Hook:
             completion = Path(directory) / "completion-vars.json"
             if values["outcome"] == "not_reproducible":
                 metadata = record.get("metadata") or {}
-                branch = metadata.get("branch") or values["branch"]
-                worktree = metadata.get("worktree") or values["worktree_path"]
-                assignment = {**values, "branch": branch, "commit": values["commit"], "worktree_path": worktree}
+                branch, worktree = metadata.get("branch"), metadata.get("worktree")
+                if not branch or not worktree:
+                    raise CloseError("BEAD.INVALID", f"{values['checked_bead']}: metadata lacks branch or worktree",
+                                     f"Run `bd update {values['checked_bead']} --metadata '<full metadata JSON with branch and worktree>'`, then retry.")
+                assignment = {**values, "branch": branch, "commit": values["commit"], "worktree_path": str(self.worktree)}
                 assignment_path = Path(directory) / "sanity-vars.json"
                 assignment_path.write_text(json.dumps(assignment), encoding="utf-8")
                 self.render(template)
@@ -989,8 +991,10 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
         if args.role == "fix" and values.get("outcome") == "not_reproducible":
             checked = hook.read_bead(values["checked_bead"])
             metadata = checked.get("metadata") or {}
-            if metadata.get("worktree"):
-                hook.worktree = Path(metadata["worktree"]).resolve()
+            if not metadata.get("worktree"):
+                raise CloseError("BEAD.INVALID", f"{values['checked_bead']}: metadata lacks worktree",
+                                 f"Run `bd update {values['checked_bead']} --metadata '<full metadata JSON with worktree>'`, then retry.")
+            hook.worktree = (hook.root / metadata["worktree"]).resolve()
             hook.verify_not_reproducible_evidence()
         started = clock()
         escalated = hook.dev(args.skip_checks) if args.role in ("dev", "fix") else hook.sanity() if args.role == "sanity" else hook.qa()
