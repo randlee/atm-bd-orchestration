@@ -334,15 +334,19 @@ budget ends; sync each active phase, deferring any not started 2 s before
 it (an uncached root that cannot be read during an outage counts as
 inactive); a sync failure whose code or `cause` is unreachable is not
 announced per phase; any other sync failure whose cause differs from
-`sync_alert:<phase>` is sent to that phase's lead, success clears it; an
-outage not yet announced is sent once to every active phase's lead (every
-configured lead when none is known active), then marked; every escalated entry with no
-`announced_at` is sent to its phase's lead with the `resolve` command, then
-marked. Messages go through `atm send <lead>@<team> --team tool` as `atm-bd@tool`
-(the installer's member; `cron@tool` is atm's daemon-owned scheduler principal and refuses ordinary sends).
-Any message not delivered (or an entry whose phase has no lead) makes the
-reply `refused` with the list, and is retried next tick; otherwise
-`pass-through`. Missing `custom.team` is refused.
+`sync_alert:<phase>` is sent to that phase's lead at the configured team,
+success clears it; an outage not yet announced is sent once to every active
+phase recipient (every configured phase recipient when none is known active),
+then marked; every escalated entry with no `announced_at` is sent to its
+phase's lead with the `resolve` command, then marked. The recipient team comes
+from `.atm-bd/phase-<phase>.toml`'s `team`, falling back to
+`.atm.toml`'s `[atm].default_team`. Messages go through
+`atm send <lead>@<phase-team> --as <tool_identity>`; `tool_identity` comes from
+`.claude/project/atm-bd-orchestration.yaml`, defaulting to `atm-bd@tool`
+according to ADR-066. The cron's `custom` object may limit `phases`; it does
+not select the recipient team or sender identity. Any message not delivered
+(or an entry whose phase has no lead) makes the reply `refused` with the list,
+and is retried next tick; otherwise `pass-through`.
 
 `cron.stop`: stop when no phase is active and no entry is pending or
 escalated-unannounced. `doctor`: `status`, with escalated entries as findings.
