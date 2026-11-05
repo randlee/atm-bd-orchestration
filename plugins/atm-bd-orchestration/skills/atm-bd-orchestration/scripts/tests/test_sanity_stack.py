@@ -941,3 +941,16 @@ def test_lean_parent_keeps_held_child_until_full_retry(world):
     first["budget"] = "full"
     assert world.link(first)["result"] == "stacked"
     assert world.stacks[0]["prs"] == [1, 2]
+
+
+def test_held_chain_is_released_in_git_order(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    third = world.branch("third", "second", 3)
+    assert world.link(third)["held_on"] == {"pr": 2, "branch": "second"}
+    assert world.link(second)["held_on"] == {"pr": 1, "branch": "first"}
+    result = world.link(first)
+    assert result["result"] == "stacked"
+    assert result["top"]["pr"] == 3
+    assert [(layer["pr"], layer["linked"]) for layer in world.bead["metadata"]["layers"]] == [(1, True), (2, True), (3, True)]
+    assert world.stacks[0]["prs"] == [1, 2, 3]
