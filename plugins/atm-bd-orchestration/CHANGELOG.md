@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- The sanity close takes `reviewers_round1` from the QA bead's metadata as a list: the dev and fix close hook copies it into the sanity assignment's `close_context`, and refuses the close before any write when the QA bead's value is not a non-empty list of names. The shared close-vars contract no longer defaults it to `""`; `sanity-close-vars` and the sanity close refuse an empty string or a bare name instead of rendering `qa-template.xml.j2` with it. A sc-compose sanity PASS could not be recorded until the lead hand-wrote the list (#821).
+
 ## [0.19.14] - 2026-11-05
 
 ### Fixed

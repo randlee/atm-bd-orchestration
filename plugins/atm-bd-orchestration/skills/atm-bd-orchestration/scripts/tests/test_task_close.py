@@ -148,7 +148,8 @@ def test_preview_and_native_send_use_identical_completion_vars(world, monkeypatc
 
 
 @pytest.mark.parametrize("change,code", [({"commit": ""}, "VARS.EMPTY"), ({"extra": 1}, "VARS.UNKNOWN"),
-                                      ({"verdict": "rebase_required"}, "VARS.INVALID")])
+                                      ({"verdict": "rebase_required"}, "VARS.INVALID"),
+                                      ({"reviewers_round1": ""}, "VARS.INVALID"), ({"reviewers_round1": []}, "VARS.INVALID")])
 def test_invalid_vars_have_no_commands(world, change, code):
     assert world.run("sanity", **change)["err"]["code"] == code
     assert world.calls == []
@@ -1245,6 +1246,28 @@ def test_sanity_close_context_carries_only_the_fields_the_sanity_close_reads(wor
     assert "close_context" not in context
     for name in ("stack_view", "validation_md", "deliverables_md", "lint_command", "pr_target", "rebased_onto"):
         assert name not in context
+
+
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_sanity_close_context_takes_the_reviewer_list_from_the_qa_bead(world, role):
+    """The lead's dev file names no reviewers; the list planned on the QA bead reaches the sanity close as a list (#821)."""
+    world.values.pop("reviewers_round1")
+    world.beads[world.values["qa_bead"]]["metadata"]["reviewers_round1"] = ["rust-qa-agent"]
+    assert "ok" in world.run(role)
+    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert assignment["close_context"]["reviewers_round1"] == ["rust-qa-agent"]
+
+
+@pytest.mark.parametrize("reviewers", ["", [], None, "req-qa", ["req-qa", ""]])
+def test_a_qa_bead_without_a_reviewer_list_refuses_the_dev_close_before_any_write(world, reviewers):
+    metadata = world.beads[world.values["qa_bead"]]["metadata"]
+    if reviewers is None:
+        metadata.pop("reviewers_round1")
+    else:
+        metadata["reviewers_round1"] = reviewers
+    error = world.run()["err"]
+    assert error["code"] == "BEAD.INVALID" and world.values["qa_bead"] in error["message"] and "reviewers_round1" in error["message"]
+    assert world.writes == [] and world.messages == []
 
 
 @pytest.mark.parametrize("role", ["dev", "fix"])
