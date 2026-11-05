@@ -265,6 +265,16 @@ def assignment_details(events, task):
     raise CloseError("REPLAY.CONFLICT", f"{task} has no assignment event", "Assign the tracked task before closing it.")
 
 
+def assignment_id_for_round(events, task, round_number):
+    """Return the assignment recorded for a sanity round, using the ledger's completion-based numbering."""
+    for index, assignment in enumerate(events):
+        if assignment.get("event") in ASSIGNMENT_EVENTS:
+            assignment_round = 1 + sum(event.get("event") == COMPLETED for event in events[:index])
+            if assignment_round == round_number:
+                return assignment.get("message_id") or assignment["seq"]
+    return None
+
+
 def validate_command_json(argv, data):
     producer = " ".join(argv)
 
@@ -577,10 +587,16 @@ class Hook:
                 return True
             raise CloseError("REPLAY.CONFLICT", "sanity task was refused", "Request a new same-id assignment before PASS or FAIL.")
         count_key = sanity_round_key(metadata, self.task) if self.role == "sanity" else None
+        if self.role == "sanity" and self.values["round"] < self.assignment_round:
+            prior_assignment = assignment_id_for_round(events, self.task, self.values["round"])
+            if (isinstance(count_key, list) and len(count_key) == 4
+                    and [count_key[0], count_key[2], count_key[3]] == self.key
+                    and count_key[1] == prior_assignment and prior_assignment is not None):
+                return True
+            raise CloseError("REPLAY.CONFLICT", "sanity round is stale",
+                             "Use the current sanity assignment round, or replay the exact recorded prior verdict and commit.")
         if self.role == "sanity" and isinstance(count_key, list) and len(count_key) == 4:
             recorded = [count_key[0], count_key[2], count_key[3]]
-            if self.values["round"] < self.assignment_round and recorded == self.key:
-                return True
             if count_key[1] == self.assignment_id and recorded != self.key:
                 raise CloseError("REPLAY.CONFLICT", "recorded verdict or sha differs", "Use the original vars for a replay or start a new review assignment.")
         if self.role in ("sanity", "qa") and record.get("status") == "closed" and is_terminal(events):

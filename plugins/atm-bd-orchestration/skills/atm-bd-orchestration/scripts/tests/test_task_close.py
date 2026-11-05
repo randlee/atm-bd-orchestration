@@ -668,6 +668,33 @@ def test_old_sanity_fail_replay_after_dev_reclose_does_not_touch_new_round(world
     assert world.beads[checked]["metadata"]["commit"] == new_commit
 
 
+def test_stale_sanity_pass_against_reopened_assignment_is_rejected_before_writes(world):
+    sanity = world.values["sanity_bead"]
+    old_commit = world.values["commit"]
+    world.tasks[sanity] = [
+        world.assignment(1),
+        dict(event="completed", seq=2, at="2026-10-19T00:02:00Z", to_state="complete"),
+        dict(event="reopened", message_id="assignment-2", seq=3,
+             at="2026-10-19T00:03:00Z", to_state="assigned"),
+    ]
+    # The prior round recorded FAIL. A stale PASS must not take the old-round
+    # replay shortcut just because its commit is the same.
+    world.beads[sanity]["metadata"]["sanity_round_key"] = [sanity, "assignment-1", "FAIL", old_commit]
+
+    result = world.run("sanity", verdict="PASS", round=1, commit=old_commit)
+
+    assert result["err"]["code"] == "REPLAY.CONFLICT", result
+    assert world.writes == []
+    assert world.beads[sanity]["status"] == "in_progress"
+    assert world.tasks[sanity][-1]["event"] == "reopened"
+
+    exact_replay = world.run("sanity", verdict="FAIL", round=1, commit=old_commit,
+                             undone=[{"number": 2, "reason": "verbatim missing implementation"}])
+
+    assert "ok" in exact_replay
+    assert world.writes == []
+
+
 def test_new_assignment_between_fail_writes_stops_stale_hook(world):
     world.reassign_after_write = 1
     assert "ok" in world.run("sanity", verdict="FAIL", undone=[{"number": 1, "reason": "missing"}])
