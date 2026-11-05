@@ -147,8 +147,7 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
     if (phase is not None and stopped is None and top_pr is not None and top_pr.ci == CiState.PASS
             and isinstance(inputs.prs, Ok) and isinstance(inputs.stack_prs, Ok) and inputs.stack_ledger
             and inputs.stack_prs.value and inputs.stack_ledger[-1] == inputs.stack_prs.value[-1] == top_pr.number
-            and inputs.gh.mode != "off" and inputs.gh.ok is True and inputs.gh.at is not None
-            and (state.last_cycle is None or inputs.gh.at > state.last_cycle)):
+            and inputs.gh.mode != "off" and inputs.gh.ok is True and inputs.gh.at is not None):
         lower_numbers = set(inputs.stack_ledger[:-1])
         owners = _branch_owners(phase)
         lower_rows = tuple(

@@ -425,6 +425,13 @@ def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None
     assert any("lower layer #2" in row.reason and "top PR #3" in row.reason
                for section in snapshot.sections if section.label == "Lower CI" for row in section.rows)
     assert not any("fix is above" in row.reason for section in snapshot.sections for row in section.rows)
+    cached, cached_actions, _ = tick(inputs(
+        phase(*steps, sprints=sprints), prs=Ok(prs), stack_prs=Ok((1, 2, 3)), stack_ledger=(1, 2, 3),
+        remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    ), replace(STATE, last_cycle=NOW), NOW + timedelta(seconds=1), render)
+    assert any(section.label == "Lower CI" for section in cached.sections)
+    assert not any("lower layer" in action.text for action in cached_actions)
 
 
 def test_red_top_and_lower_send_only_actionable_top_alert() -> None:
