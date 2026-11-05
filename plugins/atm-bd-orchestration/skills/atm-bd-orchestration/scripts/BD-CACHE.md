@@ -154,8 +154,11 @@ applies them.
 
 File: `<repo>/.atm-bd/<dolt_database>.bd-cache.sqlite3` (gitignored), e.g.
 `my-team.bd-cache.sqlite3`. The name and the project id come from
-`.beads/metadata.json` (`dolt_database`, `project_id`; `$BEADS_DIR` when
-set), so locating the file starts no `bd` process. Missing or invalid
+the configured beads directory’s `metadata.json` (`dolt_database`, `project_id`),
+so locating the file starts no `bd` process. By default the beads directory is
+`<repo>/.beads` in the planning repository, including when a phase specifies a
+separate code checkout. An explicit `beads_dir` argument overrides that default;
+the caller’s `BEADS_DIR` environment variable does not. Missing or invalid
 metadata is `BD_CACHE.NO_DATABASE`. WAL mode, busy timeout 5 s,
 `PRAGMA user_version` = cache schema version (3). A file with another
 nonzero version is refused (`BD_CACHE.SCHEMA_VERSION`); version 0 is
@@ -369,7 +372,7 @@ Exit 0 ok; 2 usage; 3 typed error `{ok:false, code, detail, fix, ...}`.
 | code | meaning | fix carried |
 |---|---|---|
 | `BD_CACHE.BD_UNAVAILABLE` | `bd` timed out or could not start | an outage before a write (no attempt counted); a timed-out write retries |
-| `BD_CACHE.NO_DATABASE` | no readable `dolt_database`/`project_id` in metadata.json | run from the beads root or set `BEADS_DIR` |
+| `BD_CACHE.NO_DATABASE` | no readable `dolt_database`/`project_id` in metadata.json | run from the configured beads repository root after `bd init`, or repair its `.beads/metadata.json` |
 | `BD_CACHE.WRONG_DATABASE` | file's recorded project id differs | move the file aside |
 | `BD_CACHE.NOT_FOUND` | bead in neither cache nor `bd` | check the bead id |
 | `BD_CACHE.BD_VERSION_FAILED` / `BD_SCHEMA_FAILED` | backend check failed | install `bd` / transient |
@@ -415,7 +418,7 @@ the Rust binary and the reverse.
    port every case in `tests/test_bd_cache.py` (44 tests) and
    `tests/test_bd_cache_cron.py` (13 tests, real cache with the fake runner and an
    injected sender): file name from
-   metadata.json and `BEADS_DIR`, NO_DATABASE, WRONG_DATABASE, schema change
+   configured metadata.json, explicit `beads_dir` and an ignored caller `BEADS_DIR`, NO_DATABASE, WRONG_DATABASE, schema change
    rebuilds rows and keeps the journal, first check keeps rows, model_current,
    BD_CONTRACT on a bad row with no partial store, one batched pre-read,
    unknown dep type refused, not-found escalation, miss-once, overlay
