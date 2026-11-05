@@ -897,3 +897,12 @@ def test_self_lead_success_returns_link_result_without_send(world):
     assert result["result"] == "stacked"
     assert result["notified"] == "skipped (self)"
     assert not any(call[:2] == ["atm", "send"] for call in world.calls)
+
+
+def test_malformed_held_parent_is_a_repairable_refusal(world):
+    values = world.branch("first", "trunk", 1)
+    world.bead["metadata"]["layers"] = [{"pr": 1, "branch": "first", "head": values["commit"], "base": "trunk", "linked": False, "held_on": None}]
+    result = world.link(values)
+    assert result["result"] == "stack_failed"
+    assert "invalid held_on" in result["evidence"]
+    assert "bd update phase.stack --metadata" in result["fix"]

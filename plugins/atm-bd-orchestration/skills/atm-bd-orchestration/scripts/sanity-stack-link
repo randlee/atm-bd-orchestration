@@ -280,6 +280,13 @@ class Linker:
         previous = metadata['trunk']
         branches, numbers = set(), set()
         for layer in layers:
+            if isinstance(layer, dict) and 'held_on' in layer:
+                held_on = layer['held_on']
+                if (not isinstance(held_on, dict) or type(held_on.get('pr')) is not int or held_on['pr'] <= 0 or
+                        not isinstance(held_on.get('branch'), str) or not held_on['branch'] or
+                        layer.get('linked') is not False or layer.get('base') != held_on['branch'] or
+                        held_on['pr'] == layer.get('pr')):
+                    self.invalid_layer(metadata, layer, 'invalid held_on parent or linked state', remove=True)
             if isinstance(layer, dict) and type(layer.get('pr')) is int and layer['pr'] in numbers:
                 self.invalid_layer(metadata, layer, 'duplicate pr in metadata.layers', remove=True)
             if (not isinstance(layer, dict) or not isinstance(layer.get('branch'), str) or not layer['branch'] or
