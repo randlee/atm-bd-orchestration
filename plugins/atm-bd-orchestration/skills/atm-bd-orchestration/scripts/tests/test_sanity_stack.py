@@ -6,6 +6,7 @@ import importlib.machinery
 import importlib.util
 import io
 import json
+import os
 import shlex
 from pathlib import Path
 import subprocess
@@ -20,6 +21,7 @@ from stack_top import StackTop, select_confirmed_stack_top
 from task_close_world import World as HookWorld, hook as close_hook
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+GIT_TIMEOUT_SECONDS = 15
 LOADER = importlib.machinery.SourceFileLoader("sanity_stack_link", str(SCRIPTS / "sanity-stack-link"))
 SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
 assert SPEC is not None
@@ -39,8 +41,34 @@ class World:
         monkeypatch.setenv("ATM_IDENTITY", "sanity")
         self.root = tmp_path / "repo"
         origin = tmp_path / "origin.git"
-        subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True)
-        subprocess.run(["git", "init", "-b", "trunk", str(self.root)], check=True, capture_output=True)
+        self.git_env = {
+            key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+        }
+        self.git_env.update(
+            {
+                "GIT_CONFIG_GLOBAL": str(tmp_path / "empty-gitconfig"),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.hooksPath",
+                "GIT_CONFIG_VALUE_0": str(tmp_path / "empty-hooks"),
+            }
+        )
+        (tmp_path / "empty-gitconfig").touch()
+        (tmp_path / "empty-hooks").mkdir()
+        subprocess.run(
+            ["git", "init", "--bare", str(origin)],
+            check=True,
+            capture_output=True,
+            env=self.git_env,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+        subprocess.run(
+            ["git", "init", "-b", "trunk", str(self.root)],
+            check=True,
+            capture_output=True,
+            env=self.git_env,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
         self.git("config", "user.email", "test@example.com")
         self.git("config", "user.name", "Test")
         self.git("remote", "add", "origin", str(origin))
@@ -63,7 +91,15 @@ class World:
         self.hook = None
 
     def git(self, *args):
-        return subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True, text=True).stdout.strip()
+        return subprocess.run(
+            ["git", *args],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=self.git_env,
+            timeout=GIT_TIMEOUT_SECONDS,
+        ).stdout.strip()
 
     def branch(self, name, base, number):
         self.git("checkout", "-b", name, base)
@@ -133,7 +169,15 @@ class World:
                 stack = next(item for item in self.stacks if item["number"] == int(argv[3]))
                 stack["prs"].append(int(argv[4]))
         elif argv[0] == "git":
-            return subprocess.run(argv, **{"cwd": self.root, **kwargs})
+            return subprocess.run(
+                argv,
+                **{
+                    "cwd": self.root,
+                    "env": self.git_env,
+                    "timeout": GIT_TIMEOUT_SECONDS,
+                    **kwargs,
+                },
+            )
         else:
             raise AssertionError(argv)
         return subprocess.CompletedProcess(argv, status, output, error)
@@ -152,6 +196,25 @@ class World:
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     return World(tmp_path, monkeypatch)
+
+
+def test_world_git_runner_ignores_host_hooks(tmp_path, monkeypatch):
+    marker = tmp_path / "host-hook-ran"
+    hooks = tmp_path / "host-hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-commit"
+    hook.write_text(f"#!/bin/sh\nprintf ran > {shlex.quote(str(marker))}\n")
+    hook.chmod(0o755)
+    config = tmp_path / "host-gitconfig"
+    config.write_text(f"[core]\n\thooksPath = {hooks}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.delenv("GIT_CONFIG_NOSYSTEM", raising=False)
+
+    fixture_root = tmp_path / "fixture"
+    fixture_root.mkdir()
+    World(fixture_root, monkeypatch)
+
+    assert not marker.exists()
 
 
 def test_already_linked_lower_layer_at_pinned_commit_is_stacked(world):
