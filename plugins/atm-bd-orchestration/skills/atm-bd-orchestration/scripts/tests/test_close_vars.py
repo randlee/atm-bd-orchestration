@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -11,8 +13,10 @@ from pathlib import Path
 SCRIPTS = Path(__file__).parents[1]
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(SCRIPTS.parents[1] / "atm-beads" / "scripts"))
+sys.path.insert(0, str(SCRIPTS / "tests"))
 import close_fields  # noqa: E402
 from rendering import render  # noqa: E402
+from task_close_world import World as CloseHookWorld  # noqa: E402
 
 
 def load(name: str, file: str):
@@ -44,6 +48,75 @@ def row(bead: str, stage: str, role: str, status: str = "open", **extra) -> dict
 FIX = row("t-d-1.f1-fix", "stage:fix", "fix", status="closed", commit="abc123", pr_number=2214, pr_url="u")
 QA = row("t-d-1.f1-qa", "stage:qa", "qa", layer=34, round=1, reviewers_round1=["req-qa"])
 CURRENT_PR = {"number": 2214, "base": "fix/d-1-f2", "head": "fix/d-1-f1", "head_sha": "def456789"}
+
+
+def test_rebased_fixture_layer_updates_qa_vars_and_sanity_close_context(tmp_path: Path, monkeypatch) -> None:
+    fixture = tmp_path / "rebased-layer"
+    fixture.mkdir()
+
+    def git(*args: str) -> str:
+        completed = subprocess.run(["git", *args], cwd=fixture, capture_output=True, text=True,
+                                   timeout=10, check=True)
+        return completed.stdout.strip()
+
+    git("init", "-b", "stack-old")
+    git("config", "user.name", "ATM Test")
+    git("config", "user.email", "atm-test@example.invalid")
+    git("config", "commit.gpgsign", "false")
+    git("config", "core.hooksPath", "/dev/null")
+    (fixture / "base.txt").write_text("old stack base\n")
+    git("add", "base.txt")
+    git("commit", "-m", "old stack base")
+    git("switch", "-c", "fix/d-1-f1")
+    (fixture / "fix.txt").write_text("layer change\n")
+    git("add", "fix.txt")
+    git("commit", "-m", "layer change")
+    first_head = git("rev-parse", "HEAD")
+    git("switch", "-c", "stack-new", "stack-old")
+    (fixture / "new-base.txt").write_text("new stack base\n")
+    git("add", "new-base.txt")
+    git("commit", "-m", "new stack base")
+    new_base = git("rev-parse", "HEAD")
+    git("switch", "fix/d-1-f1")
+    git("rebase", "stack-new")
+    rebased_head = git("rev-parse", "HEAD")
+    assert git("rev-parse", "HEAD^") == new_base
+    assert rebased_head != first_head
+
+    current_pr = {**CURRENT_PR, "base": "stack-new", "head": "fix/d-1-f1", "head_sha": rebased_head}
+    recorded = {**FIX, "metadata": {**FIX["metadata"], "branch": "fix/d-1-f1", "pr_base": "stack-old",
+                                      "commit": first_head}}
+    rows = {QA["id"]: QA, recorded["id"]: recorded}
+    from unittest.mock import patch
+
+    with patch.object(close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
+        qa_assignment = close_vars_cli.build_qa_assignment(
+            fixture, QA["id"], pr_reader=lambda repo, number: current_pr)
+    qa_vars = qa_assignment["vars"]
+    assert qa_vars["base"] == "stack-new"
+    assert qa_vars["commit"] == rebased_head
+
+    hook_root = tmp_path / "close-hook"
+    hook_root.mkdir()
+    close_hook = CloseHookWorld(hook_root, monkeypatch)
+    close_hook.values.update(base=qa_vars["base"], commit=qa_vars["commit"], branch=qa_vars["branch"])
+    close_hook.actual_branch = qa_vars["branch"]
+    close_hook.head = qa_vars["commit"]
+    checked = close_hook.beads[close_hook.values["checked_bead"]]
+    checked["labels"] = ["stage:finding"]
+    checked["metadata"].update(role="fix", branch=qa_vars["branch"])
+    api_path = f"repos/example/repo/pulls?head=example:{qa_vars['branch']}&state=open"
+    close_hook.overrides[("gh", "api", api_path)] = (
+        0, json.dumps([{"number": qa_vars["pr_number"], "head": {"sha": rebased_head},
+                        "base": {"ref": "stack-new"}}]))
+    close_hook.overrides[("git", "rev-parse", "origin/stack-new")] = (0, new_base)
+
+    result = close_hook.run("fix")
+    assert "ok" in result, result
+    close_context = next(message["values"]["close_context"] for message in close_hook.messages
+                         if message["type"] == "dev-sanity-task")
+    assert close_context["base"] == new_base
+    assert close_context["commit"] == rebased_head
 
 
 class CloseVarsTests(unittest.TestCase):

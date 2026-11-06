@@ -1807,7 +1807,7 @@ def test_assignment_consumes_completion_vars_before_the_temporary_file_is_remove
 
 
 # The dev/fix fields sanity-close-vars and the sanity close read back from close_context (#557).
-SANITY_READ = {"base", "base_verified", "base_source", "nr", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+SANITY_READ = {"base", "base_verified", "base_source", "nr", "carry_forward", "checked_title", "commit", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
                "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
                "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"}
 

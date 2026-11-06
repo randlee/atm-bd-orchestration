@@ -64,7 +64,7 @@ ATM_MAX_REQUEST_BYTES = 1_114_112
 # write_stack_input(), then atm-task-close.py --role sanity and the templates it renders and sends
 # (dev-sanity-complete, sanity-fail, qa-template). Every other field is overwritten there or never read.
 SANITY_CLOSE_CONTEXT = frozenset((
-    "base", "base_verified", "base_source", "nr", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+    "base", "base_verified", "base_source", "nr", "carry_forward", "checked_title", "commit", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
     "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
     "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"))
 
