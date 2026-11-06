@@ -91,6 +91,28 @@ def report(*, ready_rows=None):
     return result, calls
 
 
+@pytest.mark.parametrize("kind,status", [("dependency", "open"), ("finding", "open"),
+                                       ("dependency", "closed"), ("finding", "closed")])
+def test_sprint_closure_respects_independent_blockers(kind, status):
+    root = bead(ROOT, "root")
+    sprint = bead("sprint", "sprint", parent=ROOT)
+    child = bead("child", "dev", parent="sprint", status="closed")
+    blocker = bead("finding", "finding", parent=ROOT, status=status,
+                   **({"metadata": {"sprint_bead": "sprint"}} if kind == "finding" else {}))
+    if kind == "dependency":
+        sprint["dependencies"] = [{"issue_id": "sprint", "depends_on_id": "finding", "type": "blocks"}]
+    open_rows = [root, sprint] + ([blocker] if status == "open" else [])
+    runner, _ = fixed_runner(open_rows=open_rows, ready_rows=[sprint], task_rows=[], closed_rows=[child])
+    result = queues.build(SimpleNamespace(phase=None, root=ROOT, stack=False), Path("/fixture"), now=NOW, runner=runner)
+    closable = {row["id"] for row in result["queues"]["container_closable"]}
+    if status == "open":
+        assert "sprint" not in closable
+        row = next(row for row in result["queues"]["not_ready"] if row["id"] == "sprint")
+        assert row["detail"] == "blocked by finding (open)"
+    else:
+        assert "sprint" in closable
+
+
 def test_build_classifies_each_queue_from_fixed_json_and_uses_four_batched_reads():
     result, calls = report()
     q = result["queues"]

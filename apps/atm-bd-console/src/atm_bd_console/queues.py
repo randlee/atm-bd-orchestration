@@ -176,10 +176,14 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
         closed = {_valid_id(bead, "bd list --status closed"): bead for bead in closed_rows}
 
     children: dict[str, list[dict[str, Any]]] = {}
+    sprint_findings: dict[str, list[str]] = {}
     for bead in beads:
         parent = bead.get("parent")
         if isinstance(parent, str) and parent:
             children.setdefault(parent, []).append(bead)
+        sprint = _meta(bead).get("sprint_bead")
+        if _stage(bead) == FINDING and isinstance(sprint, str) and bead.get("status") != "closed":
+            sprint_findings.setdefault(sprint, []).append(bead["id"])
     scope = set(by_id) - {root}
 
     def deps(bead: dict[str, Any], kind: str | None = None) -> list[str]:
@@ -221,9 +225,16 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
             continue
         open_children = children.get(bead_id, [])
         since = bead.get("updated_at") or bead.get("created_at")
-        if stage == "stage:sprint" and not open_children:
-            add("container_closable", bead, since, "no open children")
-            continue
+        if stage == "stage:sprint":
+            blockers = sorted({ident for ident in deps(bead, "blocks") + sprint_findings.get(bead_id, [])
+                               if ident in by_id and by_id[ident].get("status") != "closed"})
+            if blockers:
+                detail = ", ".join(f"{ident} ({by_id[ident].get('status', 'unknown')})" for ident in blockers)
+                add("not_ready", bead, since, f"blocked by {detail}")
+                continue
+            if not open_children:
+                add("container_closable", bead, since, "no open children")
+                continue
         if bead.get("status") == "in_progress":
             add("claimed_no_task", bead, bead.get("started_at") or bead.get("updated_at"))
             continue
