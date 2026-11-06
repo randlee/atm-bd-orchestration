@@ -984,8 +984,8 @@ class Hook:
         previous = [event for event in sanity_events if event.get("event") in ASSIGNMENT_EVENTS]
         new_assignment_required = assign and not open_assignment
         if actual.get("status") != "closed" or actual.get("close_reason") != reason or not assignments or (new_assignment_required and len(assignments) <= len(previous)):
-            raise CloseError("CLOSE.POSTCONDITION", f"expected {values['checked_bead']} closed and {sanity} assigned; "
-                             f"read status {actual.get('status')!r} and {len(assignments)} assignment(s)",
+            raise CloseError("CLOSE.POSTCONDITION", f"expected {values['checked_bead']} closed with reason {reason!r} and {sanity} assigned; "
+                             f"read status {actual.get('status')!r}, reason {actual.get('close_reason')!r} and {len(assignments)} assignment(s)",
                              f"Inspect `bd show {values['checked_bead']} --json` and `atm task events {sanity} --json`, repair the state and retry.")
         # The dev's work is finished: free the dev for its next queued task and stop reminders.
         # Sanity state lives on the sanity task; a FAIL re-assigns this task through the lead.

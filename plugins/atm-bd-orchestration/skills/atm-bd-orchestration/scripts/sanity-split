@@ -307,6 +307,8 @@ def pin(args: SplitArguments) -> tuple[str, str]:
     sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{args.commit}^{{commit}}",
               what=f"commit {args.commit} is not in {args.worktree}").strip()
     try:
+        if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", args.base):
+            raise Fail(3, "base is not a full commit id")
         base_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{args.base}^{{commit}}").strip()
     except Fail:
         base_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"origin/{args.base}^{{commit}}",

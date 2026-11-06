@@ -149,6 +149,14 @@ def test_fail_reopens_dev_leaves_sanity_blocked_and_notifies_dev_before_close(wo
     assert world.beads[world.task]["dependencies"] == before
 
 
+def test_fail_notes_use_current_assignment_iteration(world):
+    world.histories[world.task] += [{"event": "completed", "to_state": "complete"},
+                                    {"event": "reopened", "assignee": "test-sanity", "message_id": "assign-2", "to_state": "assigned"}]
+    world.values.update(assignment_id="assign-2", round=1, verdict="FAIL", findings=[{"deliverable": 1, "issue": "missing"}])
+    assert world.invoke()["result"] == "handled"
+    assert "sanity FAIL round 2" in world.journal()[0][2]["append_notes"]
+
+
 def test_pending_drain_refuses_then_retry_assigns_without_repeating_writes(world, monkeypatch):
     world.values.update(verdict="FAIL", findings=[{"deliverable": 1, "issue": "missing"}])
     original = bd_cache.BdCache.drain

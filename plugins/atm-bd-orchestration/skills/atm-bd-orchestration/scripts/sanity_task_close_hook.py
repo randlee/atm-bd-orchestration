@@ -328,6 +328,7 @@ def prepare(runtime, sanity):
     history = runtime.events(task)
     assignments = [event for event in history if event.get("event") in ASSIGNMENTS]
     require(bool(assignments), "assignment", "sanity task has no assignment", "phase-lead")
+    values["round"] = len(assignments)
     assignment = assignments[-1]
     require(assignment.get("assignee") == runtime.identity, "caller", "only assigned sanity agent may close")
     assignment_ref = assignment.get("message_id") or assignment.get("seq")
