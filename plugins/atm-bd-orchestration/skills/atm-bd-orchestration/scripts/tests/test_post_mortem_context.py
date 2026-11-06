@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+from subprocess_helpers import HANG_GUARD_SECONDS, run_command
 import subprocess
 import tempfile
 import unittest
@@ -20,9 +21,11 @@ class CollectionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.repo = self.root / "repo with spaces"
         self.repo.mkdir()
-        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
-        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], check=True)
-        self.head = subprocess.check_output(["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True).strip()
+        run_command(["git", "init", "-q", str(self.repo)], timeout=HANG_GUARD_SECONDS, check=True)
+        run_command(["git", "-C", str(self.repo), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], timeout=HANG_GUARD_SECONDS, check=True)
+        self.head = run_command(["git", "-C", str(self.repo), "rev-parse", "HEAD"],
+                                timeout=HANG_GUARD_SECONDS, check=True, capture_output=True,
+                                text=True).stdout.strip()
         self.real_run = subprocess.run
         self.calls = []
 
