@@ -622,7 +622,11 @@ def _problems(
                     f"{step.bead_id} ({step.kind}): pushed branch {branch} has no open PR; open a PR with "
                     f"head {branch} against its pr_target (a stacked layer is submitted by the stack writer)", now,
                 ))
-        if isinstance(inputs.stack_ledger, Ok):
+        if (
+            isinstance(inputs.stack_prs, Ok)
+            and isinstance(inputs.stack_ledger, Ok)
+            and inputs.stack_prs.value == inputs.stack_ledger.value
+        ):
             open_prs_by_number = {pr.number: pr for pr in prs if active_pr(pr)}
             stack_chain = tuple(
                 open_prs_by_number[number]

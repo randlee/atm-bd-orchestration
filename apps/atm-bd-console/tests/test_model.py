@@ -680,6 +680,30 @@ def test_stack_pr_base_accepts_a_layer_above_target_and_rejects_outside_stack() 
     assert not any(problem.key == "missing_pr:branch-3" for problem in invalid.problems)
 
 
+def test_stack_pr_base_is_not_classified_until_ledger_matches_hosted_membership() -> None:
+    steps = tuple(
+        step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+             target="integrate/phase-br", layer=number)
+        for number in (1, 2, 3)
+    )
+    prs = tuple(
+        PullRequest(number, f"url{number}", f"branch-{number}",
+                    "integrate/phase-br" if number == 1 else f"branch-{number - 1}",
+                    f"sha{number}", CiState.PASS, ())
+        for number in (1, 2, 3)
+    )
+    snapshot, _, _ = tick(inputs(
+        phase(*steps, sprints=(sprint(1), sprint(2), sprint(3))), prs=Ok(prs),
+        stack_prs=Ok((1, 2, 3)), stack_ledger=Ok((1,)),
+        remotes=Ok(tuple(RemoteRef(pr.head, pr.head_sha) for pr in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    ), STATE, NOW, render)
+
+    keys = {problem.key for problem in snapshot.problems}
+    assert "stack_top_mismatch" in keys
+    assert "pr_base_outside_stack:branch-3" not in keys
+
+
 def test_base_warning_survives_unavailable_ledger_until_stack_validation_recovers() -> None:
     value = phase(step("dev", "atm-bh-3", branch="branch-3", target="target", layer=3))
     pr = PullRequest(3, "url3", "branch-3", "unrelated/branch", "sha3", CiState.PASS, ())
