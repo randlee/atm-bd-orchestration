@@ -1630,8 +1630,26 @@ def test_sanity_dispatch_base_is_actual_pr_parent(world):
 def test_restacked_parent_excludes_lower_layer_reserved_file_from_sanity_rule(world, monkeypatch):
     repo = world.root / "diff-fixture"
     repo.mkdir()
+    hostile_hooks = world.root / "hostile-hooks"
+    hostile_hooks.mkdir()
+    hook_marker = world.root / "hook-ran"
+    pre_commit = hostile_hooks / "pre-commit"
+    pre_commit.write_text(f"#!/bin/sh\ntouch '{hook_marker}'\nexit 23\n")
+    pre_commit.chmod(0o755)
+    hostile_config = world.root / "hostile-gitconfig"
+    hostile_config.write_text(f"[core]\n\thooksPath = {hostile_hooks}\n[commit]\n\tgpgsign = true\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(hostile_config))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(hostile_config))
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(hostile_hooks))
+    git_env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    git_env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+
     def git(*args):
-        result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True, timeout=30)
+        result = subprocess.run(["git", "-c", f"core.hooksPath={os.devnull}", "-c", "commit.gpgsign=false",
+                                 "-C", str(repo), *args], env=git_env, capture_output=True, text=True, check=True,
+                                timeout=30)
         return result.stdout.strip()
     git("init", "-q")
     git("config", "user.name", "Fixture")
@@ -1666,6 +1684,7 @@ def test_restacked_parent_excludes_lower_layer_reserved_file_from_sanity_rule(wo
     wrong = split.changed_files(str(repo), trunk, head)
     assert split.outside_fence(actual, ["owned.txt"]) == []
     assert split.outside_fence(wrong, ["owned.txt"]) == ["reserved.txt"]
+    assert not hook_marker.exists()
 
 
 def test_sanity_close_context_subset_builds_the_same_sanity_close(world):
