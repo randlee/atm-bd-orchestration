@@ -389,6 +389,23 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(by_bead["t-d-1.group-dev"]["sanity_bead"], replacement["id"])
         self.assertEqual(by_bead["t-d-1.group-qa"]["sanity_bead"], replacement["id"])
 
+    def test_empty_qa_sanity_uses_live_replacement_when_work_reference_is_superseded(self):
+        import copy
+
+        group = self.group()
+        superseded = group[2]
+        superseded.update(status="closed", notes="superseded by t-d-1.group-sanity-r2: rebased")
+        group[1]["metadata"]["sanity_bead"] = superseded["id"]
+        replacement = copy.deepcopy(superseded)
+        replacement.update(id="t-d-1.group-sanity-r2", status="open", notes="")
+        replacement["metadata"]["round"] = 2
+
+        fills, problems = self.plan([*group, replacement])
+
+        self.assertEqual(problems, [])
+        by_bead = {item["bead"]: item["set_metadata"] for item in fills}
+        self.assertEqual(by_bead["t-d-1.group-qa"]["sanity_bead"], replacement["id"])
+
     def test_superseded_sanity_without_live_replacement_is_a_problem(self):
         group = self.group()
         superseded = group[2]

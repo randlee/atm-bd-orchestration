@@ -104,8 +104,13 @@ def plan(rows: list[dict], *, phase_feature: str, stack_bead: str, config: dict)
         container = by_id.get(sprint_bead or "")
         is_sprint_dev = "stage:dev" in (work.get("labels") or [])
         try:
+            preferred_sanity = meta.get("sanity_bead")
+            if role == "qa" and not preferred_sanity:
+                work_sanity = wmeta.get("sanity_bead")
+                if work_sanity and any(r.get("id") == work_sanity and r.get("status") != "closed" for r in rows):
+                    preferred_sanity = work_sanity
             sanity_bead = row["id"] if role == "sanity" else member(rows, "stage:dev-sanity", "dev_bead", checked,
-                                                                       meta.get("sanity_bead") or wmeta.get("sanity_bead"))
+                                                                       preferred_sanity)
             qa_bead = row["id"] if role == "qa" else member(rows, "stage:qa", "checked_bead", checked)
         except InvalidMember as error:
             problems.append(str(error))
