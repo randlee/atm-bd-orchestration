@@ -155,6 +155,7 @@ def test_fail_notes_use_current_assignment_iteration(world):
     world.values.update(assignment_id="assign-2", round=1, verdict="FAIL", findings=[{"deliverable": 1, "issue": "missing"}])
     assert world.invoke()["result"] == "handled"
     assert "sanity FAIL round 2" in world.journal()[0][2]["append_notes"]
+    assert ["atm", "task", "events", world.task, "--all", "--json"] in world.commands
 
 
 def test_pending_drain_refuses_then_retry_assigns_without_repeating_writes(world, monkeypatch):

@@ -13,6 +13,7 @@ SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
 assert SPEC is not None
 CLOSE = importlib.util.module_from_spec(SPEC)
 LOADER.exec_module(CLOSE)
+READ_TASK_EVENTS = CLOSE.task_events
 
 
 @pytest.fixture(autouse=True)
@@ -53,6 +54,16 @@ def test_reopened_assignment_counts_from_task_events_not_old_context(inputs):
     manifest["close_context"]["round"] = 1
     events = [{"event": "assigned"}, {"event": "completed"}, {"event": "reopened"}]
     assert CLOSE.build(manifest, selected, events=events)["round"] == 2
+
+
+def test_event_reader_requests_complete_history(monkeypatch):
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        return type("Result", (), {"stdout": '{"events": [{"event": "assigned"}]}'})()
+    monkeypatch.setattr(CLOSE.subprocess, "run", run)
+    assert READ_TASK_EVENTS("task") == [{"event": "assigned"}]
+    assert calls == [["atm", "task", "events", "task", "--all", "--json"]]
 
 
 def test_fail_retains_verbatim_deliverable_reason_and_stack_result(inputs):

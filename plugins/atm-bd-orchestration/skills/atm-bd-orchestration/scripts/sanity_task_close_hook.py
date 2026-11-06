@@ -179,7 +179,7 @@ class Runtime:
         return [self.bead(bead) for bead in ids]
 
     def events(self, task):
-        data = self.read_json(["atm", "task", "events", task, "--json"])
+        data = self.read_json(["atm", "task", "events", task, "--all", "--json"])
         require(isinstance(data, dict) and isinstance(data.get("events"), list),
                 "events", f"missing history for {task}", "phase-lead")
         return data["events"]
