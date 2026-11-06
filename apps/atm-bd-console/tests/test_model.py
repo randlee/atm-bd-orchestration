@@ -704,6 +704,26 @@ def test_stack_pr_base_is_not_classified_until_ledger_matches_hosted_membership(
     assert "pr_base_outside_stack:branch-3" not in keys
 
 
+def test_stack_pr_base_is_not_classified_when_snapshot_omits_a_ledger_member() -> None:
+    steps = tuple(
+        step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+             target="integrate/phase-br", layer=number)
+        for number in (1, 2, 3)
+    )
+    prs = (
+        PullRequest(1, "url1", "branch-1", "integrate/phase-br", "sha1", CiState.PASS, ()),
+        PullRequest(3, "url3", "branch-3", "branch-2", "sha3", CiState.PASS, ()),
+    )
+    snapshot, _, _ = tick(inputs(
+        phase(*steps, sprints=(sprint(1), sprint(2), sprint(3))), prs=Ok(prs),
+        stack_prs=Ok((1, 2, 3)), stack_ledger=Ok((1, 2, 3)),
+        remotes=Ok(tuple(RemoteRef(pr.head, pr.head_sha) for pr in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    ), STATE, NOW, render)
+
+    assert "pr_base_outside_stack:branch-3" not in {problem.key for problem in snapshot.problems}
+
+
 def test_base_warning_survives_unavailable_ledger_until_stack_validation_recovers() -> None:
     value = phase(step("dev", "atm-bh-3", branch="branch-3", target="target", layer=3))
     pr = PullRequest(3, "url3", "branch-3", "unrelated/branch", "sha3", CiState.PASS, ())
