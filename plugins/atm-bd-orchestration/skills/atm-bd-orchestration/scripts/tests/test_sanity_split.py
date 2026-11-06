@@ -18,7 +18,12 @@ import unittest.mock
 from pathlib import Path
 
 from rendering import render
-from subprocess_helpers import HANG_GUARD_SECONDS, run_command
+from subprocess_helpers import (
+    HANG_GUARD_SECONDS,
+    isolated_git_env,
+    run_command,
+    run_fixture_git,
+)
 
 SCRIPTS = Path(__file__).parents[1]
 SCRIPT = SCRIPTS / "sanity-split"
@@ -151,31 +156,6 @@ Nothing else.
 def bead(description=DESCRIPTION, owned=("crates/types/src/**",)):
     return [{"id": "{{ bead_prefix }}-x-1", "title": "x-1: retry", "description": description, "design": "## Design\n\nplain",
              "acceptance_criteria": "- true for 429\n- tests", "metadata": {"owned_paths": list(owned)}}]
-
-
-def isolated_git_env(root):
-    root = Path(root)
-    home = root / ".git-fixture-home"
-    config = root / ".git-fixture-config"
-    template = root / ".git-fixture-template"
-    home.mkdir(parents=True, exist_ok=True)
-    template.mkdir(parents=True, exist_ok=True)
-    config.touch(exist_ok=True)
-    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    env.update({
-        "HOME": str(home),
-        "XDG_CONFIG_HOME": str(home / "xdg"),
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": str(config),
-        "GIT_TEMPLATE_DIR": str(template),
-    })
-    return env, template
-
-
-def run_fixture_git(command, *, env):
-    return run_command(
-        command, timeout=HANG_GUARD_SECONDS, check=True, capture_output=True, text=True, env=env,
-    )
 
 
 def git(cwd, *argv):

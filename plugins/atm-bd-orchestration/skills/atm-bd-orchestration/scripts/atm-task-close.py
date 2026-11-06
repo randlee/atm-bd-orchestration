@@ -21,7 +21,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import tomllib
 from datetime import datetime, timezone
 
 import yaml
@@ -36,7 +35,9 @@ import sc_render
 from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
 from stack_top import select_stack_top
 from task_close_validation import (ASSIGNMENT_EVENTS, CloseError, assignment_details, assignment_id_for_round,
-                                   sanity_round, sanity_round_key, validate_command_json, header, reviewer_list, validate)
+                                   sanity_round, sanity_round_key, validate_command_json, header, reviewer_list, validate,
+                                   sanity_close_mode, bd_value, read_vars, merge_result, validate_outcome,
+                                   read_toml_setting, read_config)
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 ROLES = ("dev", "fix", "sanity", "qa")
@@ -44,10 +45,6 @@ COMMAND_TIMEOUT = import_timeout()
 TERMINAL_STATES = frozenset(("complete",))
 COMPLETED = "completed"
 REFUSED = "refused"
-# The result outcomes fix-complete.md.j2 accepts; not_reproducible is a fix outcome, so dev accepts only fixed.
-RESULT_OUTCOMES = {"dev": ("fixed",), "fix": ("fixed", "not_reproducible")}
-# Agents write the ATM task close word for the result outcome; it means fixed.
-OUTCOME_ALIASES = {COMPLETED: "fixed"}
 # Dolt drops connections under host load (load 40-55 with parallel cargo builds): a dropped bd call is retried.
 # Worst case for one bd call that keeps dropping = (DOLT_RETRIES + 1) * COMMAND_TIMEOUT + DOLT_RETRIES * DOLT_RETRY_SLEEP_S;
 # a call that times out is not retried and fails after COMMAND_TIMEOUT. See docs/requirements/task-close-hook.md.
@@ -69,22 +66,8 @@ SANITY_CLOSE_CONTEXT = frozenset((
     "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"))
 
 
-SANITY_CLOSE_HOOK_MODULE = "sanity_task_close_hook.py"
 
 
-def sanity_close_mode(rows, phase, member):
-    """`daemon` when `atm hook list --phase <phase> --json` shows an active task.close registration of the sanity
-    close hook that enables `member` (SANITY-CLOSE-HOOK.md); otherwise `legacy`."""
-    for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict):
-            continue
-        custom = row.get("custom")
-        agents = custom.get("sanity_agents") if isinstance(custom, dict) else None
-        if (row.get("phase") == phase and row.get("hook") == "task.close" and row.get("active") is True
-                and Path(str(row.get("module_path") or "")).name == SANITY_CLOSE_HOOK_MODULE
-                and isinstance(agents, list) and member in agents):
-            return "daemon"
-    return "legacy"
 
 
 def is_terminal(events):
@@ -101,14 +84,6 @@ def load_sample():
             "cpu_pct": round(100 * one / (os.cpu_count() or 1), 1)}
 
 
-def bd_value(item):
-    """A metadata value as bd stores it: lists and objects as their JSON text (readers decode them, e.g.
-    sanity_round_key) and integer text as the integer (a vars file carries pr_number as "351")."""
-    if isinstance(item, (list, dict)):
-        return json.dumps(item, separators=(",", ":"))
-    if isinstance(item, str) and item.isdigit() and str(int(item)) == item:
-        return int(item)
-    return item
 
 
 
@@ -120,47 +95,10 @@ class Parser(argparse.ArgumentParser):
 
 
 
-def read_vars(path):
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
-        raise CloseError("VARS.INVALID", f"Cannot read vars file {path}: {error}",
-                         f"Provide a readable UTF-8 JSON file at --vars {path}.") from error
-    try:
-        values = json.loads(text)
-    except json.JSONDecodeError as error:
-        raise CloseError("VARS.INVALID", f"{path}:{error.lineno}:{error.colno}: {error.msg}",
-                         f"Correct JSON at line {error.lineno}, column {error.colno} in {path}.") from error
-    if not isinstance(values, dict):
-        raise CloseError("VARS.INVALID", f"{path}: expected a JSON object, got {type(values).__name__}",
-                         f"Replace the top-level value in {path} with the lead's shared vars object.")
-    return values
 
 
-def merge_result(values, result, role):
-    """Join the fixer's result file to the lead's dispatch vars; each field lives in exactly one of them."""
-    result = {key: value for key, value in result.items() if key != "stack_view"}
-    fields = set(header(TEMPLATES / "task-close-vars.j2")["result_variables_by_role"][role])
-    unknown = result.keys() - fields
-    if unknown:
-        raise CloseError("VARS.UNKNOWN", ", ".join(sorted(unknown)), f"Remove fields that are not {role} result fields from --result.")
-    overlap = values.keys() & result.keys()
-    if overlap:
-        raise CloseError("VARS.INVALID", ", ".join(sorted(overlap)),
-                         "Pass each completion field once: remove it from the lead's dispatch file or from --result.")
-    return {**values, **result}
 
 
-def validate_outcome(values, role, path):
-    """Map an aliased result outcome, and refuse a bad one before the template's undefined-filter guard reports it as an unknown filter."""
-    allowed = RESULT_OUTCOMES[role]
-    if "outcome" not in values:
-        return values
-    values = {**values, "outcome": OUTCOME_ALIASES.get(values["outcome"], values["outcome"])}
-    if values["outcome"] not in allowed:
-        raise CloseError("VARS.INVALID", f"{role} outcome must be {' or '.join(allowed)}, got {json.dumps(values['outcome'])}",
-                         f"Set outcome to {' or '.join(allowed)} in {path}, then rerun the hook.")
-    return values
 
 
 def validate_shared_vars(values, role):
@@ -184,46 +122,8 @@ def validate_shared_vars(values, role):
                          "Supply every field required by the shared task-close vars contract.") from error
 
 
-def read_toml_setting(path, fields):
-    name = ".".join(fields)
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
-        raise CloseError("CONFIG.INVALID", f"Cannot read {name} from {path}: {error}",
-                         f"Create or repair UTF-8 TOML file {path} and set {name} to a non-empty string.") from error
-    for field in fields:
-        if not isinstance(data, dict) or field not in data:
-            raise CloseError("CONFIG.INVALID", f"{path}: missing {name}",
-                             f"Set {name} to a non-empty string in {path}.")
-        data = data[field]
-    if not isinstance(data, str) or not data.strip():
-        raise CloseError("CONFIG.INVALID", f"{path}: {name} must be a non-empty string",
-                         f"Set {name} to a non-empty string in {path}.")
-    return data
 
 
-def read_config(root, role, verdict):
-    path = root / repo_config.RELATIVE_PATH
-    try:
-        config = repo_config.load(root)
-    except (repo_config.ConfigError, OSError, UnicodeError) as error:
-        if isinstance(error, repo_config.ConfigNotFound):
-            fix = f"Run the atm-bd-orchestration installer for {root} to create {path}."
-        elif "max_sanity_rounds" in str(error):
-            fix = f"Set max_sanity_rounds to a positive integer in the consumer registry and rerun the installer to regenerate {path}."
-        elif "lead belongs" in str(error):
-            fix = f"Move lead from {path} into .atm-bd/phase-<x>.toml and rerun the installer to remove the repository lead."
-        else:
-            fix = f"Repair the readable UTF-8 YAML mapping in {path} at the location reported in the error."
-        raise CloseError("CONFIG.INVALID", f"{path}: {error}",
-                         fix) from error
-    fields = ["dev_sanity_member"] if role in ("dev", "fix") else ["qa_member"] if role == "sanity" and verdict == "PASS" else ["team_lead_member"] if role == "sanity" and verdict == "FAIL" else []
-    for field in fields:
-        value = config.get(field)
-        if not isinstance(value, str) or not value.strip():
-            raise CloseError("CONFIG.INVALID", f"{path}: {field} must be a non-empty string",
-                             f"Set {field} in the consumer registry and rerun the installer to regenerate {path}.")
-    return config
 
 
 
