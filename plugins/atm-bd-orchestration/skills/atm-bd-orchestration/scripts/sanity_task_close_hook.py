@@ -30,6 +30,7 @@ from typing import Any, Callable
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
@@ -142,6 +143,21 @@ class Runtime:
             return json.loads(self.run(command, retry=True))
         except (ValueError, TypeError) as error:
             raise Failure("SANITY_CLOSE.DATA", f"invalid JSON from {command}: {error}", command=command) from error
+
+    def check_base(self, worktree, base, commit):
+        command = ["git", "-C", str(worktree), "merge-base", "--is-ancestor", base, commit]
+        remaining = self.deadline - self.clock()
+        if remaining <= 0:
+            raise Failure("SANITY_CLOSE.COMMAND", "hook work budget exhausted; retry the close", command=command)
+        try:
+            result = self.runner(command, cwd=self.root, env=self.env, text=True,
+                                 capture_output=True, timeout=remaining)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise Failure("SANITY_CLOSE.COMMAND", str(error), command=command) from error
+        if result.returncode == 1:
+            raise Failure("SANITY_CLOSE.BASE", f"base {base} is not an ancestor of checked commit {commit}; restart the review with the assigned base", "sanity", command)
+        if result.returncode:
+            raise Failure("SANITY_CLOSE.COMMAND", (result.stderr or result.stdout).strip(), command=command)
 
     def cache(self):
         if self.beads is None:
@@ -305,6 +321,12 @@ def prepare(runtime, sanity):
     require(isinstance(commit, str) and commit, "commit", "selected result must name the checked commit")
     require(commit == checked_commit, "commit", "does not match the checked bead's current commit", "phase-lead")
     values["commit"] = commit
+    base = values.get("base")
+    if not isinstance(base, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", base):
+        raise Failure("SANITY_CLOSE.BASE", "base must be the full 40-hex SHA from the sanity assignment; copy it into the selected result", "sanity")
+    worktree = (dev.get("metadata") or {}).get("worktree")
+    require(isinstance(worktree, str) and bool(worktree), "checked_bead.metadata.worktree", "required to verify base ancestry", "phase-lead")
+    runtime.check_base((runtime.root / worktree).resolve(), base, commit)
     require(values.get("reviewer") == "sanity-selected", "reviewer", "must be sanity-selected")
     require(isinstance(values.get("run_id"), str) and values["run_id"], "run_id", "selected run ID required")
     verdict = values.get("verdict")
@@ -346,7 +368,7 @@ def prepare(runtime, sanity):
     require(dev.get("assignee") == dev_agent, "dev assignee", "bead and task assignees differ", "phase-lead")
     lead = runtime.lead()
     key = digest([runtime.team, task, assignment_ref])
-    signature = digest([submitted_assignment_ref, commit, values.get("run_id"), verdict, findings])
+    signature = digest([submitted_assignment_ref, commit, base, values.get("run_id"), verdict, findings])
     prior = runtime.state().get(key)
     require(prior is None or prior["signature"] == signature, "result", "conflicts with an already prepared close; lead must reconcile", "phase-lead")
     done = bool(dev_history and dev_history[-1].get("to_state") == "complete")

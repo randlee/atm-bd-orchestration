@@ -929,8 +929,10 @@ def test_daemon_sanity_has_no_pin_gate_or_build_running_merge():
     capture = result.stdout.index("Before inspecting any PR, deliverable, or review evidence, capture the binding")
     review = result.stdout.index("Verify the numbered deliverables")
     assert capture < review
-    assert "Save both exact values to scratch/sanity-binding.json and do not overwrite it during this review" in result.stdout
+    assert "Save all three exact values to scratch/sanity-binding.json together and do not overwrite it during this review" in result.stdout
     assert "Use the immutable values from scratch/sanity-binding.json for assignment_id and commit" in result.stdout
+    assert "Capture the assigned <base> full 40-hex SHA" in result.stdout
+    assert "base copied verbatim from the captured assignment <base>" in result.stdout
     assert "assignment_id and commit against current task history and checked bead" in result.stdout
     assert "do not update or submit the selected result under the new values" in result.stdout
     assert "do not invoke Cargo" in result.stdout
