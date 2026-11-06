@@ -955,17 +955,14 @@ class Hook:
         self.render("dev-sanity-complete.md.j2")
         if verdict == "PASS":
             checked = self.bead(values["checked_bead"])
-            is_fix = close_fields.is_fix_bead(checked)
-            qa_round = (self.bead(values["qa_bead"]).get("metadata") or {}).get("round")
-            if type(qa_round) is not int or qa_round < 1:
+            qa_values = close_fields.qa_assignment_vars(self.bead(values["qa_bead"]), checked, self.root)
+            if qa_values["checked_bead"] != checked["id"]:
+                raise CloseError("ASSIGN_VARS.CONFLICT", f"{values['qa_bead']} points to {qa_values['checked_bead']}, but sanity checked {checked['id']}",
+                                 f"Correct metadata.checked_bead on {values['qa_bead']} to {checked['id']} and retry.")
+            if type(qa_values["round"]) is not int or qa_values["round"] < 1:
                 raise CloseError("BEAD.INVALID", f"{values['qa_bead']} metadata.round must be a positive integer",
                                  f"Run `bd update {values['qa_bead']} --set-metadata round=<positive integer>` and retry.")
-            qa_values = {**values, "round": qa_round}
             self.render("qa-template.xml.j2", qa_values)
-            if is_fix and values.get("carry_forward", "") != values["checked_bead"]:
-                raise CloseError("VARS.INVALID", "fix QA requires carry_forward", "Supply the checked fix bead as carry_forward.")
-            if values.get("carry_forward") and values["carry_forward"] != values["checked_bead"]:
-                raise CloseError("VARS.INVALID", "carry_forward differs from fix bead", "Supply the checked fix bead as carry_forward.")
             if (self.bead(bead).get("status") == "closed"
                     and self.bead(bead).get("close_reason") != f"PASS at {values['commit']}"
                     and not is_terminal(self.task_history[bead])):
@@ -1071,7 +1068,7 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
         if escalated:
             result["escalated"] = escalated
         output = {"ok": result}
-    except CloseError as error:
+    except (CloseError, close_fields.CloseFieldsError) as error:
         output = {"err": {"code": error.code, "message": str(error), "fix": error.fix}}
     except KeyError as error:
         field = str(error.args[0])

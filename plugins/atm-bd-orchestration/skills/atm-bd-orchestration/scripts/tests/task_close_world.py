@@ -77,6 +77,10 @@ class World:
         self.beads[self.values["sanity_bead"]]["metadata"]["dev_bead"] = self.values["checked_bead"]
         self.beads[self.values["qa_bead"]]["metadata"]["reviewers_round1"] = list(self.values["reviewers_round1"])
         self.beads[self.values["qa_bead"]]["metadata"]["round"] = 1
+        qa = self.beads[self.values["qa_bead"]]
+        qa["labels"] = ["stage:qa"]
+        qa["metadata"].update({name: self.values[name] for name in hook.close_fields.POURED if name in self.values})
+        qa["metadata"].update(role="qa", worktree=str(root), sprint_bead="atm-bj-1", layer=1)
         self.beads["atm-phase-bj.stack"] = json.loads((SCRIPTS / "tests/fixtures/stack-bead.json").read_text())
         self.tasks = {self.values[name]: [] for name in ("dev_task_id", "sanity_task_id", "qa_task_id")}
         self.tasks[self.values["dev_task_id"]].append(self.assignment(1))
@@ -99,6 +103,9 @@ class World:
 
     def run(self, role="dev", *, skip_checks=False, **changes):
         self.values.update(changes)
+        if role == "sanity" and self.values.get("checked_bead") in self.beads:
+            # A standalone sanity run represents work whose dev close already recorded its commit.
+            self.beads[self.values["checked_bead"]]["metadata"].setdefault("commit", self.head)
         task = self.values.get({"dev": "dev_task_id", "fix": "dev_task_id", "sanity": "sanity_task_id", "qa": "qa_task_id"}[role])
         if task in self.tasks and not self.tasks[task]:
             self.tasks[task].append(self.assignment(1))

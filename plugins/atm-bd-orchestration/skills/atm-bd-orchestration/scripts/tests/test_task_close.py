@@ -873,6 +873,8 @@ def test_replay_after_every_committed_write_converges(tmp_path, monkeypatch, rol
         actual_beads, expected_beads = copy.deepcopy(world.beads), copy.deepcopy(baseline.beads)
         actual_beads[world.values["checked_bead"]]["metadata"]["worktree"] = "<worktree>"
         expected_beads[baseline.values["checked_bead"]]["metadata"]["worktree"] = "<worktree>"
+        actual_beads[world.values["qa_bead"]]["metadata"]["worktree"] = "<worktree>"
+        expected_beads[baseline.values["qa_bead"]]["metadata"]["worktree"] = "<worktree>"
         assert actual_beads == expected_beads
         for task in baseline.tasks:
             if role in ("dev", "fix") and task == world.values["sanity_bead"]:
@@ -916,11 +918,9 @@ def test_replay_with_changed_verdict_or_head_is_conflict(world):
     assert world.run("sanity", verdict="PASS", commit="c" * 40)["err"]["code"] == "REPLAY.CONFLICT"
 
 
-def test_fix_pass_requires_its_own_carry_forward(world):
+def test_fix_pass_derives_carry_forward_from_checked_bead(world):
     world.beads[world.values["checked_bead"]]["labels"] = ["stage:fix"]
-    assert world.run("sanity")["err"]["code"] == "VARS.INVALID"
-    assert world.writes == []
-    assert "ok" in world.run("sanity", carry_forward=world.values["checked_bead"])
+    assert "ok" in world.run("sanity", carry_forward="stale")
     assert world.messages[-1]["values"]["carry_forward"] == world.values["checked_bead"]
 
 
@@ -1121,6 +1121,50 @@ def test_unbound_open_sanity_assignment_is_not_adopted(world):
     result = world.run("dev")
     assert result["err"]["code"] == "CLOSE.POSTCONDITION"
     assert "assignment-7" in result["err"]["message"] and "sanity_assignment_id" in result["err"]["fix"]
+    assert not world.writes
+
+
+def test_sanity_pass_qa_dispatch_uses_current_bead_values(world):
+    qa = world.beads[world.values["qa_bead"]]["metadata"]
+    qa.update(layer=4, reviewers_round1=["current-reviewer"], policy_path="current-policy.md")
+    result = world.run("sanity", verdict="PASS", layer=1, reviewers_round1=["stale-reviewer"], policy_path="stale-policy.md")
+    assert "ok" in result, result
+    assignment = next(message for message in world.messages if message["type"] == "qa-task")
+    assert assignment["values"]["layer"] == 4
+    assert assignment["values"]["reviewers_round1"] == ["current-reviewer"]
+    assert assignment["values"]["policy_path"] == "current-policy.md"
+    assert "current-reviewer" in assignment["body"] and "stale-reviewer" not in assignment["body"]
+
+
+def test_sanity_pass_producer_error_is_preserved_before_writes(world):
+    del world.beads[world.values["qa_bead"]]["metadata"]["layer"]
+    result = world.run("sanity", verdict="PASS")
+    assert result["err"]["code"] == "ASSIGN_VARS.NOT_PLANNED"
+    assert world.values["qa_bead"] in result["err"]["message"]
+    assert not world.writes
+
+
+def test_sanity_pass_refuses_conflicting_recorded_pr_identity(world):
+    world.beads[world.values["qa_bead"]]["metadata"]["branch"] = "stale-branch"
+    result = world.run("sanity", verdict="PASS")
+    assert result["err"]["code"] == "ASSIGN_VARS.CONFLICT"
+    assert world.values["qa_bead"] in result["err"]["message"]
+    assert not world.writes
+
+
+def test_sanity_pass_refuses_qa_linked_to_another_checked_bead(world):
+    world.beads[world.values["qa_bead"]]["metadata"]["checked_bead"] = "other-bead"
+    result = world.run("sanity", verdict="PASS")
+    assert result["err"]["code"] == "ASSIGN_VARS.CONFLICT"
+    assert "other-bead" in result["err"]["message"]
+    assert not world.writes
+
+
+@pytest.mark.parametrize("round_value", [0, -1, "1", True])
+def test_sanity_pass_rejects_invalid_qa_round(world, round_value):
+    world.beads[world.values["qa_bead"]]["metadata"]["round"] = round_value
+    result = world.run("sanity", verdict="PASS")
+    assert result["err"]["code"] == "BEAD.INVALID"
     assert not world.writes
 
 
