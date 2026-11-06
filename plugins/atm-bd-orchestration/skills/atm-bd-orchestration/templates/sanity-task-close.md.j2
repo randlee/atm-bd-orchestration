@@ -10,6 +10,7 @@ defaults:
   verdict: ""
   commit: ""
   base: ""
+  base_verified: null
   run_id: ""
   findings: []
   findings_md: ""
@@ -23,6 +24,7 @@ Task: {{ task_id }}
 Assignment: {{ assignment_id }}
 Checked bead: {{ checked_bead }} at {{ commit }}
 Base: {{ base }}
+Base verified against ledger: {% if base_verified %}yes{% else %}no{% endif %}
 Run: {{ run_id }}
 
 {{ findings_md }}

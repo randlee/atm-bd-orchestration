@@ -64,7 +64,7 @@ ATM_MAX_REQUEST_BYTES = 1_114_112
 # write_stack_input(), then atm-task-close.py --role sanity and the templates it renders and sends
 # (dev-sanity-complete, sanity-fail, qa-template). Every other field is overwritten there or never read.
 SANITY_CLOSE_CONTEXT = frozenset((
-    "base", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+    "base", "base_verified", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
     "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
     "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"))
 
@@ -649,9 +649,9 @@ class Hook:
                                  "Close the duplicate PRs so exactly one open PR names this branch and pushed head, then rerun the hook.")
             values["pr_number"] = str(matches[0]["number"] or "")
             values["pr_url"] = f"https://github.com/{owner}/{repo}/pull/{values['pr_number']}" if values["pr_number"] else ""
+            self.require_completion_identity()
             self.pr_base = str((matches[0].get("base") or {}).get("ref") or "")
-            if self.pr_base:
-                self.rebased_onto = self.run(["git", "rev-parse", f"origin/{self.pr_base}"], git=True).stdout.strip()
+            self.resolve_recorded_pr_base()
             base_layer = next((layer for layer in all_layers if layer.get("branch") == self.pr_base), {})
             self.base_evidence = {"branch": self.pr_base, "pr": base_layer.get("pr")}
             if self.ledger_top and self.ledger_top["branch"] != self.pr_base:
@@ -678,25 +678,30 @@ class Hook:
         self.values["pr_url"] = str(metadata.get("pr_url") or "")
         self.pr_base = str(metadata.get("pr_base") or "")
 
-    def resolve_recorded_pr_base(self):
-        """Resolve the recorded PR parent and verify it is between the lower bound and checked head."""
+    def resolve_recorded_pr_base(self, *, skip_stack=False):
+        """Resolve either PR parent and verify the ledger top, base and checked head form a chain."""
         bead = self.values["checked_bead"]
         base = self.pr_base
-        fix = (f"Inspect the PR base, run `bd update {bead} --set-metadata pr_base=<actual-base-branch>`, "
-               "then `git fetch origin` and retry.")
+        fix = (f"Retarget the PR to the ledger top or rebase onto it, run `git fetch origin`, "
+               f"and if offline update {bead} with `bd update {bead} --set-metadata pr_base=<actual-base-branch>`, then retry.")
         if not base:
             raise CloseError("BASE.PR_UNVERIFIED", f"{bead} metadata.pr_base is missing", fix)
         ref = f"origin/{base}"
         result = self.run(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], git=True, check=False)
         sha = result.stdout.strip()
-        if result.returncode or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", sha):
+        if result.returncode or not re.fullmatch(r"[0-9a-f]{40}", sha):
             raise CloseError("BASE.PR_UNVERIFIED", f"{bead} recorded PR base {ref} cannot be resolved to a commit", fix)
         lower = f"origin/{self.values['pr_target']}"
-        for ancestor, descendant in ((lower, ref), (ref, self.values["commit"])):
+        top, top_head = ("unchecked", "") if skip_stack else self.stack_top()
+        pairs = [(lower, sha), (sha, self.values["commit"])]
+        if not skip_stack:
+            pairs.insert(1, (top_head, sha))
+        for ancestor, descendant in pairs:
             result = self.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], git=True, check=False)
             if result.returncode:
-                raise CloseError("BASE.PR_UNVERIFIED", f"{bead} recorded PR base {ref}: {ancestor} is not a verified ancestor of {descendant}", fix)
+                raise CloseError("BASE.PR_UNVERIFIED", f"{bead} PR base {ref} ({sha}) and ledger top {top} ({top_head}): {ancestor} is not a verified ancestor of {descendant}", fix)
         self.rebased_onto = sha
+        self.values["base_verified"] = not skip_stack
         self.base_evidence = {"branch": base, "pr": None}
 
     def render(self, template, values=None):
@@ -882,7 +887,7 @@ class Hook:
             else:
                 self.keep_recorded_pr()
                 self.require_completion_identity()
-                self.resolve_recorded_pr_base()
+                self.resolve_recorded_pr_base(skip_stack=True)
                 values["rebased_onto"] = self.rebased_onto
             self.require_completion_identity()
             self.render(template)

@@ -526,6 +526,38 @@ def test_ledger_top_overrides_static_target(world):
     assert not any("irrelevant-broken-lower-layer" in str(argv) for argv in calls)
 
 
+def test_pr_base_below_linked_top_is_refused_before_writes(world):
+    world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": "new-top", "pr": 351, "head": "b" * 40, "base": "integrate/phase-bj", "linked": True}]
+    world.overrides[("git", "rev-parse", "--verify", "origin/deliberately-different^{commit}")] = (0, "a" * 40)
+    world.overrides[("git", "merge-base", "--is-ancestor", "b" * 40, "a" * 40)] = (1, "")
+    result = world.run()
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED"
+    assert "new-top" in result["err"]["message"] and "deliberately-different" in result["err"]["message"]
+    assert "retarget" in result["err"]["fix"].lower() and not world.writes
+
+
+def test_pr_base_at_linked_top_is_dispatched(world):
+    world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": "new-top", "pr": 351, "head": "b" * 40, "base": "integrate/phase-bj", "linked": True}]
+    world.overrides[("git", "rev-parse", "--verify", "origin/deliberately-different^{commit}")] = (0, "b" * 40)
+    result = world.run()
+    assert "ok" in result, result
+    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")
+    assert assignment["values"]["base"] == "b" * 40
+
+
+def test_offline_pr_base_below_linked_top_is_refused(world):
+    world.github_failure = True
+    world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": "new-top", "pr": 351, "head": "b" * 40, "base": "integrate/phase-bj", "linked": True}]
+    world.overrides[("git", "rev-parse", "--verify", "origin/fix/recorded-parent^{commit}")] = (0, "a" * 40)
+    world.overrides[("git", "merge-base", "--is-ancestor", "b" * 40, "a" * 40)] = (1, "")
+    result = world.run()
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED" and not world.writes
+    assert "new-top" in result["err"]["message"] and "fix/recorded-parent" in result["err"]["message"]
+
+
 def test_stack_bead_id_comes_from_dispatch_vars(world):
     original = "atm-phase-bj.stack"
     selected = "an-unrelated-ledger-name"
@@ -545,6 +577,12 @@ def test_dev_skip_checks_does_not_read_stack_bead(world):
     del world.beads[world.values["stack_bead"]]
     assert "ok" in world.run("dev", skip_checks=True)
     assert not any(argv[:3] == ["bd", "show", world.values["stack_bead"]] for argv, _ in world.calls)
+    dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert dispatch["base_verified"] is False
+    assert dispatch["close_context"]["base_verified"] is False
+    rendered = hook.sc_render.render(hook.TEMPLATES / "sanity-task-close.md.j2",
+                                     {"task_id": "sanity", "base": dispatch["base"], "base_verified": False})
+    assert "Base verified against ledger: no" in rendered
 
 
 def test_unrelated_bead_layers_are_not_stack_schema_validated(world):
@@ -1490,7 +1528,7 @@ def test_close_from_documented_dispatch_and_result_files_derives_handoff(world, 
                "pr_url": f"https://github.com/example/repo/pull/{world.pr_number}",
                "rebased_onto": "b" * 40}
     assert set(assignment["values"]) == set(dispatch) | set(result) | set(DERIVED) | {"close_context", "beads_dir",
-                                                                                         "sanity_close_mode", "layer_prs"}
+                                                                                         "sanity_close_mode", "layer_prs", "base_verified"}
     assert assignment["values"]["layer_prs"] == [str(world.pr_number)]  # the checked PR, derived (#636)
     assert {name: assignment["values"][name] for name in derived} == derived
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", assignment["values"]["generated_at"])
@@ -1619,7 +1657,7 @@ def test_fallback_dispatch_uses_verified_recorded_pr_parent(world, skip):
     assert "ok" in output, output
     dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
     assert dispatch["base"] == parent
-    assert ["git", "merge-base", "--is-ancestor", "origin/fix/higher-parent", world.head] in [a for a, _ in world.calls]
+    assert ["git", "merge-base", "--is-ancestor", parent, world.head] in [a for a, _ in world.calls]
 
 
 @pytest.mark.parametrize("skip", [False, True])
@@ -1634,9 +1672,9 @@ def test_fallback_refuses_unverified_recorded_pr_parent(world, skip, failure):
     if failure == "unresolvable":
         world.overrides[("git", "rev-parse", "--verify", "origin/fix/higher-parent^{commit}")] = (1, "")
     if failure == "not_ancestor":
-        world.overrides[("git", "merge-base", "--is-ancestor", "origin/fix/higher-parent", world.head)] = (1, "")
+        world.overrides[("git", "merge-base", "--is-ancestor", "b" * 40, world.head)] = (1, "")
     if failure == "below_bound":
-        world.overrides[("git", "merge-base", "--is-ancestor", f"origin/{world.values['pr_target']}", "origin/fix/higher-parent")] = (1, "")
+        world.overrides[("git", "merge-base", "--is-ancestor", f"origin/{world.values['pr_target']}", "b" * 40)] = (1, "")
     result = world.run("dev", skip_checks=skip)
     assert result["err"]["code"] == "BASE.PR_UNVERIFIED"
     assert "git" in result["err"]["fix"] and not world.writes
@@ -1697,7 +1735,7 @@ def test_assignment_consumes_completion_vars_before_the_temporary_file_is_remove
 
 
 # The dev/fix fields sanity-close-vars and the sanity close read back from close_context (#557).
-SANITY_READ = {"base", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+SANITY_READ = {"base", "base_verified", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
                "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
                "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"}
 
@@ -1801,7 +1839,7 @@ def test_sanity_dispatch_keeps_lead_supplied_layer_prs(world):
 
 def test_sanity_dispatch_base_is_actual_pr_parent(world):
     parent = "d" * 40
-    world.overrides[("git", "rev-parse", "origin/deliberately-different")] = (0, parent)
+    world.overrides[("git", "rev-parse", "--verify", "origin/deliberately-different^{commit}")] = (0, parent)
     assert "ok" in world.run("dev")
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")
     assert assignment["values"]["base"] == parent
@@ -1849,7 +1887,7 @@ def test_restacked_parent_excludes_lower_layer_reserved_file_from_sanity_rule(wo
     head = git("rev-parse", "HEAD")
 
     world.values["commit"] = head
-    world.overrides[("git", "rev-parse", "origin/deliberately-different")] = (0, parent)
+    world.overrides[("git", "rev-parse", "--verify", "origin/deliberately-different^{commit}")] = (0, parent)
     assert "ok" in world.run("dev")
     dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
     assert dispatch["base"] == parent
