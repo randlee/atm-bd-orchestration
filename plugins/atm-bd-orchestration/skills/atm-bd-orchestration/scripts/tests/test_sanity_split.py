@@ -346,7 +346,11 @@ class SanitySplit(unittest.TestCase):
     def test_immutable_base_sha_is_accepted(self):
         out = self.run_split(base=self.repo.base_sha)
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertEqual(json.loads(out.stdout)["base_sha"], self.repo.base_sha)
+        manifest = json.loads(out.stdout)
+        self.assertEqual(manifest["base_sha"], self.repo.base_sha)
+        # The lower layer changed docs/notes.md, outside the owned paths; the pinned parent excludes it.
+        self.assertEqual(manifest["changed_files"], ["crates/types/src/retry.rs"])
+        self.assertEqual(manifest["files_outside_owned_paths"], [])
 
     def test_rerun_assignment_is_the_manifest_assignment_with_context(self):
         out = self.run_split()
