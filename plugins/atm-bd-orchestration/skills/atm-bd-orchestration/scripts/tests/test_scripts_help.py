@@ -1,5 +1,6 @@
 """Every self-contained script declares the dependencies needed to start."""
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -90,9 +91,10 @@ def test_script_help_rejects_nonzero_exit_even_after_usage():
 
 @pytest.mark.parametrize("script", SCRIPT_PATHS, ids=lambda path: path.name)
 def test_script_declared_dependencies_can_start(script):
-    try:
-        result = subprocess.run(["uv", "run", "--script", str(script), "--help"], stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True, timeout=60, check=False)
-    except subprocess.TimeoutExpired as error:
-        pytest.fail(f"SUBPROCESS.TIMEOUT: {script.name} --help exceeded {error.timeout}s", pytrace=False)
+    # The pytest interpreter comes from the frozen app environment, which already
+    # contains the pinned script dependencies. Avoid resolving PEP 723 metadata
+    # against the caller's uv cache or the network for every --help invocation.
+    env = {**os.environ, "UV_OFFLINE": "1"}
+    result = run_command([sys.executable, str(script), "--help"], env=env,
+                         timeout=HANG_GUARD_SECONDS, capture_output=True, text=True)
     assert_help_reached(script, result)
