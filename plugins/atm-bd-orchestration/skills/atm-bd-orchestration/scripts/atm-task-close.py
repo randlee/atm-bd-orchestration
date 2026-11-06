@@ -608,7 +608,22 @@ class Hook:
             previous_generation = metadata.get("close_assignment_id")
             previous_close = ((not previous_generation or str(previous_generation) != str(self.assignment_id))
                               and any(event.get("event") == COMPLETED for event in events[:-1]))
-            if (record.get("status") != "closed" and previous_close and metadata.get("commit") == self.values["commit"]):
+            prior_commits = {metadata.get("commit")} if previous_close and metadata.get("commit") else set()
+            if record.get("status") != "closed":
+                for event in events:
+                    detail = event.get("detail")
+                    if event.get("event") != COMPLETED or not isinstance(detail, str):
+                        continue
+                    prefix = next((value for value in ("dev complete at ", "fixed at ") if detail.startswith(value)), None)
+                    if prefix is None:
+                        continue
+                    sha = detail[len(prefix):]
+                    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", sha):
+                        event_id = event.get("message_id") or event.get("seq") or "unknown"
+                        raise CloseError("CLOSE.HISTORY_MALFORMED", f"{self.task} event {event_id}: malformed close commit in {detail!r}",
+                                         f"Inspect `atm task events {self.task} --all --json` and reconcile the bead's close history before retrying.")
+                    prior_commits.add(sha)
+            if record.get("status") != "closed" and self.values["commit"] in prior_commits:
                 raise CloseError("CLOSE.STALE_ASSIGNMENT", f"{self.task}: prior close commit {self.values['commit']} was reopened under assignment {self.assignment_id}",
                                  f"Push a rework commit with `git push origin {self.values['branch']}` and re-close; inspect `atm task events {self.task} --json`.")
             if is_terminal(events):

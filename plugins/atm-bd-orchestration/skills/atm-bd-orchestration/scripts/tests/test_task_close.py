@@ -972,6 +972,38 @@ def test_reopened_prior_close_without_generation_stamp_is_still_refused(world):
     assert world.writes == writes
 
 
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_reopened_task_refuses_nonlatest_prior_close_commit(world, role):
+    original = world.head
+    assert "ok" in world.run(role)
+    assert "ok" in world.run("sanity", verdict="FAIL", undone=[{"number": 1, "reason": "missing"}])
+    assert "ok" in world.run(role, commit="c" * 40)
+    assert "ok" in world.run("sanity", verdict="FAIL", round=2, undone=[{"number": 1, "reason": "still missing"}])
+    writes = list(world.writes)
+    result = world.run(role, commit=original)
+    assert result["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
+    assert original in result["err"]["message"]
+    assert world.writes == writes
+
+
+def test_historical_completion_without_commit_does_not_refuse(world):
+    task = world.values["dev_task_id"]
+    world.tasks[task] += [{"event": "completed", "to_state": "complete", "detail": "not reproducible: checked"},
+                          {**world.assignment(2), "event": "reopened"}]
+    assert "ok" in world.run("dev")
+
+
+def test_historical_completion_with_malformed_commit_refuses(world):
+    task = world.values["dev_task_id"]
+    world.tasks[task] += [{"event": "completed", "to_state": "complete", "message_id": "bad-event", "detail": "dev complete at not-a-sha"},
+                          {**world.assignment(2), "event": "reopened"}]
+    result = world.run("dev")
+    assert result["err"]["code"] == "CLOSE.HISTORY_MALFORMED"
+    assert "bad-event" in result["err"]["message"] and "not-a-sha" in result["err"]["message"]
+    assert f"atm task events {task}" in result["err"]["fix"]
+    assert not world.writes
+
+
 def test_refused_previous_task_without_bead_close_does_not_block(world):
     task = world.values["dev_task_id"]
     world.beads[world.values["checked_bead"]]["metadata"]["commit"] = world.head

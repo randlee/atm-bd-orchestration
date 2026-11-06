@@ -181,7 +181,8 @@ class World:
                 values = json.loads(Path(argv[argv.index("--vars") + 1]).read_text())
                 body = hook.sc_render.render(argv[argv.index("--template") + 1], values)
                 assert argv[3] in body
-            self.tasks[argv[3]].append(dict(event=argv[4], to_state="complete", close_outcome=argv[4]))
+            detail = argv[5] if len(argv) > 5 and not argv[5].startswith("--") else None
+            self.tasks[argv[3]].append(dict(event=argv[4], to_state="complete", close_outcome=argv[4], detail=detail))
         elif argv[:2] == ["atm", "send"] or argv[:3] == ["atm", "task", "assign"]:
             write = True
             recipient = argv[3] if argv[1] == "task" else argv[2]

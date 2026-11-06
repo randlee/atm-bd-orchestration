@@ -41,7 +41,8 @@ member sets `sanity_close_mode: daemon` in the assignment; otherwise it is `lega
 the close before anything is written.
 
 Dev and fix replay keys include the current task assignment generation. A
-reopened bead cannot close again at its recorded prior-close commit: push a
+reopened bead cannot close again at any prior-close commit recorded in its
+completed task-event details or its bead metadata: push a
 new rework commit before closing. An exact same-generation replay of an
 already closed bead is idempotent. The originating generation is not authenticated.
 If the assignment changes before a
