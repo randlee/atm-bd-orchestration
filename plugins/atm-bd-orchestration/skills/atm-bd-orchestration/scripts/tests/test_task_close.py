@@ -1601,6 +1601,47 @@ def test_sanity_dispatch_base_is_actual_pr_parent(world):
     assert f"<base><![CDATA[{parent}]]></base>" in assignment["body"]
 
 
+def test_restacked_parent_excludes_lower_layer_reserved_file_from_sanity_rule(world):
+    repo = world.root / "diff-fixture"
+    repo.mkdir()
+    def git(*args):
+        result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True, timeout=30)
+        return result.stdout.strip()
+    git("init", "-q")
+    git("config", "user.name", "Fixture")
+    git("config", "user.email", "fixture@example.test")
+    (repo / "owned.txt").write_text("trunk\n")
+    git("add", "owned.txt")
+    git("commit", "-qm", "trunk")
+    trunk = git("rev-parse", "HEAD")
+    (repo / "reserved.txt").write_text("lower layer\n")
+    git("add", "reserved.txt")
+    git("commit", "-qm", "lower layer")
+    parent = git("rev-parse", "HEAD")
+    (repo / "owned.txt").write_text("our layer\n")
+    git("add", "owned.txt")
+    git("commit", "-qm", "restacked layer")
+    head = git("rev-parse", "HEAD")
+
+    world.values["commit"] = head
+    world.overrides[("git", "rev-parse", "origin/deliberately-different")] = (0, parent)
+    assert "ok" in world.run("dev")
+    dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert dispatch["base"] == parent
+
+    loader = importlib.machinery.SourceFileLoader("sanity_split_restacked", str(SCRIPTS / "sanity-split"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    split = importlib.util.module_from_spec(spec)
+    loader.exec_module(split)
+    # Drive the production diff and fence rule with bounded git calls.
+    split.git = lambda _worktree, *args, **_kwargs: git(*args)
+    actual = split.changed_files(str(repo), dispatch["base"], head)
+    wrong = split.changed_files(str(repo), trunk, head)
+    assert split.outside_fence(actual, ["owned.txt"]) == []
+    assert split.outside_fence(wrong, ["owned.txt"]) == ["reserved.txt"]
+
+
 def test_sanity_close_context_subset_builds_the_same_sanity_close(world):
     assert "ok" in world.run()
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
