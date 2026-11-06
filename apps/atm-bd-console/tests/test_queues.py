@@ -75,7 +75,7 @@ def fixed_runner(open_rows=None, ready_rows=None, task_rows=None, closed_rows=No
             rows = ready_rows
         elif argv[:4] == ["atm", "task", "list", "--all"]:
             rows = task_rows
-        elif argv[:6] == ["bd", "list", "--status", "closed", "-n", "0"]:
+        elif argv[:3] == ["bd", "list", "--status"]:
             rows = closed_rows
         else:
             raise AssertionError(f"unexpected source command: {argv}")
@@ -102,7 +102,8 @@ def test_sprint_closure_respects_independent_blockers(kind, status):
     if kind == "dependency":
         sprint["dependencies"] = [{"issue_id": "sprint", "depends_on_id": "finding", "type": "blocks"}]
     open_rows = [root, sprint] + ([blocker] if status == "open" else [])
-    runner, _ = fixed_runner(open_rows=open_rows, ready_rows=[sprint], task_rows=[], closed_rows=[child])
+    runner, _ = fixed_runner(open_rows=open_rows, ready_rows=[sprint], task_rows=[],
+                             closed_rows=[child] + ([blocker] if status == "closed" else []))
     result = queues.build(SimpleNamespace(phase=None, root=ROOT, stack=False), Path("/fixture"), now=NOW, runner=runner)
     closable = {row["id"] for row in result["queues"]["container_closable"]}
     if status == "open":
@@ -111,6 +112,25 @@ def test_sprint_closure_respects_independent_blockers(kind, status):
         assert row["detail"] == "blocked by finding (open)"
     else:
         assert "sprint" in closable
+
+
+@pytest.mark.parametrize("status,closable", [("open", False), ("closed", True), (None, False)])
+def test_sprint_closure_resolves_blocker_outside_phase(status, closable):
+    root = bead(ROOT, "root")
+    sprint = bead("sprint", "sprint", parent=ROOT,
+                   dependencies=[{"issue_id": "sprint", "depends_on_id": "external", "type": "blocks"}])
+    base, calls = fixed_runner(open_rows=[root, sprint], ready_rows=[sprint], task_rows=[])
+    def run(argv, fix, *, cwd=None, **kwargs):
+        if argv[:4] == ["bd", "list", "--status", "open,in_progress,blocked,deferred,closed"]:
+            calls.append((list(argv), cwd))
+            return Ok(Output(0, json.dumps([bead("external", "finding", status=status)] if status else [])))
+        return base(argv, fix, cwd=cwd, **kwargs)
+    result = queues.build(SimpleNamespace(phase=None, root=ROOT, stack=False), Path("/fixture"), now=NOW, runner=run)
+    assert ("sprint" in {row["id"] for row in result["queues"]["container_closable"]}) is closable
+    if not closable:
+        row = next(row for row in result["queues"]["not_ready"] if row["id"] == "sprint")
+        assert row["detail"] == f"blocked by external ({status or 'unknown'})"
+    assert sum(argv[:4] == ["bd", "list", "--status", "open,in_progress,blocked,deferred,closed"] for argv, _ in calls) == 1
 
 
 def test_build_classifies_each_queue_from_fixed_json_and_uses_four_batched_reads():
