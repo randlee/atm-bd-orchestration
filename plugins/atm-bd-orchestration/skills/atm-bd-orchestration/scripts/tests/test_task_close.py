@@ -861,6 +861,14 @@ def test_replay_after_every_committed_write_converges(tmp_path, monkeypatch, rol
         assert world.writes[-1][0][:3] == baseline.writes[boundary - 1][0][:3], boundary
         world.fail_after = None
         result = world.run(role)
+        if role in ("dev", "fix") and result.get("err", {}).get("code") == "CLOSE.POSTCONDITION":
+            # A crash after assign but before its binding requires lead verification before retry.
+            sanity_events = world.tasks[world.values["sanity_bead"]]
+            assert sanity_events and "sanity_assignment_id" in result["err"]["fix"]
+            world.beads[world.values["checked_bead"]]["metadata"]["sanity_assignment_id"] = sanity_events[-1]["message_id"]
+            world.stamps += 1
+            world.beads[world.values["checked_bead"]]["updated_at"] = f"2026-10-19T01:{world.stamps // 60:02d}:{world.stamps % 60:02d}Z"
+            result = world.run(role)
         assert "ok" in result, (boundary, result)
         actual_beads, expected_beads = copy.deepcopy(world.beads), copy.deepcopy(baseline.beads)
         actual_beads[world.values["checked_bead"]]["metadata"]["worktree"] = "<worktree>"
@@ -1060,6 +1068,62 @@ def test_dev_close_refuses_missing_sanity_assignment(world, monkeypatch):
     assert world.values["sanity_bead"] in result["err"]["message"]
 
 
+@pytest.mark.parametrize("mutation", ["cancelled", "wrong_recipient", "replaced_generation"])
+def test_dev_close_rejects_invalid_sanity_after_assign(world, monkeypatch, mutation):
+    original = hook.Hook.assign
+    def assign_then_change(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        events = world.tasks[world.values["sanity_bead"]]
+        if mutation == "cancelled":
+            events.append({"event": "cancelled", "to_state": "complete", "seq": 99})
+        elif mutation == "wrong_recipient":
+            events[-1]["assignee"] = "other"
+        else:
+            events.append({**world.assignment(99), "event": "reassigned", "assignee": "sanity"})
+        return result
+    monkeypatch.setattr(hook.Hook, "assign", assign_then_change)
+    result = world.run("dev")
+    assert result["err"]["code"] == "CLOSE.POSTCONDITION"
+    assert world.tasks[world.values["dev_task_id"]][-1].get("to_state") != "complete"
+
+
+def test_dev_replay_after_completed_sanity_is_idempotent(world):
+    assert "ok" in world.run("dev")
+    assert "ok" in world.run("sanity", verdict="PASS")
+    before = list(world.writes)
+    assert "ok" in world.run("dev")
+    assert world.writes == before
+
+
+@pytest.mark.parametrize("mutation", ["cancelled", "wrong_recipient", "replaced_generation", "failed"])
+def test_dev_exact_replay_refuses_changed_sanity(world, mutation):
+    assert "ok" in world.run("dev")
+    sanity = world.values["sanity_bead"]
+    events = world.tasks[sanity]
+    if mutation == "cancelled":
+        events.append({"event": "cancelled", "to_state": "complete", "seq": 99})
+    elif mutation == "wrong_recipient":
+        events[-1]["assignee"] = "other"
+    elif mutation == "replaced_generation":
+        events.append({**world.assignment(99), "event": "reassigned", "assignee": "sanity"})
+    else:
+        events.append({"event": "completed", "to_state": "complete", "close_outcome": "completed"})
+        world.beads[sanity].update(status="closed", close_reason=f"FAIL at {world.head}")
+    before = list(world.writes)
+    result = world.run("dev")
+    assert result["err"]["code"] == "CLOSE.POSTCONDITION"
+    assert world.writes == before
+
+
+def test_unbound_open_sanity_assignment_is_not_adopted(world):
+    sanity = world.values["sanity_bead"]
+    world.tasks[sanity] = [{**world.assignment(7), "assignee": "sanity"}]
+    result = world.run("dev")
+    assert result["err"]["code"] == "CLOSE.POSTCONDITION"
+    assert "assignment-7" in result["err"]["message"] and "sanity_assignment_id" in result["err"]["fix"]
+    assert not world.writes
+
+
 def test_qa_round_comes_from_qa_bead_not_sanity_iteration(world):
     sanity = world.values["sanity_bead"]
     world.tasks[sanity] = [world.assignment(1), {"event": "completed", "to_state": "complete"},
@@ -1096,7 +1160,7 @@ def test_dev_replay_does_not_bypass_round_cap(world):
     sanity = world.values["sanity_bead"]
     world.beads[sanity]["metadata"]["sanity_round"] = 5
     assert world.run("sanity", verdict="FAIL", undone=[{"number": 1, "reason": "not implemented"}])["ok"]["escalated"] == "SANITY.ROUND_CAP"
-    assert "ok" in world.run("dev", verdict="PASS", undone=[])
+    assert world.run("dev", verdict="PASS", undone=[])["err"]["code"] == "CLOSE.POSTCONDITION"
     assert world.tasks[sanity][-1]["to_state"] == "complete"
     assert len([item for item in world.messages if item["type"] == "dev-sanity-task"]) == 1
 
@@ -1119,7 +1183,13 @@ def test_not_reproducible_retry_uses_current_stack_top(world, boundary):
     world.values["pr_target"] = "moved-top"
     world.overrides[("git", "rev-parse", "origin/moved-top")] = (0, "c" * 40)
     world.fail_after = None
-    assert "ok" in world.run("fix")
+    result = world.run("fix")
+    if boundary == 4:
+        assert result["err"]["code"] == "CLOSE.POSTCONDITION"
+        sanity_events = world.tasks[world.values["sanity_bead"]]
+        world.beads[world.values["checked_bead"]]["metadata"]["sanity_assignment_id"] = sanity_events[-1]["message_id"]
+        result = world.run("fix")
+    assert "ok" in result
     assignments = [item for item in world.messages if item["type"] == "dev-sanity-task"]
     assert len(assignments) == 1
     assert assignments[-1]["values"]["branch"] == world.beads[world.values["checked_bead"]]["metadata"]["branch"]
@@ -1183,8 +1253,8 @@ def test_each_role_example_executes_its_close_path(world, role):
 
 
 @pytest.mark.parametrize("role, expected_writes", [
-    ("dev", [["bd", "update"], ["bd", "close"], ["atm", "send"], ["atm", "task", "assign"], ["atm", "task", "close"]]),
-    ("fix", [["bd", "update"], ["bd", "close"], ["atm", "send"], ["atm", "task", "assign"], ["atm", "task", "close"]]),
+    ("dev", [["bd", "update"], ["bd", "close"], ["atm", "send"], ["atm", "task", "assign"], ["bd", "update"], ["atm", "task", "close"]]),
+    ("fix", [["bd", "update"], ["bd", "close"], ["atm", "send"], ["atm", "task", "assign"], ["bd", "update"], ["atm", "task", "close"]]),
     ("sanity", [["bd", "close"], ["atm", "task", "close"], ["atm", "task", "assign"]]),
     ("qa", [["bd", "close"], ["atm", "send"], ["atm", "task", "close"]]),
 ])

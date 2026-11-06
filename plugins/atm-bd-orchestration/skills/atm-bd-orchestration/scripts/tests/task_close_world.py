@@ -201,6 +201,8 @@ class World:
                 assert task in body
                 events = self.tasks[task]
                 event = self.assignment(len(events) + 1)
+                if task == self.values["sanity_task_id"]:
+                    event["assignee"] = recipient.split("@", 1)[0]
                 if events and events[-1].get("to_state") == "assigned":
                     event = None  # ATM resending the same open assignment does not create an event.
                 elif events:

@@ -500,10 +500,8 @@ class Hook:
                          and record.get("close_reason") == expected_reason)
                 if exact:
                     sanity = self.values["sanity_task_id"]
-                    if any(event.get("event") in ASSIGNMENT_EVENTS for event in self.task_history[sanity]):
-                        return True
-                    raise CloseError("CLOSE.POSTCONDITION", f"{self.task} is closed but {sanity} has no assignment",
-                                     f"Inspect `atm task events {sanity} --json`, repair the assignment and retry.")
+                    self.verify_sanity_assignment(sanity, self.task_history[sanity], metadata.get("sanity_assignment_id"), allow_pass=True)
+                    return True
                 raise CloseError("CLOSE.STALE_ASSIGNMENT", f"{self.task}: newest event {latest.get('message_id') or latest.get('seq') or latest.get('event')} is terminal; current assignment is {self.assignment_id}",
                                  f"Run `atm task events {self.task} --json` and request a new assignment before closing.")
         if self.role == "sanity" and latest.get("event") == REFUSED:
@@ -532,6 +530,30 @@ class Hook:
     def assignment_is_current(self):
         _, assignment_id, _ = assignment_details(self.events(self.task), self.task)
         return assignment_id == self.assignment_id
+
+    def verify_sanity_assignment(self, sanity, events, expected, *, allow_pass=False):
+        """Check the recorded generation, recipient and live state, allowing only a matching completed PASS on replay."""
+        assignments = [event for event in events if event.get("event") in ASSIGNMENT_EVENTS]
+        assignment = assignments[-1] if assignments else {}
+        actual = assignment.get("message_id") or assignment.get("seq")
+        state = events[-1].get("to_state") if events else None
+        recipient = assignment.get("assignee")
+        latest_recipient = events[-1].get("assignee") if events else None
+        member = self.config["dev_sanity_member"].split("@", 1)[0]
+        same = (expected is not None and actual is not None and str(expected) == str(actual)
+                and isinstance(recipient, str) and recipient.split("@", 1)[0] == member
+                and (latest_recipient is None or (isinstance(latest_recipient, str)
+                     and latest_recipient.split("@", 1)[0] == member)))
+        passed = (allow_pass and events and events[-1].get("event") == COMPLETED
+                  and self.bead(sanity).get("status") == "closed"
+                  and self.bead(sanity).get("close_reason") == f"PASS at {self.values['commit']}")
+        if not same or (state not in ("assigned", "active") and not passed):
+            detail = f"{sanity}: expected generation {expected!r}, recipient {member}, assigned or active"
+            observed = f"observed generation {actual!r}, recipient {recipient!r}, state {state!r}, event {events[-1].get('event') if events else None!r}, at {assignment.get('at')!r}"
+            fix = (f"Inspect `atm task events {sanity} --all --json`; the lead must verify and record the assignment with "
+                   f"`bd update {self.values['checked_bead']} --set-metadata sanity_assignment_id=<verified-id>` or cancel the orphan and reassign, then retry.")
+            raise CloseError("CLOSE.POSTCONDITION", f"{detail}; {observed}", fix)
+        return str(actual)
 
     def stack_top(self):
         if not self.values.get("stack_bead"):
@@ -876,6 +898,9 @@ class Hook:
         terminal = is_terminal(sanity_events)
         open_assignment = bool(sanity_events) and not terminal
         checked_metadata = self.bead(values["checked_bead"]).get("metadata") or {}
+        bound = checked_metadata.get("sanity_assignment_id")
+        if open_assignment:
+            self.verify_sanity_assignment(sanity, sanity_events, bound)
         sha_changed = checked_metadata.get("commit") != assignment_values["commit"]
         assign = (not terminal or self.bead(sanity).get("status") == "open") and (sha_changed or not open_assignment)
         if not assign and sha_changed:
@@ -896,10 +921,20 @@ class Hook:
         assignments = [event for event in history if event.get("event") in ASSIGNMENT_EVENTS]
         previous = [event for event in sanity_events if event.get("event") in ASSIGNMENT_EVENTS]
         new_assignment_required = assign and not open_assignment
-        if actual.get("status") != "closed" or actual.get("close_reason") != reason or not assignments or (new_assignment_required and len(assignments) <= len(previous)):
+        if actual.get("status") != "closed" or actual.get("close_reason") != reason or not assignments or (new_assignment_required and len(assignments) != len(previous) + 1):
             raise CloseError("CLOSE.POSTCONDITION", f"expected {values['checked_bead']} closed with reason {reason!r} and {sanity} assigned; "
                              f"read status {actual.get('status')!r}, reason {actual.get('close_reason')!r} and {len(assignments)} assignment(s)",
                              f"Inspect `bd show {values['checked_bead']} --json` and `atm task events {sanity} --json`, repair the state and retry.")
+        if new_assignment_required:
+            bound = assignments[-1].get("message_id") or assignments[-1].get("seq")
+        bound = self.verify_sanity_assignment(sanity, history, bound)
+        self.metadata(values["checked_bead"], {"sanity_assignment_id": bound})
+        actual = self.read_bead(values["checked_bead"])
+        stored_bound = (actual.get("metadata") or {}).get("sanity_assignment_id")
+        if stored_bound is None or str(stored_bound) != bound:
+            raise CloseError("CLOSE.POSTCONDITION", f"{values['checked_bead']}: expected sanity_assignment_id {bound!r}, observed {(actual.get('metadata') or {}).get('sanity_assignment_id')!r}",
+                             f"Inspect `bd show {values['checked_bead']} --json` and repair the recorded assignment, then retry.")
+        self.verify_sanity_assignment(sanity, self.events(sanity), bound)
         # The dev's work is finished: free the dev for its next queued task and stop reminders.
         # Sanity state lives on the sanity task; a FAIL re-assigns this task through the lead.
         self.close_task(self.task, reason=reason)
