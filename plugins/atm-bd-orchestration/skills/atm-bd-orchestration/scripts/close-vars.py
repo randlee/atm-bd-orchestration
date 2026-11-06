@@ -19,9 +19,9 @@ It writes `--out` and prints JSON: role, the fields the closing agent still supp
 manual close commands. A bead missing a poured field is refused with the fix; never assemble its fields from
 other beads.
 
-`--qa-assignment` instead writes the `templates.qa` vars of a QA bead: its poured fields plus the commit,
-branch and PR its checked bead recorded at close (close_fields.qa_assignment_vars), and prints the
-`atm task assign` command. A checked bead with no recorded PR is refused, never sent with an empty PR.
+`--qa-assignment` instead writes the `templates.qa` vars of a QA bead: its poured fields plus the current PR's
+head SHA, base ref, branch and number (close_fields.qa_assignment_vars), and prints the `atm task assign` command.
+A checked bead with no recorded PR or no readable current PR is refused, never sent with stale first-close context.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ import task_close_validation  # noqa: E402
 
 ATM_TIMEOUT_S = 10
 BD_SHOW_TIMEOUT_S = 30
+GH_PR_TIMEOUT_S = 30
 
 
 # Refusals that a cached row lagging a direct `bd update` could cause; a fresh read from bd settles them.
@@ -148,17 +149,55 @@ def _build(repo, bead, events_for_task, fresh, fallback):
     return {"bead": bead, "role": role, "vars": values, "remaining": remaining, "read_fallback": fallback}
 
 
-def build_qa_assignment(repo: Path, bead: str) -> dict:
-    return cached_then_fresh(lambda fresh, fallback: _build_qa_assignment(repo, bead, fresh, fallback))
+def read_current_pr(repo: Path, number: str) -> dict:
+    argv = ["gh", "pr", "view", number, "--json", "number,baseRefName,headRefName,headRefOid"]
+    try:
+        result = subprocess.run(argv, cwd=repo, capture_output=True, text=True, timeout=GH_PR_TIMEOUT_S, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise close_fields.CloseFieldsError(
+            "ASSIGN_VARS.PR_READ_FAILED", f"gh pr view {number} failed: {error}",
+            f"Check GitHub access and retry `gh pr view {number} --json number,baseRefName,headRefName,headRefOid`; "
+            "do not use first-close base or commit values.",
+        ) from error
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()[-300:]
+        raise close_fields.CloseFieldsError(
+            "ASSIGN_VARS.PR_READ_FAILED", f"gh pr view {number} exited {result.returncode}: {detail}",
+            f"Check that PR #{number} is readable here and retry `gh pr view {number} --json "
+            "number,baseRefName,headRefName,headRefOid`; do not use first-close base or commit values.",
+        )
+    try:
+        row = json.loads(result.stdout)
+    except ValueError as error:
+        raise close_fields.CloseFieldsError(
+            "ASSIGN_VARS.PR_READ_FAILED", f"gh pr view {number} printed invalid JSON: {error}",
+            f"Retry `gh pr view {number} --json number,baseRefName,headRefName,headRefOid` and inspect its output.",
+        ) from error
+    if not isinstance(row, dict):
+        raise close_fields.CloseFieldsError(
+            "ASSIGN_VARS.PR_READ_FAILED", f"gh pr view {number} did not print a PR object",
+            f"Retry `gh pr view {number} --json number,baseRefName,headRefName,headRefOid` and inspect its output.",
+        )
+    return {"number": row.get("number"), "base": row.get("baseRefName"),
+            "head": row.get("headRefName"), "head_sha": row.get("headRefOid")}
 
 
-def _build_qa_assignment(repo, bead, fresh, fallback):
+def build_qa_assignment(repo: Path, bead: str, *, pr_reader=None) -> dict:
+    reader = pr_reader or read_current_pr
+    return cached_then_fresh(lambda fresh, fallback: _build_qa_assignment(repo, bead, fresh, fallback, reader))
+
+
+def _build_qa_assignment(repo, bead, fresh, fallback, pr_reader):
     row = read(repo, bead, fallback, fresh=fresh)
     checked = (row.get("metadata") or {}).get("checked_bead")
     if not checked:
         raise close_fields.CloseFieldsError("CLOSE_VARS.NOT_POURED", f"{bead}: metadata lacks checked_bead",
                                             "Ask the phase lead to run close_fields_backfill.py for its phase.")
-    values = close_fields.qa_assignment_vars(row, read(repo, checked, fallback, fresh=fresh), repo)
+    checked_row = read(repo, checked, fallback, fresh=fresh)
+    checked_meta = checked_row.get("metadata") or {}
+    recorded_number = checked_meta.get("pr_number")
+    current_pr = pr_reader(repo, str(recorded_number)) if recorded_number not in (None, "") else None
+    values = close_fields.qa_assignment_vars(row, checked_row, repo, current_pr)
     return {"bead": bead, "role": "qa-assignment", "vars": values, "remaining": [], "read_fallback": fallback}
 
 

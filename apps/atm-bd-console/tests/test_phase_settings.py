@@ -149,7 +149,7 @@ def test_real_assignment_receives_phase_lead_and_configured_path(phase_repo, mon
             "policy_path": ".claude/project/quality-policy.md", "max_sanity_rounds": 5, "layer": SPRINT.layer,
             "reviewers_round1": ["req-qa"]} if kind == "qa" else {}),
     })
-    # The dev close records its PR on the checked bead; with GitHub off, QA dispatch takes it from there (#557).
+    # The dev close records the PR number, but with GitHub off the current base/head cannot be verified.
     dev = replace(BEAD, id=f"{sprint.id}.group-dev", status=SprintState.CLOSED, parent=sprint.id,
                   labels=("stage:dev",), metadata={"role": "dev", "branch": SPRINT.branch, "commit": "0123456789abcdef",
                                                    "pr_number": 2214})
@@ -180,6 +180,12 @@ esac
 ''')
     assert cli.main(["cron", "--phase", "bh", "--github", "off"]) == 0
     snapshot = load_snapshot(phase_repo, root.id)
+    if kind == "qa":
+        assert isinstance(snapshot, Ok)
+        assert any(isinstance(error, ConfigInvalid) and "ASSIGN_VARS.PR_UNAVAILABLE" in error.key
+                   for error in snapshot.value.errors)
+        assert not [argv for argv in fake_bin.argv() if argv[1:3] == ("task", "assign")]
+        return
     assert isinstance(snapshot, Ok) and snapshot.value.errors == ()
     assigned = [argv for argv in fake_bin.argv() if argv[1:3] == ("task", "assign")]
     recipient = "atm-sanity" if kind == "sanity" else "quality-mgr"
