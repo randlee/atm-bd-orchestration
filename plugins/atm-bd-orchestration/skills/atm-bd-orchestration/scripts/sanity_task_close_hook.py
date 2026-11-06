@@ -323,7 +323,7 @@ def prepare(runtime, sanity):
     values["commit"] = commit
     base = values.get("base")
     if not isinstance(base, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", base):
-        raise Failure("SANITY_CLOSE.BASE", "base must be the full 40-hex SHA from the sanity assignment; copy it into the selected result", "sanity")
+        raise Failure("SANITY_CLOSE.BASE", "base must be the full 40-hex SHA from the sanity assignment; ask the dispatcher to repair a branch-name base, then copy the corrected SHA into the selected result", "sanity")
     worktree = (dev.get("metadata") or {}).get("worktree")
     require(isinstance(worktree, str) and bool(worktree), "checked_bead.metadata.worktree", "required to verify base ancestry", "phase-lead")
     runtime.check_base((runtime.root / worktree).resolve(), base, commit)

@@ -13,7 +13,18 @@ from .enums import SprintState
 from .ids import short_id
 from .result import ConfigInvalid, Err, Error, IoFailed, NotFound, Ok, ParseFailed, Result
 from .skill_loader import load_skill
-from .types import Bead, DispatchContext, DispatchSpec, Phase, PhaseFile, RepoConfig, Sprint, Step, StepKind
+from .types import (
+    Bead,
+    DispatchContext,
+    DispatchSpec,
+    Phase,
+    PhaseFile,
+    PullRequest,
+    RepoConfig,
+    Sprint,
+    Step,
+    StepKind,
+)
 
 # atm-bd conventions (atm-beads sprint_index_common.py): the only place they are named.
 PHASE_DIR = ".atm-bd"
@@ -49,7 +60,6 @@ SPRINT_BEAD_KEY = "sprint_bead"
 SEVERITY_KEY = "severity"
 QUICK_FIX_KEY = "quick_fix"
 BRANCH_KEY, PR_TARGET_KEY, WORKTREE_KEY, LAYER_KEY, DIFFICULTY_KEY = "branch", "pr_target", "worktree", "layer", "difficulty"
-PR_NUMBER_KEY, PR_URL_KEY = "pr_number", "pr_url"  # recorded on a dev or fix bead by its close
 # Semantic source name -> production template variable. Dispatch code uses these names
 # so the template contract is defined here once, next to the template paths.
 DISPATCH_KEYS: Mapping[str, str] = {
@@ -457,21 +467,12 @@ def dispatch_spec(ctx: DispatchContext, templates: Mapping[str, str]) -> Result[
         }
         return Ok(DispatchSpec(template, values))
     # QA vars have one producer, the canonical resolver manual dispatch uses (close-vars.py --qa-assignment): the QA
-    # bead's poured fields and the commit, branch and PR its checked bead recorded at close. The console adds only
-    # what it reads live: the stack's layer PRs and the PR URL (#557; #2214 empty PR, bk-15 planned layer).
-    resolved = qa_assignment(current, ctx.repo.primary_checkout)
+    # bead's poured fields plus the current PR's head, base and number. The console adds the live URL and layer PRs.
+    resolved = qa_assignment(current, ctx.repo.primary_checkout, pr)
     if isinstance(resolved, Err):
         return resolved
     qa_vars = dict(resolved.value)
-    recorded = qa_vars[keys["pr_number"]]
-    if pr is not None and str(pr.number) != recorded:
-        return Err(ConfigInvalid(
-            "config_invalid", f"{current.checked_bead}.metadata.{PR_NUMBER_KEY}", recorded,
-            f"the PR read shows #{pr.number} open for {current.branch} but {current.checked_bead} recorded #{recorded}: "
-            f"correct {current.checked_bead}.metadata.pr_number to the PR under review, then dispatch again",
-        ))
-    checked_meta = (current.checked_row or {}).get("metadata") or {}
-    qa_vars[keys["pr_url"]] = pr.url if pr is not None else str(checked_meta.get(PR_URL_KEY) or "")
+    qa_vars[keys["pr_url"]] = pr.url if pr is not None else ""
     qa_vars[keys["layer_prs"]] = layer_prs
     return Ok(DispatchSpec(template, qa_vars))
 
@@ -480,8 +481,8 @@ CLOSE_FIELDS_SCRIPT = "atm-beads/scripts/close_fields.py"
 CLOSE_VARS_CONTRACT = "atm-bd-orchestration/templates/task-close-vars.j2"
 
 
-def qa_assignment(current: Step, repo_root: str) -> Result[Mapping[str, Any]]:
-    """The canonical QA vars of one QA step (close_fields.qa_assignment_vars), each refusal as a typed error."""
+def qa_assignment(current: Step, repo_root: str, pr: PullRequest | None) -> Result[Mapping[str, Any]]:
+    """The canonical QA vars of one QA step, using its current PR and preserving typed refusals."""
     if current.qa_row is None or current.checked_row is None:
         return _missing(f"{current.checked_bead} (the checked bead of {current.bead_id}) in the bead read")
     try:
@@ -491,6 +492,9 @@ def qa_assignment(current: Step, repo_root: str) -> Result[Mapping[str, Any]]:
                                  "install atm-bd-orchestration with close_fields.py (#557) into the repository's "
                                  ".claude/skills; QA is not assigned without the canonical resolver"))
     try:
-        return Ok(module.qa_assignment_vars(dict(current.qa_row), dict(current.checked_row), Path(repo_root)))
+        current_pr = None if pr is None else {
+            "number": pr.number, "base": pr.base, "head": pr.head, "head_sha": pr.head_sha,
+        }
+        return Ok(module.qa_assignment_vars(dict(current.qa_row), dict(current.checked_row), Path(repo_root), current_pr))
     except module.CloseFieldsError as error:
         return Err(ConfigInvalid("config_invalid", f"{current.bead_id}: {error.code}", str(error), error.fix))

@@ -64,7 +64,7 @@ ATM_MAX_REQUEST_BYTES = 1_114_112
 # write_stack_input(), then atm-task-close.py --role sanity and the templates it renders and sends
 # (dev-sanity-complete, sanity-fail, qa-template). Every other field is overwritten there or never read.
 SANITY_CLOSE_CONTEXT = frozenset((
-    "base", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+    "base", "base_verified", "base_source", "nr", "carry_forward", "checked_title", "commit", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
     "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
     "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"))
 
@@ -500,10 +500,8 @@ class Hook:
                          and record.get("close_reason") == expected_reason)
                 if exact:
                     sanity = self.values["sanity_task_id"]
-                    if any(event.get("event") in ASSIGNMENT_EVENTS for event in self.task_history[sanity]):
-                        return True
-                    raise CloseError("CLOSE.POSTCONDITION", f"{self.task} is closed but {sanity} has no assignment",
-                                     f"Inspect `atm task events {sanity} --json`, repair the assignment and retry.")
+                    self.verify_sanity_assignment(sanity, self.task_history[sanity], metadata.get("sanity_assignment_id"), allow_pass=True)
+                    return True
                 raise CloseError("CLOSE.STALE_ASSIGNMENT", f"{self.task}: newest event {latest.get('message_id') or latest.get('seq') or latest.get('event')} is terminal; current assignment is {self.assignment_id}",
                                  f"Run `atm task events {self.task} --json` and request a new assignment before closing.")
         if self.role == "sanity" and latest.get("event") == REFUSED:
@@ -532,6 +530,30 @@ class Hook:
     def assignment_is_current(self):
         _, assignment_id, _ = assignment_details(self.events(self.task), self.task)
         return assignment_id == self.assignment_id
+
+    def verify_sanity_assignment(self, sanity, events, expected, *, allow_pass=False):
+        """Check the recorded generation, recipient and live state, allowing only a matching completed PASS on replay."""
+        assignments = [event for event in events if event.get("event") in ASSIGNMENT_EVENTS]
+        assignment = assignments[-1] if assignments else {}
+        actual = assignment.get("message_id") or assignment.get("seq")
+        state = events[-1].get("to_state") if events else None
+        recipient = assignment.get("assignee")
+        latest_recipient = events[-1].get("assignee") if events else None
+        member = self.config["dev_sanity_member"].split("@", 1)[0]
+        same = (expected is not None and actual is not None and str(expected) == str(actual)
+                and isinstance(recipient, str) and recipient.split("@", 1)[0] == member
+                and (latest_recipient is None or (isinstance(latest_recipient, str)
+                     and latest_recipient.split("@", 1)[0] == member)))
+        passed = (allow_pass and events and events[-1].get("event") == COMPLETED
+                  and self.bead(sanity).get("status") == "closed"
+                  and self.bead(sanity).get("close_reason") == f"PASS at {self.values['commit']}")
+        if not same or (state not in ("assigned", "active") and not passed):
+            detail = f"{sanity}: expected generation {expected!r}, recipient {member}, assigned or active"
+            observed = f"observed generation {actual!r}, recipient {recipient!r}, state {state!r}, event {events[-1].get('event') if events else None!r}, at {assignment.get('at')!r}"
+            fix = (f"Inspect `atm task events {sanity} --all --json`; the lead must verify and record the assignment with "
+                   f"`bd update {self.values['checked_bead']} --set-metadata sanity_assignment_id=<verified-id>` or cancel the orphan and reassign, then retry.")
+            raise CloseError("CLOSE.POSTCONDITION", f"{detail}; {observed}", fix)
+        return str(actual)
 
     def stack_top(self):
         if not self.values.get("stack_bead"):
@@ -593,12 +615,29 @@ class Hook:
             layer = layers[-1]
             self.ledger_top = {"branch": layer["branch"], "pr": layer.get("pr"), "head": layer["head"]}
         checks["ledger_top"] = self.ledger_top
-        self.rebased_onto = top_head
-        ancestor = self.run(["git", "merge-base", "--is-ancestor", f"origin/{top}", head], git=True, check=False)
-        if ancestor.returncode == 1:
-            raise CloseError("BASE.NOT_ANCESTOR", top, f"Rebase onto origin/{top}, push, then rerun the hook.")
-        if ancestor.returncode:
-            raise CloseError("COMMAND.FAILED", ancestor.stderr, "Repair the local git ancestry check.")
+        linked_index = next((index for index, layer in enumerate(layers) if layer.get("branch") == values["branch"]), None)
+        self.linked_reclose = linked_index is not None
+        if self.linked_reclose:
+            assert linked_index is not None
+            if layers[linked_index].get("head") != head:
+                raise CloseError("BASE.LINKED_HEAD", f"linked layer {values['branch']} has a different ledger head",
+                                 "Inspect the frozen layer and its ledger entry with the phase lead; do not rebase it.")
+            if linked_index:
+                parent = layers[linked_index - 1]
+                self.base_anchor = (parent["branch"], parent["head"])
+            else:
+                stack = self.bead(values["stack_bead"]).get("metadata") or {}
+                trunk = stack.get("trunk") or values["pr_target"]
+                trunk_head = self.run(["git", "rev-parse", f"origin/{trunk}"], git=True).stdout.strip()
+                self.base_anchor = (trunk, trunk_head)
+        else:
+            self.base_anchor = (top, top_head)
+            ancestor = self.run(["git", "merge-base", "--is-ancestor", f"origin/{top}", head], git=True, check=False)
+            if ancestor.returncode == 1:
+                raise CloseError("BASE.NOT_ANCESTOR", top, f"Rebase onto origin/{top}, push, then rerun the hook.")
+            if ancestor.returncode:
+                raise CloseError("COMMAND.FAILED", ancestor.stderr, "Repair the local git ancestry check.")
+        self.rebased_onto = self.base_anchor[1]
         remote_url = self.run(["git", "remote", "get-url", "origin"], git=True).stdout.strip()
         match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", remote_url)
         if not match:
@@ -627,9 +666,9 @@ class Hook:
                                  "Close the duplicate PRs so exactly one open PR names this branch and pushed head, then rerun the hook.")
             values["pr_number"] = str(matches[0]["number"] or "")
             values["pr_url"] = f"https://github.com/{owner}/{repo}/pull/{values['pr_number']}" if values["pr_number"] else ""
+            self.require_completion_identity()
             self.pr_base = str((matches[0].get("base") or {}).get("ref") or "")
-            if self.pr_base:
-                self.rebased_onto = self.run(["git", "rev-parse", f"origin/{self.pr_base}"], git=True).stdout.strip()
+            self.resolve_recorded_pr_base()
             base_layer = next((layer for layer in all_layers if layer.get("branch") == self.pr_base), {})
             self.base_evidence = {"branch": self.pr_base, "pr": base_layer.get("pr")}
             if self.ledger_top and self.ledger_top["branch"] != self.pr_base:
@@ -656,26 +695,67 @@ class Hook:
         self.values["pr_url"] = str(metadata.get("pr_url") or "")
         self.pr_base = str(metadata.get("pr_base") or "")
 
-    def resolve_recorded_pr_base(self):
-        """Resolve the recorded PR parent and verify it is between the lower bound and checked head."""
+    def resolve_recorded_pr_base(self, *, skip_stack=False):
+        """Resolve either PR parent and verify the ledger top, base and checked head form a chain."""
         bead = self.values["checked_bead"]
         base = self.pr_base
-        fix = (f"Inspect the PR base, run `bd update {bead} --set-metadata pr_base=<actual-base-branch>`, "
-               "then `git fetch origin` and retry.")
+        correction = ("Retarget the PR to its recorded ledger predecessor; do not rebase the frozen layer"
+                      if getattr(self, "linked_reclose", False) else "Retarget the PR to the ledger top or rebase onto it")
+        fix = (f"{correction}, run `git fetch origin`, and if offline update {bead} with "
+               f"`bd update {bead} --set-metadata pr_base=<actual-base-branch>`, then retry.")
         if not base:
             raise CloseError("BASE.PR_UNVERIFIED", f"{bead} metadata.pr_base is missing", fix)
         ref = f"origin/{base}"
         result = self.run(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], git=True, check=False)
         sha = result.stdout.strip()
-        if result.returncode or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", sha):
+        if result.returncode or not re.fullmatch(r"[0-9a-f]{40}", sha):
             raise CloseError("BASE.PR_UNVERIFIED", f"{bead} recorded PR base {ref} cannot be resolved to a commit", fix)
         lower = f"origin/{self.values['pr_target']}"
-        for ancestor, descendant in ((lower, ref), (ref, self.values["commit"])):
-            result = self.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], git=True, check=False)
-            if result.returncode:
-                raise CloseError("BASE.PR_UNVERIFIED", f"{bead} recorded PR base {ref}: {ancestor} is not a verified ancestor of {descendant}", fix)
+        top, top_head = ("unchecked", "") if skip_stack else (getattr(self, "base_anchor", None) or self.stack_top())
+        if getattr(self, "linked_reclose", False) and sha != top_head:
+            raise CloseError("BASE.PR_UNVERIFIED", f"{bead} PR base {ref} ({sha}) differs from its ledger predecessor {top} ({top_head})", fix)
+        detail = f"{bead} PR base {ref} ({sha}) and ledger anchor {top} ({top_head})"
+        self.verify_sanity_base(lower, sha, fix=fix, detail=detail, require_sha=False)
+        if not skip_stack:
+            self.verify_sanity_base(top_head, sha, fix=fix, detail=detail)
+        self.verify_sanity_base(sha, self.values["commit"], fix=fix, detail=detail)
         self.rebased_onto = sha
+        self.values["base_verified"] = not skip_stack
         self.base_evidence = {"branch": base, "pr": None}
+
+    def verify_sanity_base(self, base, head, *, fix=None, detail="", require_sha=True):
+        fix = fix or "Run `git fetch origin`, then ask the dispatcher to select a full 40-hex ancestor base and rerun the sanity assignment."
+        if require_sha and (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base)):
+            raise CloseError("BASE.PR_UNVERIFIED", f"base {base!r} for checked head {head} is not a full 40-hex commit", fix)
+        result = self.run(["git", "merge-base", "--is-ancestor", base, head], git=True, check=False)
+        if result.returncode:
+            prefix = f"{detail}: " if detail else ""
+            raise CloseError("BASE.PR_UNVERIFIED", f"{prefix}{base} is not a verified ancestor of {head}", fix)
+
+    def resolve_nr_base(self, *, skip_checks=False):
+        values = self.values
+        layers = []
+        if values.get("stack_bead"):
+            layers = [layer for layer in ((self.bead(values["stack_bead"]).get("metadata") or {}).get("layers") or [])
+                      if layer.get("linked") is True]
+        index = next((i for i, layer in enumerate(layers) if layer.get("branch") == self.checked_worktree_branch), None)
+        source = "ledger" if index is not None else "pr_target"
+        if index is not None and layers[index].get("head") != self.checked_worktree_head:
+            raise CloseError("BASE.PR_UNVERIFIED", f"linked branch {self.checked_worktree_branch} has a different ledger head than {self.checked_worktree_head}",
+                             "Ask the lead to inspect the frozen ledger entry; do not rebase it.")
+        if index is not None and index > 0:
+            sha = layers[index - 1].get("head")
+        else:
+            branch = ((self.bead(values["stack_bead"]).get("metadata") or {}).get("trunk")
+                      if index is not None else values.get("pr_target"))
+            ref = f"origin/{branch}"
+            result = self.run(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], git=True, check=False)
+            if result.returncode:
+                raise CloseError("BASE.PR_UNVERIFIED", f"cannot resolve {ref} for checked head {self.checked_worktree_head}",
+                                 "Fetch the correct base commit and ask the dispatcher to retry.")
+            sha = result.stdout.strip()
+        self.verify_sanity_base(sha, self.checked_worktree_head)
+        values.update(rebased_onto=sha, base_source=source, nr=True, base_verified=not skip_checks)
 
     def render(self, template, values=None):
         try:
@@ -701,9 +781,35 @@ class Hook:
                              "(--set-metadata stores a string; qa-bead.json.j2 pours the list from the repository's reviewers_round1), then rerun the hook.")
         return reviewers
 
+    def current_pr_for_qa(self, checked):
+        """Read the checked fix's live PR before building its QA assignment."""
+        metadata = checked.get("metadata") or {}
+        number = metadata.get("pr_number")
+        if number in (None, ""):
+            return None
+        argv = ["gh", "pr", "view", str(number), "--json", "number,baseRefName,headRefName,headRefOid"]
+        try:
+            row = self.json(argv)
+        except CloseError as error:
+            raise close_fields.CloseFieldsError(
+                "ASSIGN_VARS.PR_READ_FAILED", f"{' '.join(argv)} failed: {error}",
+                f"Retry `{' '.join(argv)}` and inspect its output; do not use first-close base or commit values.",
+            ) from error
+        if not isinstance(row, dict):
+            raise close_fields.CloseFieldsError(
+                "ASSIGN_VARS.PR_READ_FAILED", f"{' '.join(argv)} did not return a PR object",
+                f"Retry `{' '.join(argv)}` and inspect its output; do not use first-close base or commit values.",
+            )
+        return {"number": row.get("number"), "base": row.get("baseRefName"),
+                "head": row.get("headRefName"), "head_sha": row.get("headRefOid")}
+
     def sanity_dispatch(self, context):
         """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
         context = {**context, "base": context.get("rebased_onto") or context.get("base")}
+        base = context.get("base")
+        if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base):
+            raise CloseError("BASE.PR_UNVERIFIED", f"sanity base {base!r} is not a full 40-hex commit",
+                             "Ask the dispatcher to resolve the PR base to a full 40-hex SHA and rerun.")
         template = "dev-sanity-template.xml.j2"
         pr_number = str(context.get("pr_number") or self.values.get("pr_number") or "")
         if not context.get("layer_prs") and pr_number:
@@ -845,6 +951,7 @@ class Hook:
         with tempfile.TemporaryDirectory(prefix="atm-task-close-") as directory:
             completion = Path(directory) / "completion-vars.json"
             if values["outcome"] == "not_reproducible":
+                self.resolve_nr_base(skip_checks=skip)
                 assignment = {**values, "branch": self.checked_worktree_branch, "commit": self.checked_worktree_head,
                               "worktree_path": str(self.worktree)}
                 assignment_path = Path(directory) / "sanity-vars.json"
@@ -860,7 +967,7 @@ class Hook:
             else:
                 self.keep_recorded_pr()
                 self.require_completion_identity()
-                self.resolve_recorded_pr_base()
+                self.resolve_recorded_pr_base(skip_stack=True)
                 values["rebased_onto"] = self.rebased_onto
             self.require_completion_identity()
             self.render(template)
@@ -876,6 +983,9 @@ class Hook:
         terminal = is_terminal(sanity_events)
         open_assignment = bool(sanity_events) and not terminal
         checked_metadata = self.bead(values["checked_bead"]).get("metadata") or {}
+        bound = checked_metadata.get("sanity_assignment_id")
+        if open_assignment:
+            self.verify_sanity_assignment(sanity, sanity_events, bound)
         sha_changed = checked_metadata.get("commit") != assignment_values["commit"]
         assign = (not terminal or self.bead(sanity).get("status") == "open") and (sha_changed or not open_assignment)
         if not assign and sha_changed:
@@ -896,10 +1006,20 @@ class Hook:
         assignments = [event for event in history if event.get("event") in ASSIGNMENT_EVENTS]
         previous = [event for event in sanity_events if event.get("event") in ASSIGNMENT_EVENTS]
         new_assignment_required = assign and not open_assignment
-        if actual.get("status") != "closed" or actual.get("close_reason") != reason or not assignments or (new_assignment_required and len(assignments) <= len(previous)):
+        if actual.get("status") != "closed" or actual.get("close_reason") != reason or not assignments or (new_assignment_required and len(assignments) != len(previous) + 1):
             raise CloseError("CLOSE.POSTCONDITION", f"expected {values['checked_bead']} closed with reason {reason!r} and {sanity} assigned; "
                              f"read status {actual.get('status')!r}, reason {actual.get('close_reason')!r} and {len(assignments)} assignment(s)",
                              f"Inspect `bd show {values['checked_bead']} --json` and `atm task events {sanity} --json`, repair the state and retry.")
+        if new_assignment_required:
+            bound = assignments[-1].get("message_id") or assignments[-1].get("seq")
+        bound = self.verify_sanity_assignment(sanity, history, bound)
+        self.metadata(values["checked_bead"], {"sanity_assignment_id": bound})
+        actual = self.read_bead(values["checked_bead"])
+        stored_bound = (actual.get("metadata") or {}).get("sanity_assignment_id")
+        if stored_bound is None or str(stored_bound) != bound:
+            raise CloseError("CLOSE.POSTCONDITION", f"{values['checked_bead']}: expected sanity_assignment_id {bound!r}, observed {(actual.get('metadata') or {}).get('sanity_assignment_id')!r}",
+                             f"Inspect `bd show {values['checked_bead']} --json` and repair the recorded assignment, then retry.")
+        self.verify_sanity_assignment(sanity, self.events(sanity), bound)
         # The dev's work is finished: free the dev for its next queued task and stop reminders.
         # Sanity state lives on the sanity task; a FAIL re-assigns this task through the lead.
         self.close_task(self.task, reason=reason)
@@ -920,17 +1040,15 @@ class Hook:
         self.render("dev-sanity-complete.md.j2")
         if verdict == "PASS":
             checked = self.bead(values["checked_bead"])
-            is_fix = close_fields.is_fix_bead(checked)
-            qa_round = (self.bead(values["qa_bead"]).get("metadata") or {}).get("round")
-            if type(qa_round) is not int or qa_round < 1:
+            current_pr = self.current_pr_for_qa(checked)
+            qa_values = close_fields.qa_assignment_vars(self.bead(values["qa_bead"]), checked, self.root, current_pr)
+            if qa_values["checked_bead"] != checked["id"]:
+                raise CloseError("ASSIGN_VARS.CONFLICT", f"{values['qa_bead']} points to {qa_values['checked_bead']}, but sanity checked {checked['id']}",
+                                 f"Correct metadata.checked_bead on {values['qa_bead']} to {checked['id']} and retry.")
+            if type(qa_values["round"]) is not int or qa_values["round"] < 1:
                 raise CloseError("BEAD.INVALID", f"{values['qa_bead']} metadata.round must be a positive integer",
                                  f"Run `bd update {values['qa_bead']} --set-metadata round=<positive integer>` and retry.")
-            qa_values = {**values, "round": qa_round}
             self.render("qa-template.xml.j2", qa_values)
-            if is_fix and values.get("carry_forward", "") != values["checked_bead"]:
-                raise CloseError("VARS.INVALID", "fix QA requires carry_forward", "Supply the checked fix bead as carry_forward.")
-            if values.get("carry_forward") and values["carry_forward"] != values["checked_bead"]:
-                raise CloseError("VARS.INVALID", "carry_forward differs from fix bead", "Supply the checked fix bead as carry_forward.")
             if (self.bead(bead).get("status") == "closed"
                     and self.bead(bead).get("close_reason") != f"PASS at {values['commit']}"
                     and not is_terminal(self.task_history[bead])):
@@ -1036,7 +1154,7 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
         if escalated:
             result["escalated"] = escalated
         output = {"ok": result}
-    except CloseError as error:
+    except (CloseError, close_fields.CloseFieldsError) as error:
         output = {"err": {"code": error.code, "message": str(error), "fix": error.fix}}
     except KeyError as error:
         field = str(error.args[0])

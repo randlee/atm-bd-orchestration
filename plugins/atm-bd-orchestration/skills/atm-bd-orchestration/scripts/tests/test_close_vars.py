@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -11,8 +13,10 @@ from pathlib import Path
 SCRIPTS = Path(__file__).parents[1]
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(SCRIPTS.parents[1] / "atm-beads" / "scripts"))
+sys.path.insert(0, str(SCRIPTS / "tests"))
 import close_fields  # noqa: E402
 from rendering import render  # noqa: E402
+from task_close_world import World as CloseHookWorld  # noqa: E402
 
 
 def load(name: str, file: str):
@@ -43,6 +47,76 @@ def row(bead: str, stage: str, role: str, status: str = "open", **extra) -> dict
 
 FIX = row("t-d-1.f1-fix", "stage:fix", "fix", status="closed", commit="abc123", pr_number=2214, pr_url="u")
 QA = row("t-d-1.f1-qa", "stage:qa", "qa", layer=34, round=1, reviewers_round1=["req-qa"])
+CURRENT_PR = {"number": 2214, "base": "fix/d-1-f2", "head": "fix/d-1-f1", "head_sha": "def456789"}
+
+
+def test_rebased_fixture_layer_updates_qa_vars_and_sanity_close_context(tmp_path: Path, monkeypatch) -> None:
+    fixture = tmp_path / "rebased-layer"
+    fixture.mkdir()
+
+    def git(*args: str) -> str:
+        completed = subprocess.run(["git", *args], cwd=fixture, capture_output=True, text=True,
+                                   timeout=10, check=True)
+        return completed.stdout.strip()
+
+    git("init", "-b", "stack-old")
+    git("config", "user.name", "ATM Test")
+    git("config", "user.email", "atm-test@example.invalid")
+    git("config", "commit.gpgsign", "false")
+    git("config", "core.hooksPath", "/dev/null")
+    (fixture / "base.txt").write_text("old stack base\n")
+    git("add", "base.txt")
+    git("commit", "-m", "old stack base")
+    git("switch", "-c", "fix/d-1-f1")
+    (fixture / "fix.txt").write_text("layer change\n")
+    git("add", "fix.txt")
+    git("commit", "-m", "layer change")
+    first_head = git("rev-parse", "HEAD")
+    git("switch", "-c", "stack-new", "stack-old")
+    (fixture / "new-base.txt").write_text("new stack base\n")
+    git("add", "new-base.txt")
+    git("commit", "-m", "new stack base")
+    new_base = git("rev-parse", "HEAD")
+    git("switch", "fix/d-1-f1")
+    git("rebase", "stack-new")
+    rebased_head = git("rev-parse", "HEAD")
+    assert git("rev-parse", "HEAD^") == new_base
+    assert rebased_head != first_head
+
+    current_pr = {**CURRENT_PR, "base": "stack-new", "head": "fix/d-1-f1", "head_sha": rebased_head}
+    recorded = {**FIX, "metadata": {**FIX["metadata"], "branch": "fix/d-1-f1", "pr_base": "stack-old",
+                                      "commit": first_head}}
+    rows = {QA["id"]: QA, recorded["id"]: recorded}
+    from unittest.mock import patch
+
+    with patch.object(close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
+        qa_assignment = close_vars_cli.build_qa_assignment(
+            fixture, QA["id"], pr_reader=lambda repo, number: current_pr)
+    qa_vars = qa_assignment["vars"]
+    assert qa_vars["base"] == "stack-new"
+    assert qa_vars["commit"] == rebased_head
+
+    hook_root = tmp_path / "close-hook"
+    hook_root.mkdir()
+    close_hook = CloseHookWorld(hook_root, monkeypatch)
+    close_hook.values.update(base=qa_vars["base"], commit=qa_vars["commit"], branch=qa_vars["branch"])
+    close_hook.actual_branch = qa_vars["branch"]
+    close_hook.head = qa_vars["commit"]
+    checked = close_hook.beads[close_hook.values["checked_bead"]]
+    checked["labels"] = ["stage:finding"]
+    checked["metadata"].update(role="fix", branch=qa_vars["branch"])
+    api_path = f"repos/example/repo/pulls?head=example:{qa_vars['branch']}&state=open"
+    close_hook.overrides[("gh", "api", api_path)] = (
+        0, json.dumps([{"number": qa_vars["pr_number"], "head": {"sha": rebased_head},
+                        "base": {"ref": "stack-new"}}]))
+    close_hook.overrides[("git", "rev-parse", "--verify", "origin/stack-new^{commit}")] = (0, new_base)
+
+    result = close_hook.run("fix")
+    assert "ok" in result, result
+    close_context = next(message["values"]["close_context"] for message in close_hook.messages
+                         if message["type"] == "dev-sanity-task")
+    assert close_context["base"] == new_base
+    assert close_context["commit"] == rebased_head
 
 
 class CloseVarsTests(unittest.TestCase):
@@ -93,26 +167,53 @@ class CloseVarsTests(unittest.TestCase):
             close_fields.close_vars(row("t-d-1.f1-fix", "stage:fix", "dev"), REPO)
         self.assertEqual(caught.exception.code, "CLOSE_VARS.ROLE_MISMATCH")
 
-    def test_sanity_close_takes_its_round_from_started_runs_and_reviewers_from_its_qa_bead(self):
+    def test_sanity_close_takes_its_round_from_assignment_events_and_reviewers_from_its_qa_bead(self):
         sanity = row("t-d-1.f1-sanity", "stage:dev-sanity", "sanity")
         rows = {r["id"]: r for r in (sanity, QA)}
         from unittest import mock
         with mock.patch.object(close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
-            result = close_vars_cli.build(REPO, sanity["id"], runs=lambda task: 2)
+            result = close_vars_cli.build(REPO, sanity["id"], events_for_task=lambda task: [
+                {"event": "assigned", "message_id": "assignment-1"},
+                {"event": "started"},
+                {"event": "reassigned", "message_id": "assignment-2"},
+            ])
         self.assertEqual(result["vars"]["round"], 2)
         self.assertEqual(result["vars"]["reviewers_round1"], ["req-qa"])
+
+    def test_sanity_round_matches_hook_assignment_producer_after_reassignment(self):
+        events = [
+            {"event": "assigned", "message_id": "assignment-1"},
+            {"event": "started"},
+            {"event": "reassigned", "message_id": "assignment-2"},
+        ]
+        close_vars_round = close_vars_cli.sanity_round_from_events("q", events)
+        hook_round = close_vars_cli.task_close_validation.assignment_details(events, "q")[2]
+        self.assertEqual(close_vars_round, hook_round)
+        self.assertEqual(close_vars_round, 2)
+
+    def test_sanity_round_matches_hook_assignment_producer_after_reopen(self):
+        events = [
+            {"event": "assigned", "message_id": "assignment-1"},
+            {"event": "started"},
+            {"event": "reopened", "message_id": "reopen-2"},
+        ]
+        close_vars_round = close_vars_cli.sanity_round_from_events("q", events)
+        hook_round = close_vars_cli.task_close_validation.assignment_details(events, "q")[2]
+        self.assertEqual(close_vars_round, hook_round)
+        self.assertEqual(close_vars_round, 2)
 
 
 class QaAssignmentTests(unittest.TestCase):
     def test_pr_number_comes_from_the_checked_bead_when_the_qa_bead_lacks_it(self):
         # #2214: a hand-built QA vars file dropped pr_number and the assignment rendered an empty PR.
-        values = close_fields.qa_assignment_vars(QA, FIX, REPO)
+        values = close_fields.qa_assignment_vars(QA, FIX, REPO, CURRENT_PR)
         self.assertEqual(values["pr_number"], "2214")
-        self.assertEqual((values["commit"], values["branch"], values["layer"]), ("abc123", "fix/d-1-f1", 34))
+        self.assertEqual((values["commit"], values["branch"], values["layer"]), ("def456789", "fix/d-1-f1", 34))
         self.assertEqual(values["carry_forward"], FIX["id"])
 
     def test_the_built_vars_render_the_qa_template_with_its_pr(self):
-        result = render(SCRIPTS.parent / "templates/qa-template.xml.j2", close_fields.qa_assignment_vars(QA, FIX, REPO))
+        result = render(SCRIPTS.parent / "templates/qa-template.xml.j2",
+                        close_fields.qa_assignment_vars(QA, FIX, REPO, CURRENT_PR))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("<pr-number><![CDATA[2214]]></pr-number>", result.stdout)
 
@@ -130,7 +231,7 @@ class QaAssignmentTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "ASSIGN_VARS.CONFLICT")
         unlinked = {**QA, "metadata": {k: v for k, v in QA["metadata"].items() if k != "layer"}}
         with self.assertRaises(close_fields.CloseFieldsError) as caught:
-            close_fields.qa_assignment_vars(unlinked, FIX, REPO)
+            close_fields.qa_assignment_vars(unlinked, FIX, REPO, CURRENT_PR)
         self.assertEqual(caught.exception.code, "ASSIGN_VARS.NOT_PLANNED")
         self.assertIn("1-based position", caught.exception.fix)
         self.assertIn("metadata.layers", caught.exception.fix)
@@ -138,13 +239,66 @@ class QaAssignmentTests(unittest.TestCase):
         self.assertIn("--metadata", caught.exception.fix)
 
 
-    def test_base_is_the_pr_base_the_checked_bead_recorded_not_the_poured_target(self):
-        # The poured base is pr_target; the PR's actual base is the layer below, recorded at the dev or fix close.
+    def test_rebased_checked_pr_supplies_current_base_and_head_sha(self):
+        # First-close values are stale after the PR is rebased; QA must inspect the current layer.
         recorded = {**FIX, "metadata": {**FIX["metadata"], "pr_base": "fix/d-1-f0"}}
-        self.assertEqual(close_fields.qa_assignment_vars(QA, recorded, REPO)["base"], "fix/d-1-f0")
+        current = {**CURRENT_PR, "base": "fix/new-stack-top", "head_sha": "fedcba987"}
+        values = close_fields.qa_assignment_vars(QA, recorded, REPO, current)
+        self.assertEqual(values["base"], "fix/new-stack-top")
+        self.assertEqual(values["commit"], "fedcba987")
+        self.assertEqual(values["branch"], "fix/d-1-f1")
 
-    def test_base_falls_back_to_the_poured_base_when_the_checked_bead_recorded_none(self):
-        self.assertEqual(close_fields.qa_assignment_vars(QA, FIX, REPO)["base"], "sprint/d-1")
+    def test_missing_first_close_commit_is_replaced_by_the_current_pr_head(self):
+        recorded = {**FIX, "metadata": {k: v for k, v in FIX["metadata"].items() if k != "commit"}}
+        values = close_fields.qa_assignment_vars(QA, recorded, REPO, CURRENT_PR)
+        self.assertEqual(values["commit"], "def456789")
+
+    def test_missing_current_pr_is_a_typed_refusal_instead_of_first_close_context(self):
+        with self.assertRaises(close_fields.CloseFieldsError) as caught:
+            close_fields.qa_assignment_vars(QA, FIX, REPO)
+        self.assertEqual(caught.exception.code, "ASSIGN_VARS.PR_UNAVAILABLE")
+        self.assertIn("base and head SHA", str(caught.exception))
+
+    def test_current_pr_must_match_the_recorded_number_and_branch(self):
+        wrong = {**CURRENT_PR, "number": 999, "head": "fix/other-branch"}
+        with self.assertRaises(close_fields.CloseFieldsError) as caught:
+            close_fields.qa_assignment_vars(QA, FIX, REPO, wrong)
+        self.assertEqual(caught.exception.code, "ASSIGN_VARS.PR_MISMATCH")
+        self.assertIn("pr_number/branch", caught.exception.fix)
+
+    def test_qa_assignment_builder_reads_the_live_pr_for_a_rebased_checked_bead(self):
+        from unittest.mock import patch
+
+        rows = {QA["id"]: QA, FIX["id"]: FIX}
+        current = {**CURRENT_PR, "base": "fix/new-stack-top", "head_sha": "fedcba987"}
+        with patch.object(close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
+            result = close_vars_cli.build_qa_assignment(REPO, QA["id"],
+                                                        pr_reader=lambda repo, number: current)
+        self.assertEqual(result["vars"]["base"], "fix/new-stack-top")
+        self.assertEqual(result["vars"]["commit"], "fedcba987")
+
+    def test_current_pr_read_has_a_timeout_and_maps_live_fields(self):
+        import json
+        import subprocess
+        from unittest.mock import patch
+
+        completed = subprocess.CompletedProcess([], 0, json.dumps({"number": 2214, "baseRefName": "top",
+                                                                    "headRefName": "fix/d-1-f1", "headRefOid": "sha"}), "")
+        with patch.object(close_vars_cli.subprocess, "run", return_value=completed) as run:
+            current = close_vars_cli.read_current_pr(REPO, "2214")
+        self.assertEqual(current, {"number": 2214, "base": "top", "head": "fix/d-1-f1", "head_sha": "sha"})
+        self.assertEqual(run.call_args.kwargs["timeout"], close_vars_cli.GH_PR_TIMEOUT_S)
+
+    def test_current_pr_read_failure_is_typed_and_actionable(self):
+        import subprocess
+        from unittest.mock import patch
+
+        failed = subprocess.CompletedProcess([], 1, "", "not found")
+        with patch.object(close_vars_cli.subprocess, "run", return_value=failed):
+            with self.assertRaises(close_fields.CloseFieldsError) as caught:
+                close_vars_cli.read_current_pr(REPO, "2214")
+        self.assertEqual(caught.exception.code, "ASSIGN_VARS.PR_READ_FAILED")
+        self.assertIn("gh pr view 2214", caught.exception.fix)
 
 
 class BackfillTests(unittest.TestCase):
@@ -216,6 +370,52 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertTrue(any(item["bead"] == "t-d-2.group-dev" for item in fills))
         self.assertFalse(any("sanity_bead" in problem for problem in problems))
+        self.assertEqual(first[1]["metadata"]["sanity_bead"], original["id"])
+        self.assertEqual(first[3]["metadata"]["sanity_bead"], original["id"])
+
+    def test_empty_sanity_fields_choose_live_highest_round_over_superseded(self):
+        import copy
+
+        group = self.group()
+        superseded = group[2]
+        superseded.update(status="closed", notes="superseded by t-d-1.group-sanity-r2: rebased")
+        replacement = copy.deepcopy(superseded)
+        replacement.update(id="t-d-1.group-sanity-r2", status="open", notes="")
+        replacement["metadata"]["round"] = 2
+        fills, problems = self.plan([*group, replacement])
+
+        self.assertEqual(problems, [])
+        by_bead = {item["bead"]: item["set_metadata"] for item in fills}
+        self.assertEqual(by_bead["t-d-1.group-dev"]["sanity_bead"], replacement["id"])
+        self.assertEqual(by_bead["t-d-1.group-qa"]["sanity_bead"], replacement["id"])
+
+    def test_empty_qa_sanity_uses_live_replacement_when_work_reference_is_superseded(self):
+        import copy
+
+        group = self.group()
+        superseded = group[2]
+        superseded.update(status="closed", notes="superseded by t-d-1.group-sanity-r2: rebased")
+        group[1]["metadata"]["sanity_bead"] = superseded["id"]
+        replacement = copy.deepcopy(superseded)
+        replacement.update(id="t-d-1.group-sanity-r2", status="open", notes="")
+        replacement["metadata"]["round"] = 2
+
+        fills, problems = self.plan([*group, replacement])
+
+        self.assertEqual(problems, [])
+        by_bead = {item["bead"]: item["set_metadata"] for item in fills}
+        self.assertEqual(by_bead["t-d-1.group-qa"]["sanity_bead"], replacement["id"])
+
+    def test_superseded_sanity_without_live_replacement_is_a_problem(self):
+        group = self.group()
+        superseded = group[2]
+        superseded.update(status="closed", notes="superseded by t-d-1.group-sanity-r2: rebased")
+
+        fills, problems = self.plan(group)
+
+        self.assertFalse(any(item["bead"] in ("t-d-1.group-dev", "t-d-1.group-qa") for item in fills))
+        self.assertTrue(any("t-d-1.group-dev" in problem and "sanity_bead" in problem for problem in problems), problems)
+        self.assertTrue(any("t-d-1.group-qa" in problem and "sanity_bead" in problem for problem in problems), problems)
 
     def test_bad_group_is_reported_without_blocking_good_group(self):
         import json
@@ -397,4 +597,4 @@ class TypedFailureTests(unittest.TestCase):
     def test_atm_events_timeout_missing_binary_and_garbage_are_events_failures(self):
         import subprocess
         for outcome in (subprocess.TimeoutExpired("atm", 10), FileNotFoundError("atm"), "not json", "{}"):
-            self.assertEqual(self.run_with(outcome, lambda: close_vars_cli.started_runs("q")), "CLOSE_VARS.EVENTS_FAILED", outcome)
+            self.assertEqual(self.run_with(outcome, lambda: close_vars_cli.task_events("q")), "CLOSE_VARS.EVENTS_FAILED", outcome)

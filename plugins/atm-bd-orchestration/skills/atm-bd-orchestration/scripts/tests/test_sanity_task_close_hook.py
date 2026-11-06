@@ -349,7 +349,7 @@ def test_new_templates_render_with_real_composer(world):
     assert "Base: " in sc_render.render(template, {key: value for key, value in world.values.items() if key != "base"})
 
 
-@pytest.mark.parametrize("base", [None, "", "main", "x" * 40, "a" * 39])
+@pytest.mark.parametrize("base", [None, "", "main", "x" * 40, "a" * 39, "a" * 64])
 def test_daemon_close_refuses_missing_or_invalid_base(world, base):
     world.values["base"] = base
     result = world.invoke()

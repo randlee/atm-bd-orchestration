@@ -116,10 +116,14 @@ class CliTests(unittest.TestCase):
         def timeout(command, **kwargs):
             raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=b"stdout detail", stderr=b"stderr detail")
 
-        with pytest.raises(pytest.fail.Exception, match="timed out after 30s") as error:
+        with pytest.raises(pytest.fail.Exception, match="SUBPROCESS.TIMEOUT") as error:
             run_command([sys.executable, str(SCRIPT)], capture_output=True, text=True, runner=timeout)
-        assert "stdout detail" in str(error.value)
-        assert "stderr detail" in str(error.value)
+        message = str(error.value)
+        assert "command=" in message
+        assert "cwd=<inherited>" in message
+        assert "timeout=30s" in message
+        assert "stdout detail" in message
+        assert "stderr detail" in message
 
     def test_non_qa_reviewers_are_refused(self):
         for reviewer in ("team-lead", "rust-developer", "dev-sanity", "plan-scope-reviewer"):

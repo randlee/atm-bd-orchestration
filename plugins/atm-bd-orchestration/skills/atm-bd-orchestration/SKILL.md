@@ -191,8 +191,8 @@ rebase conflicts. After a rebase the lead pours a re-check sanity bead
 `<sanity bead>-r<N>` from `dev-sanity-bead.json.j2` (same `dev_bead`, the new
 head), closes the old sanity bead `superseded by <new>` (never `PASS at`),
 adds the QA bead's blocker on the new sanity bead (`bd dep add`) and
-dispatches `templates.sanity` with the new `commit`, `base` (the PR's actual
-base), `branch`, `pr_number` and `worktree_path`. The lead never reopens a
+dispatches `templates.sanity` with the new `commit`, `base` (the PR base commit's full 40-hex SHA),
+`branch`, `pr_number` and `worktree_path`. The lead never reopens a
 sanity or dev bead, edits bead metadata or hand-makes a bead for it.
 Rebasing is done before sanity or QA is assigned and is the dev's, at
 dev-complete; the lead fixes only what the dev could not, or another stack

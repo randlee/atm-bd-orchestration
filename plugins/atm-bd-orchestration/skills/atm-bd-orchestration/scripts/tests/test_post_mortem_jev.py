@@ -1,5 +1,6 @@
 import copy,json,subprocess,sys,tempfile,unittest
 from pathlib import Path
+from subprocess_helpers import HANG_GUARD_SECONDS, run_command
 sys.path.insert(0, str(Path(__file__).parents[1]))
 import post_mortem_jev as m
 REAL=m.load_client(Path(__file__).resolve().parents[1] / 'jev_client.py')
@@ -18,9 +19,9 @@ class FakeClient:
 class Tests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name);self.repo=self.root/'repo';self.repo.mkdir()
-  for args in [('init','-q'),('config','user.name','test'),('config','user.email','test@example.invalid')]:subprocess.run(['git','-C',str(self.repo),*args],check=True,capture_output=True)
+  for args in [('init','-q'),('config','user.name','test'),('config','user.email','test@example.invalid')]:run_command(['git','-C',str(self.repo),*args],timeout=HANG_GUARD_SECONDS, check=True,capture_output=True)
   (self.repo/'code.rs').write_text('fn execute() {}\n#[cfg(test)]\nmod tests { fn execute_test() {} }\n')
-  subprocess.run(['git','-C',str(self.repo),'add','.'],check=True);subprocess.run(['git','-C',str(self.repo),'commit','-qm','fixture'],check=True)
+  run_command(['git','-C',str(self.repo),'add','.'],timeout=HANG_GUARD_SECONDS, check=True);run_command(['git','-C',str(self.repo),'commit','-qm','fixture'],timeout=HANG_GUARD_SECONDS, check=True)
   self.head=m.resolve_sha(self.repo,'HEAD');self.cover={'scope':'whole_finding','limitations':[],'obligation_ids':['o1']}
   self.man={'finding_id':'f1','phase':'phase-d','integration_sha':self.head,'finding_text':'A complete original defect.','acceptance_predicates':[{'id':'o1','text':'execute exists'}],'coverage':self.cover,'source_selections':[{'path':'code.rs','role':'mixed'}]}
  def packet(self):return m.prepare(self.man,self.repo,FakeClient)

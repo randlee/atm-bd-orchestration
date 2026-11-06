@@ -176,6 +176,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_jev.py
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_report.py
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_tools.py
+    - skills/atm-bd-orchestration/scripts/tests/test_subprocess_helpers.py
     - skills/atm-bd-orchestration/scripts/tests/test_task_close.py
     - skills/atm-bd-orchestration/scripts/tests/test_task_close_validation.py
     - skills/atm-bd-orchestration/scripts/tests/test_templates.py

@@ -3,6 +3,7 @@
 import copy
 import json
 from pathlib import Path
+from subprocess_helpers import HANG_GUARD_SECONDS, run_command
 import subprocess
 import sys
 import tempfile
@@ -50,10 +51,10 @@ class MissingLimitationsTests(unittest.TestCase):
         self.repo = self.root / "repo"
         self.repo.mkdir()
         for args in (("init", "-q"), ("config", "user.name", "test"), ("config", "user.email", "test@example.invalid")):
-            subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+            run_command(["git", "-C", str(self.repo), *args], timeout=HANG_GUARD_SECONDS, check=True, capture_output=True)
         (self.repo / "code.rs").write_text("fn execute() {}\n")
-        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(self.repo), "commit", "-qm", "fixture"], check=True, capture_output=True)
+        run_command(["git", "-C", str(self.repo), "add", "."], timeout=HANG_GUARD_SECONDS, check=True, capture_output=True)
+        run_command(["git", "-C", str(self.repo), "commit", "-qm", "fixture"], timeout=HANG_GUARD_SECONDS, check=True, capture_output=True)
         self.manifest = {
             "finding_id": "f1",
             "phase": "phase-d",

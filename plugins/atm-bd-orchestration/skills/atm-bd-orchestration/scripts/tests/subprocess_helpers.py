@@ -19,13 +19,16 @@ def run_command(command, *, timeout: float = COMMAND_TIMEOUT, check=False, runne
     try:
         return (runner or subprocess.run)(command, timeout=timeout, check=check, **kwargs)
     except subprocess.TimeoutExpired as error:
+        cwd = kwargs.get("cwd")
+        cwd_description = repr(str(cwd)) if cwd is not None else "<inherited>"
+
         def tail(output):
             if isinstance(output, bytes):
                 output = output.decode("utf-8", errors="replace")
             return (output or "")[-OUTPUT_TAIL:]
 
         pytest.fail(
-            f"Command {command!r} timed out after {timeout}s\n"
+            f"SUBPROCESS.TIMEOUT: command={command!r}, cwd={cwd_description}, timeout={timeout}s\n"
             f"stdout tail:\n{tail(error.stdout)}\nstderr tail:\n{tail(error.stderr)}",
             pytrace=False,
         )

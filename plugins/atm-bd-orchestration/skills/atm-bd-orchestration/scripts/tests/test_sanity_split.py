@@ -349,9 +349,9 @@ class SanitySplit(unittest.TestCase):
         manifest_file = self.root / "manifest.json"
         manifest_file.write_text(json.dumps(manifest))
         completed = time.time()
-        return subprocess.run([str(MERGE), str(manifest_file), "{{ bead_prefix }}-x-1-sanity", "{{ bead_prefix }}-x-1", "x",
+        return run_command([str(MERGE), str(manifest_file), "{{ bead_prefix }}-x-1-sanity", "{{ bead_prefix }}-x-1", "x",
                                "--reviewer", "sanity-llm", "--started-at", str(completed), "--completed-at", str(completed)],
-                              check=False, input=json.dumps(results), capture_output=True, text=True)
+                              check=False, input=json.dumps(results), capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
 
     def test_manifest_has_fixed_reviewer_roster_and_rejects_obsolete_override(self):
         out = self.run_split(lint="echo ran >> lint-count")
@@ -415,6 +415,11 @@ class SanitySplit(unittest.TestCase):
         self.assertEqual(manifest["changed_files"], ["crates/types/src/retry.rs"])
         self.assertEqual(manifest["files_outside_owned_paths"], [])
 
+    def test_64_hex_base_is_refused(self):
+        out = self.run_split(base="a" * 64)
+        self.assertEqual(out.returncode, 3)
+        self.assertIn("40-hex", out.stderr)
+
     def test_rerun_assignment_is_the_manifest_assignment_with_context(self):
         out = self.run_split()
         self.assertEqual(out.returncode, 0, out.stderr)
@@ -423,9 +428,9 @@ class SanitySplit(unittest.TestCase):
         assignment = json.loads(out.stdout)["assignments"][1]["assignment"]
         context = ["crates/types/src/lib.rs"]
         # agents/dev-sanity.md step 4, rerun
-        rerun = subprocess.run(["jq", "--argjson", "n", "2", "--argjson", "context", json.dumps(context),
+        rerun = run_command(["jq", "--argjson", "n", "2", "--argjson", "context", json.dumps(context),
                                 ".assignments[] | select(.number == $n) | .assignment | .context = $context",
-                                str(manifest_file)], check=False, capture_output=True, text=True)
+                                str(manifest_file)], check=False, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertEqual(rerun.returncode, 0, rerun.stderr)
         variables = {"sanity_bead": assignment["sanity_bead"], "dev_bead_id": assignment["dev_bead"]["id"],
                      "dev_bead_title": assignment["dev_bead"]["title"],
@@ -880,7 +885,7 @@ class SanitySplit(unittest.TestCase):
         self.assertFalse(self.scratch.exists())
 
     def test_usage(self):
-        out = subprocess.run([str(SCRIPT), "--task", "t"], check=False, capture_output=True, text=True)
+        out = run_command([str(SCRIPT), "--task", "t"], check=False, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertEqual(out.returncode, 1)
 
 

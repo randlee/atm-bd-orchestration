@@ -61,7 +61,7 @@ FIELDS: dict[str, str] = {
     "Due": "fetch merges github",
     "Snapshot": "schema generated_at phase root_closed stopped agents sections problems errors metrics gh top_pr "
                 "top_ci mermaid sprints interval_s lead bead_prefix sent prs files phase_data task_data member_data task_bead_data worktree_data",
-    "State": "problems cycle_first_send last_batch last_cycle idle_since sent remotes batch_due collision_notices",
+    "State": "problems cycle_first_send last_batch last_cycle idle_since sent remotes batch_due collision_notices last_github_read",
     "PhaseFile": "phase root_id label sprints depends_on lead templates code_checkout",
     "MergeFile": "checked_at merges",
     "PrsFile": "read_at gh prs attempted_at stack_number stack_prs",

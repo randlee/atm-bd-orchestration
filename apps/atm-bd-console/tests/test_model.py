@@ -777,6 +777,7 @@ def test_read_derived_problems_survive_missing_reads_without_duplicate_sends() -
     assert [problem.key for problem in snapshot.problems] == ["missing_pr:pushed", "github_unavailable"]
     assert snapshot.problems[0].first_seen == NOW
     assert actions == ()
+
     assert state.batch_due["solar"] == NOW + timedelta(minutes=10)
 
     snapshot, actions, state = tick(replace(first, gh=GhStatus("graphql", True, None,
@@ -793,6 +794,42 @@ def test_read_derived_problems_survive_missing_reads_without_duplicate_sends() -
                                     state, NOW + timedelta(minutes=20), render)
     assert snapshot.problems == ()
     assert actions == ()
+
+
+@pytest.mark.parametrize(("number", "branch", "previous_cycle", "first_tick", "read_at", "pr_created", "qa_tick", "sanity_tick"), [
+    (896, "fix/br-1-qa1-f1-r2", "02:40:25", "02:50:25", "02:51:17", "02:54:31", "02:55:27", "02:57:27"),
+    (900, "fix/br-1-qa1-f4", "03:20:25", "03:21:25", "03:21:29", "03:22:19", "03:23:27", "03:24:27"),
+])
+def test_cached_pre_pr_read_does_not_resend_missing_pr_to_new_owners(
+    number: int, branch: str, previous_cycle: str, first_tick: str, read_at: str, pr_created: str, qa_tick: str, sanity_tick: str,
+) -> None:
+    def at(value: str) -> datetime:
+        return datetime.fromisoformat(f"2026-11-06T{value}+00:00")
+
+    remote = RemoteRef(branch, "a" * 40)
+    fix = step("fix", "atm-bh-1", kind="fix", status=SprintState.IN_PROGRESS, branch=branch, assignee="arch-ctm")
+    observation = inputs(phase(fix), remotes=Ok((remote,)), prs=Ok(()),
+                         gh=GhStatus("graphql", True, None, at(read_at), False))
+    previous = replace(STATE, last_cycle=at(previous_cycle), remotes=(remote,))
+    _, initial, state = tick(observation, previous, at(first_tick), render)
+    assert any(action.to == "arch-ctm" and "no open PR" in action.text for action in initial)
+    assert at(read_at) < at(pr_created) < at(qa_tick) < at(sanity_tick)
+
+    for kind, owner, moment in (("qa", "fenix", qa_tick), ("sanity", "atm-sanity", sanity_tick)):
+        successor = step(kind, "atm-bh-1", kind=kind, status=SprintState.IN_PROGRESS, branch=branch, assignee=owner)
+        snapshot, actions, state = tick(replace(observation, phase=Ok(phase(successor))), state, at(moment), render)
+        assert all(action.to != owner or "no open PR" not in action.text for action in actions)
+        assert any(problem.key == f"missing_pr:{branch}" for problem in snapshot.problems)
+        restored = from_json(State, to_json(state))
+        assert isinstance(restored, Ok)
+        state = restored.value
+        assert state.last_github_read == at(read_at)
+
+    fresh_at = at(sanity_tick) + timedelta(minutes=1)
+    pull = PullRequest(number, "url", branch, "fix/previous", "a" * 40, CiState.PASS, ())
+    resolved, _, _ = tick(replace(observation, prs=Ok((pull,)), gh=GhStatus("graphql", True, None, fresh_at, False)),
+                          state, fresh_at, render)
+    assert not any(problem.key == f"missing_pr:{branch}" for problem in resolved.problems)
 
 
 def test_ci_and_conflict_problems_survive_until_their_sources_are_refreshed() -> None:

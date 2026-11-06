@@ -83,6 +83,12 @@ def _target(step: Step, phase: Phase, bead_prefix: str) -> str | None:
     return sprint.target if sprint else None
 
 
+def _fresh_github(inputs: Inputs, state: State) -> bool:
+    last_read = state.last_github_read if state.last_github_read is not None else state.last_cycle
+    return (isinstance(inputs.prs, Ok) and inputs.gh.mode != "off" and inputs.gh.ok is True
+            and inputs.gh.at is not None and (last_read is None or inputs.gh.at > last_read))
+
+
 def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Snapshot, tuple[Action, ...], State]:
     errors = _read_errors(inputs)
     phase = inputs.phase.value if isinstance(inputs.phase, Ok) else None
@@ -232,6 +238,8 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
         sent=(state.sent + actions)[-5:],
         remotes=remotes,
         batch_due=batch_due,
+        last_github_read=inputs.gh.at if phase is not None and stopped is None and _fresh_github(inputs, state)
+        else state.last_github_read,
     )
     snapshot = replace(snapshot, sent=new_state.sent)
     return snapshot, actions, new_state
@@ -577,9 +585,7 @@ def _problems(
             f"{step.bead_id} ({step.kind}) cannot be dispatched: {row.reason}", now,
         ))
     problems.extend(conflicts.values())
-    fresh_github = isinstance(inputs.prs, Ok) and inputs.gh.mode != "off" and inputs.gh.ok is True and (
-        inputs.gh.at is not None and (state.last_cycle is None or inputs.gh.at > state.last_cycle)
-    )
+    fresh_github = _fresh_github(inputs, state)
     unresolved_base_warning_keys: set[str] = set()
     if fresh_github and stack_mismatch:
         problems.append(Problem(

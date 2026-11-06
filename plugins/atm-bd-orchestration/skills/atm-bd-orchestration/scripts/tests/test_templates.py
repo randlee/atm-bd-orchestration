@@ -449,6 +449,10 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         step_i = out[out.index('<step id="i">'):out.index('<step id="i1">')]
         self.assertLess(step_i.index("bead-groups --findings"), step_i.index("atm-task-close.py --role qa"))
         self.assertIn("round N+1 would exceed the existing QA round cap", step_i)
+        quality_mgr = (ROOT / "roles/quality-mgr.md").read_text()
+        self.assertIn("After a fix-verification\n  FAIL, pour the next fix round", quality_mgr)
+        self.assertIn("`ROUND_CAP` applies only when round N+1\n  would exceed `max_rounds`", quality_mgr)
+        self.assertNotIn("A second FAIL is `ROUND_CAP`", quality_mgr)
 
     def test_fix_round_with_empty_scope_fails(self):
         for scope in (None, "[]", "[ ]", "", "  ", "null"):
@@ -937,6 +941,15 @@ def test_daemon_sanity_has_no_pin_gate_or_build_running_merge():
     assert "do not update or submit the selected result under the new values" in result.stdout
     assert "do not invoke Cargo" in result.stdout
     assert "sanity-task-close.md.j2" in result.stdout
+
+
+def test_sanity_assignment_requires_full_40_hex_base_at_render():
+    values = _example("dev-sanity-template-vars.json")
+    for base in ("sprint/parent", "x" * 40, "a" * 64):
+        result = _render("dev-sanity-template.xml.j2", {**values, "base": base})
+        assert result.returncode != 0, base
+        assert "dispatcher_must_supply_full_40_hex_base" in result.stderr
+    assert _render("dev-sanity-template.xml.j2", {**values, "base": "a" * 40}).returncode == 0
 
 
 def test_hook_escalation_template_tracks_recovery_and_preserves_error_state():

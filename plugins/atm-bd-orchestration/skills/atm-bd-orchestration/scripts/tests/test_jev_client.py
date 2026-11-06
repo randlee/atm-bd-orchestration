@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+from subprocess_helpers import HANG_GUARD_SECONDS, run_command
 import sys
 import tempfile
 import unittest
@@ -545,8 +546,8 @@ class JevClientTests(unittest.TestCase):
         import subprocess, tempfile
         with tempfile.TemporaryDirectory() as tmp:
             def git(*args):
-                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                      check=True, capture_output=True, text=True).stdout.strip()
+                return run_command(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                                      timeout=HANG_GUARD_SECONDS, check=True, capture_output=True, text=True).stdout.strip()
             git("init", "-q")
             Path(tmp, "server.py").write_text("bind()\ndrop()\nrebind()\n")
             Path(tmp, "notes.md").write_text("context note\n")
@@ -599,8 +600,8 @@ class JevClientTests(unittest.TestCase):
         import subprocess, tempfile
         with tempfile.TemporaryDirectory() as tmp:
             def git(*args):
-                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                      check=True, capture_output=True, text=True).stdout.strip()
+                return run_command(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                                      timeout=HANG_GUARD_SECONDS, check=True, capture_output=True, text=True).stdout.strip()
             git("init", "-q")
             Path(tmp, "server.py").write_text("bind()\n")
             big = "".join(f"line {i} " + "x" * 90 + "\n" for i in range(1, 1201))  # ~120 KB, over the cap
@@ -632,10 +633,11 @@ class JevClientTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base, commit = self.split_repo(tmp, {"a.py": "start\nchanged\n"})
             Path(tmp, "notes.md").write_text("one\ntwo\nthree\nfour\n")
-            client.subprocess.run(["git", "-C", tmp, "add", "notes.md"], check=True)
-            client.subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "notes"],
-                                  check=True, capture_output=True)
-            commit = client.subprocess.run(["git", "-C", tmp, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+            run_command(["git", "-C", tmp, "add", "notes.md"], timeout=HANG_GUARD_SECONDS, check=True)
+            run_command(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "notes"],
+                        timeout=HANG_GUARD_SECONDS, check=True, capture_output=True)
+            commit = run_command(["git", "-C", tmp, "rev-parse", "HEAD"], timeout=HANG_GUARD_SECONDS,
+                                 capture_output=True, text=True).stdout.strip()
             assignment = {"deliverable": {"number": 1, "text": "d"}, "worktree_path": tmp, "commit": commit,
                           "base_sha": base, "changed_files": ["a.py"], "context": ["notes.md:2-3", "notes.md"]}
             (request,) = client.assignment_requests(assignment)
@@ -654,8 +656,8 @@ class JevClientTests(unittest.TestCase):
         """A repository whose one commit changes `files` (name -> new text) from a one-line base."""
         import subprocess
         def git(*args):
-            return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                  check=True, capture_output=True, text=True).stdout.strip()
+            return run_command(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                                  timeout=HANG_GUARD_SECONDS, check=True, capture_output=True, text=True).stdout.strip()
         git("init", "-q")
         for name in files:
             Path(tmp, name).write_text("start\n" + "\n".join(f"keep {i}" for i in range(0, 4000, 40)) + "\n")
@@ -700,8 +702,8 @@ class JevClientTests(unittest.TestCase):
             base, commit = self.split_repo(tmp, {"big.py": big, "small.py": "start\nsmall change\n"})
             assignment = {"deliverable": {"number": 1, "text": "Add the generated lines."}, "worktree_path": tmp,
                           "commit": commit, "base_sha": base, "changed_files": ["big.py", "small.py"], "context": []}
-            whole = client.subprocess.run(["git", "-C", tmp, "diff", "--no-color", f"{base}...{commit}", "--", "big.py"],
-                                          capture_output=True, text=True).stdout
+            whole = run_command(["git", "-C", tmp, "diff", "--no-color", f"{base}...{commit}", "--", "big.py"],
+                                timeout=HANG_GUARD_SECONDS, capture_output=True, text=True).stdout
             self.assertGreater(len(whole.encode()), client.MAX_REQUEST_BYTES)
             requests = client.assignment_requests(assignment)
             self.assertGreater(len(requests), 1)
@@ -838,8 +840,8 @@ class JevClientTests(unittest.TestCase):
         import subprocess, tempfile
         with tempfile.TemporaryDirectory() as tmp:
             def git(*args):
-                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                      check=True, capture_output=True, text=True).stdout.strip()
+                return run_command(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                                      timeout=HANG_GUARD_SECONDS, check=True, capture_output=True, text=True).stdout.strip()
             git("init", "-q")
             Path(tmp, "lib.py").write_text("def old(): pass\n")
             Path(tmp, "server.py").write_text("old()\n")

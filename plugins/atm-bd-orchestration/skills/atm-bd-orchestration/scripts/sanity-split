@@ -306,13 +306,17 @@ def pin(args: SplitArguments) -> tuple[str, str]:
         raise Fail(3, f"worktree {args.worktree} is not a directory")
     sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{args.commit}^{{commit}}",
               what=f"commit {args.commit} is not in {args.worktree}").strip()
+    if re.fullmatch(r"[0-9a-fA-F]{64}", args.base):
+        raise Fail(3, "base must resolve to a full 40-hex commit; ask the dispatcher to correct it")
     try:
-        if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", args.base):
+        if not re.fullmatch(r"[0-9a-f]{40}", args.base):
             raise Fail(3, "base is not a full commit id")
         base_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{args.base}^{{commit}}").strip()
     except Fail:
         base_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"origin/{args.base}^{{commit}}",
                        what=f"base {args.base} is not in {args.worktree}; fetch origin or supply a valid commit").strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", base_sha):
+        raise Fail(3, "base must resolve to a full 40-hex commit; ask the dispatcher to correct it")
     head = git(args.worktree, "rev-parse", "HEAD").strip()
     if head != sha:
         raise Fail(4, f"HEAD is {head}, not {sha}")
