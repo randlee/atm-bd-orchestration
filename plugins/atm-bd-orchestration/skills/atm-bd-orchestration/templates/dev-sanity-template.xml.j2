@@ -38,7 +38,7 @@ metadata:
 ---
 {% set task_id = sanity_task_id if sanity_task_id else task_id %}
 <atm-task id="{{ task_id }}" sprint="{{ sprint }}" mode="dev-sanity" close-mode="{{ sanity_close_mode }}">
-  <description><![CDATA[Sanity check `{{ checked_bead | string | cdata_escape }}` at `{{ commit | string | cdata_escape }}`: each numbered deliverable is written; lint passes. This is not QA.]]></description>
+  <description><![CDATA[Sanity check `{{ checked_bead | string | cdata_escape }}` at `{{ commit | string | cdata_escape }}`: each numbered deliverable is written; lint passes. The base is the layer's parent commit and the only diff base. This is not QA.]]></description>
 
   <checked-bead><![CDATA[{{ checked_bead | string | cdata_escape }}]]></checked-bead>
   <worktree><![CDATA[{{ worktree_path | string | cdata_escape }}]]></worktree>

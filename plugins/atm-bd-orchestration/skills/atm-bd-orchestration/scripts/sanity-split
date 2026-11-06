@@ -306,8 +306,11 @@ def pin(args: SplitArguments) -> tuple[str, str]:
         raise Fail(3, f"worktree {args.worktree} is not a directory")
     sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{args.commit}^{{commit}}",
               what=f"commit {args.commit} is not in {args.worktree}").strip()
-    base_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"origin/{args.base}^{{commit}}",
-                   what=f"origin/{args.base} is not in {args.worktree}").strip()
+    try:
+        base_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{args.base}^{{commit}}").strip()
+    except Fail:
+        base_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"origin/{args.base}^{{commit}}",
+                       what=f"base {args.base} is not in {args.worktree}; fetch origin or supply a valid commit").strip()
     head = git(args.worktree, "rev-parse", "HEAD").strip()
     if head != sha:
         raise Fail(4, f"HEAD is {head}, not {sha}")

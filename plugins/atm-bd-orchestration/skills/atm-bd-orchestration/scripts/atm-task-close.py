@@ -261,16 +261,16 @@ def assignment_details(events, task):
         assignment = events[index]
         if assignment.get("event") in ASSIGNMENT_EVENTS:
             assignment_id = assignment.get("message_id") or assignment["seq"]
-            round_number = 1 + sum(event.get("event") == COMPLETED for event in events[:index])
+            round_number = sum(event.get("event") in ASSIGNMENT_EVENTS for event in events[:index + 1])
             return assignment, assignment_id, round_number
     raise CloseError("REPLAY.CONFLICT", f"{task} has no assignment event", "Assign the tracked task before closing it.")
 
 
 def assignment_id_for_round(events, task, round_number):
-    """Return the assignment recorded for a sanity round, using the ledger's completion-based numbering."""
+    """Return the assignment recorded for a sanity iteration."""
     for index, assignment in enumerate(events):
         if assignment.get("event") in ASSIGNMENT_EVENTS:
-            assignment_round = 1 + sum(event.get("event") == COMPLETED for event in events[:index])
+            assignment_round = sum(event.get("event") in ASSIGNMENT_EVENTS for event in events[:index + 1])
             if assignment_round == round_number:
                 return assignment.get("message_id") or assignment["seq"]
     return None
@@ -516,7 +516,14 @@ class Hook:
         self.records = {bead: self.read_bead(bead) for bead in sorted(beads)}
         self.task_history = {task: self.events(task) for task in sorted(tasks)}
         events = self.task_history[self.task]
-        _, self.assignment_id, self.assignment_round = assignment_details(events, self.task)
+        try:
+            _, self.assignment_id, self.assignment_round = assignment_details(events, self.task)
+        except CloseError as error:
+            if self.role not in ("dev", "fix"):
+                raise
+            latest = events[-1] if events else {}
+            raise CloseError("CLOSE.STALE_ASSIGNMENT", f"{self.task}: no live assignment; newest event {latest.get('message_id') or latest.get('seq') or latest.get('event') or 'none'}",
+                             f"Run `atm task events {self.task} --json` and request an assignment before closing.") from error
         return self.check_replay()
 
     def cache(self):
@@ -537,6 +544,12 @@ class Hook:
 
     def write_bead(self, bead, op, args):
         """Journal one bead write and drain it now; the cache stores bd's read-back row."""
+        if self.role in ("dev", "fix"):
+            events = self.events(self.task)
+            assignment, current, _ = assignment_details(events, self.task)
+            if current != self.assignment_id or is_terminal(events) or (assignment.get("assignee") and assignment["assignee"] != self.identity):
+                raise CloseError("CLOSE.STALE_ASSIGNMENT", f"{self.task}: assignment {self.assignment_id} is stale; current assignment is {current}, newest event is {events[-1].get('event')}",
+                                 f"Run `atm task events {self.task} --json` and close under the current assignment.")
         cache = self.cache()
         key = json.dumps([*self.key, self.assignment_id, bead, op, args], sort_keys=True)
         try:
@@ -586,6 +599,27 @@ class Hook:
         metadata = record.get("metadata") or {}
         events = self.task_history[self.task]
         latest = events[-1] if events else {}
+        if self.role in ("dev", "fix"):
+            assignment, _, _ = assignment_details(events, self.task)
+            assignee = assignment.get("assignee")
+            if assignee and assignee != self.identity:
+                raise CloseError("CLOSE.STALE_ASSIGNMENT", f"{self.task}: assignment {self.assignment_id} belongs to {assignee}, not {self.identity}",
+                                 f"Run `atm task events {self.task} --json` and close as the current assignee.")
+            if is_terminal(events):
+                expected_reason = (f"not reproducible: {self.values['evidence']}" if self.values["outcome"] == "not_reproducible"
+                                   else f"{'fixed' if self.role == 'fix' else 'dev complete'} at {self.values['commit']}")
+                exact = (latest.get("event") == COMPLETED and metadata.get("close_assignment_id") == str(self.assignment_id)
+                         and metadata.get("commit") == self.values["commit"]
+                         and record.get("status") == "closed"
+                         and record.get("close_reason") == expected_reason)
+                if exact:
+                    sanity = self.values["sanity_task_id"]
+                    if any(event.get("event") in ASSIGNMENT_EVENTS for event in self.task_history[sanity]):
+                        return True
+                    raise CloseError("CLOSE.POSTCONDITION", f"{self.task} is closed but {sanity} has no assignment",
+                                     f"Inspect `atm task events {sanity} --json`, repair the assignment and retry.")
+                raise CloseError("CLOSE.STALE_ASSIGNMENT", f"{self.task}: newest event {latest.get('message_id') or latest.get('seq') or latest.get('event')} is terminal; current assignment is {self.assignment_id}",
+                                 f"Run `atm task events {self.task} --json` and request a new assignment before closing.")
         if self.role == "sanity" and latest.get("event") == REFUSED:
             if self.values["verdict"] == "CANNOT_RUN":
                 return True
@@ -706,6 +740,8 @@ class Hook:
             values["pr_number"] = str(matches[0]["number"] or "")
             values["pr_url"] = f"https://github.com/{owner}/{repo}/pull/{values['pr_number']}" if values["pr_number"] else ""
             self.pr_base = str((matches[0].get("base") or {}).get("ref") or "")
+            if self.pr_base:
+                self.rebased_onto = self.run(["git", "rev-parse", f"origin/{self.pr_base}"], git=True).stdout.strip()
             base_layer = next((layer for layer in all_layers if layer.get("branch") == self.pr_base), {})
             self.base_evidence = {"branch": self.pr_base, "pr": base_layer.get("pr")}
             if self.ledger_top and self.ledger_top["branch"] != self.pr_base:
@@ -756,6 +792,7 @@ class Hook:
 
     def sanity_dispatch(self, context):
         """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
+        context = {**context, "base": context.get("rebased_onto") or context.get("base")}
         template = "dev-sanity-template.xml.j2"
         pr_number = str(context.get("pr_number") or self.values.get("pr_number") or "")
         if not context.get("layer_prs") and pr_number:
@@ -932,13 +969,24 @@ class Hook:
             raise CloseError("REPLAY.CONFLICT", "sanity is closed at a different sha", "Request a new sanity assignment before changing the checked sha.")
         # The assignment is built and checked against ATM's limit before the bead closes: after it, a refused send strands the close.
         dispatch = self.sanity_dispatch(assignment_values) if assign else None
-        self.metadata(values["checked_bead"], {"commit": assignment_values["commit"], "branch": assignment_values["branch"], "pr_number": values.get("pr_number", ""),
+        self.metadata(values["checked_bead"], {"commit": assignment_values["commit"], "close_assignment_id": str(self.assignment_id), "branch": assignment_values["branch"], "pr_number": values.get("pr_number", ""),
                                              "pr_url": values["pr_url"], **({"pr_base": self.pr_base} if self.pr_base else {})})
         reason = f"not reproducible: {values['evidence']}" if values["outcome"] == "not_reproducible" else f"{'fixed' if self.role == 'fix' else 'dev complete'} at {values['commit']}"
+        if self.bead(values["checked_bead"]).get("status") == "closed" and self.bead(values["checked_bead"]).get("close_reason") != reason:
+            self.update(values["checked_bead"], status="open")
         self.close_bead(values["checked_bead"], reason)
         if assign and not open_assignment:
             self.send(self.lead, template)
         self.assign(self.config["dev_sanity_member"], sanity, "dev-sanity-template.xml.j2", due=assign, dispatch=dispatch)
+        actual = self.read_bead(values["checked_bead"])
+        history = self.events(sanity)
+        assignments = [event for event in history if event.get("event") in ASSIGNMENT_EVENTS]
+        previous = [event for event in sanity_events if event.get("event") in ASSIGNMENT_EVENTS]
+        new_assignment_required = assign and not open_assignment
+        if actual.get("status") != "closed" or actual.get("close_reason") != reason or not assignments or (new_assignment_required and len(assignments) <= len(previous)):
+            raise CloseError("CLOSE.POSTCONDITION", f"expected {values['checked_bead']} closed and {sanity} assigned; "
+                             f"read status {actual.get('status')!r} and {len(assignments)} assignment(s)",
+                             f"Inspect `bd show {values['checked_bead']} --json` and `atm task events {sanity} --json`, repair the state and retry.")
         # The dev's work is finished: free the dev for its next queued task and stop reminders.
         # Sanity state lives on the sanity task; a FAIL re-assigns this task through the lead.
         self.close_task(self.task, reason=reason)
@@ -960,7 +1008,12 @@ class Hook:
         if verdict == "PASS":
             checked = self.bead(values["checked_bead"])
             is_fix = close_fields.is_fix_bead(checked)
-            self.render("qa-template.xml.j2")
+            qa_round = (self.bead(values["qa_bead"]).get("metadata") or {}).get("round")
+            if type(qa_round) is not int or qa_round < 1:
+                raise CloseError("BEAD.INVALID", f"{values['qa_bead']} metadata.round must be a positive integer",
+                                 f"Run `bd update {values['qa_bead']} --set-metadata round=<positive integer>` and retry.")
+            qa_values = {**values, "round": qa_round}
+            self.render("qa-template.xml.j2", qa_values)
             if is_fix and values.get("carry_forward", "") != values["checked_bead"]:
                 raise CloseError("VARS.INVALID", "fix QA requires carry_forward", "Supply the checked fix bead as carry_forward.")
             if values.get("carry_forward") and values["carry_forward"] != values["checked_bead"]:
@@ -971,7 +1024,10 @@ class Hook:
                 self.update(bead, status="open")
             self.close_bead(bead, f"PASS at {values['commit']}")
             self.close_task(bead, "dev-sanity-complete.md.j2")
-            self.assign(self.config["qa_member"], values["qa_bead"], "qa-template.xml.j2")
+            with tempfile.TemporaryDirectory(prefix="qa-dispatch-") as directory:
+                qa_path = Path(directory) / "qa-vars.json"
+                qa_path.write_text(json.dumps(qa_values), encoding="utf-8")
+                self.assign(self.config["qa_member"], values["qa_bead"], "qa-template.xml.j2", path=qa_path)
             return
         record = self.bead(bead)
         metadata = record.get("metadata") or {}

@@ -8,8 +8,7 @@ removing erroneous or superseded requirements, and append comments recording
 design decisions, changes, and test results. Do not create a new issue per gap.
 
 Local rollout: `dev`, `fix`, and `qa` still use normal ATM close processing.
-The existing `atm-task-close.py`, `sanity-close-vars`, and sanity merge scripts
-are unchanged. The new sanity assignment instructions invoke only:
+The daemon-mode sanity assignment instructions invoke only:
 
 ```
 atm task close <sanity-bead> completed \
@@ -40,6 +39,17 @@ A dev or fix close (`atm-task-close.py`) reads `atm hook list --phase <x> --json
 dispatches sanity: an active `task.close` row for this module whose `sanity_agents` names the dev-sanity
 member sets `sanity_close_mode: daemon` in the assignment; otherwise it is `legacy`. A failed read refuses
 the close before anything is written.
+
+Dev and fix replay keys include the current task assignment generation. A new
+assignment after a sanity failure is a new close even at the same commit; a
+same-generation replay is idempotent. If the assignment changes before a
+journal write, the hook refuses with `CLOSE.STALE_ASSIGNMENT`. It reads back
+the checked bead and sanity task after applying the close and reports
+`CLOSE.POSTCONDITION` if the expected closed bead or assignment is absent.
+The sanity iteration is the count of its task assignment events. The QA
+assignment round comes from the QA bead's `metadata.round`, independently of
+the sanity iteration. The sanity assignment's base is the PR base commit, the
+layer's diff base; the selected sanity result records that base.
 
 ## Inputs and actions
 

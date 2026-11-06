@@ -332,6 +332,10 @@ def test_new_templates_render_with_real_composer(world):
     import sc_render
     for name in ("sanity-task-close.md.j2", "sanity-dev-close.md.j2"):
         assert sc_render.render(hook.TEMPLATES / name, world.values)
+    template = hook.TEMPLATES / "sanity-task-close.md.j2"
+    assert "Base: " in sc_render.render(template, {**world.values, "base": "a" * 40})
+    assert "a" * 40 in sc_render.render(template, {**world.values, "base": "a" * 40})
+    assert "Base: " in sc_render.render(template, {key: value for key, value in world.values.items() if key != "base"})
 
 
 def test_rollout_other_agents_never_touch_dolt(world):

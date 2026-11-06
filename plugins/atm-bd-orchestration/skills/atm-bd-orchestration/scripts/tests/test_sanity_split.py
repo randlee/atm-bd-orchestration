@@ -318,6 +318,7 @@ class SanitySplit(unittest.TestCase):
         self.assertEqual(first["deliverable"]["number"], 1)
         self.assertIn("pub mod retry", first["deliverable"]["text"])
         self.assertIn("in the types crate.", first["deliverable"]["text"])
+
         self.assertEqual(first["deliverables_total"], 2)
         self.assertEqual(first["context"], [])
         self.assertEqual(first["external_evidence"], [])  # no notes, no --layer-pr
@@ -341,6 +342,11 @@ class SanitySplit(unittest.TestCase):
         merged = self.merge(manifest, [result(1, self.repo.sha), result(2, self.repo.sha)])
         self.assertEqual(merged.returncode, 0, merged.stderr)
         self.assertEqual(json.loads(merged.stdout)["verdict"], "FAIL")   # the fake lint exits 1
+
+    def test_immutable_base_sha_is_accepted(self):
+        out = self.run_split(base=self.repo.base_sha)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(json.loads(out.stdout)["base_sha"], self.repo.base_sha)
 
     def test_rerun_assignment_is_the_manifest_assignment_with_context(self):
         out = self.run_split()
