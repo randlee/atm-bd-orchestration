@@ -1601,7 +1601,7 @@ def test_sanity_dispatch_base_is_actual_pr_parent(world):
     assert f"<base><![CDATA[{parent}]]></base>" in assignment["body"]
 
 
-def test_restacked_parent_excludes_lower_layer_reserved_file_from_sanity_rule(world):
+def test_restacked_parent_excludes_lower_layer_reserved_file_from_sanity_rule(world, monkeypatch):
     repo = world.root / "diff-fixture"
     repo.mkdir()
     def git(*args):
@@ -1635,7 +1635,7 @@ def test_restacked_parent_excludes_lower_layer_reserved_file_from_sanity_rule(wo
     split = importlib.util.module_from_spec(spec)
     loader.exec_module(split)
     # Drive the production diff and fence rule with bounded git calls.
-    split.git = lambda _worktree, *args, **_kwargs: git(*args)
+    monkeypatch.setattr(split, "git", lambda _worktree, *args, **_kwargs: git(*args))
     actual = split.changed_files(str(repo), dispatch["base"], head)
     wrong = split.changed_files(str(repo), trunk, head)
     assert split.outside_fence(actual, ["owned.txt"]) == []
