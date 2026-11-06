@@ -29,6 +29,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bd_cache
+import close_fields
+import phase_settings
 import repo_config
 import sc_render
 from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
@@ -142,6 +144,7 @@ def read_vars(path):
 
 def merge_result(values, result, role):
     """Join the fixer's result file to the lead's dispatch vars; each field lives in exactly one of them."""
+    result = {key: value for key, value in result.items() if key != "stack_view"}
     fields = set(header(TEMPLATES / "task-close-vars.j2")["result_variables_by_role"][role])
     unknown = result.keys() - fields
     if unknown:
@@ -263,6 +266,16 @@ def assignment_details(events, task):
     raise CloseError("REPLAY.CONFLICT", f"{task} has no assignment event", "Assign the tracked task before closing it.")
 
 
+def assignment_id_for_round(events, task, round_number):
+    """Return the assignment recorded for a sanity round, using the ledger's completion-based numbering."""
+    for index, assignment in enumerate(events):
+        if assignment.get("event") in ASSIGNMENT_EVENTS:
+            assignment_round = 1 + sum(event.get("event") == COMPLETED for event in events[:index])
+            if assignment_round == round_number:
+                return assignment.get("message_id") or assignment["seq"]
+    return None
+
+
 def validate_command_json(argv, data):
     producer = " ".join(argv)
 
@@ -374,7 +387,10 @@ class Hook:
         config = read_config(self.root, role, values.get("verdict", ""))
         self.config = config
         self.lead = read_toml_setting(self.root / ".atm-bd" / f"phase-{values['phase']}.toml", ("lead",))
-        team = read_toml_setting(self.root / ".atm.toml", ("atm", "default_team"))
+        try:
+            team = phase_settings.phase_settings(self.root, values["phase"]).team
+        except phase_settings.PhaseSettingsError as error:
+            raise CloseError("CONFIG.INVALID", str(error), str(error)) from error
         self.env = dict(os.environ)
         self.lead_env = {**self.env, "ATM_IDENTITY": self.lead, "ATM_TEAM": team}
         self.github = "ok"
@@ -388,6 +404,12 @@ class Hook:
         self.attempts = []
         self.beads = None
         self.assignment_id = None
+        self.beads_dir = ""
+        self.ledger_top = None
+        self.base_evidence = None
+        self.check_record = {}
+        self.rebased_onto = ""
+        self.base_difference = ""
 
     def run(self, argv, *, lead=False, git=False, check=True):
         started = self.clock()
@@ -427,8 +449,11 @@ class Hook:
 
     def _run_once(self, argv, *, lead=False, git=False):
         try:
+            env = self.lead_env if lead else self.env
+            if argv[:3] == ["bd", "where", "--json"]:
+                env = {key: value for key, value in env.items() if key != "BEADS_DIR"}
             return self.runner(list(argv), cwd=self.worktree if git else self.root,
-                               env=self.lead_env if lead else self.env, capture_output=True, text=True,
+                               env=env, capture_output=True, text=True,
                                timeout=COMMAND_TIMEOUT)
         except subprocess.TimeoutExpired as error:
             raise CloseError("COMMAND.FAILED", f"{list(argv)!r} timed out after {COMMAND_TIMEOUT}s",
@@ -463,13 +488,13 @@ class Hook:
         return self.json(["atm", "task", "events", task, "--all", "--json"])["events"]
 
     def beads_directory(self):
-        configured = self.env.get("BEADS_DIR")
-        if configured:
-            return configured
         location = self.json(["bd", "where", "--json"])
         path = location.get("path") if isinstance(location, dict) else None
         if not isinstance(path, str) or not Path(path).is_absolute():
-            raise CloseError("BEADS_DIR.INVALID", repr(path), "Set BEADS_DIR or repair `bd where --json` to return an absolute beads path.")
+            raise CloseError("BEADS_DIR.INVALID", repr(path), "Repair repository configuration so `bd where --json` returns an absolute beads path.")
+        self.beads_dir = path
+        self.env["BEADS_DIR"] = path
+        self.lead_env["BEADS_DIR"] = path
         return path
 
     def snapshot(self, *, include_stack=False):
@@ -566,15 +591,19 @@ class Hook:
                 return True
             raise CloseError("REPLAY.CONFLICT", "sanity task was refused", "Request a new same-id assignment before PASS or FAIL.")
         count_key = sanity_round_key(metadata, self.task) if self.role == "sanity" else None
+        if self.role == "sanity" and self.values["round"] < self.assignment_round:
+            prior_assignment = assignment_id_for_round(events, self.task, self.values["round"])
+            if (isinstance(count_key, list) and len(count_key) == 4
+                    and [count_key[0], count_key[2], count_key[3]] == self.key
+                    and count_key[1] == prior_assignment and prior_assignment is not None):
+                return True
+            raise CloseError("REPLAY.CONFLICT", "sanity round is stale",
+                             "Use the current sanity assignment round, or replay the exact recorded prior verdict and commit.")
         if self.role == "sanity" and isinstance(count_key, list) and len(count_key) == 4:
             recorded = [count_key[0], count_key[2], count_key[3]]
-            if self.values["round"] < self.assignment_round:
-                if recorded == self.key:
-                    return True
-                raise CloseError("REPLAY.CONFLICT", "older assignment vars have a different verdict or sha", "Use the vars generated for the current task assignment.")
             if count_key[1] == self.assignment_id and recorded != self.key:
                 raise CloseError("REPLAY.CONFLICT", "recorded verdict or sha differs", "Use the original vars for a replay or start a new review assignment.")
-        if self.role in ("sanity", "qa") and record.get("status") == "closed":
+        if self.role in ("sanity", "qa") and record.get("status") == "closed" and is_terminal(events):
             expected = f"{self.values['verdict']} at {self.values['commit']}"
             if record.get("close_reason") != expected:
                 raise CloseError("REPLAY.CONFLICT", "recorded verdict or sha differs", "Use the original vars for a replay or start a new review assignment.")
@@ -601,6 +630,7 @@ class Hook:
 
     def checks(self):
         values = self.values
+        checks: dict[str, object] = {"beads_dir": self.beads_dir}
         head = values["commit"]
         dirty = self.run(["git", "status", "--porcelain"], git=True).stdout.strip()
         if dirty:
@@ -637,7 +667,13 @@ class Hook:
                 raise CloseError("HEAD.NOT_PUSHED", "cached origin head differs from HEAD",
                                  "Push this branch and refresh origin before retrying.")
         top, top_head = self.stack_top()
-        values["rebased_onto"] = top_head
+        all_layers = ((self.bead(values["stack_bead"]).get("metadata") or {}).get("layers") or []) if values.get("stack_bead") else []
+        layers = [layer for layer in all_layers if layer.get("linked") is True]
+        if layers:
+            layer = layers[-1]
+            self.ledger_top = {"branch": layer["branch"], "pr": layer.get("pr"), "head": layer["head"]}
+        checks["ledger_top"] = self.ledger_top
+        self.rebased_onto = top_head
         ancestor = self.run(["git", "merge-base", "--is-ancestor", f"origin/{top}", head], git=True, check=False)
         if ancestor.returncode == 1:
             raise CloseError("BASE.NOT_ANCESTOR", top, f"Rebase onto origin/{top}, push, then rerun the hook.")
@@ -650,7 +686,9 @@ class Hook:
         owner, repo = match.groups()
         if self.github == "unavailable":
             self.keep_recorded_pr()
-            return
+            checks["pr_base"] = self.base_evidence
+            self.check_record = checks
+            return checks
         for _attempt in range(3):
             try:
                 prs = self.json(["gh", "api", f"repos/{owner}/{repo}/pulls?head={owner}:{values['branch']}&state=open"], git=True)
@@ -668,9 +706,22 @@ class Hook:
             values["pr_number"] = str(matches[0]["number"] or "")
             values["pr_url"] = f"https://github.com/{owner}/{repo}/pull/{values['pr_number']}" if values["pr_number"] else ""
             self.pr_base = str((matches[0].get("base") or {}).get("ref") or "")
-            return
+            base_layer = next((layer for layer in all_layers if layer.get("branch") == self.pr_base), {})
+            self.base_evidence = {"branch": self.pr_base, "pr": base_layer.get("pr")}
+            if self.ledger_top and self.ledger_top["branch"] != self.pr_base:
+                self.base_difference = f"ledger top {self.ledger_top['branch']} (#{self.ledger_top['pr']}) differs from PR base {self.pr_base}"
+                if self.base_evidence["pr"] is not None:
+                    self.base_difference += f" (#{self.base_evidence['pr']})"
+            checks["pr_base"] = self.base_evidence
+            if self.base_difference:
+                checks["base_difference"] = self.base_difference
+            self.check_record = checks
+            return checks
         self.github = "unavailable"
         self.keep_recorded_pr()
+        checks["pr_base"] = self.base_evidence
+        self.check_record = checks
+        return checks
 
     def keep_recorded_pr(self):
         # Without GitHub the PR identity is the one the bead already records.
@@ -711,10 +762,12 @@ class Hook:
             # The checked PR is the one layer sanity-split must read (`--layer-pr`): its body is the dev's evidence (#636).
             context = {**context, "layer_prs": [pr_number]}
         close_context = {name: context[name] for name in SANITY_CLOSE_CONTEXT if name in context}
+        if close_fields.is_fix_bead(self.bead(context["checked_bead"])):
+            close_context["carry_forward"] = context["checked_bead"]
         # The QA reviewer list is planned on the QA bead (qa-bead.json.j2); the sanity close renders qa-template with it (#821).
         close_context["reviewers_round1"] = self.qa_reviewers(context["qa_bead"])
         close_context.update(phase_lead=self.lead, budget=context.get("budget", "full"))
-        dispatch = {**context, "close_context": close_context, "beads_dir": self.beads_directory()}
+        dispatch = {**context, "close_context": close_context, "beads_dir": self.beads_dir or self.beads_directory()}
         phase = str(context.get("phase") or "")
         rows = self.json(["atm", "hook", "list", "--phase", phase, "--json"], lead=True) if phase else []
         dispatch["sanity_close_mode"] = sanity_close_mode(rows, phase, self.config["dev_sanity_member"])
@@ -725,8 +778,7 @@ class Hook:
             named = ", ".join(f"{name} ({len(json.dumps(dispatch[name]).encode())} bytes)" for name in largest)
             raise CloseError("ASSIGNMENT.TOO_LARGE",
                              f"sanity assignment is {size} bytes, over ATM's {ATM_MAX_REQUEST_BYTES}-byte request limit; largest fields: {named}",
-                             f"Shorten {largest[0]} in --result (pass the stack view with --compact-json, or cite the full "
-                             "view by file path), then rerun with the same vars file; nothing was closed.")
+                             f"Shorten {largest[0]} in --result, then rerun with the same vars file; nothing was closed.")
         return dispatch
 
     def assign(self, member, bead, template, *, path=None, due=None, dispatch=None):
@@ -767,11 +819,41 @@ class Hook:
 
     def derive_local(self):
         # The completion fields the fixer used to type come from the worktree and the open PR instead.
-        head = self.run(["git", "rev-parse", "HEAD"], git=True).stdout.strip()
+        head = (getattr(self, "checked_worktree_head", None)
+                or self.run(["git", "rev-parse", "HEAD"], git=True).stdout.strip())
         self.values.update(commit=head, generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                            pr_number="", pr_url="", rebased_onto="")
+        if self.role == "fix" and self.values["outcome"] == "not_reproducible":
+            self.values["branch"] = self.checked_worktree_branch
         self.require_completion_identity(("commit",))
         self.key = [self.task, self.values.get("verdict", ""), head]
+
+    def validate_not_reproducible_checkout(self, metadata):
+        """Pin a not-reproducible handoff to the checked bead's selected checkout."""
+        branch = metadata.get("branch")
+        worktree = metadata.get("worktree")
+        if not branch or not worktree:
+            raise CloseError("BEAD.INVALID", f"{self.values['checked_bead']}: metadata lacks branch or worktree",
+                             f"Run `bd update {self.values['checked_bead']} --metadata '<full metadata JSON with branch and worktree>'`, then retry.")
+        recorded_worktree = Path(worktree)
+        if not recorded_worktree.is_absolute():
+            recorded_worktree = self.root / recorded_worktree
+        recorded_worktree = recorded_worktree.resolve()
+        if recorded_worktree != self.worktree:
+            raise CloseError("CHECKOUT.MISMATCH",
+                             f"{self.values['checked_bead']} records worktree {recorded_worktree}, but the selected worktree is {self.worktree}",
+                             f"Select the checked bead's worktree or repair its metadata with `bd update {self.values['checked_bead']} --metadata '<full metadata JSON with the correct worktree>'`, then retry.")
+        actual_branch = self.run(["git", "branch", "--show-current"], git=True).stdout.strip()
+        actual_head = self.run(["git", "rev-parse", "HEAD"], git=True).stdout.strip()
+        expected_head = metadata.get("commit")
+        if not expected_head or actual_branch != branch or actual_head != expected_head:
+            expected = f"{branch}@{expected_head or '(commit not recorded)'}"
+            actual = f"{actual_branch or '(detached)'}@{actual_head or '(unknown)'}"
+            raise CloseError("CHECKOUT.MISMATCH",
+                             f"{self.values['checked_bead']} records {expected}, but the selected worktree is {actual}",
+                             f"Check out the recorded branch and commit in {self.worktree}, or repair the checked bead's branch/commit metadata with `bd update {self.values['checked_bead']} --metadata '<full metadata JSON with the correct branch and commit>'`, then retry.")
+        self.checked_worktree_branch = actual_branch
+        self.checked_worktree_head = actual_head
 
     def verify_not_reproducible_evidence(self):
         evidence = str(self.values.get("evidence", ""))
@@ -815,8 +897,8 @@ class Hook:
         with tempfile.TemporaryDirectory(prefix="atm-task-close-") as directory:
             completion = Path(directory) / "completion-vars.json"
             if values["outcome"] == "not_reproducible":
-                branch, commit = self.stack_top()
-                assignment = {**values, "branch": branch, "commit": commit}
+                assignment = {**values, "branch": self.checked_worktree_branch, "commit": self.checked_worktree_head,
+                              "worktree_path": str(self.worktree)}
                 assignment_path = Path(directory) / "sanity-vars.json"
                 assignment_path.write_text(json.dumps(assignment), encoding="utf-8")
                 self.render(template)
@@ -825,7 +907,8 @@ class Hook:
                 self.finish_dev(sanity, template, path=assignment_path)
                 return
             if not skip:
-                self.checks()
+                self.check_record = self.checks()
+                values["rebased_onto"] = self.rebased_onto
             else:
                 self.keep_recorded_pr()
                 values["rebased_onto"] = self.run(["git", "rev-parse", f"origin/{values['pr_target']}"], git=True).stdout.strip()
@@ -876,17 +959,20 @@ class Hook:
         self.render("dev-sanity-complete.md.j2")
         if verdict == "PASS":
             checked = self.bead(values["checked_bead"])
-            is_fix = (checked.get("metadata") or {}).get("role") == "fix" or "stage:fix" in checked.get("labels", [])
+            is_fix = close_fields.is_fix_bead(checked)
             self.render("qa-template.xml.j2")
             if is_fix and values.get("carry_forward", "") != values["checked_bead"]:
                 raise CloseError("VARS.INVALID", "fix QA requires carry_forward", "Supply the checked fix bead as carry_forward.")
             if values.get("carry_forward") and values["carry_forward"] != values["checked_bead"]:
                 raise CloseError("VARS.INVALID", "carry_forward differs from fix bead", "Supply the checked fix bead as carry_forward.")
+            if (self.bead(bead).get("status") == "closed"
+                    and self.bead(bead).get("close_reason") != f"PASS at {values['commit']}"
+                    and not is_terminal(self.task_history[bead])):
+                self.update(bead, status="open")
             self.close_bead(bead, f"PASS at {values['commit']}")
             self.close_task(bead, "dev-sanity-complete.md.j2")
             self.assign(self.config["qa_member"], values["qa_bead"], "qa-template.xml.j2")
             return
-        self.render("sanity-fail.xml.j2")
         record = self.bead(bead)
         metadata = record.get("metadata") or {}
         count_key = [self.task, self.assignment_id, values["verdict"], values.get("commit", "")]
@@ -905,13 +991,22 @@ class Hook:
             self.close_task(bead, "dev-sanity-complete.md.j2")
             return "SANITY.ROUND_CAP"
         checked = self.bead(values["checked_bead"])
+        template, dispatch = close_fields.reassignment(self.root, values["phase"], checked, self.config)
+        sc_render.render(template, dispatch)
+        notes = f"sanity FAIL round {count} at {values['commit']}:\n" + "\n".join(
+            f"{item['number']}. {item['reason']}" for item in values["undone"])
+        self.write_bead(values["checked_bead"], "update", {"append_notes": notes})
         if checked.get("status") != "open":
             self.update(values["checked_bead"], status="open", assignee=checked["assignee"])
         if record.get("status") != "open" or record.get("assignee"):
             self.update(bead, status="open", assignee="")
         events = self.task_history[bead]
         if not is_terminal(events):
-            self.send(checked["assignee"], "sanity-fail.xml.j2")
+            with tempfile.TemporaryDirectory(prefix="dev-reassignment-") as directory:
+                path = Path(directory) / "vars.json"
+                path.write_text(json.dumps(dispatch))
+                self.run(["atm", "task", "assign", checked["assignee"], "--task-id", values["checked_bead"],
+                          "--template", str(template), "--vars", str(path)], lead=True)
         self.close_task(bead, "dev-sanity-complete.md.j2")
 
     def qa(self):
@@ -952,12 +1047,21 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
             values = validate_outcome(values, args.role, args.result)
         validate_shared_vars(values, args.role)
         hook = Hook(args.role, values, args.vars, runner, clock, sleep, sample)
+        hook.beads_directory()
         if args.role == "fix" and values.get("outcome") == "not_reproducible":
+            checked = hook.read_bead(values["checked_bead"])
+            metadata = checked.get("metadata") or {}
+            hook.validate_not_reproducible_checkout(metadata)
             hook.verify_not_reproducible_evidence()
         started = clock()
         escalated = hook.dev(args.skip_checks) if args.role in ("dev", "fix") else hook.sanity() if args.role == "sanity" else hook.qa()
         result = {"role": args.role, "bead": hook.task, "commit": values.get("commit", ""), "pr_number": values.get("pr_number", ""),
+                  "beads_dir": hook.check_record.get("beads_dir", hook.beads_dir),
                   "github": hook.github, "assigned": hook.assigned, "closed": hook.closed, "elapsed_s": max(0, clock() - started)}
+        result.update(ledger_top=hook.check_record.get("ledger_top", hook.ledger_top),
+                      pr_base=hook.check_record.get("pr_base", hook.base_evidence))
+        if hook.base_difference:
+            result["base_difference"] = hook.base_difference
         if hook.github == "unavailable":
             result["github_error"] = hook.github_error
         if escalated:

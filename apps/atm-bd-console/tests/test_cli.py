@@ -33,7 +33,7 @@ from contract_samples import (
 from process_helpers import run_process
 from rich.text import Text
 
-from atm_bd_console import app, cli, runner
+from atm_bd_console import app, beads_source, cli, runner
 from atm_bd_console.build import identity
 from atm_bd_console.enums import MergeState, SprintState
 from atm_bd_console.error_text import error_text
@@ -129,7 +129,44 @@ def test_as_is_not_a_console_option(capsys) -> None:
 
 def test_missing_phase_is_a_launch_check(capsys) -> None:
     assert cli.main(["console"]) == 3
-    assert "--phase <phase> is required" in capsys.readouterr().out
+    assert ".atm-bd/phase-*.toml" in capsys.readouterr().out
+
+
+def test_default_phase_skips_closed_root_and_uses_newest_open(tmp_path, monkeypatch) -> None:
+    phase_dir = tmp_path / ".atm-bd"
+    phase_dir.mkdir()
+    older = phase_dir / "phase-old.toml"
+    newer = phase_dir / "phase-new.toml"
+    latest_closed = phase_dir / "phase-closed.toml"
+    older.write_text('root = "atm-phase-old"')
+    newer.write_text('root = "atm-phase-new"')
+    latest_closed.write_text('root = "atm-phase-closed"')
+    os.utime(older, ns=(1_000, 1_000))
+    os.utime(newer, ns=(2_000, 2_000))
+    os.utime(latest_closed, ns=(3_000, 3_000))
+
+    class Root:
+        def __init__(self, status):
+            self.status = status
+
+    monkeypatch.setattr(beads_source, "show", lambda ids: Ok((Root(
+        SprintState.CLOSED if ids[0] == "atm-phase-closed" else SprintState.OPEN),)))
+    assert cli.monitor_source.default_open_phase(tmp_path) == ("new", None)
+
+
+def test_default_phase_all_closed_lists_each_phase_and_root(tmp_path, monkeypatch) -> None:
+    phase_dir = tmp_path / ".atm-bd"
+    phase_dir.mkdir()
+    (phase_dir / "phase-old.toml").write_text('root = "atm-phase-old"')
+    (phase_dir / "phase-new.toml").write_text('root = "atm-phase-new"')
+
+    class Root:
+        status = SprintState.CLOSED
+
+    monkeypatch.setattr(beads_source, "show", lambda _ids: Ok((Root(),)))
+    phase, error = cli.monitor_source.default_open_phase(tmp_path)
+    assert phase is None
+    assert error is not None and "atm-phase-old" in error and "atm-phase-new" in error
 
 
 @pytest.mark.parametrize("command", ("console", "cron", "show", "snapshot"))

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import install
 import pytest
+import yaml
 
 PKG = Path(__file__).resolve().parents[1]
 def _profile_script(path: Path) -> bool:
@@ -74,7 +75,9 @@ def test_the_header_is_pep_723_metadata_pinning_the_manifest_sc_compose_range():
 
 
 def test_every_executable_script_starts_with_the_header_and_is_executable():
-    assert len(SCRIPTS) >= 32
+    manifest = yaml.safe_load((PKG / "manifest.yaml").read_text())
+    shipped = {PKG / path for path in manifest["artifacts"]["skills"] if "/scripts/" in path}
+    assert SCRIPTS and set(SCRIPTS) <= shipped
     for path in EXECUTABLES:
         text = path.read_text(encoding="utf-8")
         assert text.startswith(install.SCRIPT_HEADER), f"{path.relative_to(PKG)} does not start with SCRIPT_HEADER"

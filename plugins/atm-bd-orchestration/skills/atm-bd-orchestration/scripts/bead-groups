@@ -80,10 +80,13 @@ import repo_config  # noqa: E402
 import sprint_index_common  # noqa: E402
 from bead_formulas import Bd, BdError, attach_id  # noqa: E402
 from operation_models import JsonObject, JsonValue, matches_typeddict  # noqa: E402
-from stack_top import stack_bead_id  # noqa: E402
+from stack_top import select_stack_top, stack_bead_id  # noqa: E402
 
 SCHEMA = "atm-bd-orchestration/bead-groups/v1"
+SC_COMPOSE_TIMEOUT_SECONDS = 120
 SUCCESS, FAILED, USAGE, PROBLEMS = 0, 2, 3, 5
+from qa_reviewers import qa_capable_reviewer, qa_capable_reviewers
+
 SPRINT_KEYS = ("phase", "sprint", "stack", "layer", "difficulty", "branch", "worktree", "pr_target")
 FINDING_FIELDS = ("ref", "severity", "reviewer", "title", "remedy")
 REF = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
@@ -293,7 +296,7 @@ class ReceiptError(TypedDict):
 
 
 class ReceiptStage(TypedDict):
-    outcome: str
+    outcome: str | dict[str, JsonObject]
     stderr_excerpt: NotRequired[str]
 
 
@@ -559,13 +562,15 @@ class Run:
         sidecar = self.sidecar("finding-group")
         option = self.option_for(sidecar)
         import bead_schema
-        stack_id = stack_bead_id(sprint_index_common.load_phase_config(self.repo, phase)['root'])
+        phase_config = sprint_index_common.load_phase_config(self.repo, phase)
+        stack_id = stack_bead_id(phase_config['root'])
         stack_json, stack = self.show_typed(stack_id)
         issues = bead_schema.problems(stack_json, bead_schema.StackBead)
         if issues:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", "; ".join(issues))
         stack_meta = bead_schema.StackMetadata.model_validate(bead_metadata(stack))
-        pr_target = stack_meta.layers[-1].branch if stack_meta.layers else stack_meta.trunk
+        # This pour needs only the branch; no Git head lookup is needed for the trunk fallback.
+        pr_target, _ = select_stack_top(stack_json, stack_meta.trunk, lambda _: "unused")
         out: list[Target | TargetError] = []
         for finding in findings:
             ref = finding["ref"]
@@ -580,6 +585,10 @@ class Run:
                     lacking.append("difficulty (a phase-end finding has no sprint to take it from)")
                 if lacking:
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} lacks {', '.join(lacking)}")
+                templates_dir = Path(__file__).resolve().parent.parent / "templates"
+                if not qa_capable_reviewer(finding["reviewer"], templates_dir):
+                    raise TargetError("BEAD_GROUPS_REVIEWER_INVALID", f"finding {ref}: reviewer {finding['reviewer']} is not QA-capable; "
+                                      f"choose --reviewer <agent> from {', '.join(qa_capable_reviewers(templates_dir))}")
                 remedy = finding.get("remedy")
                 if not isinstance(remedy, str):
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} lacks remedy")
@@ -593,7 +602,16 @@ class Run:
                 # Layer records carry no difficulty, so the cut takes it from the finding or the sprint and the fix group carries all four keys together.
                 if not isinstance(finding_difficulty, str) or not finding_difficulty:
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} needs difficulty")
-                cut: Compose = {"branch": branch, "worktree": str(Path(self.config["worktree_base"]) / branch), "pr_target": pr_target,
+                checkout = phase_config.get("code_checkout")
+                worktree_base = Path(self.config["worktree_base"])
+                if checkout:
+                    code_root = (self.repo / checkout).resolve()
+                    try:
+                        code_base = Path(repo_config.load(code_root)["worktree_base"])
+                    except repo_config.ConfigNotFound:
+                        code_base = Path(str(code_root) + "-worktrees")
+                    worktree_base = (code_root / code_base).resolve() if not code_base.is_absolute() else code_base
+                cut: Compose = {"branch": branch, "worktree": str(worktree_base / branch), "pr_target": pr_target,
                        "difficulty": finding_difficulty}
                 if finding["severity"] != "blocking":
                     raise TargetError("BEAD_GROUPS_NOT_BLOCKING", f"finding {ref} is {finding['severity']}; only blocking findings are poured, file it as a finding bead")
@@ -668,7 +686,12 @@ class Run:
         path = out / f"{stem}.request.json"
         path.write_text(json.dumps(request, indent=2) + "\n")
         subcommand = operation.replace("_", "-")
-        proc = subprocess.run(["sc-compose", "bead", subcommand, "--request", str(path), "--json"], cwd=self.repo, text=True, capture_output=True)
+        command = ["sc-compose", "bead", subcommand, "--request", str(path), "--json"]
+        try:
+            proc = subprocess.run(command, cwd=self.repo, text=True, capture_output=True, timeout=SC_COMPOSE_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            raise TargetError("BEAD_GROUPS_POUR_TIMEOUT", f"{' '.join(command)} timed out after {SC_COMPOSE_TIMEOUT_SECONDS} seconds; "
+                              f"inspect request {path} and any partially created beads before retrying") from exc
         (out / f"{stem}.{subcommand}.receipt.json").write_text(proc.stdout)
         try:
             decoded: object = json.loads(proc.stdout)
@@ -691,6 +714,8 @@ class Run:
             failed_detail = failed[-1].get("stderr_excerpt", "") if failed else ""
             error_detail = error.get("message", "") if error else ""
             detail = error_detail or failed_detail or diagnostic_message
+            if code_value == "BEADS_GRAPH_CONFLICT" and "provenance_differs" in detail:
+                detail += "; conflicting field: metadata.sc_compose_graph"
             code = code_value if isinstance(code_value, str) else "BEAD_GROUPS_POUR_FAILED"
             raise TargetError(code, f"attach of {target['id']} (sc-compose exit {proc.returncode}): {detail}")
         if "graph" not in payload:

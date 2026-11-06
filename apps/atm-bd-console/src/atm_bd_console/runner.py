@@ -13,13 +13,14 @@ from .closed_cache import ClosedBeads
 from .dispatch import candidates, sprint_of, verification_reason
 from .enums import MergeState, PrState, SprintState
 from .log import EventAction, TickLog, create_console_logger, error_message
-from .result import Err, Error, NotFound, Ok, Result
+from .result import Err, Error, NotFound, Ok, ParseFailed, Result
 from .state import StateStore, read_snapshot
 from .types import (
     Action,
     ActionLine,
     Bead,
     Config,
+    DispatchSpec,
     GhStatus,
     Inputs,
     Merge,
@@ -73,7 +74,10 @@ def _run_actions(config: Config, actions: tuple[Action, ...], store: _ActionStor
                 sender, sender_team = config.notification_sender.split("@", 1)
                 recipient = action.to if "@" in action.to else f"{action.to}@{config.team}"
                 result = atm_source.send(recipient, action.text, sender, sender_team)
-            logged = store.append_action(ActionLine(now, action.kind, action.to, bead, action.text))
+            logged = store.append_action(ActionLine(
+                now, action.kind, action.to, bead, action.text,
+                action.spec.template if action.spec is not None else None,
+            ))
             if isinstance(logged, Err): errors.append(logged.error)
             if isinstance(result, Err):
                 errors.append(result.error)
@@ -186,6 +190,40 @@ def _stack_input(config: Config, cached: tuple[int, ...] | None, read) -> Result
                         "wait for the next GitHub poll (github_poll_interval) or force a GitHub refresh"))
 
 
+def _stack_ledger(root_id: str, logger: TickLog) -> Result[tuple[int, ...]]:
+    """Read the linked ledger without collapsing read, malformed and empty states."""
+    bead_id = f"{root_id}.stack"
+    shown = logger.result("beads.show_stack", beads_source.show((bead_id,)), task_ids=[bead_id])
+    if isinstance(shown, Err):
+        return shown
+    if not shown.value:
+        return Err(NotFound("not_found", bead_id, f"inspect `bd show {bead_id} --json` and restore the stack bead"))
+    if len(shown.value) != 1:
+        return Err(ParseFailed("parse_failed", bead_id, "expected exactly one stack bead",
+                               f"inspect `bd show {bead_id} --json` and repair the stack bead"))
+    if shown.value[0].id != bead_id:
+        return Err(ParseFailed("parse_failed", bead_id, f"read returned {shown.value[0].id}",
+                               f"inspect `bd show {bead_id} --json` and repair the stack bead"))
+    layers = shown.value[0].metadata.get("layers")
+    fix = f"inspect `bd show {bead_id} --json` and repair metadata.layers"
+    if not isinstance(layers, list):
+        return Err(ParseFailed("parse_failed", f"{bead_id}.metadata.layers", "expected an array", fix))
+    linked = []
+    seen: set[int] = set()
+    for index, layer in enumerate(layers):
+        if (not isinstance(layer, dict) or type(layer.get("pr")) is not int or layer["pr"] <= 0
+                or type(layer.get("linked")) is not bool):
+            return Err(ParseFailed("parse_failed", f"{bead_id}.metadata.layers[{index}]",
+                                   "expected a positive pr and boolean linked", fix))
+        if layer["pr"] in seen:
+            return Err(ParseFailed("parse_failed", f"{bead_id}.metadata.layers[{index}]",
+                                   f"duplicate pr {layer['pr']}", fix))
+        seen.add(layer["pr"])
+        if layer["linked"]:
+            linked.append(layer["pr"])
+    return Ok(tuple(linked))
+
+
 def _show_closed(closed: ClosedBeads, ids: tuple[str, ...], logger: TickLog) -> Result[tuple[Bead, ...]]:
     """Read only the ids not yet cached; a failed read is the original Err and caches nothing. Beads that are
     not closed are returned for this tick but never cached."""
@@ -252,7 +290,8 @@ def _stopped_tick(config: Config, state: State, now: datetime, store: StateStore
     sent = tuple(
         Action(line.at, line.kind if line.kind in ("assign", "send", "batch") else "send", line.to or "—",
                (line.bead,) if line.bead else (),
-               line.text if line.kind in ("assign", "send", "batch") else f"{line.kind}: {line.text}", None, "recorded")
+               line.text if line.kind in ("assign", "send", "batch") else f"{line.kind}: {line.text}",
+               DispatchSpec(line.template, {}) if line.template else None, "recorded")
         for line in history.value[-5:]
     ) if isinstance(history, Ok) else ()
     snapshot, _, next_state = model.tick(
@@ -329,6 +368,7 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
         return _stopped_tick(config, state, now, store, file.value, repo.value, root_bead, logger, force_github, cache)
     if not force_github and isinstance(root, Ok) and model.idle_stop_due(state, now):
         return _stopped_tick(config, state, now, store, file.value, repo.value, root_bead, logger, closed=cache)
+    stack_ledger = _stack_ledger(file.value.root_id, logger) if config.stack_number is not None else None
     opened = logger.result("beads.open", beads_source.open_rows(file.value.label), label=file.value.label)
     ready = logger.result("beads.ready", beads_source.ready(file.value.label), label=file.value.label)
     known = opened.value.beads if isinstance(opened, Ok) else ()
@@ -459,7 +499,7 @@ def step(config: Config, state: State, force_github: bool, store: StateStore,
                 merges[branch] = unavailable
                 merge_results.append(Ok(unavailable))
     stack_prs = _stack_input(config, cached_stack, stack_read)
-    inputs = Inputs(now, config.lead, repo.value, config.interval_s, phase, members, tasks, worktrees, remotes, tuple(merge_results) if due else tuple(Ok(item) for item in merges.values()), prs_input, gh, task_beads, closed_tasks, stack_prs=stack_prs)
+    inputs = Inputs(now, config.lead, repo.value, config.interval_s, phase, members, tasks, worktrees, remotes, tuple(merge_results) if due else tuple(Ok(item) for item in merges.values()), prs_input, gh, task_beads, closed_tasks, stack_prs=stack_prs, stack_ledger=stack_ledger)
     snapshot, actions, next_state = model.tick(inputs, state, now, partial(atm_bd.dispatch_spec, templates=file.value.templates))
     if not snapshot.phase:
         snapshot = replace(snapshot, phase=config.phase)  # the header keeps the configured id when the phase read failed

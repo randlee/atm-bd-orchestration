@@ -266,7 +266,7 @@ class TemplateContractTests(unittest.TestCase):
         self.assertTrue(templates, "templates directory must not be empty")
         for template_path in templates:
             fixture_name = template_path.name.removesuffix(".j2").rsplit(".", 1)[0] + "-vars.json"
-            if template_path.name in ("task-close-vars.j2", "sanity-fail.xml.j2", "rebase-required.xml.j2"):
+            if template_path.name in ("task-close-vars.j2", "rebase-required.xml.j2"):
                 fixture_name = "task-close-vars-sanity.json"
             variables = examples / fixture_name
             with self.subTest(template=template_path.name):
@@ -579,7 +579,7 @@ class DevAssignmentTests(unittest.TestCase):
         self.assertNotIn("Commit:", result.stdout)
         self.assertNotEqual(_render("fix-complete.md.j2", {**base, "outcome": "fixed"}).returncode, 0)
         self.assertEqual(_render("fix-complete.md.j2", _example("fix-complete-vars.json")).returncode, 0)
-        for missing in ("pr_number", "pr_url", "stack_view"):
+        for missing in ("pr_number", "pr_url"):
             with self.subTest(missing=missing):
                 values = {k: v for k, v in _example("fix-complete-vars.json").items() if k != missing}
                 self.assertNotEqual(_render("fix-complete.md.j2", values).returncode, 0)
@@ -596,7 +596,7 @@ class DevAssignmentTests(unittest.TestCase):
                 self.assertIn("any other exit prints `GATE_CANNOT_RUN`: never guess, refuse with it by step ", result.stdout)
                 self.assertNotIn("no output means the top is", result.stdout)
                 self.assertNotIn("gh_stack_view.py", result.stdout)
-                self.assertIn("run `/sc-gh-stack-view` (read-only) and keep its output verbatim", result.stdout)
+                self.assertNotIn("sc-gh-stack-view", result.stdout)
                 self.assertIn("`git rebase origin/<top>`", result.stdout)
                 self.assertRegex(result.stdout, r"`gh pr create --base <top> --head \S+ --title \"<one-line title>\" "
                                                 r"--body-file <scratch>/[^`\s]*(?:\{\{ bead_prefix \}\})?[^`\s]*-pr-body\.md`")
@@ -637,23 +637,16 @@ class DevAssignmentTests(unittest.TestCase):
         self.assertIn("never edit generated vars", text)
         self.assertNotIn("SANITY.NOT_STACKED", text)
 
-    def test_completion_preserves_stack_evidence_without_requiring_link_or_landing(self):
+    def test_completion_renders_without_stack_view(self):
         for name in ("dev-complete.md.j2", "fix-complete.md.j2"):
             values = _example(name.removesuffix(".md.j2") + "-vars.json")
             good = _render(name, values)
             with self.subTest(template=name):
                 self.assertEqual(good.returncode, 0, good.stderr)
                 self.assertNotIn("## Stack issue", good.stdout)
-                self.assertIn(values["stack_view"], good.stdout)
+                self.assertNotIn("## Stack View", good.stdout)
                 self.assertIn("sanity PASS", good.stdout)
                 self.assertNotIn("## Next (task assigner)", good.stdout)
-                for bad in (values["stack_view"].replace("VERDICT: ✅ COHERENT", "VERDICT: ❌ NOT COHERENT"),
-                            values["stack_view"].replace("LANDING: ✅", "LANDING: ❌"),
-                            values["stack_view"].replace("LANDING: ✅", "LANDING: ❓")):
-                    issue = _render(name, {**values, "stack_view": bad})
-                    self.assertEqual(issue.returncode, 0, issue.stderr)
-                    self.assertIn(bad, issue.stdout)
-                    self.assertNotIn("## Stack issue", issue.stdout)
 
     def test_dev_and_fix_use_immutable_shared_vars_and_wait_for_sanity(self):
         for name, role in (("dev-template.xml.j2", "dev"), ("fix-assignment.xml.j2", "fix")):
@@ -876,7 +869,13 @@ def test_daemon_sanity_has_no_pin_gate_or_build_running_merge():
     assert result.returncode == 0, result.stderr
     assert "assignment-gates.py" not in result.stdout
     assert "bd-validation" in result.stdout
-    assert "not a planning pin or a close prerequisite" in result.stdout
+    capture = result.stdout.index("Before inspecting any PR, deliverable, or review evidence, capture the binding")
+    review = result.stdout.index("Verify the numbered deliverables")
+    assert capture < review
+    assert "Save both exact values to scratch/sanity-binding.json and do not overwrite it during this review" in result.stdout
+    assert "Use the immutable values from scratch/sanity-binding.json for assignment_id and commit" in result.stdout
+    assert "assignment_id and commit against current task history and checked bead" in result.stdout
+    assert "do not update or submit the selected result under the new values" in result.stdout
     assert "do not invoke Cargo" in result.stdout
     assert "sanity-task-close.md.j2" in result.stdout
 
@@ -893,17 +892,6 @@ def test_hook_escalation_template_tracks_recovery_and_preserves_error_state():
     assert values["detail"] in error.text
     assert "Unknown; inspect current beads" in error.text
     assert "only after recovery is verified" in workflow.text
-
-
-def test_hook_repair_template_uses_installed_runner_path():
-    values = _example("sanity-bead-repair-vars.json")
-    result = _render("sanity-bead-repair.xml.j2", values)
-    assert result.returncode == 0, result.stderr
-    assert "Run " + values["repair_script"] in result.stdout
-    assert "python3" not in result.stdout
-    for flag, field in (("--phase", "phase"), ("--team", "team"), ("--original-task", "original_task"), ("--lead", "phase_lead")):
-        assert f"{flag} {values[field]}" in result.stdout
-    assert "/.claude/skills/atm-bd-orchestration/scripts/" not in result.stdout
 
 
 def test_shipped_dev_and_fix_assignments_carry_no_host_build_policy():

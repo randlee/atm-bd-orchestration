@@ -183,6 +183,41 @@ def route(repo_root, args, command, step):
     return policy(phase_data)
 
 
+def default_open_phase(repo_root: Path) -> tuple[str | None, str | None]:
+    """Choose the newest configured phase whose root bead remains open."""
+    from . import beads_source
+    from .result import Err
+    from .types import SprintState
+
+    paths = sorted((repo_root / ".atm-bd").glob("phase-*.toml"), key=lambda path: path.stat().st_mtime_ns, reverse=True)
+    if not paths:
+        return None, "not_found: .atm-bd/phase-*.toml; create a phase file or pass --phase <id>"
+    candidates = []
+    for path in paths:
+        phase = path.stem.removeprefix("phase-")
+        try:
+            with path.open("rb") as source:
+                values = tomllib.load(source)
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+            return None, f"config_invalid: {path}: {error}; repair the phase file or pass --phase <id>"
+        root_id = values.get("root") if isinstance(values, dict) else None
+        if not isinstance(root_id, str) or not root_id:
+            return None, f"config_invalid: {path}: missing root; set root in {path}"
+        shown = beads_source.show((root_id,))
+        if isinstance(shown, Err):
+            return None, f"phase {phase} root {root_id} could not be read: {shown.error.fix}"
+        if shown.value and shown.value[0].status != SprintState.CLOSED:
+            candidates.append((path.stat().st_mtime_ns, phase))
+    if candidates:
+        return max(candidates)[1], None
+    roots = []
+    for path in paths:
+        with path.open("rb") as source:
+            values = tomllib.load(source)
+        roots.append(f"{path.name} (root {values.get('root', '<missing>')})")
+    return None, "no open phase roots; all configured phases are closed: " + ", ".join(roots) + "; pass --phase <id> after opening a phase"
+
+
 class PolicyMonitor:
     """Adapt a profile tick to console commands without making policy decisions."""
 
