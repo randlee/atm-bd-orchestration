@@ -386,7 +386,8 @@ def test_all_problems_for_a_recipient_go_in_one_message_and_a_flapping_problem_i
 
 
 def test_pr_rows_are_layer_ordered_and_only_top_ci_is_a_problem() -> None:
-    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+                       target="base", layer=number)
                   for number in (1, 2, 3))
     sprints = (sprint(1), sprint(2), sprint(3))
     prs = (
@@ -458,7 +459,8 @@ def test_missing_phase_drops_stale_top_ci_advice() -> None:
 
 
 def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None:
-    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+                       target="base", layer=number)
                   for number in (1, 2, 3))
     sprints = (sprint(1), sprint(2), sprint(3))
     prs = tuple(PullRequest(number, f"url{number}", f"branch-{number}",
@@ -487,7 +489,8 @@ def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None
 
 
 def test_red_top_and_lower_send_only_actionable_top_alert() -> None:
-    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+                       target="base", layer=number)
                   for number in (1, 2, 3))
     prs = tuple(PullRequest(number, f"url{number}", f"branch-{number}",
                             "base" if number == 1 else f"branch-{number - 1}", f"sha{number}",
@@ -647,8 +650,38 @@ def test_missing_pr_only_after_successful_fresh_github_read() -> None:
     assert [problem.key for problem in snapshot.problems] == ["missing_pr:pushed"]
 
 
+def test_stack_pr_base_accepts_a_layer_above_target_and_rejects_outside_stack() -> None:
+    steps = tuple(
+        step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+             target="integrate/phase-br", layer=number)
+        for number in (1, 2, 3)
+    )
+    sprints = (sprint(1), sprint(2), sprint(3))
+    prs = (
+        PullRequest(1, "url1", "branch-1", "integrate/phase-br", "sha1", CiState.PASS, ()),
+        PullRequest(2, "url2", "branch-2", "branch-1", "sha2", CiState.PASS, ()),
+        PullRequest(3, "url3", "branch-3", "branch-2", "sha3", CiState.PASS, ()),
+    )
+    common = {
+        "prs": Ok(prs), "stack_prs": Ok((1, 2, 3)),
+        "stack_ledger": Ok((1, 2, 3)),
+        "remotes": Ok(tuple(RemoteRef(pr.head, pr.head_sha) for pr in prs)),
+        "gh": GhStatus("graphql", True, None, NOW, False),
+    }
+
+    value = phase(*steps, sprints=sprints)
+    valid, _, _ = tick(inputs(value, **common), STATE, NOW, render)
+    assert not any(problem.key.startswith(("missing_pr:", "pr_base_outside_stack:"))
+                   for problem in valid.problems)
+
+    outside_stack = (*prs[:2], replace(prs[2], base="unrelated/branch"))
+    invalid, _, _ = tick(inputs(value, **(common | {"prs": Ok(outside_stack)})), STATE, NOW, render)
+    assert "pr_base_outside_stack:branch-3" in {problem.key for problem in invalid.problems}
+    assert not any(problem.key == "missing_pr:branch-3" for problem in invalid.problems)
+
+
 def test_read_derived_problems_survive_missing_reads_without_duplicate_sends() -> None:
-    value = phase(step("dev", "atm-bh-1", branch="pushed", assignee="solar"))
+    value = phase(step("dev", "atm-bh-1", branch="pushed", target="base", assignee="solar"))
     remote = RemoteRef("pushed", "sha")
     first = inputs(value, remotes=Ok((remote,)), prs=Ok(()),
                    gh=GhStatus("graphql", True, None, NOW, False))
@@ -681,7 +714,7 @@ def test_read_derived_problems_survive_missing_reads_without_duplicate_sends() -
 
 
 def test_ci_and_conflict_problems_survive_until_their_sources_are_refreshed() -> None:
-    value = phase(step("dev", "atm-bh-1", branch="pushed", assignee="solar"))
+    value = phase(step("dev", "atm-bh-1", branch="pushed", target="base", assignee="solar"))
     failed_pr = PullRequest(1, "url", "pushed", "base", "sha", CiState.FAIL_BUG, ("lint",))
     first = inputs(value, prs=Ok((failed_pr,)), stack_prs=Ok((1,)), stack_ledger=Ok((1,)),
                    gh=GhStatus("graphql", True, None, NOW, False))

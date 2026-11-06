@@ -519,7 +519,7 @@ def _problems(
     if phase is None:
         return tuple(
             problem for problem in state.problems
-            if problem.key.startswith(("missing_pr:", "conflict:"))
+            if problem.key.startswith(("missing_pr:", "pr_base_outside_stack:", "conflict:"))
         )
     by_branch = _branch_owners(phase)
     by_id = {step.bead_id: step for step in phase.steps}
@@ -621,6 +621,35 @@ def _problems(
                     f"{step.bead_id} ({step.kind}): pushed branch {branch} has no open PR; open a PR with "
                     f"head {branch} against its pr_target (a stacked layer is submitted by the stack writer)", now,
                 ))
+        if isinstance(inputs.stack_ledger, Ok):
+            open_prs_by_number = {pr.number: pr for pr in prs if active_pr(pr)}
+            stack_chain = tuple(
+                open_prs_by_number[number]
+                for number in inputs.stack_ledger.value
+                if number in open_prs_by_number
+            )
+            open_pr_by_head = {pr.head: pr for pr in prs if active_pr(pr)}
+            for branch, step in by_branch.items():
+                pr = open_pr_by_head.get(branch)
+                target = step.target
+                if branch not in open_branches or pr is None or target is None:
+                    continue
+                allowed_bases = {target}
+                first_layer_above_target = None
+                for index, layer_pr in enumerate(stack_chain):
+                    if layer_pr.head == target:
+                        first_layer_above_target = index + 1
+                    if layer_pr.base == target:
+                        first_layer_above_target = index
+                if first_layer_above_target is not None:
+                    allowed_bases.update(layer.head for layer in stack_chain[first_layer_above_target:])
+                if pr.base not in allowed_bases:
+                    problems.append(Problem(
+                        f"pr_base_outside_stack:{branch}", step.bead_id, step.assignee or inputs.lead,
+                        f"{step.bead_id} ({step.kind}): open PR #{pr.number} for {branch} has base {pr.base}, "
+                        f"outside its linked stack from pr_target {target}; set the base to pr_target or a layer above it",
+                        now,
+                    ))
     if (fresh_github and not stack_mismatch and top_pr is not None and top_pr.ci in FAILING_CI
             and not (inputs.stack_prs is None and inputs.stack_ledger is None)):
         checks = ", ".join(top_pr.failed_checks)
@@ -636,6 +665,7 @@ def _problems(
             continue
         if (
             previous.key.startswith("missing_pr:") and not fresh_github
+            or previous.key.startswith("pr_base_outside_stack:") and not fresh_github
             or previous.key.startswith("top_ci:") and not fresh_github
             and not (inputs.stack_prs is None and inputs.stack_ledger is None)
             and top_pr is not None and previous.key == f"top_ci:{top_pr.head_sha}"
