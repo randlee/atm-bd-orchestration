@@ -227,6 +227,36 @@ class BackfillTests(unittest.TestCase):
         self.assertFalse(any(item["bead"].startswith("t-d-1.") for item in fills))
         self.assertTrue(any(item["bead"] == "t-d-2.group-dev" for item in fills))
 
+    def test_invalid_member_round_is_reported_without_blocking_other_groups(self):
+        import copy
+        import json
+
+        healthy = json.loads(json.dumps(self.group()).replace("t-d-1", "t-d-2").replace("d-1", "d-2"))
+        for index in (2, 3):
+            for invalid in ("two", None, True, 0, []):
+                with self.subTest(member=index, invalid=invalid):
+                    broken = self.group()
+                    malformed = copy.deepcopy(broken[index])
+                    malformed["id"] += "-r2"
+                    malformed["metadata"]["round"] = invalid
+                    fills, problems = self.plan([*broken, malformed, *healthy])
+                    self.assertTrue(any(malformed["id"] in p and "metadata.round" in p and "bd update" in p
+                                        for p in problems), problems)
+                    self.assertFalse(any(item["bead"].startswith("t-d-1.") for item in fills))
+                    self.assertTrue(any(item["bead"] == "t-d-2.group-dev" for item in fills))
+
+    def test_invalid_round_on_only_open_member_is_reported(self):
+        for index in (2, 3):
+            with self.subTest(member=index):
+                group = self.group()
+                group[1]["status"] = "closed"
+                group[5 - index]["status"] = "closed"
+                group[index]["metadata"]["round"] = "bad"
+                fills, problems = self.plan(group)
+                self.assertFalse(fills)
+                self.assertTrue(any(group[index]["id"] in p and "metadata.round" in p and "bd update" in p
+                                    for p in problems), problems)
+
     def test_apply_journals_healthy_groups_even_when_another_has_problems(self):
         import contextlib
         import io

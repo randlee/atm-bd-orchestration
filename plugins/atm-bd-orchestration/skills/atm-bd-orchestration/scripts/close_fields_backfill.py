@@ -52,9 +52,21 @@ def needs_stamp(row: dict) -> bool:
     return "stage:finding" not in (row.get("labels") or []) or row.get("status") == "in_progress"
 
 
+class InvalidMember(ValueError):
+    """A group's member cannot be selected safely from malformed metadata."""
+
+
+def validate_round(row: dict) -> None:
+    metadata = row.get("metadata") or {}
+    if "round" in metadata and (type(metadata["round"]) is not int or metadata["round"] < 1):
+        raise InvalidMember(f"{row['id']}: metadata.round must be a positive integer, got {metadata['round']!r}")
+
+
 def member(rows: list[dict], label: str, key: str, checked: str | None, preferred: str | None = None) -> str | None:
     """The one open bead of `label` whose metadata[key] names `checked`; among several, the highest round."""
     found = [r for r in rows if label in (r.get("labels") or []) and (r.get("metadata") or {}).get(key) == checked]
+    for row in found:
+        validate_round(row)
     if preferred and any(r["id"] == preferred for r in found):
         return preferred
     superseded = [r for r in found if r.get("status") == "closed" and "superseded by " in (r.get("notes") or "")]
@@ -77,6 +89,13 @@ def plan(rows: list[dict], *, phase_feature: str, stack_bead: str, config: dict)
         checked = {"sanity": meta.get("dev_bead"), "qa": meta.get("checked_bead")}.get(role, row["id"])
         group = checked or row["id"]
         groups[row["id"]] = group
+        try:
+            if role in ("sanity", "qa"):
+                validate_round(row)
+        except InvalidMember as error:
+            problems.append(str(error))
+            invalid_groups.add(group)
+            continue
         before = len(problems)
         work = by_id.get(checked or "")
         if work is None:
@@ -87,6 +106,14 @@ def plan(rows: list[dict], *, phase_feature: str, stack_bead: str, config: dict)
         sprint_bead = meta.get("sprint_bead") or wmeta.get("sprint_bead")
         container = by_id.get(sprint_bead or "")
         is_sprint_dev = "stage:dev" in (work.get("labels") or [])
+        try:
+            sanity_bead = row["id"] if role == "sanity" else member(rows, "stage:dev-sanity", "dev_bead", checked,
+                                                                       meta.get("sanity_bead") or wmeta.get("sanity_bead"))
+            qa_bead = row["id"] if role == "qa" else member(rows, "stage:qa", "checked_bead", checked)
+        except InvalidMember as error:
+            problems.append(str(error))
+            invalid_groups.add(group)
+            continue
         derived = {
             "role": role,
             **{k: meta.get(k) or wmeta.get(k) for k in CARRIED},
@@ -94,9 +121,8 @@ def plan(rows: list[dict], *, phase_feature: str, stack_bead: str, config: dict)
             "stack_bead": stack_bead,
             "checked_bead": checked,
             "checked_title": (container or {}).get("title") if is_sprint_dev else work.get("title"),
-            "sanity_bead": row["id"] if role == "sanity" else member(rows, "stage:dev-sanity", "dev_bead", checked,
-                                                                       meta.get("sanity_bead") or wmeta.get("sanity_bead")),
-            "qa_bead": row["id"] if role == "qa" else member(rows, "stage:qa", "checked_bead", checked),
+            "sanity_bead": sanity_bead,
+            "qa_bead": qa_bead,
             "phase_feature": phase_feature,
             "lint_command": config["lint_command"],
             "policy_path": config["policy_path"],
