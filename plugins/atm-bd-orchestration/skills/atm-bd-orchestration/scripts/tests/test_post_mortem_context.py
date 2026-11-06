@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import patch
 
 from subprocess_helpers import (
     isolated_git_env,
+    run_command,
     run_fixture_git,
     set_fixture_hooks_path,
 )
@@ -95,6 +97,24 @@ class CollectionTests(unittest.TestCase):
             run_fixture_git(["git", "-C", str(repository), "commit", "-m", "fixture"], env=env)
             commit = run_fixture_git(["git", "-C", str(repository), "rev-parse", "HEAD"], env=env).stdout.strip()
         self.assertEqual(len(commit), 40)
+        self.assertFalse(marker.exists())
+
+        targets = [
+            "test_sanity_merge.py::test_selected_fallback_errors_are_not_counted_twice",
+            "test_handoff_contracts.py::DevSanityHandoffTests::test_rendered_assignment_has_exactly_the_reviewers_input_fields",
+            "test_close_vars.py::test_rebased_fixture_layer_updates_qa_vars_and_sanity_close_context",
+            "test_strict_type_defects_report.py::MissingLimitationsTests::test_missing_limitations_is_rejected_at_prepare_and_evaluation_boundaries",
+        ]
+        result = run_command(
+            [sys.executable, "-m", "pytest", "-q", *targets],
+            cwd=Path(__file__).resolve().parent,
+            env=hostile,
+            timeout=120,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
         self.assertFalse(marker.exists())
 
     def test_pinned_full_beads_safe_argv_and_review_prompt(self):

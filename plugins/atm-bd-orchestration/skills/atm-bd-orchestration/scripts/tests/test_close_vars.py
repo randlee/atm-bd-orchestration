@@ -5,10 +5,13 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
-import subprocess
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from subprocess_helpers import isolated_git_env, run_fixture_git, set_fixture_hooks_path
 
 SCRIPTS = Path(__file__).parents[1]
 sys.path.insert(0, str(SCRIPTS))
@@ -54,27 +57,33 @@ def test_rebased_fixture_layer_updates_qa_vars_and_sanity_close_context(tmp_path
     fixture = tmp_path / "rebased-layer"
     fixture.mkdir()
 
+    git_env, _ = isolated_git_env(fixture)
+    for key in tuple(os.environ):
+        if key.startswith("GIT_"):
+            monkeypatch.delenv(key, raising=False)
+    for key, value in git_env.items():
+        monkeypatch.setenv(key, value)
+
     def git(*args: str) -> str:
-        completed = subprocess.run(["git", *args], cwd=fixture, capture_output=True, text=True,
-                                   timeout=10, check=True)
+        completed = run_fixture_git(["git", *args], cwd=fixture, env=git_env)
         return completed.stdout.strip()
 
     git("init", "-b", "stack-old")
+    set_fixture_hooks_path(fixture, env=git_env)
     git("config", "user.name", "ATM Test")
     git("config", "user.email", "atm-test@example.invalid")
     git("config", "commit.gpgsign", "false")
-    git("config", "core.hooksPath", "/dev/null")
     (fixture / "base.txt").write_text("old stack base\n")
     git("add", "base.txt")
     git("commit", "-m", "old stack base")
     git("switch", "-c", "fix/d-1-f1")
     (fixture / "fix.txt").write_text("layer change\n")
-    git("add", "fix.txt")
+    git("add", "-A")
     git("commit", "-m", "layer change")
     first_head = git("rev-parse", "HEAD")
     git("switch", "-c", "stack-new", "stack-old")
     (fixture / "new-base.txt").write_text("new stack base\n")
-    git("add", "new-base.txt")
+    git("add", "-A")
     git("commit", "-m", "new stack base")
     new_base = git("rev-parse", "HEAD")
     git("switch", "fix/d-1-f1")
@@ -87,7 +96,6 @@ def test_rebased_fixture_layer_updates_qa_vars_and_sanity_close_context(tmp_path
     recorded = {**FIX, "metadata": {**FIX["metadata"], "branch": "fix/d-1-f1", "pr_base": "stack-old",
                                       "commit": first_head}}
     rows = {QA["id"]: QA, recorded["id"]: recorded}
-    from unittest.mock import patch
 
     with patch.object(close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
         qa_assignment = close_vars_cli.build_qa_assignment(
@@ -124,7 +132,6 @@ class CloseVarsTests(unittest.TestCase):
         import contextlib
         import io
         import json
-        from unittest.mock import patch
 
         error = close_fields.CloseFieldsError("CLOSE_VARS.NOT_POURED", "finding lacks fields", "old fix")
         output = io.StringIO()
@@ -267,7 +274,6 @@ class QaAssignmentTests(unittest.TestCase):
         self.assertIn("pr_number/branch", caught.exception.fix)
 
     def test_qa_assignment_builder_reads_the_live_pr_for_a_rebased_checked_bead(self):
-        from unittest.mock import patch
 
         rows = {QA["id"]: QA, FIX["id"]: FIX}
         current = {**CURRENT_PR, "base": "fix/new-stack-top", "head_sha": "fedcba987"}
@@ -280,7 +286,6 @@ class QaAssignmentTests(unittest.TestCase):
     def test_current_pr_read_has_a_timeout_and_maps_live_fields(self):
         import json
         import subprocess
-        from unittest.mock import patch
 
         completed = subprocess.CompletedProcess([], 0, json.dumps({"number": 2214, "baseRefName": "top",
                                                                     "headRefName": "fix/d-1-f1", "headRefOid": "sha"}), "")
@@ -291,7 +296,6 @@ class QaAssignmentTests(unittest.TestCase):
 
     def test_current_pr_read_failure_is_typed_and_actionable(self):
         import subprocess
-        from unittest.mock import patch
 
         failed = subprocess.CompletedProcess([], 1, "", "not found")
         with patch.object(close_vars_cli.subprocess, "run", return_value=failed):
@@ -460,7 +464,7 @@ class BackfillTests(unittest.TestCase):
     def test_apply_journals_healthy_groups_even_when_another_has_problems(self):
         import contextlib
         import io
-        from unittest.mock import Mock, patch
+        from unittest.mock import Mock
 
         cache = Mock()
         cache.get.return_value = {"title": "phase-d"}
