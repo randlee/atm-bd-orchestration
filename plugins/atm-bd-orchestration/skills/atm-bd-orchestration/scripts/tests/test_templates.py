@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -11,6 +12,20 @@ from rendering import render
 
 
 ROOT = Path(__file__).parents[2]
+
+
+def _embedded_git_env(root):
+    """Run embedded fixtures against hostile caller settings without inheriting them."""
+    hostile = root / "hostile-gitconfig"
+    hostile.write_text('[init]\n\tdefaultBranch = invalid..branch\n')
+    caller = {**os.environ, "GIT_CONFIG_GLOBAL": str(hostile), "GIT_CONFIG_SYSTEM": str(hostile),
+              "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "init.defaultBranch",
+              "GIT_CONFIG_VALUE_0": "invalid..branch"}
+    env = {key: value for key, value in caller.items() if not key.startswith(("BEADS_", "BD_", "DOLT_", "GIT_"))}
+    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+    return env
+
+
 class TemplateContractTests(unittest.TestCase):
     def test_refusal_assignments_do_not_require_workflow_class_beads_or_citations(self):
         for name in (
@@ -780,7 +795,7 @@ class ConfigVariableTests(unittest.TestCase):
         self.assertEqual(rendered.returncode, 0, rendered.stderr)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            env = {key: value for key, value in os.environ.items() if not key.startswith(("BEADS_", "BD_", "DOLT_"))}
+            env = _embedded_git_env(root)
             for command in (["git", "init", "-q"], [bd, "init", "--prefix", "t", "--non-interactive", "--quiet"],
                             [bd, "create", "sprint", "--id", "t-d-4"]):
                 result = run_command(command, cwd=root, env=env, capture_output=True, text=True, timeout=60)

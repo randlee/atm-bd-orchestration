@@ -421,7 +421,7 @@ def test_conflict_receipt_is_reported_and_retained(tmp_path, monkeypatch):
                      "sc-compose and the CI-pinned embedded bd are required")
 class EmbeddedFindingRecoveryTests(unittest.TestCase):
     def test_closed_fail_round_cap_and_unrelated_bad_qa(self):
-        from test_templates import _example, _render
+        from test_templates import _embedded_git_env, _example, _render
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -429,7 +429,7 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
             bin_dir.mkdir()
             bd = bin_dir / ("bd.exe" if os.name == "nt" else "bd")
             shutil.copy2(os.environ["ATM_TEST_BD"], bd)
-            env = {key: value for key, value in os.environ.items() if not key.startswith(("BEADS_", "BD_", "DOLT_"))}
+            env = _embedded_git_env(root)
             env["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
 
             def run(*argv, expected=0):
