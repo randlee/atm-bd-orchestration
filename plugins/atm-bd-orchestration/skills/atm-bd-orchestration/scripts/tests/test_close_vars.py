@@ -109,7 +109,7 @@ def test_rebased_fixture_layer_updates_qa_vars_and_sanity_close_context(tmp_path
     close_hook.overrides[("gh", "api", api_path)] = (
         0, json.dumps([{"number": qa_vars["pr_number"], "head": {"sha": rebased_head},
                         "base": {"ref": "stack-new"}}]))
-    close_hook.overrides[("git", "rev-parse", "origin/stack-new")] = (0, new_base)
+    close_hook.overrides[("git", "rev-parse", "--verify", "origin/stack-new^{commit}")] = (0, new_base)
 
     result = close_hook.run("fix")
     assert "ok" in result, result
