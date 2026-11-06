@@ -46,6 +46,22 @@ QA = row("t-d-1.f1-qa", "stage:qa", "qa", layer=34, round=1, reviewers_round1=["
 
 
 class CloseVarsTests(unittest.TestCase):
+    def test_not_poured_cli_names_complete_dispatch_repair(self):
+        import contextlib
+        import io
+        import json
+        from unittest.mock import patch
+
+        error = close_fields.CloseFieldsError("CLOSE_VARS.NOT_POURED", "finding lacks fields", "old fix")
+        output = io.StringIO()
+        with patch.object(close_vars_cli, "build", side_effect=error), contextlib.redirect_stdout(output):
+            code = close_vars_cli.main(["finding", "--out", "/unused"])
+        self.assertEqual(code, 2)
+        fix = json.loads(output.getvalue())["error"]["fix"]
+        for command in ("bd update <finding> --status in_progress --assignee <dev>", "--metadata",
+                        "close_fields_backfill.py --phase <x> --apply", "bd_cache.py --root . drain"):
+            self.assertIn(command, fix)
+
     def test_close_vars_come_from_the_one_bead_and_resolve_the_worktree(self):
         role, values, remaining = close_fields.close_vars(row("t-d-1.f1-fix", "stage:fix", "fix"), REPO)
         self.assertEqual(role, "fix")
@@ -182,6 +198,83 @@ class BackfillTests(unittest.TestCase):
         fills, problems = self.plan(self.group(base="sprint/elsewhere"))
         self.assertTrue(any("metadata.base" in problem and "left unchanged" in problem for problem in problems), problems)
         self.assertNotIn("base", {k for fill in fills for k in fill["set_metadata"] if fill["bead"] == "t-d-1.group-dev"})
+
+    def test_superseded_sanity_does_not_block_other_group(self):
+        import copy
+        import json
+
+        first = self.group()
+        original = first[2]
+        original["status"] = "closed"
+        original["notes"] = "superseded by t-d-1.group-sanity-r2: rebased"
+        replacement = copy.deepcopy(original)
+        replacement.update(id="t-d-1.group-sanity-r2", status="open", notes="")
+        first[1]["metadata"]["sanity_bead"] = original["id"]
+        first[3]["metadata"]["sanity_bead"] = original["id"]
+        second = json.loads(json.dumps(self.group()).replace("t-d-1", "t-d-2").replace("d-1", "d-2"))
+        fills, problems = self.plan([*first, replacement, *second])
+        self.assertEqual(problems, [])
+        self.assertTrue(any(item["bead"] == "t-d-2.group-dev" for item in fills))
+        self.assertFalse(any("sanity_bead" in problem for problem in problems))
+
+    def test_bad_group_is_reported_without_blocking_good_group(self):
+        import json
+
+        broken = self.group(base="wrong")
+        healthy = json.loads(json.dumps(self.group()).replace("t-d-1", "t-d-2").replace("d-1", "d-2"))
+        fills, problems = self.plan([*broken, *healthy])
+        self.assertTrue(any("t-d-1.group-dev" in p and "bd update" in p for p in problems), problems)
+        self.assertFalse(any(item["bead"].startswith("t-d-1.") for item in fills))
+        self.assertTrue(any(item["bead"] == "t-d-2.group-dev" for item in fills))
+
+    def test_invalid_member_round_is_reported_without_blocking_other_groups(self):
+        import copy
+        import json
+
+        healthy = json.loads(json.dumps(self.group()).replace("t-d-1", "t-d-2").replace("d-1", "d-2"))
+        for index in (2, 3):
+            for invalid in ("two", None, True, 0, []):
+                with self.subTest(member=index, invalid=invalid):
+                    broken = self.group()
+                    malformed = copy.deepcopy(broken[index])
+                    malformed["id"] += "-r2"
+                    malformed["metadata"]["round"] = invalid
+                    fills, problems = self.plan([*broken, malformed, *healthy])
+                    self.assertTrue(any(malformed["id"] in p and "metadata.round" in p and "bd update" in p
+                                        for p in problems), problems)
+                    self.assertFalse(any(item["bead"].startswith("t-d-1.") for item in fills))
+                    self.assertTrue(any(item["bead"] == "t-d-2.group-dev" for item in fills))
+
+    def test_invalid_round_on_only_open_member_is_reported(self):
+        for index in (2, 3):
+            with self.subTest(member=index):
+                group = self.group()
+                group[1]["status"] = "closed"
+                group[5 - index]["status"] = "closed"
+                group[index]["metadata"]["round"] = "bad"
+                fills, problems = self.plan(group)
+                self.assertFalse(fills)
+                self.assertTrue(any(group[index]["id"] in p and "metadata.round" in p and "bd update" in p
+                                    for p in problems), problems)
+
+    def test_apply_journals_healthy_groups_even_when_another_has_problems(self):
+        import contextlib
+        import io
+        from unittest.mock import Mock, patch
+
+        cache = Mock()
+        cache.get.return_value = {"title": "phase-d"}
+        cache.write.return_value = {"ok": True}
+        fill = {"bead": "good", "status": "open", "set_metadata": {"role": "dev"}}
+        with (patch.object(backfill.repo_config, "repo_root", return_value=REPO),
+              patch.object(backfill.repo_config, "load", return_value=CONFIG),
+              patch.object(backfill.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d"}),
+              patch.object(backfill.bd_cache, "BdCache", return_value=cache),
+              patch.object(backfill, "plan", return_value=([fill], ["bad: repair with bd update"])),
+              contextlib.redirect_stdout(io.StringIO())):
+            result = backfill.main(["--phase", "d", "--apply", "--actor", "dev"])
+        self.assertEqual(result, 2)
+        self.assertEqual(cache.write.call_args.args[0], "good")
 
 
 if __name__ == "__main__":

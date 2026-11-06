@@ -386,7 +386,8 @@ def test_all_problems_for_a_recipient_go_in_one_message_and_a_flapping_problem_i
 
 
 def test_pr_rows_are_layer_ordered_and_only_top_ci_is_a_problem() -> None:
-    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+                       target="base", layer=number)
                   for number in (1, 2, 3))
     sprints = (sprint(1), sprint(2), sprint(3))
     prs = (
@@ -458,7 +459,8 @@ def test_missing_phase_drops_stale_top_ci_advice() -> None:
 
 
 def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None:
-    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+                       target="base", layer=number)
                   for number in (1, 2, 3))
     sprints = (sprint(1), sprint(2), sprint(3))
     prs = tuple(PullRequest(number, f"url{number}", f"branch-{number}",
@@ -487,7 +489,8 @@ def test_red_lower_layer_with_green_ledger_top_does_not_raise_ci_alert() -> None
 
 
 def test_red_top_and_lower_send_only_actionable_top_alert() -> None:
-    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}", layer=number)
+    steps = tuple(step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+                       target="base", layer=number)
                   for number in (1, 2, 3))
     prs = tuple(PullRequest(number, f"url{number}", f"branch-{number}",
                             "base" if number == 1 else f"branch-{number - 1}", f"sha{number}",
@@ -647,8 +650,120 @@ def test_missing_pr_only_after_successful_fresh_github_read() -> None:
     assert [problem.key for problem in snapshot.problems] == ["missing_pr:pushed"]
 
 
+def test_stack_pr_base_accepts_a_layer_above_target_and_rejects_outside_stack() -> None:
+    steps = tuple(
+        step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+             target="integrate/phase-br", layer=number)
+        for number in (1, 2, 3)
+    )
+    sprints = (sprint(1), sprint(2), sprint(3))
+    prs = (
+        PullRequest(1, "url1", "branch-1", "integrate/phase-br", "sha1", CiState.PASS, ()),
+        PullRequest(2, "url2", "branch-2", "branch-1", "sha2", CiState.PASS, ()),
+        PullRequest(3, "url3", "branch-3", "branch-2", "sha3", CiState.PASS, ()),
+    )
+    common = {
+        "prs": Ok(prs), "stack_prs": Ok((1, 2, 3)),
+        "stack_ledger": Ok((1, 2, 3)),
+        "remotes": Ok(tuple(RemoteRef(pr.head, pr.head_sha) for pr in prs)),
+        "gh": GhStatus("graphql", True, None, NOW, False),
+    }
+
+    value = phase(*steps, sprints=sprints)
+    valid, _, _ = tick(inputs(value, **common), STATE, NOW, render)
+    assert not any(problem.key.startswith(("missing_pr:", "pr_base_outside_stack:"))
+                   for problem in valid.problems)
+
+    outside_stack = (*prs[:2], replace(prs[2], base="unrelated/branch"))
+    invalid, _, _ = tick(inputs(value, **(common | {"prs": Ok(outside_stack)})), STATE, NOW, render)
+    assert "pr_base_outside_stack:branch-3" in {problem.key for problem in invalid.problems}
+    assert not any(problem.key == "missing_pr:branch-3" for problem in invalid.problems)
+
+
+def test_stack_pr_base_is_not_classified_until_ledger_matches_hosted_membership() -> None:
+    steps = tuple(
+        step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+             target="integrate/phase-br", layer=number)
+        for number in (1, 2, 3)
+    )
+    prs = tuple(
+        PullRequest(number, f"url{number}", f"branch-{number}",
+                    "integrate/phase-br" if number == 1 else f"branch-{number - 1}",
+                    f"sha{number}", CiState.PASS, ())
+        for number in (1, 2, 3)
+    )
+    snapshot, _, _ = tick(inputs(
+        phase(*steps, sprints=(sprint(1), sprint(2), sprint(3))), prs=Ok(prs),
+        stack_prs=Ok((1, 2, 3)), stack_ledger=Ok((1,)),
+        remotes=Ok(tuple(RemoteRef(pr.head, pr.head_sha) for pr in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    ), STATE, NOW, render)
+
+    keys = {problem.key for problem in snapshot.problems}
+    assert "stack_top_mismatch" in keys
+    assert "pr_base_outside_stack:branch-3" not in keys
+
+
+def test_stack_pr_base_is_not_classified_when_snapshot_omits_a_ledger_member() -> None:
+    steps = tuple(
+        step(f"dev-{number}", f"atm-bh-{number}", branch=f"branch-{number}",
+             target="integrate/phase-br", layer=number)
+        for number in (1, 2, 3)
+    )
+    prs = (
+        PullRequest(1, "url1", "branch-1", "integrate/phase-br", "sha1", CiState.PASS, ()),
+        PullRequest(3, "url3", "branch-3", "branch-2", "sha3", CiState.PASS, ()),
+    )
+    snapshot, _, _ = tick(inputs(
+        phase(*steps, sprints=(sprint(1), sprint(2), sprint(3))), prs=Ok(prs),
+        stack_prs=Ok((1, 2, 3)), stack_ledger=Ok((1, 2, 3)),
+        remotes=Ok(tuple(RemoteRef(pr.head, pr.head_sha) for pr in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    ), STATE, NOW, render)
+
+    assert "pr_base_outside_stack:branch-3" not in {problem.key for problem in snapshot.problems}
+
+
+def test_base_warning_survives_unavailable_ledger_until_stack_validation_recovers() -> None:
+    value = phase(step("dev", "atm-bh-3", branch="branch-3", target="target", layer=3))
+    pr = PullRequest(3, "url3", "branch-3", "unrelated/branch", "sha3", CiState.PASS, ())
+    remote = RemoteRef(pr.head, pr.head_sha)
+    first_inputs = inputs(
+        value, prs=Ok((pr,)), stack_prs=Ok((3,)), stack_ledger=Ok((3,)), remotes=Ok((remote,)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    )
+    first, _, first_state = tick(first_inputs, STATE, NOW, render)
+    warning_key = "pr_base_outside_stack:branch-3"
+    original_warning = next(problem for problem in first.problems if problem.key == warning_key)
+
+    ledger_error = NotFound("not_found", "atm-phase-br.stack", "restore the linked stack ledger")
+    unavailable = replace(
+        first_inputs, stack_ledger=Err(ledger_error),
+        gh=GhStatus("graphql", True, None, NOW + timedelta(seconds=1), False),
+    )
+    second, _, second_state = tick(unavailable, first_state, NOW + timedelta(seconds=1), render)
+    retained_warning = next(problem for problem in second.problems if problem.key == warning_key)
+    assert retained_warning.first_seen == original_warning.first_seen
+    assert any(problem.key == "stack_ledger:unavailable" for problem in second.problems)
+
+    recovered = replace(
+        first_inputs, gh=GhStatus("graphql", True, None, NOW + timedelta(seconds=2), False),
+    )
+    third, _, third_state = tick(recovered, second_state, NOW + timedelta(seconds=2), render)
+    assert warning_key in {problem.key for problem in third.problems}
+    assert not any(problem.key == "stack_ledger:unavailable" for problem in third.problems)
+
+    corrected_without_ledger = replace(
+        first_inputs, prs=Ok((replace(pr, base="target"),)), stack_ledger=Err(ledger_error),
+        gh=GhStatus("graphql", True, None, NOW + timedelta(seconds=3), False),
+    )
+    fourth, _, _ = tick(corrected_without_ledger, third_state, NOW + timedelta(seconds=3), render)
+    assert warning_key not in {problem.key for problem in fourth.problems}
+    assert any(problem.key == "stack_ledger:unavailable" for problem in fourth.problems)
+
+
 def test_read_derived_problems_survive_missing_reads_without_duplicate_sends() -> None:
-    value = phase(step("dev", "atm-bh-1", branch="pushed", assignee="solar"))
+    value = phase(step("dev", "atm-bh-1", branch="pushed", target="base", assignee="solar"))
     remote = RemoteRef("pushed", "sha")
     first = inputs(value, remotes=Ok((remote,)), prs=Ok(()),
                    gh=GhStatus("graphql", True, None, NOW, False))
@@ -681,7 +796,7 @@ def test_read_derived_problems_survive_missing_reads_without_duplicate_sends() -
 
 
 def test_ci_and_conflict_problems_survive_until_their_sources_are_refreshed() -> None:
-    value = phase(step("dev", "atm-bh-1", branch="pushed", assignee="solar"))
+    value = phase(step("dev", "atm-bh-1", branch="pushed", target="base", assignee="solar"))
     failed_pr = PullRequest(1, "url", "pushed", "base", "sha", CiState.FAIL_BUG, ("lint",))
     first = inputs(value, prs=Ok((failed_pr,)), stack_prs=Ok((1,)), stack_ledger=Ok((1,)),
                    gh=GhStatus("graphql", True, None, NOW, False))

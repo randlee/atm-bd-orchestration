@@ -8,8 +8,7 @@ removing erroneous or superseded requirements, and append comments recording
 design decisions, changes, and test results. Do not create a new issue per gap.
 
 Local rollout: `dev`, `fix`, and `qa` still use normal ATM close processing.
-The existing `atm-task-close.py`, `sanity-close-vars`, and sanity merge scripts
-are unchanged. The new sanity assignment instructions invoke only:
+The daemon-mode sanity assignment instructions invoke only:
 
 ```
 atm task close <sanity-bead> completed \
@@ -40,6 +39,26 @@ A dev or fix close (`atm-task-close.py`) reads `atm hook list --phase <x> --json
 dispatches sanity: an active `task.close` row for this module whose `sanity_agents` names the dev-sanity
 member sets `sanity_close_mode: daemon` in the assignment; otherwise it is `legacy`. A failed read refuses
 the close before anything is written.
+
+Dev and fix replay keys include the current task assignment generation. A
+reopened bead cannot close again at any prior-close commit recorded in its
+completed task-event details or its bead metadata: push a
+new rework commit before closing. An exact same-generation replay of an
+already closed bead is idempotent. The originating generation is not authenticated.
+If the assignment changes before a
+journal write, the hook refuses with `CLOSE.STALE_ASSIGNMENT`. It reads back
+the checked bead and sanity task after applying the close and reports
+`CLOSE.POSTCONDITION` if the expected closed bead or assignment is absent.
+The sanity iteration is the count of its task assignment events. The QA
+assignment round comes from the QA bead's `metadata.round`, independently of
+the sanity iteration. The sanity assignment's base is the PR base commit, the
+layer's diff base; the selected sanity result records that base.
+For daemon closes the selected result carries the assignment's full 40-hex base
+unchanged. The hook checks that it is an ancestor of the checked commit in the
+checked bead's worktree before writing. `SANITY_CLOSE.BASE` refuses a missing,
+malformed or non-ancestor base. The assignment message is not independently
+fetched to authenticate the submitted base; origin-bound provenance is tracked
+in atm-bd#889.
 
 ## Inputs and actions
 
@@ -98,6 +117,9 @@ Invalid selected output belongs to sanity. Missing/mismatched planning data
 belongs to the phase lead. Module/contract defects belong to the hook maintainer.
 Validation errors return `ATM_HOOK_REFUSED` with code, field/detail, owner,
 correlation ID and recovery. They do not close the task or mutate beads.
+Hook refusal codes include `SANITY_CLOSE.INVALID`, `SANITY_CLOSE.BASE`,
+`SANITY_CLOSE.BUSY`, `SANITY_CLOSE.COMMAND`, `SANITY_CLOSE.DATA`,
+`SANITY_CLOSE.CONFIG`, `SANITY_CLOSE.LEGACY_VERDICT`, and `SANITY_CLOSE.INTERNAL`.
 
 The hook assigns a tracked phase-lead escalation task,
 `<original>.close-error-<error-id>`, using the escalation template. The same cause

@@ -73,9 +73,10 @@ class World:
         self.beads[self.values["checked_bead"]]["metadata"]["sanity_bead"] = self.values["sanity_bead"]
         self.beads[self.values["checked_bead"]]["metadata"].update(
             pr_number=self.pr_number, pr_url=self.values["pr_url"], branch=self.values["branch"],
-            worktree=str(root), sprint=self.values["sprint"], stack=self.values["stack"], pr_target=self.values["pr_target"])
+            pr_base="fix/recorded-parent", worktree=str(root), sprint=self.values["sprint"], stack=self.values["stack"], pr_target=self.values["pr_target"])
         self.beads[self.values["sanity_bead"]]["metadata"]["dev_bead"] = self.values["checked_bead"]
         self.beads[self.values["qa_bead"]]["metadata"]["reviewers_round1"] = list(self.values["reviewers_round1"])
+        self.beads[self.values["qa_bead"]]["metadata"]["round"] = 1
         self.beads["atm-phase-bj.stack"] = json.loads((SCRIPTS / "tests/fixtures/stack-bead.json").read_text())
         self.tasks = {self.values[name]: [] for name in ("dev_task_id", "sanity_task_id", "qa_task_id")}
         self.tasks[self.values["dev_task_id"]].append(self.assignment(1))
@@ -180,7 +181,8 @@ class World:
                 values = json.loads(Path(argv[argv.index("--vars") + 1]).read_text())
                 body = hook.sc_render.render(argv[argv.index("--template") + 1], values)
                 assert argv[3] in body
-            self.tasks[argv[3]].append(dict(event=argv[4], to_state="complete", close_outcome=argv[4]))
+            detail = argv[5] if len(argv) > 5 and not argv[5].startswith("--") else None
+            self.tasks[argv[3]].append(dict(event=argv[4], to_state="complete", close_outcome=argv[4], detail=detail))
         elif argv[:2] == ["atm", "send"] or argv[:3] == ["atm", "task", "assign"]:
             write = True
             recipient = argv[3] if argv[1] == "task" else argv[2]

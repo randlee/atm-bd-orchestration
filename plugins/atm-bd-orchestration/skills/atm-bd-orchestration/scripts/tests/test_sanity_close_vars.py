@@ -13,6 +13,12 @@ SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
 assert SPEC is not None
 CLOSE = importlib.util.module_from_spec(SPEC)
 LOADER.exec_module(CLOSE)
+READ_TASK_EVENTS = CLOSE.task_events
+
+
+@pytest.fixture(autouse=True)
+def task_events(monkeypatch):
+    monkeypatch.setattr(CLOSE, "task_events", lambda task: [{"event": "assigned"}])
 
 
 @pytest.fixture
@@ -41,6 +47,23 @@ def test_pass_builds_full_close_input_without_waiting_for_stack(inputs):
     assert result["carry_forward"] == manifest["dev_bead"]
     assert result["run_id"] == "run" and result["reviewer"] == "sanity-selected"
     assert "stacked" in manifest["close_context"]
+
+
+def test_reopened_assignment_counts_from_task_events_not_old_context(inputs):
+    manifest, selected = inputs
+    manifest["close_context"]["round"] = 1
+    events = [{"event": "assigned"}, {"event": "completed"}, {"event": "reopened"}]
+    assert CLOSE.build(manifest, selected, events=events)["round"] == 2
+
+
+def test_event_reader_requests_complete_history(monkeypatch):
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        return type("Result", (), {"stdout": '{"events": [{"event": "assigned"}]}'})()
+    monkeypatch.setattr(CLOSE.subprocess, "run", run)
+    assert READ_TASK_EVENTS("task") == [{"event": "assigned"}]
+    assert calls == [["atm", "task", "events", "task", "--all", "--json"]]
 
 
 def test_fail_retains_verbatim_deliverable_reason_and_stack_result(inputs):

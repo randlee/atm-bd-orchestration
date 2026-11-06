@@ -36,9 +36,9 @@ def test_assignment_details_uses_latest_assignment_and_prior_completions():
     events = [{"event": "assigned", "message_id": "first", "seq": 1},
               {"event": "completed"}, {"event": "reassigned", "message_id": "second", "seq": 3},
               latest, {"event": "completed"}]
-    assert hook.assignment_details(events, "task") == (latest, 4, 2)
+    assert hook.assignment_details(events, "task") == (latest, 4, 3)
     latest["message_id"] = "latest"
-    assert hook.assignment_details(events, "task") == (latest, "latest", 2)
+    assert hook.assignment_details(events, "task") == (latest, "latest", 3)
 
 
 @pytest.mark.parametrize(("events", "terminal"), [
@@ -66,7 +66,7 @@ def test_cancelled_sanity_assignment_does_not_conflict_with_new_pass(world):
     world.beads[bead]["metadata"]["sanity_round_key"] = [bead, "assignment-1", "FAIL", "old-sha"]
     world.tasks[bead] = [world.assignment(1), {"event": "cancelled", "to_state": "complete"},
                          {**world.assignment(2), "event": "reopened"}]
-    result = world.run("sanity", verdict="PASS")
+    result = world.run("sanity", verdict="PASS", round=2)
     assert "ok" in result, result
     assert world.beads[bead]["close_reason"] == f"PASS at {world.values['commit']}"
 
@@ -127,8 +127,8 @@ def test_dev_handoff_is_immediate_and_closes_the_dev_task_as_the_dev(world, monk
     dev_task = world.tasks[world.values["dev_task_id"]]
     assert dev_task[-1]["to_state"] == "complete" and dev_task[-1]["close_outcome"] == "completed"
     assert world.tasks[world.values["sanity_task_id"]][-1]["to_state"] == "assigned"
-    assert calls[close_index + 3] == ["atm", "task", "close", world.values["dev_task_id"], "completed",
-                                      f"dev complete at {world.values['commit']}"]
+    assert ["atm", "task", "close", world.values["dev_task_id"], "completed",
+            f"dev complete at {world.values['commit']}"] in calls[close_index + 3:]
     for argv, sender in world.writes:
         assert sender == ("phase-lead" if argv[:3] == ["atm", "task", "assign"] else "caller")
         if argv[0] == "bd":
@@ -386,9 +386,10 @@ def test_not_reproducible_missing_pr_identity_is_fix_only(world):
 
 
 @pytest.mark.parametrize("failure", [True, "raise"])
-def test_github_retries_and_falls_back_without_requiring_pr_base(world, failure):
+def test_github_retries_and_refuses_without_recorded_pr_base(world, failure):
     world.github_failure = failure
-    assert world.run()["ok"]["github"] == "unavailable"
+    world.beads[world.values["checked_bead"]]["metadata"].pop("pr_base")
+    assert world.run()["err"]["code"] == "BASE.PR_UNVERIFIED"
     assert len([argv for argv, _kwargs in world.calls if argv[0] == "gh"]) == 3
 
 
@@ -555,6 +556,7 @@ def test_sanity_lookup_fallback_and_actionable_missing_bead(world):
     del world.beads[world.values["checked_bead"]]["metadata"]["sanity_bead"]
     assert "ok" in world.run()
     world.beads[world.values["sanity_bead"]]["metadata"] = {}
+    world.tasks[world.values["dev_task_id"]].append({**world.assignment(2), "event": "reopened"})
     world.writes.clear()
     output = world.run()
     assert output["err"]["code"] == "BEAD.NO_SANITY"
@@ -695,7 +697,11 @@ def test_replay_state_is_snapshotted_before_writes(world, role, verdict):
     first_write = next(index for index, argv in enumerate(calls) if argv[:2] in (["bd", "update"], ["bd", "close"], ["atm", "send"]) or argv[:3] in (["atm", "task", "assign"], ["atm", "task", "close"]))
     reads = [argv for argv in calls[first_write + 1:] if argv[:2] in (["bd", "show"], ["bd", "list"]) or argv[:3] == ["atm", "task", "events"]]
     expected = [["atm", "task", "events", world.values["sanity_task_id"], "--all", "--json"]] if role == "sanity" and verdict == "FAIL" else []
-    assert reads == expected
+    if role in ("dev", "fix"):
+        assert ["bd", "show", world.values["checked_bead"], "--json"] in reads
+        assert ["atm", "task", "events", world.values["sanity_task_id"], "--all", "--json"] in reads
+    else:
+        assert reads == expected
 
 
 @pytest.mark.parametrize("invalid", ["[invalid", "{}", "null", 3, ["too", "short"], ["task", True, "FAIL", "sha"]])
@@ -891,6 +897,7 @@ def test_second_run_after_success_sends_nothing(tmp_path, monkeypatch, role, ver
 
 def test_changed_sha_rerun_of_open_sanity_reassigns_without_a_second_report(world):
     assert "ok" in world.run()
+    world.tasks[world.values["dev_task_id"]].append({**world.assignment(2), "event": "reopened"})
     assert "ok" in world.run(commit="c" * 40)
     assert [item["type"] for item in world.messages] == ["dev-complete", "dev-sanity-task", "dev-sanity-task"]
 
@@ -920,7 +927,7 @@ def test_cannot_run_terminal_refusal_is_a_noop_until_new_assignment(world):
         assert "new same-id assignment" in error["fix"]
     assert world.writes == writes
     world.tasks[world.values["sanity_bead"]].append(world.assignment(2))
-    assert "ok" in world.run("sanity", verdict="PASS")
+    assert "ok" in world.run("sanity", verdict="PASS", round=2)
 
 
 def test_round_cap_replay_sends_one_notice_and_does_not_increment_counter(world):
@@ -934,15 +941,135 @@ def test_round_cap_replay_sends_one_notice_and_does_not_increment_counter(world)
     assert world.beads[bead]["metadata"]["sanity_round"] == 6
 
 
-def test_same_head_dev_retry_reassigns_sanity_after_fail(world):
-    assert "ok" in world.run()
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_reopened_same_head_close_is_refused_but_new_commit_succeeds(world, role):
+    assert "ok" in world.run(role)
+    old_vars = json.loads(world.path.read_text())
+    old_result = json.loads(world.result_path.read_text())
+    old_commit = world.head
     assert "ok" in world.run("sanity", verdict="FAIL", undone=[{"number": 1, "reason": "missing evidence"}])
-    assert "ok" in world.run("dev", verdict="PASS", undone=[])
+    before = list(world.writes)
+    refused = close_from_files(world, role, old_vars, old_result)
+    assert refused["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
+    assert old_commit in refused["err"]["message"] and "assignment-" in refused["err"]["message"]
+    assert "git push" in refused["err"]["fix"]
+    assert world.writes == before
+    assert "ok" in world.run(role, commit="c" * 40, verdict="PASS", undone=[])
     sanity = world.values["sanity_bead"]
+    assert world.beads[world.values["checked_bead"]]["status"] == "closed"
     assert world.tasks[sanity][-1]["to_state"] == "assigned"
     assert len([item for item in world.messages if item["type"] == "dev-sanity-task"]) == 2
-    assert "ok" in world.run("dev")
+    assert "ok" in world.run(role)
     assert len([item for item in world.messages if item["type"] == "dev-sanity-task"]) == 2
+
+
+def test_reopened_prior_close_without_generation_stamp_is_still_refused(world):
+    assert "ok" in world.run("dev")
+    assert "ok" in world.run("sanity", verdict="FAIL", undone=[{"number": 1, "reason": "missing"}])
+    world.beads[world.values["checked_bead"]]["metadata"].pop("close_assignment_id")
+    writes = list(world.writes)
+    assert world.run("dev")["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
+    assert world.writes == writes
+
+
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_reopened_task_refuses_nonlatest_prior_close_commit(world, role):
+    original = world.head
+    assert "ok" in world.run(role)
+    assert "ok" in world.run("sanity", verdict="FAIL", undone=[{"number": 1, "reason": "missing"}])
+    assert "ok" in world.run(role, commit="c" * 40)
+    assert "ok" in world.run("sanity", verdict="FAIL", round=2, undone=[{"number": 1, "reason": "still missing"}])
+    writes = list(world.writes)
+    result = world.run(role, commit=original)
+    assert result["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
+    assert original in result["err"]["message"]
+    assert world.writes == writes
+
+
+def test_historical_completion_without_commit_does_not_refuse(world):
+    task = world.values["dev_task_id"]
+    world.tasks[task] += [{"event": "completed", "to_state": "complete", "detail": "not reproducible: checked"},
+                          {**world.assignment(2), "event": "reopened"}]
+    assert "ok" in world.run("dev")
+
+
+def test_historical_completion_with_malformed_commit_refuses(world):
+    task = world.values["dev_task_id"]
+    world.tasks[task] += [{"event": "completed", "to_state": "complete", "message_id": "bad-event", "detail": "dev complete at not-a-sha"},
+                          {**world.assignment(2), "event": "reopened"}]
+    result = world.run("dev")
+    assert result["err"]["code"] == "CLOSE.HISTORY_MALFORMED"
+    assert "bad-event" in result["err"]["message"] and "not-a-sha" in result["err"]["message"]
+    assert f"atm task events {task}" in result["err"]["fix"]
+    assert not world.writes
+
+
+def test_refused_previous_task_without_bead_close_does_not_block(world):
+    task = world.values["dev_task_id"]
+    world.beads[world.values["checked_bead"]]["metadata"]["commit"] = world.head
+    world.tasks[task] += [{"event": "refused", "to_state": "complete"}, {**world.assignment(2), "event": "reopened"}]
+    assert "ok" in world.run("dev")
+
+
+def test_stale_dev_assignment_refused_before_journal_write(world, monkeypatch):
+    original = hook.Hook.events
+    calls = 0
+    def events(self, task):
+        nonlocal calls
+        if task == self.task:
+            calls += 1
+            if calls == 2:
+                world.tasks[task].append({**world.assignment(2), "event": "reopened"})
+        return original(self, task)
+    monkeypatch.setattr(hook.Hook, "events", events)
+    result = world.run("dev")
+    assert result["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
+    assert "assignment-2" in result["err"]["message"]
+    assert f"atm task events {world.values['dev_task_id']}" in result["err"]["fix"]
+    assert not world.writes
+
+
+@pytest.mark.parametrize("ending", ["completed", "cancelled", "refused"])
+def test_terminal_dev_assignment_is_stale_without_exact_recorded_close(world, ending):
+    task = world.values["dev_task_id"]
+    world.tasks[task].append({"event": ending, "to_state": "complete", "seq": 9})
+    result = world.run("dev")
+    assert result["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
+    assert "9" in result["err"]["message"]
+    assert not world.writes
+
+
+def test_dev_assignment_for_another_agent_is_stale(world):
+    world.tasks[world.values["dev_task_id"]][0]["assignee"] = "other"
+    assert world.run("dev")["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
+    assert not world.writes
+
+
+def test_dev_close_refuses_silent_noop(world, monkeypatch):
+    monkeypatch.setattr(hook.Hook, "close_bead", lambda *args, **kwargs: False)
+    result = world.run("dev")
+    assert result["err"]["code"] == "CLOSE.POSTCONDITION"
+    assert world.values["checked_bead"] in result["err"]["message"]
+    assert world.values["sanity_bead"] in result["err"]["fix"]
+
+
+def test_dev_close_refuses_missing_sanity_assignment(world, monkeypatch):
+    monkeypatch.setattr(hook.Hook, "assign", lambda *args, **kwargs: None)
+    result = world.run("dev")
+    assert result["err"]["code"] == "CLOSE.POSTCONDITION"
+    assert world.values["sanity_bead"] in result["err"]["message"]
+
+
+def test_qa_round_comes_from_qa_bead_not_sanity_iteration(world):
+    sanity = world.values["sanity_bead"]
+    world.tasks[sanity] = [world.assignment(1), {"event": "completed", "to_state": "complete"},
+                           {**world.assignment(2), "event": "reopened"}, {"event": "completed", "to_state": "complete"},
+                           {**world.assignment(3), "event": "reopened"}]
+    result = world.run("sanity", verdict="PASS", round=3, carry_forward="")
+    assert "ok" in result, result
+    qa = next(message for message in world.messages if message["type"] == "qa-task")
+    assert qa["values"]["round"] == 1
+    assert 'round="1"' in qa["body"]
 
 
 @pytest.mark.parametrize("role", ["dev", "fix"])
@@ -950,17 +1077,17 @@ def test_rebase_required_rerun_updates_same_open_sanity_task(world, role):
     assert "ok" in world.run(role)
     sanity = world.values["sanity_bead"]
     old = world.values["commit"]
-    original_close_reason = world.beads[world.values["checked_bead"]]["close_reason"]
     world.messages.append(dict(type="rebase-required", recipient="developer", sender="phase-lead",
                                body="rebase and rerun", values={}, at="2026-10-19T23:00:01Z"))
     new = "c" * 40
+    world.tasks[world.values["dev_task_id"]].append({**world.assignment(2), "event": "reopened"})
     assert "ok" in world.run(role, commit=new)
     assignments = [message for message in world.messages if message["type"] == "dev-sanity-task"]
     assert [message["values"]["commit"] for message in assignments] == [old, new]
     assert world.tasks[sanity][-1]["to_state"] == "assigned"
     assert world.tasks[sanity][-1]["event"] == "assigned"  # same-assignee resend refreshes the body
     assert world.beads[world.values["checked_bead"]]["metadata"]["commit"] == new
-    assert world.beads[world.values["checked_bead"]]["close_reason"] == original_close_reason
+    assert world.beads[world.values["checked_bead"]]["close_reason"].endswith(new)
     assert len([task for task in world.tasks if task == sanity]) == 1
 
 
@@ -978,7 +1105,7 @@ def test_dev_changed_sha_after_completed_sanity_is_conflict(world):
     assert "ok" in world.run("dev")
     assert "ok" in world.run("sanity")
     writes = list(world.writes)
-    assert world.run("dev", commit="c" * 40)["err"]["code"] == "REPLAY.CONFLICT"
+    assert world.run("dev", commit="c" * 40)["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
     assert world.writes == writes
 
 
@@ -1255,7 +1382,7 @@ def test_close_from_documented_dispatch_and_result_files_derives_handoff(world, 
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", assignment["values"]["generated_at"])
     update = next(argv for argv, _ in world.writes if argv[:3] == ["bd", "update", dispatch["checked_bead"]])
     written = dict(update[index + 1].split("=", 1) for index, flag in enumerate(update) if flag == "--set-metadata")
-    assert written == {"pr_base": "deliberately-different",
+    assert written == {"pr_base": "deliberately-different", "close_assignment_id": "assignment-1",
                        **{name: derived[name] for name in ("commit", "pr_number", "pr_url")}}
     assert json.loads(world.path.read_text()) == dispatch
     assert json.loads(world.result_path.read_text()) == result
@@ -1367,6 +1494,40 @@ def test_offline_close_keeps_the_recorded_pr_base(world, role):
     assert "pr_base" not in checked_metadata_write(world)
     assert world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] == "fix/recorded-layer"
 
+
+@pytest.mark.parametrize("skip", [False, True])
+def test_fallback_dispatch_uses_verified_recorded_pr_parent(world, skip):
+    world.github_failure = True
+    world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] = "fix/higher-parent"
+    parent = "d" * 40
+    world.overrides[("git", "rev-parse", "--verify", "origin/fix/higher-parent^{commit}")] = (0, parent)
+    output = world.run("dev", skip_checks=skip)
+    assert "ok" in output, output
+    dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert dispatch["base"] == parent
+    assert ["git", "merge-base", "--is-ancestor", "origin/fix/higher-parent", world.head] in [a for a, _ in world.calls]
+
+
+@pytest.mark.parametrize("skip", [False, True])
+@pytest.mark.parametrize("failure", ["missing", "unresolvable", "not_ancestor", "below_bound"])
+def test_fallback_refuses_unverified_recorded_pr_parent(world, skip, failure):
+    world.github_failure = True
+    metadata = world.beads[world.values["checked_bead"]]["metadata"]
+    if failure == "missing":
+        metadata.pop("pr_base")
+    else:
+        metadata["pr_base"] = "fix/higher-parent"
+    if failure == "unresolvable":
+        world.overrides[("git", "rev-parse", "--verify", "origin/fix/higher-parent^{commit}")] = (1, "")
+    if failure == "not_ancestor":
+        world.overrides[("git", "merge-base", "--is-ancestor", "origin/fix/higher-parent", world.head)] = (1, "")
+    if failure == "below_bound":
+        world.overrides[("git", "merge-base", "--is-ancestor", f"origin/{world.values['pr_target']}", "origin/fix/higher-parent")] = (1, "")
+    result = world.run("dev", skip_checks=skip)
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED"
+    assert "git" in result["err"]["fix"] and not world.writes
+
+
 def test_multiple_open_prs_at_head_are_refused_before_writes(world):
     prs = [{"number": number, "head": {"sha": world.head}} for number in (351, 352)]
     command = ("gh", "api", f"repos/example/repo/pulls?head=example:{world.values['branch']}&state=open")
@@ -1436,6 +1597,25 @@ def sanity_close_vars():
     return module
 
 
+def test_reopened_sanity_pass_uses_fresh_iteration(world):
+    assert "ok" in world.run("dev")
+    assert "ok" in world.run("sanity", verdict="FAIL", round=1, undone=[{"number": 1, "reason": "missing"}])
+    assert "ok" in world.run("dev", commit="c" * 40, verdict="PASS", undone=[])
+    assignment = [message for message in world.messages if message["type"] == "dev-sanity-task"][-1]["values"]
+    manifest = {"run_id": "run", "sha": assignment["commit"], "sanity_bead": assignment["sanity_bead"],
+                "dev_bead": assignment["checked_bead"], "branch": assignment["branch"],
+                "worktree_path": assignment["worktree_path"], "deliverables_total": 1,
+                "close_context": assignment["close_context"], "checked_bead_data": {"labels": []},
+                "assignments": [{"number": 1}]}
+    selected = {"run_id": "run", "reviewer": "sanity-selected", "commit": assignment["commit"],
+                "task_id": assignment["sanity_bead"], "checked_bead": assignment["checked_bead"],
+                "sprint": assignment["sprint"], "completed_at": "2026-10-24T00:00:00Z", "verdict": "PASS"}
+    values = sanity_close_vars().build(manifest, selected, events=world.tasks[assignment["sanity_bead"]])
+    assert values["round"] == 2
+    assert "ok" in world.run("sanity", **values)
+    assert world.beads[assignment["sanity_bead"]]["status"] == "closed"
+
+
 @pytest.mark.parametrize("role,outcome", [("dev", "fixed"), ("fix", "fixed"), ("fix", "not_reproducible")])
 def test_sanity_close_context_carries_only_the_fields_the_sanity_close_reads(world, role, outcome):
     if outcome == "not_reproducible":
@@ -1463,6 +1643,17 @@ def test_sanity_close_context_takes_the_reviewer_list_from_the_qa_bead(world, ro
     assert "ok" in world.run(role)
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
     assert assignment["close_context"]["reviewers_round1"] == ["rust-qa-agent"]
+
+
+def test_finding_with_fix_role_seeds_sanity_close_context(world):
+    checked = world.beads[world.values["checked_bead"]]
+    checked["labels"] = ["stage:finding"]
+    checked["metadata"]["role"] = "fix"
+    world.beads[world.values["qa_bead"]]["metadata"]["reviewers_round1"] = ["req-qa"]
+    assert "ok" in world.run("fix")
+    context = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]["close_context"]
+    assert context["carry_forward"] == world.values["checked_bead"]
+    assert context["reviewers_round1"] == ["req-qa"]
 
 
 @pytest.mark.parametrize("reviewers", ["", [], None, "req-qa", ["req-qa", ""]])
@@ -1494,6 +1685,75 @@ def test_sanity_dispatch_keeps_lead_supplied_layer_prs(world):
     assert assignment["close_context"]["layer_prs"] == ["7", "9"]
 
 
+def test_sanity_dispatch_base_is_actual_pr_parent(world):
+    parent = "d" * 40
+    world.overrides[("git", "rev-parse", "origin/deliberately-different")] = (0, parent)
+    assert "ok" in world.run("dev")
+    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")
+    assert assignment["values"]["base"] == parent
+    assert f"<base><![CDATA[{parent}]]></base>" in assignment["body"]
+
+
+def test_restacked_parent_excludes_lower_layer_reserved_file_from_sanity_rule(world, monkeypatch):
+    repo = world.root / "diff-fixture"
+    repo.mkdir()
+    hostile_hooks = world.root / "hostile-hooks"
+    hostile_hooks.mkdir()
+    hook_marker = world.root / "hook-ran"
+    pre_commit = hostile_hooks / "pre-commit"
+    pre_commit.write_text(f"#!/bin/sh\ntouch '{hook_marker}'\nexit 23\n")
+    pre_commit.chmod(0o755)
+    hostile_config = world.root / "hostile-gitconfig"
+    hostile_config.write_text(f"[core]\n\thooksPath = {hostile_hooks}\n[commit]\n\tgpgsign = true\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(hostile_config))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(hostile_config))
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(hostile_hooks))
+    git_env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    git_env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+
+    def git(*args):
+        result = subprocess.run(["git", "-c", f"core.hooksPath={os.devnull}", "-c", "commit.gpgsign=false",
+                                 "-C", str(repo), *args], env=git_env, capture_output=True, text=True, check=True,
+                                timeout=30)
+        return result.stdout.strip()
+    git("init", "-q")
+    git("config", "user.name", "Fixture")
+    git("config", "user.email", "fixture@example.test")
+    (repo / "owned.txt").write_text("trunk\n")
+    git("add", "owned.txt")
+    git("commit", "-qm", "trunk")
+    trunk = git("rev-parse", "HEAD")
+    (repo / "reserved.txt").write_text("lower layer\n")
+    git("add", "reserved.txt")
+    git("commit", "-qm", "lower layer")
+    parent = git("rev-parse", "HEAD")
+    (repo / "owned.txt").write_text("our layer\n")
+    git("add", "owned.txt")
+    git("commit", "-qm", "restacked layer")
+    head = git("rev-parse", "HEAD")
+
+    world.values["commit"] = head
+    world.overrides[("git", "rev-parse", "origin/deliberately-different")] = (0, parent)
+    assert "ok" in world.run("dev")
+    dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert dispatch["base"] == parent
+
+    loader = importlib.machinery.SourceFileLoader("sanity_split_restacked", str(SCRIPTS / "sanity-split"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    split = importlib.util.module_from_spec(spec)
+    loader.exec_module(split)
+    # Drive the production diff and fence rule with bounded git calls.
+    monkeypatch.setattr(split, "git", lambda _worktree, *args, **_kwargs: git(*args))
+    actual = split.changed_files(str(repo), dispatch["base"], head)
+    wrong = split.changed_files(str(repo), trunk, head)
+    assert split.outside_fence(actual, ["owned.txt"]) == []
+    assert split.outside_fence(wrong, ["owned.txt"]) == ["reserved.txt"]
+    assert not hook_marker.exists()
+
+
 def test_sanity_close_context_subset_builds_the_same_sanity_close(world):
     assert "ok" in world.run()
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
@@ -1510,7 +1770,7 @@ def test_sanity_close_context_subset_builds_the_same_sanity_close(world):
                     "task_id": assignment["sanity_bead"], "checked_bead": assignment["checked_bead"],
                     "sprint": assignment["sprint"], "completed_at": "2026-10-24T00:00:00Z", "verdict": "PASS",
                     "findings_count": 0, "findings": [], "findings_md": "D1: done"}
-        values = close.build(manifest, selected)
+        values = close.build(manifest, selected, events=world.tasks[assignment["sanity_bead"]])
         stack_input = world.root / f"stack-input-{tmp}.json"
         assert close.write_stack_input(stack_input, values, manifest)
         return values, json.loads(stack_input.read_text())

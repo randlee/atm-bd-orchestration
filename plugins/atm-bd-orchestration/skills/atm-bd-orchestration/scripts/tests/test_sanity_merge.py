@@ -240,6 +240,7 @@ class SanityMerge(unittest.TestCase):
         out = self.merge([self.result(2), self.result(1)])
         self.assertEqual(out.returncode, 0, out.stderr)
         vars_ = json.loads(out.stdout)
+        self.assertEqual(vars_["base"], "0" * 40)
         self.assertEqual((vars_["verdict"], vars_["findings_count"], vars_["commit"], vars_["branch"], vars_["sprint"]),
                          ("PASS", 0, self.sha, BRANCH, SPRINT))
         self.assertEqual(vars_["findings_md"], "D1: done\nD2: done")
