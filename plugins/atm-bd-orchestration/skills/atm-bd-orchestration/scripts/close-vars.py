@@ -44,6 +44,10 @@ BD_SHOW_TIMEOUT_S = 30
 
 # Refusals that a cached row lagging a direct `bd update` could cause; a fresh read from bd settles them.
 MISSING = ("CLOSE_VARS.NOT_POURED", "ASSIGN_VARS.NOT_RECORDED", "ASSIGN_VARS.NOT_PLANNED")
+NOT_POURED_FIX = ("For a finding, run `bd update <finding> --status in_progress --assignee <dev>`, then "
+                  "`bd update <finding> --metadata <full JSON plus branch, worktree, pr_target and base = pr_target>`; "
+                  "run `close_fields_backfill.py --phase <x> --apply` and "
+                  "`uv run --script .claude/skills/atm-bd-orchestration/scripts/bd_cache.py --root . drain`, then retry.")
 
 
 def read(repo: Path, bead: str, fallback: list[str], cache_factory=bd_cache.BdCache, *, fresh: bool = False) -> dict:
@@ -194,7 +198,10 @@ def main(argv: list[str]) -> int:
         steps = (assign_command(repo, result["vars"], args.out) if args.qa_assignment
                  else commands(result["role"], args.bead, args.out))
     except close_fields.CloseFieldsError as error:
-        print(json.dumps({"ok": False, "error": error.as_json()}, indent=2))
+        report = error.as_json()
+        if error.code == "CLOSE_VARS.NOT_POURED":
+            report["fix"] = NOT_POURED_FIX
+        print(json.dumps({"ok": False, "error": report}, indent=2))
         return 2
     for message in result["read_fallback"]:
         print(f"close-vars: {message}", file=sys.stderr)

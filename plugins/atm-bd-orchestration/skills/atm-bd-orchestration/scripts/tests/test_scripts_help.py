@@ -9,6 +9,10 @@ SCRIPT_PATHS = sorted(path for path in SCRIPTS.iterdir()
                       if path.is_file() and "# /// script" in path.read_text(encoding="utf-8", errors="replace")[:500])
 
 
+def test_cron_declares_its_script_dependencies():
+    assert SCRIPTS / "bd_cache_cron.py" in SCRIPT_PATHS
+
+
 @pytest.mark.parametrize("script", SCRIPT_PATHS, ids=lambda path: path.name)
 def test_script_declared_dependencies_can_start(script):
     try:

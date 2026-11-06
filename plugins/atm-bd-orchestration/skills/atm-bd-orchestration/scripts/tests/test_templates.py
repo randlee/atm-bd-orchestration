@@ -431,6 +431,9 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertIn("scripts/bead-groups --findings <scratch>/", step_g)
         self.assertIn("<its metadata.round + 1>", step_g)
         self.assertIn("PASS requires a PASS from the filing reviewer and the carried finding confirmed fixed.", out)
+        step_i = out[out.index('<step id="i">'):out.index('<step id="i1">')]
+        self.assertLess(step_i.index("bead-groups --findings"), step_i.index("atm-task-close.py --role qa"))
+        self.assertIn("round N+1 would exceed the existing QA round cap", step_i)
 
     def test_fix_round_with_empty_scope_fails(self):
         for scope in (None, "[]", "[ ]", "", "  ", "null"):

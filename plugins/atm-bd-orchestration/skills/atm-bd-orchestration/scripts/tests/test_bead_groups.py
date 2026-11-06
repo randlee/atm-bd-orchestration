@@ -303,8 +303,33 @@ class SchemaIssuesTests(unittest.TestCase):
         self.assertEqual(groups.schema_issues(schema, "d", []), [])
         schema.validate_phase.assert_called_once_with([live])
         schema.load_phase.return_value = [closed, {"id": "t-d-2.group-qa", "status": "open", "metadata": {"branch": None}}]
-        with self.assertRaisesRegex(ValueError, "malformed bead record"):
-            groups.schema_issues(schema, "d", [])
+        schema.validate_phase.return_value = ["t-d-2.group-qa: branch: invalid field"]
+        issues = groups.schema_issues(schema, "d", [])
+        self.assertTrue(any("t-d-2.group-qa: metadata.branch" in issue for issue in issues), issues)
+
+
+class ClosedQaRecoveryTests(unittest.TestCase):
+    def test_failed_round_can_pour_next_but_round_cap_refuses(self):
+        from test_bead_pour_plan import PlanFixture, groups as pour_groups
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = PlanFixture(Path(directory))
+            sprint = fixture.sprint()
+            qa = f"{sprint}.group-qa"
+            finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "req-qa", "title": "issue", "remedy": "fix"}
+            fixture.rows["t-d-1.qa1-f1-r1-fix"] = {"id": "t-d-1.qa1-f1-r1-fix", "status": "closed", "labels": ["stage:fix"],
+                                                     "metadata": {"finding_ref": "qa1-f1", "sprint_bead": sprint}}
+            fixture.rows[qa].update(status="closed", close_reason="FAIL at abc1234",
+                                    metadata={"round": 1, "checked_bead": "t-d-1.qa1-f1-r1-fix"})
+            target = fixture.findings(sprint, qa, finding, round_=2)[0]
+            self.assertFalse(target["qa_closed"])
+            self.assertEqual(target["compose"]["round"], 2)
+            other = fixture.findings(sprint, qa, {**finding, "ref": "unrelated"}, round_=2)[0]
+            self.assertEqual(other.code, "BEAD_GROUPS_QA_CLOSED")
+            fixture.rows[qa]["metadata"]["round"] = 2
+            with self.assertRaisesRegex(pour_groups.TargetError, "QA round cap reached") as caught:
+                fixture.findings(sprint, qa, finding, round_=3)
+            self.assertEqual(caught.exception.code, "BEAD_GROUPS_ROUND_CAP")
 
 
 class SprintGroupReviewersTests(unittest.TestCase):
@@ -390,3 +415,108 @@ def test_conflict_receipt_is_reported_and_retained(tmp_path, monkeypatch):
         assert error.code == "BEADS_GRAPH_CONFLICT"
         assert all(part in str(error) for part in ("phase.group-dev", "metadata.sc_compose_graph", "use a new ref"))
     assert json.loads(next((tmp_path / ".atm-bd/pour").glob("*.receipt.json")).read_text()) == receipt
+
+
+@unittest.skipUnless(shutil.which("sc-compose") and os.environ.get("ATM_TEST_BD"),
+                     "sc-compose and the CI-pinned embedded bd are required")
+class EmbeddedFindingRecoveryTests(unittest.TestCase):
+    def test_closed_fail_round_cap_and_unrelated_bad_qa(self):
+        from test_templates import _example, _render
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            bd = bin_dir / ("bd.exe" if os.name == "nt" else "bd")
+            shutil.copy2(os.environ["ATM_TEST_BD"], bd)
+            env = {key: value for key, value in os.environ.items() if not key.startswith(("BEADS_", "BD_", "DOLT_"))}
+            env["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+
+            def run(*argv, expected=0):
+                try:
+                    proc = subprocess.run(list(argv), cwd=root, env=env, stdin=subprocess.DEVNULL,
+                                          capture_output=True, text=True, timeout=120, check=False)
+                except subprocess.TimeoutExpired as error:
+                    self.fail(f"SUBPROCESS.TIMEOUT: {argv!r} exceeded {error.timeout}s")
+                self.assertEqual(proc.returncode, expected, proc.stdout + proc.stderr)
+                return proc
+
+            run("git", "init", "-q")
+            run(str(bd), "init", "--prefix", "t", "--non-interactive", "--quiet")
+            cfg = root / ".claude/project/atm-bd-orchestration.yaml"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text('worktree_base: /tmp/worktrees\nlint_command: just lint\npolicy_path: policy.md\n'
+                           'max_sanity_rounds: 5\nreviewers_round1: [req-qa]\n')
+            phase_dir = root / ".atm-bd"
+            phase_dir.mkdir(exist_ok=True)
+            template_path = ".claude/skills/atm-bd-orchestration/templates/fixture.j2"
+            template = root / template_path
+            template.parent.mkdir(parents=True)
+            template.write_text("fixture")
+            (phase_dir / "phase-d.toml").write_text(
+                'plan = "plan.jsonl"\nroot = "t-phase-d"\nintegration_branch = "integrate/phase-d"\nlead = "lead"\n[templates]\n'
+                + "".join(f'{key} = "{template_path}"\n' for key in ("dev", "fix", "sanity", "qa", "plan_review", "review")))
+            formula_dir = phase_dir / "formula"
+            formula_dir.mkdir()
+            for suffix in ("formula.toml.j2", "relations.json"):
+                shutil.copy2(SCRIPTS.parent / "formulas" / f"finding-group.{suffix}", formula_dir / f"finding-group.{suffix}")
+            values = {**_example("qa-bead-vars.json"), "id": "t-d-1.manual-qa", "parent": "t-d-1",
+                      "checked_bead": "t-d-1", "sprint_bead": "t-d-1", "layer": "", "commit": ""}
+            rendered = _render("qa-bead.json.j2", values)
+            self.assertEqual(rendered.returncode, 0, rendered.stderr)
+            qa = json.loads(rendered.stdout)
+            self.assertNotIn("layer", qa["metadata"])
+            self.assertNotIn("commit", qa["metadata"])
+            rows = [
+                {"id": "t-phase-d", "title": "phase-d: feature", "issue_type": "epic", "labels": ["phase-d"],
+                 "metadata": {"integration_branch": "integrate/phase-d"}},
+                {"id": "t-phase-d.stack", "title": "stack", "issue_type": "task", "labels": ["phase-d", "stage:stack"],
+                 "metadata": {"trunk": "integrate/phase-d", "stack_number": None, "layers": []}},
+                {"id": "t-d-1", "title": "d-1: sprint", "issue_type": "task", "labels": ["phase-d", "stage:sprint"],
+                 "description": "## Deliverables\n1. Work", "acceptance_criteria": "done",
+                 "metadata": {"phase": "d", "sprint": "d-1", "stack": "phase-d", "requirements": ["NONE"],
+                              "adrs": ["NONE"], "worktree": "/tmp/worktree", "branch": "sprint/d-1",
+                              "pr_target": "integrate/phase-d", "difficulty": "normal"}},
+                {"id": "t-d-1.f1-r1-fix", "title": "fix", "status": "closed", "issue_type": "task",
+                 "labels": ["phase-d", "stage:fix"], "metadata": {"finding_ref": "qa1-f1", "sprint_bead": "t-d-1"}},
+                {"id": "t-d-1.f1-r1-qa", "title": "QA", "status": "closed", "close_reason": "FAIL at abc1234",
+                 "issue_type": "task", "labels": ["phase-d", "stage:qa"],
+                 "metadata": {"round": 1, "checked_bead": "t-d-1.f1-r1-fix"}}, qa,
+            ]
+            other_sprint = json.loads(json.dumps(rows[2]))
+            other_sprint["id"] = "t-d-2"
+            other_sprint["metadata"]["sprint"] = "d-2"
+            rows.append(other_sprint)
+            (root / "initial.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+            run(str(bd), "import", "initial.jsonl")
+            findings = {"sprint": "t-d-1", "round": 2, "filed_by": "t-d-1.f1-r1-qa", "found_at_commit": "abc1234",
+                        "findings": [{"ref": "qa1-f1", "severity": "blocking", "reviewer": "req-qa", "title": "issue", "remedy": "fix"}]}
+            (root / "findings.json").write_text(json.dumps(findings))
+            proc = run(sys.executable, str(SCRIPTS / "bead-groups"), "--findings", "findings.json", "--json")
+            report = json.loads(proc.stdout)
+            self.assertEqual(report["outcome"], "succeeded", report)
+            fix_id = report["targets"][0]["ids"]["fix"]
+            run(str(bd), "show", fix_id, "--json")
+            bad_qa = json.loads(json.dumps(qa))
+            bad_qa["id"] = "t-d-2.bad-qa"
+            bad_qa["dependencies"] = []
+            bad_qa["metadata"]["reviewers_round1"] = []
+            bad_qa["metadata"]["layer"] = None
+            bad_qa["metadata"].update(sprint="d-2", sprint_bead="t-d-2", checked_bead="t-d-2")
+            (root / "bad.jsonl").write_text(json.dumps(bad_qa) + "\n")
+            run(str(bd), "import", "bad.jsonl")
+            other = {**findings, "round": 1, "filed_by": "t-d-1.manual-qa",
+                     "findings": [{**findings["findings"][0], "ref": "qa-other"}]}
+            (root / "other.json").write_text(json.dumps(other))
+            partial = run(sys.executable, str(SCRIPTS / "bead-groups"), "--findings", "other.json", "--json", expected=5)
+            partial_report = json.loads(partial.stdout)
+            self.assertIn("t-d-2.bad-qa", partial.stdout)
+            self.assertIn("reviewers_round1", partial.stdout)
+            self.assertIn("metadata.layer", partial.stdout)
+            healthy = next(item for item in partial_report["targets"] if item["kind"] == "finding")
+            run(str(bd), "show", healthy["ids"]["fix"], "--json")
+            run(str(bd), "update", "t-d-1.f1-r1-qa", "--set-metadata", "round=2")
+            findings["round"] = 3
+            (root / "findings.json").write_text(json.dumps(findings))
+            capped = run(sys.executable, str(SCRIPTS / "bead-groups"), "--findings", "findings.json", "--json", expected=2)
+            self.assertIn("BEAD_GROUPS_ROUND_CAP", capped.stdout)
