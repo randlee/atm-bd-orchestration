@@ -680,6 +680,44 @@ def test_stack_pr_base_accepts_a_layer_above_target_and_rejects_outside_stack() 
     assert not any(problem.key == "missing_pr:branch-3" for problem in invalid.problems)
 
 
+def test_base_warning_survives_unavailable_ledger_until_stack_validation_recovers() -> None:
+    value = phase(step("dev", "atm-bh-3", branch="branch-3", target="target", layer=3))
+    pr = PullRequest(3, "url3", "branch-3", "unrelated/branch", "sha3", CiState.PASS, ())
+    remote = RemoteRef(pr.head, pr.head_sha)
+    first_inputs = inputs(
+        value, prs=Ok((pr,)), stack_prs=Ok((3,)), stack_ledger=Ok((3,)), remotes=Ok((remote,)),
+        gh=GhStatus("graphql", True, None, NOW, False),
+    )
+    first, _, first_state = tick(first_inputs, STATE, NOW, render)
+    warning_key = "pr_base_outside_stack:branch-3"
+    original_warning = next(problem for problem in first.problems if problem.key == warning_key)
+
+    ledger_error = NotFound("not_found", "atm-phase-br.stack", "restore the linked stack ledger")
+    unavailable = replace(
+        first_inputs, stack_ledger=Err(ledger_error),
+        gh=GhStatus("graphql", True, None, NOW + timedelta(seconds=1), False),
+    )
+    second, _, second_state = tick(unavailable, first_state, NOW + timedelta(seconds=1), render)
+    retained_warning = next(problem for problem in second.problems if problem.key == warning_key)
+    assert retained_warning.first_seen == original_warning.first_seen
+    assert any(problem.key == "stack_ledger:unavailable" for problem in second.problems)
+
+    recovered = replace(
+        first_inputs, gh=GhStatus("graphql", True, None, NOW + timedelta(seconds=2), False),
+    )
+    third, _, third_state = tick(recovered, second_state, NOW + timedelta(seconds=2), render)
+    assert warning_key in {problem.key for problem in third.problems}
+    assert not any(problem.key == "stack_ledger:unavailable" for problem in third.problems)
+
+    corrected_without_ledger = replace(
+        first_inputs, prs=Ok((replace(pr, base="target"),)), stack_ledger=Err(ledger_error),
+        gh=GhStatus("graphql", True, None, NOW + timedelta(seconds=3), False),
+    )
+    fourth, _, _ = tick(corrected_without_ledger, third_state, NOW + timedelta(seconds=3), render)
+    assert warning_key not in {problem.key for problem in fourth.problems}
+    assert any(problem.key == "stack_ledger:unavailable" for problem in fourth.problems)
+
+
 def test_read_derived_problems_survive_missing_reads_without_duplicate_sends() -> None:
     value = phase(step("dev", "atm-bh-1", branch="pushed", target="base", assignee="solar"))
     remote = RemoteRef("pushed", "sha")

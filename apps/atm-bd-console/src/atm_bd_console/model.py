@@ -580,6 +580,7 @@ def _problems(
     fresh_github = isinstance(inputs.prs, Ok) and inputs.gh.mode != "off" and inputs.gh.ok is True and (
         inputs.gh.at is not None and (state.last_cycle is None or inputs.gh.at > state.last_cycle)
     )
+    unresolved_base_warning_keys: set[str] = set()
     if fresh_github and stack_mismatch:
         problems.append(Problem(
             "stack_top_mismatch", stack_bead, inputs.lead,
@@ -650,6 +651,24 @@ def _problems(
                         f"outside its linked stack from pr_target {target}; set the base to pr_target or a layer above it",
                         now,
                     ))
+        else:
+            open_prs_by_head = {pr.head: pr for pr in prs if active_pr(pr)}
+            for previous in state.problems:
+                prefix = "pr_base_outside_stack:"
+                if not previous.key.startswith(prefix):
+                    continue
+                branch = previous.key.removeprefix(prefix)
+                step = by_branch.get(branch)
+                pr = open_prs_by_head.get(branch)
+                if (
+                    step is not None
+                    and branch in open_branches
+                    and pr is not None
+                    and (step.target is None or pr.base != step.target)
+                ):
+                    # A fresh PR read can resolve the warning if its base is now the exact target.
+                    # Any other base needs the linked ledger to determine whether it is above target.
+                    unresolved_base_warning_keys.add(previous.key)
     if (fresh_github and not stack_mismatch and top_pr is not None and top_pr.ci in FAILING_CI
             and not (inputs.stack_prs is None and inputs.stack_ledger is None)):
         checks = ", ".join(top_pr.failed_checks)
@@ -665,7 +684,9 @@ def _problems(
             continue
         if (
             previous.key.startswith("missing_pr:") and not fresh_github
-            or previous.key.startswith("pr_base_outside_stack:") and not fresh_github
+            or previous.key.startswith("pr_base_outside_stack:") and (
+                not fresh_github or previous.key in unresolved_base_warning_keys
+            )
             or previous.key.startswith("top_ci:") and not fresh_github
             and not (inputs.stack_prs is None and inputs.stack_ledger is None)
             and top_pr is not None and previous.key == f"top_ci:{top_pr.head_sha}"
