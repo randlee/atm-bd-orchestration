@@ -605,6 +605,12 @@ class Hook:
             if assignee and assignee != self.identity:
                 raise CloseError("CLOSE.STALE_ASSIGNMENT", f"{self.task}: assignment {self.assignment_id} belongs to {assignee}, not {self.identity}",
                                  f"Run `atm task events {self.task} --json` and close as the current assignee.")
+            previous_generation = metadata.get("close_assignment_id")
+            previous_close = ((not previous_generation or str(previous_generation) != str(self.assignment_id))
+                              and any(event.get("event") == COMPLETED for event in events[:-1]))
+            if (record.get("status") != "closed" and previous_close and metadata.get("commit") == self.values["commit"]):
+                raise CloseError("CLOSE.STALE_ASSIGNMENT", f"{self.task}: prior close commit {self.values['commit']} was reopened under assignment {self.assignment_id}",
+                                 f"Push a rework commit with `git push origin {self.values['branch']}` and re-close; inspect `atm task events {self.task} --json`.")
             if is_terminal(events):
                 expected_reason = (f"not reproducible: {self.values['evidence']}" if self.values["outcome"] == "not_reproducible"
                                    else f"{'fixed' if self.role == 'fix' else 'dev complete'} at {self.values['commit']}")

@@ -940,16 +940,42 @@ def test_round_cap_replay_sends_one_notice_and_does_not_increment_counter(world)
     assert world.beads[bead]["metadata"]["sanity_round"] == 6
 
 
-def test_same_head_dev_retry_reassigns_sanity_after_fail(world):
-    assert "ok" in world.run()
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_reopened_same_head_close_is_refused_but_new_commit_succeeds(world, role):
+    assert "ok" in world.run(role)
+    old_vars = json.loads(world.path.read_text())
+    old_result = json.loads(world.result_path.read_text())
+    old_commit = world.head
     assert "ok" in world.run("sanity", verdict="FAIL", undone=[{"number": 1, "reason": "missing evidence"}])
-    assert "ok" in world.run("dev", verdict="PASS", undone=[])
+    before = list(world.writes)
+    refused = close_from_files(world, role, old_vars, old_result)
+    assert refused["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
+    assert old_commit in refused["err"]["message"] and "assignment-" in refused["err"]["message"]
+    assert "git push" in refused["err"]["fix"]
+    assert world.writes == before
+    assert "ok" in world.run(role, commit="c" * 40, verdict="PASS", undone=[])
     sanity = world.values["sanity_bead"]
     assert world.beads[world.values["checked_bead"]]["status"] == "closed"
     assert world.tasks[sanity][-1]["to_state"] == "assigned"
     assert len([item for item in world.messages if item["type"] == "dev-sanity-task"]) == 2
-    assert "ok" in world.run("dev")
+    assert "ok" in world.run(role)
     assert len([item for item in world.messages if item["type"] == "dev-sanity-task"]) == 2
+
+
+def test_reopened_prior_close_without_generation_stamp_is_still_refused(world):
+    assert "ok" in world.run("dev")
+    assert "ok" in world.run("sanity", verdict="FAIL", undone=[{"number": 1, "reason": "missing"}])
+    world.beads[world.values["checked_bead"]]["metadata"].pop("close_assignment_id")
+    writes = list(world.writes)
+    assert world.run("dev")["err"]["code"] == "CLOSE.STALE_ASSIGNMENT"
+    assert world.writes == writes
+
+
+def test_refused_previous_task_without_bead_close_does_not_block(world):
+    task = world.values["dev_task_id"]
+    world.beads[world.values["checked_bead"]]["metadata"]["commit"] = world.head
+    world.tasks[task] += [{"event": "refused", "to_state": "complete"}, {**world.assignment(2), "event": "reopened"}]
+    assert "ok" in world.run("dev")
 
 
 def test_stale_dev_assignment_refused_before_journal_write(world, monkeypatch):
@@ -1507,7 +1533,7 @@ def sanity_close_vars():
 def test_reopened_sanity_pass_uses_fresh_iteration(world):
     assert "ok" in world.run("dev")
     assert "ok" in world.run("sanity", verdict="FAIL", round=1, undone=[{"number": 1, "reason": "missing"}])
-    assert "ok" in world.run("dev", verdict="PASS", undone=[])
+    assert "ok" in world.run("dev", commit="c" * 40, verdict="PASS", undone=[])
     assignment = [message for message in world.messages if message["type"] == "dev-sanity-task"][-1]["values"]
     manifest = {"run_id": "run", "sha": assignment["commit"], "sanity_bead": assignment["sanity_bead"],
                 "dev_bead": assignment["checked_bead"], "branch": assignment["branch"],

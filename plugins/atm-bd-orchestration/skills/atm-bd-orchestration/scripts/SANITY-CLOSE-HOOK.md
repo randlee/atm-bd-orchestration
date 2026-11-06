@@ -40,9 +40,11 @@ dispatches sanity: an active `task.close` row for this module whose `sanity_agen
 member sets `sanity_close_mode: daemon` in the assignment; otherwise it is `legacy`. A failed read refuses
 the close before anything is written.
 
-Dev and fix replay keys include the current task assignment generation. A new
-assignment after a sanity failure is a new close even at the same commit; a
-same-generation replay is idempotent. If the assignment changes before a
+Dev and fix replay keys include the current task assignment generation. A
+reopened bead cannot close again at its recorded prior-close commit: push a
+new rework commit before closing. An exact same-generation replay of an
+already closed bead is idempotent. The originating generation is not authenticated.
+If the assignment changes before a
 journal write, the hook refuses with `CLOSE.STALE_ASSIGNMENT`. It reads back
 the checked bead and sanity task after applying the close and reports
 `CLOSE.POSTCONDITION` if the expected closed bead or assignment is absent.
