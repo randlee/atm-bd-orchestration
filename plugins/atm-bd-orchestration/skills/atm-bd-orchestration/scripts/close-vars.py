@@ -10,7 +10,7 @@
 
 Every validated open task bead carries its close fields (close_fields.POURED), so the vars come from that one
 bead: the poured fields, the task ids (equal to the bead ids) and the host paths. A sanity close adds its round
-(the task's `started` events) and the reviewers of its QA bead; a QA close adds its round. Beads are read from the
+(the task's assignment events) and the reviewers of its QA bead; a QA close adds its round. Beads are read from the
 bd-cache (pending journal writes replayed on top); the close hooks write through it, so it holds their recorded
 fields. When a field the vars need is missing there, the beads are re-read from bd once (`bd list --id`) and the
 vars rebuilt; `bd show` is used when the cache cannot be opened. Each fallback is named in `read_fallback`.
@@ -37,6 +37,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parents[1] / "atm-beads" / "scripts"))
 import bd_cache  # noqa: E402
 import close_fields  # noqa: E402
+import task_close_validation  # noqa: E402
 
 ATM_TIMEOUT_S = 10
 BD_SHOW_TIMEOUT_S = 30
@@ -96,7 +97,7 @@ def show(repo: Path, bead: str) -> dict:
                                             "Check the bead id and the bd version.") from error
 
 
-def started_runs(task: str) -> int:
+def task_events(task: str) -> list[dict]:
     try:
         events = subprocess.run(["atm", "task", "events", task, "--all", "--json"], capture_output=True, text=True,
                                 timeout=ATM_TIMEOUT_S, check=False)
@@ -107,21 +108,30 @@ def started_runs(task: str) -> int:
         raise close_fields.CloseFieldsError("CLOSE_VARS.EVENTS_FAILED", f"atm task events {task} exited {events.returncode}: "
                                             f"{(events.stderr or events.stdout).strip()[-300:]}", "Check that atm can read this task.")
     try:
-        count = sum(1 for event in json.loads(events.stdout)["events"] if event.get("event") == "started")
+        history = json.loads(events.stdout)["events"]
     except (ValueError, KeyError, TypeError) as error:
         raise close_fields.CloseFieldsError("CLOSE_VARS.EVENTS_FAILED", f"atm task events {task} printed no events: {error}",
                                             "Check the atm version.") from error
-    if count < 1:
+    if not any(event.get("event") == "started" for event in history):
         raise close_fields.CloseFieldsError("CLOSE_VARS.NOT_STARTED", f"{task} has no started event",
                                             f"Run `atm task start {task} \"<plan>\"` first.")
-    return count
+    return history
 
 
-def build(repo: Path, bead: str, *, runs=started_runs) -> dict:
-    return cached_then_fresh(lambda fresh, fallback: _build(repo, bead, runs, fresh, fallback))
+def sanity_round_from_events(task: str, events: list[dict]) -> int:
+    """Use the close hook's shared assignment-event producer for the sanity round."""
+    try:
+        _, _, round_number = task_close_validation.assignment_details(events, task)
+    except task_close_validation.CloseError as error:
+        raise close_fields.CloseFieldsError("CLOSE_VARS.EVENTS_FAILED", str(error), error.fix) from error
+    return round_number
 
 
-def _build(repo, bead, runs, fresh, fallback):
+def build(repo: Path, bead: str, *, events_for_task=task_events) -> dict:
+    return cached_then_fresh(lambda fresh, fallback: _build(repo, bead, events_for_task, fresh, fallback))
+
+
+def _build(repo, bead, events_for_task, fresh, fallback):
     row = read(repo, bead, fallback, fresh=fresh)
     role, values, remaining = close_fields.close_vars(row, repo)
     metadata = row.get("metadata") or {}
@@ -129,7 +139,7 @@ def _build(repo, bead, runs, fresh, fallback):
     if role == "qa":
         derived["round"] = metadata.get("round")
     if role == "sanity":
-        derived["round"] = runs(bead)
+        derived["round"] = sanity_round_from_events(bead, events_for_task(bead))
         derived["reviewers_round1"] = (read(repo, metadata["qa_bead"], fallback, fresh=fresh).get("metadata") or {}).get("reviewers_round1")
     for name, value in derived.items():
         if name in remaining and value not in (None, "", []):

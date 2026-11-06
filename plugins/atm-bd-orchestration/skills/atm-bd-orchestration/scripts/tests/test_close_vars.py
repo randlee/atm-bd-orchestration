@@ -93,14 +93,40 @@ class CloseVarsTests(unittest.TestCase):
             close_fields.close_vars(row("t-d-1.f1-fix", "stage:fix", "dev"), REPO)
         self.assertEqual(caught.exception.code, "CLOSE_VARS.ROLE_MISMATCH")
 
-    def test_sanity_close_takes_its_round_from_started_runs_and_reviewers_from_its_qa_bead(self):
+    def test_sanity_close_takes_its_round_from_assignment_events_and_reviewers_from_its_qa_bead(self):
         sanity = row("t-d-1.f1-sanity", "stage:dev-sanity", "sanity")
         rows = {r["id"]: r for r in (sanity, QA)}
         from unittest import mock
         with mock.patch.object(close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
-            result = close_vars_cli.build(REPO, sanity["id"], runs=lambda task: 2)
+            result = close_vars_cli.build(REPO, sanity["id"], events_for_task=lambda task: [
+                {"event": "assigned", "message_id": "assignment-1"},
+                {"event": "started"},
+                {"event": "reassigned", "message_id": "assignment-2"},
+            ])
         self.assertEqual(result["vars"]["round"], 2)
         self.assertEqual(result["vars"]["reviewers_round1"], ["req-qa"])
+
+    def test_sanity_round_matches_hook_assignment_producer_after_reassignment(self):
+        events = [
+            {"event": "assigned", "message_id": "assignment-1"},
+            {"event": "started"},
+            {"event": "reassigned", "message_id": "assignment-2"},
+        ]
+        close_vars_round = close_vars_cli.sanity_round_from_events("q", events)
+        hook_round = close_vars_cli.task_close_validation.assignment_details(events, "q")[2]
+        self.assertEqual(close_vars_round, hook_round)
+        self.assertEqual(close_vars_round, 2)
+
+    def test_sanity_round_matches_hook_assignment_producer_after_reopen(self):
+        events = [
+            {"event": "assigned", "message_id": "assignment-1"},
+            {"event": "started"},
+            {"event": "reopened", "message_id": "reopen-2"},
+        ]
+        close_vars_round = close_vars_cli.sanity_round_from_events("q", events)
+        hook_round = close_vars_cli.task_close_validation.assignment_details(events, "q")[2]
+        self.assertEqual(close_vars_round, hook_round)
+        self.assertEqual(close_vars_round, 2)
 
 
 class QaAssignmentTests(unittest.TestCase):
@@ -397,4 +423,4 @@ class TypedFailureTests(unittest.TestCase):
     def test_atm_events_timeout_missing_binary_and_garbage_are_events_failures(self):
         import subprocess
         for outcome in (subprocess.TimeoutExpired("atm", 10), FileNotFoundError("atm"), "not json", "{}"):
-            self.assertEqual(self.run_with(outcome, lambda: close_vars_cli.started_runs("q")), "CLOSE_VARS.EVENTS_FAILED", outcome)
+            self.assertEqual(self.run_with(outcome, lambda: close_vars_cli.task_events("q")), "CLOSE_VARS.EVENTS_FAILED", outcome)
