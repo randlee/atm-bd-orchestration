@@ -164,6 +164,7 @@ def should_stop(root, cache=None, only=None):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print("usage: bd_cache_cron.py [cron.tick|cron.stop|doctor] < request.json")
         print(__doc__)
         return
     request = json.load(sys.stdin)

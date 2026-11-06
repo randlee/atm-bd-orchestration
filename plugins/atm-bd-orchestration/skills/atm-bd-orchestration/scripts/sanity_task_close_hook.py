@@ -488,6 +488,9 @@ def doctor(envelope):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print("usage: sanity_task_close_hook.py [doctor] < request.json")
+        raise SystemExit(0)
     envelope = {}
     try:
         envelope = json.load(sys.stdin)

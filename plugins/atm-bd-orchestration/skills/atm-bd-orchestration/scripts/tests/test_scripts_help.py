@@ -1,7 +1,8 @@
 """Every self-contained script declares the dependencies needed to start."""
 import ast
-from pathlib import Path
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -42,6 +43,48 @@ def test_cron_declares_its_script_dependencies():
     assert SCRIPTS / "bd_cache_cron.py" in SCRIPT_PATHS
 
 
+def assert_help_reached(script, result):
+    output = result.stdout + result.stderr
+    startup_failure = next((marker for marker in ("ModuleNotFoundError", "ImportError", "Traceback")
+                            if marker in output), None)
+    assert startup_failure is None, (
+        f"{script.name} --help failed during startup (exit {result.returncode}; {startup_failure}):\n{output}"
+    )
+    if script.name == "phase_settings.py":
+        assert result.returncode == 0, f"{script.name} import failed (exit {result.returncode}):\n{output}"
+        return
+    has_usage = any(line.lstrip().lower().startswith("usage:") for line in output.splitlines())
+    assert has_usage, f"{script.name} --help did not reach usage output (exit {result.returncode}):\n{output}"
+
+
+@pytest.mark.parametrize(
+    ("source", "reason"),
+    [
+        ("raise ImportError('fixture dependency is missing')\n", "failed during startup"),
+        ("import sys\nsys.stderr.write('Failed to resolve dependencies\\n')\nsys.exit(2)\n",
+         "did not reach usage output"),
+    ],
+    ids=("import-error", "dependency-resolution-error"),
+)
+def test_script_help_rejects_startup_failures(tmp_path, source, reason):
+    script = tmp_path / "fixture.py"
+    script.write_text(source)
+    result = subprocess.run([sys.executable, str(script)], stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, check=False)
+
+    with pytest.raises(AssertionError, match=reason):
+        assert_help_reached(script, result)
+
+
+def test_script_help_allows_nonzero_exit_after_usage():
+    script = SCRIPTS / "bead-groups"
+    result = subprocess.CompletedProcess(
+        ["uv", "run", "--script", str(script), "--help"], 2, "usage: bead-groups --help\n", ""
+    )
+
+    assert_help_reached(script, result)
+
+
 @pytest.mark.parametrize("script", SCRIPT_PATHS, ids=lambda path: path.name)
 def test_script_declared_dependencies_can_start(script):
     try:
@@ -49,5 +92,4 @@ def test_script_declared_dependencies_can_start(script):
                                 capture_output=True, text=True, timeout=60, check=False)
     except subprocess.TimeoutExpired as error:
         pytest.fail(f"SUBPROCESS.TIMEOUT: {script.name} --help exceeded {error.timeout}s", pytrace=False)
-    output = result.stdout + result.stderr
-    assert not any(marker in output for marker in ("ModuleNotFoundError", "ImportError", "Traceback")), output
+    assert_help_reached(script, result)
