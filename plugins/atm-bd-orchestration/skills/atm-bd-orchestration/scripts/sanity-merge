@@ -765,8 +765,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--client", help="the Jev client that verifies sanity-jev receipts (default .claude/skills/atm-bd-orchestration/scripts/jev_client.py)")
     try:
         args = parser.parse_args(argv[1:], namespace=MergeArguments())
-    except SystemExit:
-        return 1
+    except SystemExit as error:
+        return 0 if error.code == 0 else 1
     manifest_path, sanity_bead, dev_bead, sprint = args.manifest_path, args.sanity_bead, args.dev_bead, args.sprint
     manifest: Manifest | None = None
     results: list[JsonValue] = []

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from subprocess_helpers import HANG_GUARD_SECONDS, run_command
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 SCRIPT_PATHS = sorted(path for path in SCRIPTS.iterdir()
@@ -55,6 +56,7 @@ def assert_help_reached(script, result):
         return
     has_usage = any(line.lstrip().lower().startswith("usage:") for line in output.splitlines())
     assert has_usage, f"{script.name} --help did not reach usage output (exit {result.returncode}):\n{output}"
+    assert result.returncode == 0, f"{script.name} --help exited {result.returncode}:\n{output}"
 
 
 @pytest.mark.parametrize(
@@ -69,20 +71,21 @@ def assert_help_reached(script, result):
 def test_script_help_rejects_startup_failures(tmp_path, source, reason):
     script = tmp_path / "fixture.py"
     script.write_text(source)
-    result = subprocess.run([sys.executable, str(script)], stdin=subprocess.DEVNULL,
-                            capture_output=True, text=True, check=False)
+    result = run_command([sys.executable, str(script)], timeout=HANG_GUARD_SECONDS,
+                         capture_output=True, text=True, check=False)
 
     with pytest.raises(AssertionError, match=reason):
         assert_help_reached(script, result)
 
 
-def test_script_help_allows_nonzero_exit_after_usage():
+def test_script_help_rejects_nonzero_exit_even_after_usage():
     script = SCRIPTS / "bead-groups"
     result = subprocess.CompletedProcess(
         ["uv", "run", "--script", str(script), "--help"], 2, "usage: bead-groups --help\n", ""
     )
 
-    assert_help_reached(script, result)
+    with pytest.raises(AssertionError, match=r"--help exited 2"):
+        assert_help_reached(script, result)
 
 
 @pytest.mark.parametrize("script", SCRIPT_PATHS, ids=lambda path: path.name)

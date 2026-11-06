@@ -555,8 +555,8 @@ def main() -> int:
     parser.add_argument("--lint-timeout-seconds", type=int, default=1800)
     try:
         args = parser.parse_args(namespace=SplitArguments())
-    except SystemExit:
-        return 1
+    except SystemExit as error:
+        return 0 if error.code == 0 else 1
     try:
         bead = load_bead(args)
         source = plan_source(args, bead)
