@@ -752,6 +752,45 @@ REPO_DEFAULTS = ("team-lead", "just validate", "just lint", "quality-policy.md",
 class ConfigVariableTests(unittest.TestCase):
     """Repository values are required dispatch variables: no defaults, so a missing one fails the render."""
 
+    def test_undispatched_qa_omits_empty_layer_and_commit(self):
+        import sys
+        sys.path.insert(0, str(ROOT.parent / "atm-beads" / "scripts"))
+        import bead_schema
+
+        result = _render("qa-bead.json.j2", {**_example("qa-bead-vars.json"), "layer": "", "commit": ""})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bead = json.loads(result.stdout)
+        self.assertNotIn("layer", bead["metadata"])
+        self.assertNotIn("commit", bead["metadata"])
+        self.assertEqual(bead_schema.validate_phase([bead]), [])
+
+    def test_undispatched_qa_imports_with_embedded_bd(self):
+        import os
+        import tempfile
+
+        bd = os.environ.get("ATM_TEST_BD")
+        if not bd:
+            self.skipTest("ATM_TEST_BD must name the CI-pinned embedded bd")
+        values = {**_example("qa-bead-vars.json"), "id": "t-d-4-qa1", "checked_bead": "t-d-4",
+                  "sprint_bead": "t-d-4", "layer": "", "commit": ""}
+        rendered = _render("qa-bead.json.j2", values)
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {key: value for key, value in os.environ.items() if not key.startswith(("BEADS_", "BD_", "DOLT_"))}
+            for command in (["git", "init", "-q"], [bd, "init", "--prefix", "t", "--non-interactive", "--quiet"],
+                            [bd, "create", "sprint", "--id", "t-d-4"]):
+                result = run_command(command, cwd=root, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            (root / "qa.jsonl").write_text(json.dumps(json.loads(rendered.stdout)) + "\n")
+            result = run_command([bd, "import", "qa.jsonl"], cwd=root, env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run_command([bd, "show", "t-d-4-qa1", "--json"], cwd=root, env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            metadata = json.loads(result.stdout)[0]["metadata"]
+            self.assertNotIn("layer", metadata)
+            self.assertNotIn("commit", metadata)
+
     def test_qa_bead_render_matches_stage_qa_schema_and_rejects_empty_branch(self):
         import sys
         sys.path.insert(0, str(ROOT.parent / "atm-beads" / "scripts"))

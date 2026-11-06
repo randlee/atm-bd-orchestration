@@ -60,10 +60,12 @@ defaults:
     "phase": {{ phase | tojson }},
     "sprint": {{ sprint | tojson }},
     "stack": {{ stack | tojson }},
-    "layer": {{ (layer if layer != "" else none) | tojson }},
+{% if layer %}    "layer": {{ layer | tojson }},
+{% endif %}
     "branch": {{ branch | tojson }},
     "worktree": {{ worktree | tojson }},
-    "commit": {{ (commit or none) | tojson }},
+{% if commit %}    "commit": {{ commit | tojson }},
+{% endif %}
     "round": {{ round | tojson }},
     "difficulty": {{ difficulty | tojson }},
     "quick_fix": {{ quick_fix | tojson }},

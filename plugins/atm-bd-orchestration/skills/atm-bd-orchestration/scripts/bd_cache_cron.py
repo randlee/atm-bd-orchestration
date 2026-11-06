@@ -1,3 +1,8 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11,<3.12"
+# dependencies = ["pydantic>=2"]
+# ///
 """ATM cron module for bd-cache: drain journaled writes, sync active phases, escalate (#557).
 
 Register once per repository (ADR-069), from the beads repository root:
@@ -158,6 +163,9 @@ def should_stop(root, cache=None, only=None):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        return
     request = json.load(sys.stdin)
     hook = sys.argv[1] if len(sys.argv) > 1 else request.get("hook", "")
     root = Path.cwd()
