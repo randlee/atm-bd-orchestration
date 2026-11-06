@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Queue reports withhold sprint closure when open blockers or sprint-owned findings remain, and identify the blocking beads (#832).
 - Console notices, counters, status and cron alerts identify their actual causes and recovery (#372, #599, #355, #350, #624, #601).
 - Stack linking reports duplicate and ghost layers with repairs, skips self notices, holds pending parents and selects the confirmed stack top (#826, #828, #604).
 - Close hooks preserve evidence and report failures, correct sanity reassignment and completion status, and resolve configuration consistently (#827, #671, #602, #606, #656, #651, #830, #607, #630).
