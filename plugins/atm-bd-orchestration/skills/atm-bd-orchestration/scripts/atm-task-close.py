@@ -64,7 +64,7 @@ ATM_MAX_REQUEST_BYTES = 1_114_112
 # write_stack_input(), then atm-task-close.py --role sanity and the templates it renders and sends
 # (dev-sanity-complete, sanity-fail, qa-template). Every other field is overwritten there or never read.
 SANITY_CLOSE_CONTEXT = frozenset((
-    "base", "base_verified", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+    "base", "base_verified", "base_source", "nr", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
     "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
     "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"))
 
@@ -714,16 +714,48 @@ class Hook:
         top, top_head = ("unchecked", "") if skip_stack else (getattr(self, "base_anchor", None) or self.stack_top())
         if getattr(self, "linked_reclose", False) and sha != top_head:
             raise CloseError("BASE.PR_UNVERIFIED", f"{bead} PR base {ref} ({sha}) differs from its ledger predecessor {top} ({top_head})", fix)
-        pairs = [(lower, sha), (sha, self.values["commit"])]
+        detail = f"{bead} PR base {ref} ({sha}) and ledger anchor {top} ({top_head})"
+        self.verify_sanity_base(lower, sha, fix=fix, detail=detail, require_sha=False)
         if not skip_stack:
-            pairs.insert(1, (top_head, sha))
-        for ancestor, descendant in pairs:
-            result = self.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], git=True, check=False)
-            if result.returncode:
-                raise CloseError("BASE.PR_UNVERIFIED", f"{bead} PR base {ref} ({sha}) and ledger top {top} ({top_head}): {ancestor} is not a verified ancestor of {descendant}", fix)
+            self.verify_sanity_base(top_head, sha, fix=fix, detail=detail)
+        self.verify_sanity_base(sha, self.values["commit"], fix=fix, detail=detail)
         self.rebased_onto = sha
         self.values["base_verified"] = not skip_stack
         self.base_evidence = {"branch": base, "pr": None}
+
+    def verify_sanity_base(self, base, head, *, fix=None, detail="", require_sha=True):
+        fix = fix or "Run `git fetch origin`, then ask the dispatcher to select a full 40-hex ancestor base and rerun the sanity assignment."
+        if require_sha and (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base)):
+            raise CloseError("BASE.PR_UNVERIFIED", f"base {base!r} for checked head {head} is not a full 40-hex commit", fix)
+        result = self.run(["git", "merge-base", "--is-ancestor", base, head], git=True, check=False)
+        if result.returncode:
+            prefix = f"{detail}: " if detail else ""
+            raise CloseError("BASE.PR_UNVERIFIED", f"{prefix}{base} is not a verified ancestor of {head}", fix)
+
+    def resolve_nr_base(self):
+        values = self.values
+        layers = []
+        if values.get("stack_bead"):
+            layers = [layer for layer in ((self.bead(values["stack_bead"]).get("metadata") or {}).get("layers") or [])
+                      if layer.get("linked") is True]
+        index = next((i for i, layer in enumerate(layers) if layer.get("branch") == self.checked_worktree_branch), None)
+        source = "ledger" if index is not None else "pr_target"
+        if index is not None and layers[index].get("head") != self.checked_worktree_head:
+            raise CloseError("BASE.PR_UNVERIFIED", f"linked branch {self.checked_worktree_branch} has a different ledger head than {self.checked_worktree_head}",
+                             "Ask the lead to inspect the frozen ledger entry; do not rebase it.")
+        if index is not None and index > 0:
+            sha = layers[index - 1].get("head")
+        else:
+            branch = ((self.bead(values["stack_bead"]).get("metadata") or {}).get("trunk")
+                      if index is not None else values.get("pr_target"))
+            ref = f"origin/{branch}"
+            result = self.run(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], git=True, check=False)
+            if result.returncode:
+                raise CloseError("BASE.PR_UNVERIFIED", f"cannot resolve {ref} for checked head {self.checked_worktree_head}",
+                                 "Fetch the correct base commit and ask the dispatcher to retry.")
+            sha = result.stdout.strip()
+        self.verify_sanity_base(sha, self.checked_worktree_head)
+        values.update(rebased_onto=sha, base_source=source, nr=True, base_verified=source == "ledger")
 
     def render(self, template, values=None):
         try:
@@ -752,6 +784,10 @@ class Hook:
     def sanity_dispatch(self, context):
         """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
         context = {**context, "base": context.get("rebased_onto") or context.get("base")}
+        base = context.get("base")
+        if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base):
+            raise CloseError("BASE.PR_UNVERIFIED", f"sanity base {base!r} is not a full 40-hex commit",
+                             "Ask the dispatcher to resolve the PR base to a full 40-hex SHA and rerun.")
         template = "dev-sanity-template.xml.j2"
         pr_number = str(context.get("pr_number") or self.values.get("pr_number") or "")
         if not context.get("layer_prs") and pr_number:
@@ -893,6 +929,7 @@ class Hook:
         with tempfile.TemporaryDirectory(prefix="atm-task-close-") as directory:
             completion = Path(directory) / "completion-vars.json"
             if values["outcome"] == "not_reproducible":
+                self.resolve_nr_base()
                 assignment = {**values, "branch": self.checked_worktree_branch, "commit": self.checked_worktree_head,
                               "worktree_path": str(self.worktree)}
                 assignment_path = Path(directory) / "sanity-vars.json"

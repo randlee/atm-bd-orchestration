@@ -943,6 +943,15 @@ def test_daemon_sanity_has_no_pin_gate_or_build_running_merge():
     assert "sanity-task-close.md.j2" in result.stdout
 
 
+def test_sanity_assignment_requires_full_40_hex_base_at_render():
+    values = _example("dev-sanity-template-vars.json")
+    for base in ("sprint/parent", "x" * 40, "a" * 64):
+        result = _render("dev-sanity-template.xml.j2", {**values, "base": base})
+        assert result.returncode != 0, base
+        assert "dispatcher_must_supply_full_40_hex_base" in result.stderr
+    assert _render("dev-sanity-template.xml.j2", {**values, "base": "a" * 40}).returncode == 0
+
+
 def test_hook_escalation_template_tracks_recovery_and_preserves_error_state():
     import xml.etree.ElementTree as ET
     values = _example("hook-close-escalation-vars.json")

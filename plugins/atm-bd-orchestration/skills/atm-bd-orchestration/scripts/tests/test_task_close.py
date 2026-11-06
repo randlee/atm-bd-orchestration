@@ -218,6 +218,47 @@ def test_not_reproducible_fix_closes_its_task_with_the_evidence_reason(world):
     assert close[4:] == ["completed", f"not reproducible: {world.values['evidence']}"]
 
 
+def test_not_reproducible_dispatch_resolves_pr_target_to_commit(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    result = world.run("fix", outcome="not_reproducible")
+    assert "ok" in result, result
+    dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert dispatch["base"] == "b" * 40
+    assert dispatch["base_source"] == "pr_target" and dispatch["nr"] is True and dispatch["base_verified"] is False
+
+
+def test_not_reproducible_uses_linked_predecessor_not_current_top(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": "parent", "pr": 350, "head": "c" * 40, "base": "integrate/phase-bj", "linked": True},
+        {"branch": world.values["branch"], "pr": 351, "head": world.head, "base": "parent", "linked": True},
+        {"branch": "newer", "pr": 352, "head": "d" * 40, "base": world.values["branch"], "linked": True}]
+    assert "ok" in world.run("fix", outcome="not_reproducible")
+    dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert (dispatch["base"], dispatch["base_source"], dispatch["nr"]) == ("c" * 40, "ledger", True)
+    assert dispatch["base_verified"] is True
+
+
+def test_not_reproducible_refuses_non_ancestor_base(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    world.overrides[("git", "merge-base", "--is-ancestor", "b" * 40, world.head)] = (1, "")
+    result = world.run("fix", outcome="not_reproducible")
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED"
+    assert "b" * 40 in result["err"]["message"] and world.head in result["err"]["message"]
+    assert not world.writes
+
+
+def test_not_reproducible_refuses_64_hex_resolved_base(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    world.overrides[("git", "rev-parse", "--verify", "origin/integrate/phase-bj^{commit}")] = (0, "b" * 64)
+    result = world.run("fix", outcome="not_reproducible")
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED" and not world.writes
+
+
 def test_not_reproducible_uses_checked_worktree_and_its_head(world):
     checked = world.values["checked_bead"]
     world.beads[checked]["metadata"].update(
@@ -658,7 +699,7 @@ def test_not_reproducible_assigns_runtime_top_without_rewriting_input(world):
     assert assignment["values"]["beads_dir"] == str(world.root / ".beads")
     assert any(argv == ["bd", "where", "--json"] for argv, _kwargs in world.calls)
     assert set(assignment["values"]) == set(world.values) | {"branch", "commit", *contract["derived_variables"],
-                                                          "close_context", "beads_dir", "sanity_close_mode"}
+                                                          "close_context", "beads_dir", "sanity_close_mode", "base_source", "nr", "base_verified"}
     assert not any(argv[0] == "gh" for argv, _kwargs in world.calls)
 
 
@@ -669,7 +710,7 @@ def test_not_reproducible_fix_without_stack_bead_uses_pr_target(world):
         world.values.pop(field, None)
     result = world.run("fix", outcome="not_reproducible")
     assert "ok" in result, result
-    assert not any(argv == ["git", "rev-parse", "origin/integrate/phase-bj"] for argv, _kwargs in world.calls)
+    assert any(argv == ["git", "rev-parse", "--verify", "origin/integrate/phase-bj^{commit}"] for argv, _kwargs in world.calls)
     assert not any(argv[:2] == ["bd", "show"] and argv[2] == "atm-phase-bj.stack" for argv, _kwargs in world.calls)
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")
     assert "stack_bead" not in assignment["values"]
@@ -1321,6 +1362,8 @@ def test_shared_contract_covers_all_role_templates_and_ids(world):
         assert set(hook.header(hook.TEMPLATES / name)["required_variables"]) <= declared | dispatch_only, name
         values = {**world.values, "beads_dir": str(world.root / ".beads"),
                   "close_context": {**world.values, "phase_lead": "phase-lead"}}
+        if name == "dev-sanity-template.xml.j2":
+            values["base"] = "b" * 40
         body = hook.sc_render.render(hook.TEMPLATES / name, values)
         role_id = "sanity_task_id" if name.startswith("dev-sanity") else "qa_task_id" if name.startswith("qa-") else "dev_task_id"
         assert world.values[role_id] in body
@@ -1351,6 +1394,8 @@ def test_each_role_example_renders_every_shared_template(world, role):
         "qa": ("qa-complete.md.j2",),
     }[role]
     for name in names:
+        if name == "dev-sanity-template.xml.j2":
+            values["base"] = "b" * 40
         hook.sc_render.render(hook.TEMPLATES / name, values)
 
 
@@ -1762,7 +1807,7 @@ def test_assignment_consumes_completion_vars_before_the_temporary_file_is_remove
 
 
 # The dev/fix fields sanity-close-vars and the sanity close read back from close_context (#557).
-SANITY_READ = {"base", "base_verified", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
+SANITY_READ = {"base", "base_verified", "base_source", "nr", "carry_forward", "checked_title", "evidence", "layer", "layer_prs", "max_sanity_rounds", "outcome",
                "phase", "phase_feature", "policy_path", "pr_number", "pr_url", "primary_checkout", "qa_bead", "qa_task_id",
                "reviewers_round1", "round", "sprint_bead", "stack", "stack_bead"}
 
