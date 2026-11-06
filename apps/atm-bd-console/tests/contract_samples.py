@@ -141,7 +141,7 @@ SNAPSHOT = Snapshot(
 )
 STATE = State(
     (PROBLEM,), EARLIER, EARLIER, NOW, PLUS_TWO, (ACTION,), (REMOTE_REF,), {"quality-mgr": NOW, "arch-ctm": PLUS_TWO},
-    ("collision-key",),
+    ("collision-key",), NOW,
 )
 PHASE_FILE = PhaseFile("bh", "atm-phase-bh", "phase:bh", ("atm-bh-1", "atm-bh-6"), {"atm-bh-6": ("atm-bh-1",)}, lead="fenix", templates=PHASE_TEMPLATES)
 MERGE_FILE = MergeFile(NOW, {"sprint/bh-6-tick-rules": MERGE})

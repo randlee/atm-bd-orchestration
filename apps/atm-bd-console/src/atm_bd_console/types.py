@@ -401,6 +401,7 @@ class State:
     remotes: tuple[RemoteRef, ...]
     batch_due: Mapping[str, datetime]
     collision_notices: tuple[str, ...] = ()
+    last_github_read: datetime | None = None
 
 
 INITIAL_STATE = State((), None, None, None, None, (), (), {})
