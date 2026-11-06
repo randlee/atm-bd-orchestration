@@ -1242,6 +1242,32 @@ def test_sanity_pass_qa_dispatch_uses_current_bead_values(world):
     assert "current-reviewer" in assignment["body"] and "stale-reviewer" not in assignment["body"]
 
 
+def test_sanity_pass_qa_dispatch_uses_current_pr_base_and_head(world):
+    current = {"number": world.pr_number, "baseRefName": "fix/rebased-parent",
+               "headRefName": world.values["branch"], "headRefOid": "d" * 40}
+    argv = ("gh", "pr", "view", str(world.pr_number), "--json", "number,baseRefName,headRefName,headRefOid")
+    world.overrides[argv] = (0, json.dumps(current))
+
+    result = world.run("sanity", verdict="PASS")
+
+    assert "ok" in result, result
+    assignment = next(message for message in world.messages if message["type"] == "qa-task")
+    assert assignment["values"]["base"] == "fix/rebased-parent"
+    assert assignment["values"]["commit"] == "d" * 40
+
+
+def test_sanity_pass_refuses_unavailable_pr_instead_of_using_stale_base(world):
+    argv = ("gh", "pr", "view", str(world.pr_number), "--json", "number,baseRefName,headRefName,headRefOid")
+    world.overrides[argv] = (1, "")
+
+    result = world.run("sanity", verdict="PASS")
+
+    assert result["err"]["code"] == "ASSIGN_VARS.PR_READ_FAILED"
+    assert "do not use first-close base or commit values" in result["err"]["fix"]
+    assert world.writes == []
+    assert world.messages == []
+
+
 def test_sanity_pass_producer_error_is_preserved_before_writes(world):
     del world.beads[world.values["qa_bead"]]["metadata"]["layer"]
     result = world.run("sanity", verdict="PASS")

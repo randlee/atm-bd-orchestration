@@ -781,6 +781,28 @@ class Hook:
                              "(--set-metadata stores a string; qa-bead.json.j2 pours the list from the repository's reviewers_round1), then rerun the hook.")
         return reviewers
 
+    def current_pr_for_qa(self, checked):
+        """Read the checked fix's live PR before building its QA assignment."""
+        metadata = checked.get("metadata") or {}
+        number = metadata.get("pr_number")
+        if number in (None, ""):
+            return None
+        argv = ["gh", "pr", "view", str(number), "--json", "number,baseRefName,headRefName,headRefOid"]
+        try:
+            row = self.json(argv)
+        except CloseError as error:
+            raise close_fields.CloseFieldsError(
+                "ASSIGN_VARS.PR_READ_FAILED", f"{' '.join(argv)} failed: {error}",
+                f"Retry `{' '.join(argv)}` and inspect its output; do not use first-close base or commit values.",
+            ) from error
+        if not isinstance(row, dict):
+            raise close_fields.CloseFieldsError(
+                "ASSIGN_VARS.PR_READ_FAILED", f"{' '.join(argv)} did not return a PR object",
+                f"Retry `{' '.join(argv)}` and inspect its output; do not use first-close base or commit values.",
+            )
+        return {"number": row.get("number"), "base": row.get("baseRefName"),
+                "head": row.get("headRefName"), "head_sha": row.get("headRefOid")}
+
     def sanity_dispatch(self, context):
         """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
         context = {**context, "base": context.get("rebased_onto") or context.get("base")}
@@ -1018,7 +1040,8 @@ class Hook:
         self.render("dev-sanity-complete.md.j2")
         if verdict == "PASS":
             checked = self.bead(values["checked_bead"])
-            qa_values = close_fields.qa_assignment_vars(self.bead(values["qa_bead"]), checked, self.root)
+            current_pr = self.current_pr_for_qa(checked)
+            qa_values = close_fields.qa_assignment_vars(self.bead(values["qa_bead"]), checked, self.root, current_pr)
             if qa_values["checked_bead"] != checked["id"]:
                 raise CloseError("ASSIGN_VARS.CONFLICT", f"{values['qa_bead']} points to {qa_values['checked_bead']}, but sanity checked {checked['id']}",
                                  f"Correct metadata.checked_bead on {values['qa_bead']} to {checked['id']} and retry.")

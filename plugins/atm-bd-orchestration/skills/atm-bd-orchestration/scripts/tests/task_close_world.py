@@ -231,6 +231,12 @@ class World:
                 output = "git@github.com:example/repo.git"
             else:
                 assert argv[1] in ("status", "fetch", "merge-base"), argv
+        elif argv[:3] == ["gh", "pr", "view"]:
+            checked = self.beads[self.values["checked_bead"]]
+            metadata = checked.get("metadata") or {}
+            output = {"number": self.values.get("pr_number", self.pr_number),
+                      "baseRefName": metadata.get("pr_base"), "headRefName": metadata.get("branch"),
+                      "headRefOid": self.values.get("commit", self.head)}
         elif argv[:2] == ["gh", "api"]:
             if self.github_failure == "raise":
                 raise OSError("GitHub unavailable")
