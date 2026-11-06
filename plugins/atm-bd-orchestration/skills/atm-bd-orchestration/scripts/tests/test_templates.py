@@ -449,6 +449,10 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         step_i = out[out.index('<step id="i">'):out.index('<step id="i1">')]
         self.assertLess(step_i.index("bead-groups --findings"), step_i.index("atm-task-close.py --role qa"))
         self.assertIn("round N+1 would exceed the existing QA round cap", step_i)
+        quality_mgr = (ROOT / "roles/quality-mgr.md").read_text()
+        self.assertIn("After a fix-verification\n  FAIL, pour the next fix round", quality_mgr)
+        self.assertIn("`ROUND_CAP` applies only when round N+1\n  would exceed `max_rounds`", quality_mgr)
+        self.assertNotIn("A second FAIL is `ROUND_CAP`", quality_mgr)
 
     def test_fix_round_with_empty_scope_fails(self):
         for scope in (None, "[]", "[ ]", "", "  ", "null"):
