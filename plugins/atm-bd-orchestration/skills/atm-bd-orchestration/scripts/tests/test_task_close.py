@@ -386,9 +386,10 @@ def test_not_reproducible_missing_pr_identity_is_fix_only(world):
 
 
 @pytest.mark.parametrize("failure", [True, "raise"])
-def test_github_retries_and_falls_back_without_requiring_pr_base(world, failure):
+def test_github_retries_and_refuses_without_recorded_pr_base(world, failure):
     world.github_failure = failure
-    assert world.run()["ok"]["github"] == "unavailable"
+    world.beads[world.values["checked_bead"]]["metadata"].pop("pr_base")
+    assert world.run()["err"]["code"] == "BASE.PR_UNVERIFIED"
     assert len([argv for argv, _kwargs in world.calls if argv[0] == "gh"]) == 3
 
 
@@ -1460,6 +1461,40 @@ def test_offline_close_keeps_the_recorded_pr_base(world, role):
     assert "ok" in output, output
     assert "pr_base" not in checked_metadata_write(world)
     assert world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] == "fix/recorded-layer"
+
+
+@pytest.mark.parametrize("skip", [False, True])
+def test_fallback_dispatch_uses_verified_recorded_pr_parent(world, skip):
+    world.github_failure = True
+    world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] = "fix/higher-parent"
+    parent = "d" * 40
+    world.overrides[("git", "rev-parse", "--verify", "origin/fix/higher-parent^{commit}")] = (0, parent)
+    output = world.run("dev", skip_checks=skip)
+    assert "ok" in output, output
+    dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert dispatch["base"] == parent
+    assert ["git", "merge-base", "--is-ancestor", "origin/fix/higher-parent", world.head] in [a for a, _ in world.calls]
+
+
+@pytest.mark.parametrize("skip", [False, True])
+@pytest.mark.parametrize("failure", ["missing", "unresolvable", "not_ancestor", "below_bound"])
+def test_fallback_refuses_unverified_recorded_pr_parent(world, skip, failure):
+    world.github_failure = True
+    metadata = world.beads[world.values["checked_bead"]]["metadata"]
+    if failure == "missing":
+        metadata.pop("pr_base")
+    else:
+        metadata["pr_base"] = "fix/higher-parent"
+    if failure == "unresolvable":
+        world.overrides[("git", "rev-parse", "--verify", "origin/fix/higher-parent^{commit}")] = (1, "")
+    if failure == "not_ancestor":
+        world.overrides[("git", "merge-base", "--is-ancestor", "origin/fix/higher-parent", world.head)] = (1, "")
+    if failure == "below_bound":
+        world.overrides[("git", "merge-base", "--is-ancestor", f"origin/{world.values['pr_target']}", "origin/fix/higher-parent")] = (1, "")
+    result = world.run("dev", skip_checks=skip)
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED"
+    assert "git" in result["err"]["fix"] and not world.writes
+
 
 def test_multiple_open_prs_at_head_are_refused_before_writes(world):
     prs = [{"number": number, "head": {"sha": world.head}} for number in (351, 352)]

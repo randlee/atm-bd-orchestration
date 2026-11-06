@@ -73,7 +73,7 @@ class World:
         self.beads[self.values["checked_bead"]]["metadata"]["sanity_bead"] = self.values["sanity_bead"]
         self.beads[self.values["checked_bead"]]["metadata"].update(
             pr_number=self.pr_number, pr_url=self.values["pr_url"], branch=self.values["branch"],
-            worktree=str(root), sprint=self.values["sprint"], stack=self.values["stack"], pr_target=self.values["pr_target"])
+            pr_base="fix/recorded-parent", worktree=str(root), sprint=self.values["sprint"], stack=self.values["stack"], pr_target=self.values["pr_target"])
         self.beads[self.values["sanity_bead"]]["metadata"]["dev_bead"] = self.values["checked_bead"]
         self.beads[self.values["qa_bead"]]["metadata"]["reviewers_round1"] = list(self.values["reviewers_round1"])
         self.beads[self.values["qa_bead"]]["metadata"]["round"] = 1

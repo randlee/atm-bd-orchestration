@@ -726,6 +726,8 @@ class Hook:
         owner, repo = match.groups()
         if self.github == "unavailable":
             self.keep_recorded_pr()
+            self.require_completion_identity()
+            self.resolve_recorded_pr_base()
             checks["pr_base"] = self.base_evidence
             self.check_record = checks
             return checks
@@ -761,6 +763,8 @@ class Hook:
             return checks
         self.github = "unavailable"
         self.keep_recorded_pr()
+        self.require_completion_identity()
+        self.resolve_recorded_pr_base()
         checks["pr_base"] = self.base_evidence
         self.check_record = checks
         return checks
@@ -771,6 +775,27 @@ class Hook:
         self.values["pr_number"] = str(metadata.get("pr_number") or "")
         self.values["pr_url"] = str(metadata.get("pr_url") or "")
         self.pr_base = str(metadata.get("pr_base") or "")
+
+    def resolve_recorded_pr_base(self):
+        """Resolve the recorded PR parent and verify it is between the lower bound and checked head."""
+        bead = self.values["checked_bead"]
+        base = self.pr_base
+        fix = (f"Inspect the PR base, run `bd update {bead} --set-metadata pr_base=<actual-base-branch>`, "
+               "then `git fetch origin` and retry.")
+        if not base:
+            raise CloseError("BASE.PR_UNVERIFIED", f"{bead} metadata.pr_base is missing", fix)
+        ref = f"origin/{base}"
+        result = self.run(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], git=True, check=False)
+        sha = result.stdout.strip()
+        if result.returncode or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", sha):
+            raise CloseError("BASE.PR_UNVERIFIED", f"{bead} recorded PR base {ref} cannot be resolved to a commit", fix)
+        lower = f"origin/{self.values['pr_target']}"
+        for ancestor, descendant in ((lower, ref), (ref, self.values["commit"])):
+            result = self.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], git=True, check=False)
+            if result.returncode:
+                raise CloseError("BASE.PR_UNVERIFIED", f"{bead} recorded PR base {ref}: {ancestor} is not a verified ancestor of {descendant}", fix)
+        self.rebased_onto = sha
+        self.base_evidence = {"branch": base, "pr": None}
 
     def render(self, template, values=None):
         try:
@@ -954,7 +979,9 @@ class Hook:
                 values["rebased_onto"] = self.rebased_onto
             else:
                 self.keep_recorded_pr()
-                values["rebased_onto"] = self.run(["git", "rev-parse", f"origin/{values['pr_target']}"], git=True).stdout.strip()
+                self.require_completion_identity()
+                self.resolve_recorded_pr_base()
+                values["rebased_onto"] = self.rebased_onto
             self.require_completion_identity()
             self.render(template)
             completion.write_text(json.dumps(values), encoding="utf-8")
