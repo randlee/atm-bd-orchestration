@@ -242,6 +242,35 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertTrue(any(item["bead"] == "t-d-2.group-dev" for item in fills))
         self.assertFalse(any("sanity_bead" in problem for problem in problems))
+        self.assertEqual(first[1]["metadata"]["sanity_bead"], original["id"])
+        self.assertEqual(first[3]["metadata"]["sanity_bead"], original["id"])
+
+    def test_empty_sanity_fields_choose_live_highest_round_over_superseded(self):
+        import copy
+
+        group = self.group()
+        superseded = group[2]
+        superseded.update(status="closed", notes="superseded by t-d-1.group-sanity-r2: rebased")
+        replacement = copy.deepcopy(superseded)
+        replacement.update(id="t-d-1.group-sanity-r2", status="open", notes="")
+        replacement["metadata"]["round"] = 2
+        fills, problems = self.plan([*group, replacement])
+
+        self.assertEqual(problems, [])
+        by_bead = {item["bead"]: item["set_metadata"] for item in fills}
+        self.assertEqual(by_bead["t-d-1.group-dev"]["sanity_bead"], replacement["id"])
+        self.assertEqual(by_bead["t-d-1.group-qa"]["sanity_bead"], replacement["id"])
+
+    def test_superseded_sanity_without_live_replacement_is_a_problem(self):
+        group = self.group()
+        superseded = group[2]
+        superseded.update(status="closed", notes="superseded by t-d-1.group-sanity-r2: rebased")
+
+        fills, problems = self.plan(group)
+
+        self.assertFalse(any(item["bead"] in ("t-d-1.group-dev", "t-d-1.group-qa") for item in fills))
+        self.assertTrue(any("t-d-1.group-dev" in problem and "sanity_bead" in problem for problem in problems), problems)
+        self.assertTrue(any("t-d-1.group-qa" in problem and "sanity_bead" in problem for problem in problems), problems)
 
     def test_bad_group_is_reported_without_blocking_good_group(self):
         import json

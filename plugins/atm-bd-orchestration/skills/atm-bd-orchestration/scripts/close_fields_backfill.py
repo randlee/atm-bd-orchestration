@@ -63,16 +63,13 @@ def validate_round(row: dict) -> None:
 
 
 def member(rows: list[dict], label: str, key: str, checked: str | None, preferred: str | None = None) -> str | None:
-    """The one open bead of `label` whose metadata[key] names `checked`; among several, the highest round."""
+    """Preserve an existing reference; otherwise select the highest-round live member."""
     found = [r for r in rows if label in (r.get("labels") or []) and (r.get("metadata") or {}).get(key) == checked]
     for row in found:
         validate_round(row)
     if preferred and any(r["id"] == preferred for r in found):
         return preferred
-    superseded = [r for r in found if r.get("status") == "closed" and "superseded by " in (r.get("notes") or "")]
-    if superseded:
-        return sorted(superseded, key=lambda r: (len(r["id"]), r["id"]))[0]["id"]
-    live = [r for r in found if r.get("status") != "closed"] or found
+    live = [r for r in found if r.get("status") != "closed"]
     live.sort(key=lambda r: ((r.get("metadata") or {}).get("round") or 0, r["id"]))
     return live[-1]["id"] if live else None
 
