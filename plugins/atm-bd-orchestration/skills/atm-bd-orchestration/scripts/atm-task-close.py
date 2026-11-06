@@ -732,7 +732,7 @@ class Hook:
             prefix = f"{detail}: " if detail else ""
             raise CloseError("BASE.PR_UNVERIFIED", f"{prefix}{base} is not a verified ancestor of {head}", fix)
 
-    def resolve_nr_base(self):
+    def resolve_nr_base(self, *, skip_checks=False):
         values = self.values
         layers = []
         if values.get("stack_bead"):
@@ -755,7 +755,7 @@ class Hook:
                                  "Fetch the correct base commit and ask the dispatcher to retry.")
             sha = result.stdout.strip()
         self.verify_sanity_base(sha, self.checked_worktree_head)
-        values.update(rebased_onto=sha, base_source=source, nr=True, base_verified=source == "ledger")
+        values.update(rebased_onto=sha, base_source=source, nr=True, base_verified=not skip_checks)
 
     def render(self, template, values=None):
         try:
@@ -951,7 +951,7 @@ class Hook:
         with tempfile.TemporaryDirectory(prefix="atm-task-close-") as directory:
             completion = Path(directory) / "completion-vars.json"
             if values["outcome"] == "not_reproducible":
-                self.resolve_nr_base()
+                self.resolve_nr_base(skip_checks=skip)
                 assignment = {**values, "branch": self.checked_worktree_branch, "commit": self.checked_worktree_head,
                               "worktree_path": str(self.worktree)}
                 assignment_path = Path(directory) / "sanity-vars.json"

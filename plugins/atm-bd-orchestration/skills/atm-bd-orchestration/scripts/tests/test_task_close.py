@@ -225,7 +225,8 @@ def test_not_reproducible_dispatch_resolves_pr_target_to_commit(world):
     assert "ok" in result, result
     dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
     assert dispatch["base"] == "b" * 40
-    assert dispatch["base_source"] == "pr_target" and dispatch["nr"] is True and dispatch["base_verified"] is False
+    assert dispatch["base_source"] == "pr_target" and dispatch["nr"] is True and dispatch["base_verified"] is True
+    assert dispatch["close_context"]["base_verified"] is True
 
 
 def test_not_reproducible_uses_linked_predecessor_not_current_top(world):
@@ -239,6 +240,16 @@ def test_not_reproducible_uses_linked_predecessor_not_current_top(world):
     dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
     assert (dispatch["base"], dispatch["base_source"], dispatch["nr"]) == ("c" * 40, "ledger", True)
     assert dispatch["base_verified"] is True
+    assert dispatch["close_context"]["base_verified"] is True
+
+
+def test_not_reproducible_skip_checks_marks_base_unverified(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    assert "ok" in world.run("fix", outcome="not_reproducible", skip_checks=True)
+    dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert dispatch["base_verified"] is False
+    assert dispatch["close_context"]["base_verified"] is False
 
 
 def test_not_reproducible_refuses_non_ancestor_base(world):
