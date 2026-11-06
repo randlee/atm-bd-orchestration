@@ -558,6 +558,33 @@ def test_offline_pr_base_below_linked_top_is_refused(world):
     assert "new-top" in result["err"]["message"] and "fix/recorded-parent" in result["err"]["message"]
 
 
+def test_reclose_of_linked_lower_layer_uses_its_predecessor(world):
+    branch = world.values["branch"]
+    layers = world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": "parent", "pr": 350, "head": "b" * 40, "base": "integrate/phase-bj", "linked": True},
+        {"branch": branch, "pr": 351, "head": world.head, "base": "parent", "linked": True},
+        {"branch": "descendant", "pr": 352, "head": "c" * 40, "base": branch, "linked": True}]
+    world.overrides[("git", "merge-base", "--is-ancestor", "origin/descendant", world.head)] = (1, "")
+    result = world.run()
+    assert "ok" in result, result
+    assert layers[1]["head"] == world.head
+    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")
+    assert assignment["values"]["base"] == "b" * 40
+    assert not any(argv == ["git", "merge-base", "--is-ancestor", "origin/descendant", world.head]
+                   for argv, _ in world.calls)
+
+
+def test_linked_layer_with_wrong_pr_base_refuses_without_rebase_advice(world):
+    branch = world.values["branch"]
+    world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": "parent", "pr": 350, "head": "b" * 40, "base": "integrate/phase-bj", "linked": True},
+        {"branch": branch, "pr": 351, "head": world.head, "base": "parent", "linked": True}]
+    world.overrides[("git", "rev-parse", "--verify", "origin/deliberately-different^{commit}")] = (0, "c" * 40)
+    result = world.run()
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED" and not world.writes
+    assert "parent" in result["err"]["message"] and "do not rebase" in result["err"]["fix"]
+
+
 def test_stack_bead_id_comes_from_dispatch_vars(world):
     original = "atm-phase-bj.stack"
     selected = "an-unrelated-ledger-name"

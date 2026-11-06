@@ -615,12 +615,29 @@ class Hook:
             layer = layers[-1]
             self.ledger_top = {"branch": layer["branch"], "pr": layer.get("pr"), "head": layer["head"]}
         checks["ledger_top"] = self.ledger_top
-        self.rebased_onto = top_head
-        ancestor = self.run(["git", "merge-base", "--is-ancestor", f"origin/{top}", head], git=True, check=False)
-        if ancestor.returncode == 1:
-            raise CloseError("BASE.NOT_ANCESTOR", top, f"Rebase onto origin/{top}, push, then rerun the hook.")
-        if ancestor.returncode:
-            raise CloseError("COMMAND.FAILED", ancestor.stderr, "Repair the local git ancestry check.")
+        linked_index = next((index for index, layer in enumerate(layers) if layer.get("branch") == values["branch"]), None)
+        self.linked_reclose = linked_index is not None
+        if self.linked_reclose:
+            assert linked_index is not None
+            if layers[linked_index].get("head") != head:
+                raise CloseError("BASE.LINKED_HEAD", f"linked layer {values['branch']} has a different ledger head",
+                                 "Inspect the frozen layer and its ledger entry with the phase lead; do not rebase it.")
+            if linked_index:
+                parent = layers[linked_index - 1]
+                self.base_anchor = (parent["branch"], parent["head"])
+            else:
+                stack = self.bead(values["stack_bead"]).get("metadata") or {}
+                trunk = stack.get("trunk") or values["pr_target"]
+                trunk_head = self.run(["git", "rev-parse", f"origin/{trunk}"], git=True).stdout.strip()
+                self.base_anchor = (trunk, trunk_head)
+        else:
+            self.base_anchor = (top, top_head)
+            ancestor = self.run(["git", "merge-base", "--is-ancestor", f"origin/{top}", head], git=True, check=False)
+            if ancestor.returncode == 1:
+                raise CloseError("BASE.NOT_ANCESTOR", top, f"Rebase onto origin/{top}, push, then rerun the hook.")
+            if ancestor.returncode:
+                raise CloseError("COMMAND.FAILED", ancestor.stderr, "Repair the local git ancestry check.")
+        self.rebased_onto = self.base_anchor[1]
         remote_url = self.run(["git", "remote", "get-url", "origin"], git=True).stdout.strip()
         match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", remote_url)
         if not match:
@@ -682,8 +699,10 @@ class Hook:
         """Resolve either PR parent and verify the ledger top, base and checked head form a chain."""
         bead = self.values["checked_bead"]
         base = self.pr_base
-        fix = (f"Retarget the PR to the ledger top or rebase onto it, run `git fetch origin`, "
-               f"and if offline update {bead} with `bd update {bead} --set-metadata pr_base=<actual-base-branch>`, then retry.")
+        correction = ("Retarget the PR to its recorded ledger predecessor; do not rebase the frozen layer"
+                      if getattr(self, "linked_reclose", False) else "Retarget the PR to the ledger top or rebase onto it")
+        fix = (f"{correction}, run `git fetch origin`, and if offline update {bead} with "
+               f"`bd update {bead} --set-metadata pr_base=<actual-base-branch>`, then retry.")
         if not base:
             raise CloseError("BASE.PR_UNVERIFIED", f"{bead} metadata.pr_base is missing", fix)
         ref = f"origin/{base}"
@@ -692,7 +711,9 @@ class Hook:
         if result.returncode or not re.fullmatch(r"[0-9a-f]{40}", sha):
             raise CloseError("BASE.PR_UNVERIFIED", f"{bead} recorded PR base {ref} cannot be resolved to a commit", fix)
         lower = f"origin/{self.values['pr_target']}"
-        top, top_head = ("unchecked", "") if skip_stack else self.stack_top()
+        top, top_head = ("unchecked", "") if skip_stack else (getattr(self, "base_anchor", None) or self.stack_top())
+        if getattr(self, "linked_reclose", False) and sha != top_head:
+            raise CloseError("BASE.PR_UNVERIFIED", f"{bead} PR base {ref} ({sha}) differs from its ledger predecessor {top} ({top_head})", fix)
         pairs = [(lower, sha), (sha, self.values["commit"])]
         if not skip_stack:
             pairs.insert(1, (top_head, sha))
