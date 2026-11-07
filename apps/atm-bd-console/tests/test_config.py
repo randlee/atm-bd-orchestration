@@ -288,3 +288,29 @@ def test_stack_membership_defaults_to_unconfigured(tmp_path) -> None:
     loaded = load_config(tmp_path, "bh")
     assert isinstance(loaded, Ok)
     assert (loaded.value.stack_trunk, loaded.value.stack_number, loaded.value.stack_repo) == ("", None, "")
+
+
+def test_console_interval_is_the_one_interval_rule_load_config_applies(tmp_path) -> None:
+    """The shared loader and load_config agree on the default, a configured value and every invalid shape."""
+    from atm_bd_console.config import console_interval, interval_setting
+    _team_config(tmp_path)
+    (tmp_path / ".atm-bd").mkdir(exist_ok=True)
+    path = tmp_path / ".atm-bd" / "console.toml"
+    assert console_interval(tmp_path) == Ok(60)
+    path.write_text("[console]\ninterval = 90\n")
+    assert console_interval(tmp_path) == Ok(90)
+    loaded = load_config(tmp_path, "bh")
+    assert isinstance(loaded, Ok) and loaded.value.interval_s == 90
+    assert interval_setting({"interval": 90}, 120) == Ok(120)
+    for text in ("[console]\ninterval = 5\n", "[console]\ninterval = true\n", "[console]\ninterval = '60'\n"):
+        path.write_text(text)
+        shared, whole = console_interval(tmp_path), load_config(tmp_path, "bh")
+        assert isinstance(shared, Err) and isinstance(shared.error, ConfigInvalid) and shared.error.key == "interval"
+        assert isinstance(whole, Err) and whole.error == shared.error
+    path.write_text("[console\n")
+    shared, whole = console_interval(tmp_path), load_config(tmp_path, "bh")
+    assert isinstance(shared, Err) and isinstance(shared.error, ConfigInvalid) and shared.error.key == str(path)
+    assert isinstance(whole, Err) and whole.error == shared.error
+    path.write_bytes(b"\xff\xfe not utf-8")
+    shared = console_interval(tmp_path)
+    assert isinstance(shared, Err) and isinstance(shared.error, IoFailed) and shared.error.path == str(path)

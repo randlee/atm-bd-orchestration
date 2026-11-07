@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -19,6 +20,8 @@ _GITHUB = frozenset(("graphql", "rest", "off"))
 # The documented cron schedule (SKILL.md: every 15 minutes). A tick's snapshot is judged stale after twice its
 # interval, so the cron's cadence is the interval it records; the interval in console.toml is the TUI's.
 CRON_CADENCE_S = 900
+# The documented default `console.interval` when console.toml does not set one.
+DEFAULT_INTERVAL_S = 60
 CODE_REPO_FIX = "set code_checkout to that repository's primary checkout"
 
 
@@ -128,6 +131,47 @@ def phase_caller(root: Path, phase: str) -> Result[Caller]:
     return Ok(Caller(team, lead))
 
 
+def console_settings(root: Path) -> Result[Mapping[str, object]]:
+    """The `[console]` table of `.atm-bd/console.toml`; a missing file is an empty table.
+
+    The one reader of that file: `load_config` and `atm-bd queues --stack` both go through it, so an
+    unreadable or malformed file is the same typed configuration error everywhere."""
+    config_path = console_config_path(root)
+    values: object = {}
+    if config_path.exists():
+        try:
+            values = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as error:
+            return Err(IoFailed("io_failed", str(config_path), str(error), "correct or restore console.toml"))
+        except tomllib.TOMLDecodeError as error:
+            return Err(ConfigInvalid("config_invalid", str(config_path), str(error),
+                                     "correct the TOML syntax; console.github is graphql, rest, or off and console.interval is an integer of at least 10 seconds"))
+    if not isinstance(values, dict):
+        return Err(ConfigInvalid("config_invalid", "console", repr(values), "use a [console] table"))
+    console = values.get("console", {})
+    if not isinstance(console, dict):
+        return Err(ConfigInvalid("config_invalid", "console", repr(console), "use a [console] table"))
+    return Ok(console)
+
+
+def interval_setting(console: Mapping[str, object], override: int | None = None) -> Result[int]:
+    """The console tick interval rule: `console.interval` (default 60), an integer of at least 10 seconds,
+    unless an explicit override is given."""
+    chosen = override if override is not None else console.get("interval", DEFAULT_INTERVAL_S)
+    if not isinstance(chosen, int) or isinstance(chosen, bool) or chosen < 10:
+        return Err(ConfigInvalid("config_invalid", "interval", repr(chosen), "use an integer of at least 10 seconds"))
+    return Ok(chosen)
+
+
+def console_interval(root: Path) -> Result[int]:
+    """The console's configured tick interval from `.atm-bd/console.toml` alone, for readers that judge the
+    freshness of the console's snapshots without loading a whole `Config`."""
+    settings = console_settings(root)
+    if isinstance(settings, Err):
+        return settings
+    return interval_setting(settings.value)
+
+
 def load_config(
     repo_root: str | Path,
     phase: str,
@@ -149,24 +193,12 @@ def load_config(
     if isinstance(caller, Err):
         return caller
     team = Ok(caller.value.team)
-    config_path = console_config_path(root)
-    values: object = {}
-    if config_path.exists():
-        try:
-            values = tomllib.loads(config_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError) as error:
-            return Err(IoFailed("io_failed", str(config_path), str(error), "correct or restore console.toml"))
-        except tomllib.TOMLDecodeError as error:
-            return Err(ConfigInvalid("config_invalid", str(config_path), str(error),
-                                     "correct the TOML syntax; console.github is graphql, rest, or off and console.interval is an integer of at least 10 seconds"))
-    if not isinstance(values, dict):
-        return Err(ConfigInvalid("config_invalid", "console", repr(values), "use a [console] table"))
-    console = values.get("console", {})
-    if not isinstance(console, dict):
-        return Err(ConfigInvalid("config_invalid", "console", repr(console), "use a [console] table"))
+    settings = console_settings(root)
+    if isinstance(settings, Err):
+        return settings
+    console = settings.value
 
     configured_github = console.get("github", "graphql")
-    configured_interval = console.get("interval", 60)
     repo_path = root / REPO_CONFIG_PATH
     try:
         repo_values = yaml.safe_load(repo_path.read_text(encoding="utf-8"))
@@ -182,13 +214,14 @@ def load_config(
         return Err(ConfigInvalid("config_invalid", str(repo_path), repr(repo_values), "use a YAML mapping"))
     notification_sender = repo_values.get("tool_identity", DEFAULT_NOTIFICATION_SENDER)
     chosen_github = github if github is not None else configured_github
-    chosen_interval = interval_s if interval_s is not None else configured_interval
     poll_interval = github_poll_interval_s if github_poll_interval_s is not None else console.get("github_poll_interval", 600)
     quota_threshold = github_quota_threshold if github_quota_threshold is not None else console.get("github_quota_threshold", 50)
     if not isinstance(chosen_github, str) or chosen_github not in _GITHUB:
         return Err(ConfigInvalid("config_invalid", "github", repr(chosen_github), "use graphql, rest, or off"))
-    if not isinstance(chosen_interval, int) or isinstance(chosen_interval, bool) or chosen_interval < 10:
-        return Err(ConfigInvalid("config_invalid", "interval", repr(chosen_interval), "use an integer of at least 10 seconds"))
+    interval = interval_setting(console, interval_s)
+    if isinstance(interval, Err):
+        return interval
+    chosen_interval = interval.value
     if not isinstance(notification_sender, str) or not re.fullmatch(r"[A-Za-z0-9_-]+@[A-Za-z0-9_-]+", notification_sender):
         return Err(ConfigInvalid("config_invalid", "tool_identity", repr(notification_sender),
                                  f"set tool_identity in {repo_path} to member@team"))

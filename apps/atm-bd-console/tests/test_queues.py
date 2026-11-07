@@ -662,3 +662,59 @@ def test_queues_with_a_stale_prs_json_show_no_top_and_prs_stale(monkeypatch, tmp
     from datetime import timedelta
     report = _topology_build(monkeypatch, tmp_path, _prs_file(read_at=NOW - timedelta(seconds=500)))
     assert report["stack_top"] is None and report["stack_error"]["source"] == "PRS.STALE"
+
+
+# --- bs-6 f1: queues judges freshness with the console's own interval loader; a console.toml fault is a config error ---
+
+def _console_toml(tmp_path: Path, text: str) -> Path:
+    (tmp_path / ".atm-bd").mkdir(exist_ok=True)
+    path = tmp_path / ".atm-bd" / "console.toml"
+    path.write_text(text)
+    return path
+
+
+def test_queues_with_an_invalid_console_interval_report_a_config_error_not_a_prs_fault(monkeypatch, tmp_path: Path):
+    from dataclasses import asdict
+
+    from atm_bd_console.result import ConfigInvalid
+    _console_toml(tmp_path, "[console]\ninterval = 5\n")
+    report = _topology_build(monkeypatch, tmp_path, _prs_file())
+    expected = config.interval_setting({"interval": 5})
+    assert isinstance(expected, Err) and isinstance(expected.error, ConfigInvalid)
+    assert report["stack_top"] is None
+    assert report["stack_error"] == asdict(expected.error)
+    assert report["stack_error"]["kind"] == "config_invalid" and report["stack_error"]["key"] == "interval"
+    assert "PRS.UNREADABLE" not in json.dumps(report)
+    row = next(row for row in report["queues"]["stack_incoherent"] if row["id"] == "stack:integrate/phase-bj:top-unknown")
+    assert "config_invalid interval" in row["detail"] and "at least 10 seconds" in row["detail"]
+
+
+def test_queues_with_malformed_console_toml_name_the_file_as_the_invalid_config(monkeypatch, tmp_path: Path):
+    path = _console_toml(tmp_path, "[console\ninterval = ")
+    report = _topology_build(monkeypatch, tmp_path, _prs_file())
+    assert report["stack_top"] is None
+    assert report["stack_error"]["kind"] == "config_invalid" and report["stack_error"]["key"] == str(path)
+    assert "PRS.UNREADABLE" not in json.dumps(report)
+
+
+def test_queues_with_undecodable_console_toml_report_the_typed_io_error(monkeypatch, tmp_path: Path):
+    path = _console_toml(tmp_path, "")
+    path.write_bytes(b"\xff\xfe not utf-8")
+    report = _topology_build(monkeypatch, tmp_path, _prs_file())
+    assert report["stack_top"] is None
+    assert report["stack_error"]["kind"] == "io_failed" and report["stack_error"]["path"] == str(path)
+    assert "PRS.UNREADABLE" not in json.dumps(report)
+
+
+def test_queues_judge_prs_freshness_with_the_configured_console_interval(monkeypatch, tmp_path: Path):
+    """A 200 s old snapshot is stale at the default 60 s interval and fresh at a configured 120 s one (two intervals)."""
+    from datetime import timedelta
+    snapshot = _prs_file(read_at=NOW - timedelta(seconds=200))
+    default_root, configured_root = tmp_path / "default", tmp_path / "configured"
+    default_root.mkdir()
+    configured_root.mkdir()
+    stale = _topology_build(monkeypatch, default_root, snapshot)
+    assert stale["stack_top"] is None and stale["stack_error"]["source"] == "PRS.STALE"
+    _console_toml(configured_root, "[console]\ninterval = 120\n")
+    fresh = _topology_build(monkeypatch, configured_root, snapshot)
+    assert fresh["stack_top"] == 963 and fresh["stack_error"] is None

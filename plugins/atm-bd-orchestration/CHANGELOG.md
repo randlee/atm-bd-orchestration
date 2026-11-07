@@ -14,6 +14,7 @@
 - Bead group validation accepts historical null QA layers and names malformed bead fields with typed, actionable repairs; configuration and command failures identify their own causes (#922).
 - Pour outcomes carry typed problem kinds, and a sprint is held when a predecessor preview fails (#907).
 - Sanity close variables resolve team, identity and command timeout from configuration and report typed task-history failures (#906).
+- `atm-bd queues --stack` reads `console.interval` through the console's own loader (`config.console_interval`), the one rule `load_config` applies; an invalid or unreadable `console.toml` is that loader's typed `config_invalid`/`io_failed` error in `stack_error` and the no-top queue row, never `PRS.UNREADABLE`, and there is no silent fallback to 60 s.
 
 ### Changed
 - sc-compose pin moved to 1.8.0 (CI CLI assets and checksums, the console lockfile's `sc-compose` and `sc-sha` wheels): a `uv run --script` runtime resolves the newest release in the `>= 1.7.0, < 2` range, and the installer refuses a CLI older than that wheel, so every PR went red the hour 1.8.0 reached PyPI. The range floor is unchanged; hosts upgrade with `brew upgrade randlee/tap/sc-compose` (a `cargo install` copy on PATH must be upgraded too) and `uv cache clean sc-compose`.
