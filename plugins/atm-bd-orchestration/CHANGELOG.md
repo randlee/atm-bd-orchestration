@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Ship ceremony-finding-screen, screen every finding round and record per-round and cumulative screening rates (#938).
+- Refuse installs missing host-required agents with an actionable INSTALL.AGENT_MISSING error (#909).
+
 ### Changed
 - sc-compose pin moved to 1.8.0 (CI CLI assets and checksums, the console lockfile's `sc-compose` and `sc-sha` wheels): a `uv run --script` runtime resolves the newest release in the `>= 1.7.0, < 2` range, and the installer refuses a CLI older than that wheel, so every PR went red the hour 1.8.0 reached PyPI. The range floor is unchanged; hosts upgrade with `brew upgrade randlee/tap/sc-compose` (a `cargo install` copy on PATH must be upgraded too) and `uv cache clean sc-compose`.
 - `sc_render.render` no longer re-parses a `.json` template's output: the 1.8.0 wheel applies the CLI's checked-render contract itself (sc-compose#787); `sc_render.error_text` prefixes the wheel's `ERR_...` code to the message, the shape the CLI prints.

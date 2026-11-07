@@ -163,10 +163,10 @@ sc-compose render --strict --file .claude/skills/atm-bd-orchestration/templates/
 
 ## Findings
 
-This section applies to round 1 only. A fix round (`carry_forward` set) screens and files nothing; see Reviewers.
+Screen every round that files findings: QA round 1 and every plan-review round with findings. A fix verification that files no findings has nothing to screen; see Reviewers.
 
 After the reviewers return, screen every finding with
-`ceremony-finding-screen`, which also runs as a background agent. Then file
+`ceremony-finding-screen`, which also runs as a background agent. Pass every finding, including validation and REQ/ADR findings; retain the returned verdict and reason by finding id. If the screen fails, is unavailable, or omits a finding, close the QA or plan-review task refused with `task-refused.md.j2` and `reason_md` containing `SCREEN.UNAVAILABLE` and the agent error; never infer a verdict. Save its complete result to `<scratch>/<task>-screen.json` for metrics. In the completion report `findings_md`, include `screen=<verdict>` and the reason for every finding, including quick-fix and REVIEW_PENDING_JEV findings, so the lead copies the recorded verdict into `finding-bead.json.j2` without a default. Then file
 every finding, whatever the screen said: a blocking finding the screen keeps
 is poured as a fix ← sanity ← qa group under the sprint (`bead-groups
 --findings`, qa-template step g); every other finding is one finding bead
@@ -235,6 +235,8 @@ forward from a previous row.
   many findings are open" ad hoc; it gives velocity and a closure estimate
   across rounds, and ties out against `phase-<p>.jsonl` at phase end (sum of
   its `fnd` across all rounds reconciles with this log's final `tot`).
+
+For every QA or plan-review round record `kind`, `round`, `findings_filed` (all findings returned, the denominator), `findings_screened_out` (the `ceremony` verdict count), and `screened_ids`. The stats row records the cumulative `findings_filed` and `findings_screened_out` summed across both kinds. A legacy row without `kind` is QA; missing screening fields and rates with a zero denominator display as `n/a`. Remove the screening step only when the phase screening rate is zero for three consecutive phases.
 
 When you display either log's timestamps to the operator, convert to 24h
 local; the logs themselves keep both the UTC and local strings.
