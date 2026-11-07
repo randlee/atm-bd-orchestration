@@ -51,6 +51,7 @@ ROLE_KEYS = {"dev_sanity_member": "dev-sanity", "qa_member": "quality-mgr", "tea
 # Variables naming agents that must have .claude/agents/<name>.md. dev_sanity_member
 # is a team member running the dev-sanity directive and may have no agent file.
 AGENT_VARIABLES = ("qa_member", "reviewers_round1")
+HOST_REQUIRED_AGENTS: tuple[str, ...] = ("quality-mgr",)
 
 # Install-time placeholders in installed skill/agent files (the files listed under
 # `render:` in registry.yaml). repo_slug, repo_name and
@@ -721,6 +722,9 @@ def check_beads_server_mode(repo_root: Path) -> None:
 def check_agents(repo_root: Path, config: Config, shipped_agents: Iterable[str]) -> None:
     shipped = {Path(rel).stem for rel in shipped_agents}
     missing: List[str] = []
+    for name in HOST_REQUIRED_AGENTS:
+        if name not in shipped and not (repo_root / ".claude" / "agents" / f"{name}.md").is_file():
+            missing.append(name)
     for var in AGENT_VARIABLES:
         configured = config[var]
         if isinstance(configured, str):
@@ -732,9 +736,11 @@ def check_agents(repo_root: Path, config: Config, shipped_agents: Iterable[str])
         for name in names:
             if name in shipped or (repo_root / ".claude" / "agents" / f"{name}.md").is_file():
                 continue
-            missing.append(f"{name} ({var})")
+            missing.append(name)
     if missing:
-        raise InstallError("no .claude/agents/<name>.md for: " + ", ".join(dict.fromkeys(missing)))
+        paths = ", ".join(f".claude/agents/{name}.md" for name in dict.fromkeys(missing))
+        raise InstallError(f"INSTALL.AGENT_MISSING: missing {paths}; copy the reference agent from atm-core "
+                           ".claude/agents/, or declare the host alternative in the config.")
 
 
 # ---------------------------------------------------------------------------

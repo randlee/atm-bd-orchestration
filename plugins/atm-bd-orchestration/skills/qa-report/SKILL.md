@@ -45,6 +45,6 @@ number of rows, display all available rows without padding or duplication.
 
 ## Output
 
-Both tables, labeled `QA Run Log` and `QA Statistics`, for the current phase. Nothing else. Write the
+Both tables, labeled `QA Run Log` and `QA Statistics`, for the current phase. In the run log show each row's `kind` (missing means `qa`) and its screening rate as `findings_screened_out/findings_filed`, retaining the denominator; missing screening fields display `n/a`. For each stats row show the cumulative screening rate `findings_screened_out/findings_filed`, summed over both QA and plan-review rounds, also retaining the denominator; missing fields display `n/a`. For plan-review rows display any absent QA-only fields as `n/a`. A `0/0` rate is unavailable, not a zero rate. Do not silently treat missing screening data as zero. Include these rates and kinds in the tables, without rewriting either log. Write the
 tables as markdown directly in your reply text; a command's own stdout is
 not reliably shown to the user, so never rely on tool output alone.

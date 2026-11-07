@@ -66,7 +66,7 @@ FENCE = re.compile(r"^```(jsonl?)\n(.*?)^```", re.S | re.M)
 QUOTED_PLACEHOLDER = re.compile(r'"[^"\n]*(?:<[^"\n>]*>|\{\{[^"\n}]*\}\})[^"\n]*"')
 BARE_PLACEHOLDER = re.compile(r"<[^<>\n]*>|\{\{[^}\n]*\}\}")
 # What this package ships; a host repository's other agents and skills are not this package's handoffs.
-PACKAGE_AGENTS = ("ceremony-qa.md", "dev-sanity.md", "parallax.md", "sc-sanity-jev.md", "sc-sanity-llm.md")
+PACKAGE_AGENTS = ("ceremony-finding-screen.md", "ceremony-qa.md", "dev-sanity.md", "parallax.md", "sc-sanity-jev.md", "sc-sanity-llm.md")
 PACKAGE_SKILLS = ("atm-bd-orchestration", "atm-beads", "prompt-rewrite-judge", "qa-report", "sprint-report", "sprint-review")
 
 
@@ -502,8 +502,26 @@ def required_inputs(agent: str) -> set:
     return set(re.findall(r"^- `(\w+)` \(required\)", (AGENTS / agent).read_text(), re.M))
 
 
-# ceremony-finding-screen is a host agent (the host repository's .claude/agents/ceremony-finding-screen.md `## Inputs`), not shipped here.
-CEREMONY_FINDING_SCREEN_REQUIRED = {"worktree_path", "sprint_doc", "findings"}
+CEREMONY_FINDING_SCREEN_REQUIRED = required_inputs("ceremony-finding-screen.md")
+
+
+def test_screen_verdict_travels_from_qa_close_to_finding_bead():
+    role = (ROOT / "roles/quality-mgr.md").read_text()
+    skill = (ROOT / "SKILL.md").read_text()
+    bead = (TEMPLATES / "finding-bead.json.j2").read_text()
+    assert "`screen=<verdict>`" in role and "`findings_md`" in role
+    assert "copy each finding’s recorded `screen` verdict from the close" in skill
+    assert "SCREEN.UNAVAILABLE" in skill
+    assert '"screen": {{ screen | tojson }}' in bead
+    assert "screen" in (bead.split("---", 2)[1].split("defaults:", 1)[0])
+    assert "screen:" not in bead.split("defaults:", 1)[1].split("---", 1)[0]
+    for verdict in ("keep", "not_applicable", "concern_valid_remedy_ceremony", "ceremony"):
+        close_finding = {"id": "r-1", "screen": verdict}
+        values = {**json.loads((EXAMPLES / "finding-bead-vars.json").read_text()), "screen": close_finding["screen"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "finding.json"
+            path.write_text(json.dumps(values))
+            assert json.loads(render("finding-bead.json.j2", path))["metadata"]["screen"] == verdict
 RENDER_ASSIGNMENTS = ("Render every reviewer's structured JSON assignment from "
                       "`.claude/skills/atm-bd-orchestration/templates/<reviewer>-assignment.json.j2`; if a reviewer has no "
                       "template there, give it the fenced-JSON input its own contract, `.claude/agents/<reviewer>.md`, names.")

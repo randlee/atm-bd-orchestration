@@ -313,6 +313,7 @@ artifacts:
     - skills/sprint-review/SKILL.md
     - skills/sprint-review/scripts/sprint-review
   agents:
+    - agents/ceremony-finding-screen.md
     - agents/ceremony-qa.md
     - agents/critical-plan-reviewer.md
     - agents/dev-sanity.md
