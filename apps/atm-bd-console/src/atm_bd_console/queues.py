@@ -12,11 +12,10 @@ from typing import Any
 
 from . import atm_bd, command, config, state
 from .log import error_message
-from .paths import console_config_path
-from .result import CommandFailed, Err, Ok, ParseFailed, Result, Timeout
+from .result import CommandFailed, Err, Ok, Result, Timeout
 from .stack_source import read_stack_ledger
 from .stack_topology import fresh_prs, stack_topology
-from .types import PullRequest
+from .types import PrsFile, PullRequest
 
 SCHEMA = "atm-bd-orchestration/bead-queues/v1"
 FAILED = 2
@@ -292,18 +291,11 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
         if not integration_branch:
             stack_note = "no integration_branch: stack not checked"
         else:
-            loaded = state.load_prs(repo_root, root)
-            settings = console_config_path(repo_root)
-            interval = 60
-            try:
-                values = tomllib.loads(settings.read_text(encoding="utf-8")) if settings.exists() else {}
-                interval = values.get("console", {}).get("interval", 60)
-                if type(interval) is not int or interval < 10:
-                    raise ValueError("console.interval must be an integer of at least 10 seconds")
-            except (OSError, UnicodeError, ValueError, AttributeError) as error:
-                loaded = Err(ParseFailed("parse_failed", "PRS.UNREADABLE", str(error), "repair console.toml and run the console tick"))
-                interval = 60
-            cached = fresh_prs(loaded, now, interval)
+            # The console's own interval rule decides the snapshot's freshness; a console.toml fault is that
+            # loader's typed configuration error (never a prs.json fault), and there is no fallback interval.
+            interval = config.console_interval(repo_root)
+            cached: Result[PrsFile] = interval if isinstance(interval, Err) else fresh_prs(
+                state.load_prs(repo_root, root), now, interval.value)
             ledger = read_stack_ledger(root, runner=runner, cwd=str(repo_root))
             topology = ledger if isinstance(ledger, Err) else cached if isinstance(cached, Err) else stack_topology(
                 cached.value.prs, Ok(cached.value.stack_prs) if cached.value.stack_prs is not None else None, ledger)
