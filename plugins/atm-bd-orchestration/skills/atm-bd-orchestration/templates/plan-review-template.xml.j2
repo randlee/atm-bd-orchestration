@@ -48,9 +48,45 @@ metadata:
 - a listed id does not govern the bead's work;
 - the work touches a requirement or ADR the bead does not list, including a bead that says `NONE`.
 Run `req-qa` and `arch-qa` as background agents on every piped sprint container file, with `sprint_doc` = that file and the docs-only plan rules of `.claude/agents/quality-mgr.md`. Run `plan-scope-reviewer` over the whole set, in full, its assignment rendered with `plan-scope-reviewer-assignment.json.j2` (`plan_docs` = every piped sprint container file, `phase_root_doc` = the root's file); its `parallelism` numbers go in the report. Run `ceremony-qa` with `review_mode` = `doc_review`, `worktree_path` = `{{ worktree_path | string | cdata_escape }}` and `review_targets` = every piped sprint container file and the root's file. Run the other plan reviewers the docs-only plan rules name on the same piped files, with `qa_round` = {{ round | string | cdata_escape }}.{% endif %}]]></step>
-{% if not carry_forward %}    <step id="d"><![CDATA[Run `ceremony-finding-screen` (`.claude/agents/ceremony-finding-screen.md`) as a background agent over this round's findings, except the step b findings and the REQ/ADR findings of step c, which are never ceremony, with the fenced-JSON input its contract names: `worktree_path` = `{{ worktree_path | string | cdata_escape }}`, `sprint_doc` = `<scratch>/{{ root | string | cdata_escape }}-plan.md`, and `findings` = those findings. Drop what it screens out and list each drop with its reason in the report.]]></step>
-{% endif %}
+    <step id="d"><![CDATA[Run `ceremony-finding-screen` (`.claude/agents/ceremony-finding-screen.md`) as a background agent over every finding from this round, including step b and REQ/ADR findings, with the fenced-JSON input its contract names: `worktree_path` = `{{ worktree_path | string | cdata_escape }}`, `sprint_doc` = `<scratch>/{{ root | string | cdata_escape }}-plan.md`, and `findings` = those findings. Save the fenced input as `<scratch>/{{ task_id | string | cdata_escape }}-screen-input.json` and the complete response to `<scratch>/{{ task_id | string | cdata_escape }}-screen.json`; verify `success` is true and exactly one valid verdict exists for each input finding id, with no missing, extra, or duplicate ids; list each `ceremony` verdict and its reason in the report. If the screen cannot run, fails, or omits a finding, close the task refused with `task-refused.md.j2`, putting `SCREEN.UNAVAILABLE` and the agent error in `reason_md`; never default a verdict. If there are no findings, skip the screen.]]></step>
     <step id="e"><![CDATA[Verdict: PASS when no blocking or important finding is open; otherwise FAIL. PASS with no findings: `bd close {{ task_id | string | cdata_escape }} --reason "plan review PASS round {{ round | string | cdata_escape }}"`; closing releases the root sprints. PASS with minor findings: do not close the bead (that would release the root sprints before the fixes); hand it to the task assigner with `bd update {{ task_id | string | cdata_escape }} --assignee <the task assigner> --append-notes "PASS round {{ round | string | cdata_escape }}; minor fixes before dispatch: <list>"`; the assigner applies the fixes and closes it. FAIL: the bead must stay **open** (closing would release them): `bd update {{ task_id | string | cdata_escape }} --status open --assignee "" --append-notes "FAIL round {{ round | string | cdata_escape }}: <n> findings"`. Either way, once that `bd` command succeeded, close the task with `atm task close {{ task_id | string | cdata_escape }} completed --template .claude/skills/atm-bd-orchestration/templates/plan-review-complete.md.j2 --vars <scratch>/plan-review-{{ task_id | string | cdata_escape }}-vars.json`. Findings live in the report, one line each: `<bead> <severity> <reviewer> <field>: <what is wrong>`, where `<reviewer>` is the agent that filed it (`validate-plan` for step b); a fix round carries these lines and reads its filing reviewers from them.{% if carry_forward %} In this fix round the report lists each carried finding as fixed, regressed or open, plus any step b problem; PASS is every carried finding fixed and step b clean.{% endif %} Do not file finding beads for a plan: the author fixes the beads with `bd update`, and the task assigner assigns the next round.]]></step>
     <step id="f"><![CDATA[If the review cannot run, include the reason, command and failure evidence in the refusal's `reason_md`. Also announce a serious infrastructure failure once per cause to the oversight recipients (`.claude/skills/atm-bd-orchestration/SKILL.md` Lead Role). Return the bead with `bd update {{ task_id | string | cdata_escape }} --status open --assignee "" --append-notes "PLAN_REVIEW_CANNOT_RUN; <reason>"` and close the task with `atm task close {{ task_id | string | cdata_escape }} refused --template .claude/skills/atm-bd-orchestration/templates/task-refused.md.j2 --vars <scratch>/refused-{{ task_id | string | cdata_escape }}-vars.json`. A blocker (a prerequisite reopens, or the work needs a fix that has not landed) is not a failure: stop, return the bead with `bd update {{ task_id | string | cdata_escape }} --status open --assignee "" --append-notes "BLOCKED: <blocker>: <why>"` and close the task `refused` as above (`bead_state` `open`), its `reason_md` naming the blocker and the edge `bd dep add {{ task_id | string | cdata_escape }} --blocked-by <blocker>`; never stay active waiting.]]></step>
+    <step id="g"><![CDATA[After step e completes the task (never on refusal), append the plan-review round and cumulative snapshot to the same QA logs. Save the screen result in step d; for a round without findings no screen file is needed. Set `$VERDICT` to the round's PASS or FAIL before running:
+```bash
+mkdir -p .sc/qa-log
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+LOCAL=$(date +%H:%M)
+SCREENFILE=<scratch>/{{ task_id | string | cdata_escape }}-screen.json
+if [ -f "$SCREENFILE" ]; then
+  SCREENED=$(jq -ec 'select(.success == true) | .data.screened | select(type == "array") | select(all(.[]; (.id | type == "string" and length > 0) and (.verdict == "keep" or .verdict == "not_applicable" or .verdict == "ceremony" or .verdict == "concern_valid_remedy_ceremony")))' "$SCREENFILE") || { echo "SCREEN.UNAVAILABLE: invalid screen result $SCREENFILE" >&2; exit 1; }
+else
+  SCREENED='[]'
+fi
+FILED=$(printf '%s' "$SCREENED" | jq 'length')
+OUT=$(printf '%s' "$SCREENED" | jq '[.[] | select(.verdict == "ceremony")] | length')
+IDS=$(printf '%s' "$SCREENED" | jq -c '[.[] | select(.verdict == "ceremony") | .id]')
+ROW=$(jq -nc --arg completed_at "$NOW" --arg completed_local "$LOCAL" --arg phase "{{ phase | string }}" \
+  --arg task "{{ task_id | string }}" --arg tested "{{ root | string }}" --arg verdict "$VERDICT" \
+  --argjson round {{ round }} --argjson findings_filed "$FILED" --argjson findings_screened_out "$OUT" --argjson screened_ids "$IDS" \
+  '{completed_at:$completed_at, completed_local:$completed_local, phase:$phase, task:$task, kind:"plan-review", round:$round, iteration:$round, verdict:$verdict, tested:$tested, findings_filed:$findings_filed, findings_screened_out:$findings_screened_out, screened_ids:$screened_ids}')
+printf '%s\n' "$ROW" >> .sc/qa-log/phase-{{ phase | string }}.jsonl
+
+TOTAL_FILED=$(jq -s '[.[] | .findings_filed // 0] | add // 0' .sc/qa-log/phase-{{ phase | string }}.jsonl)
+TOTAL_OUT=$(jq -s '[.[] | .findings_screened_out // 0] | add // 0' .sc/qa-log/phase-{{ phase | string }}.jsonl)
+STATS=$(bd list --all --json 2>/dev/null | jq -c --argjson findings_filed "$TOTAL_FILED" --argjson findings_screened_out "$TOTAL_OUT" --arg ph "{{ phase | string }}" --arg completed_at "$NOW" --arg completed_local "$LOCAL" --arg task "{{ task_id | string }}" '
+  [.[] | select(.metadata.phase == $ph)] as $all |
+  ([$all[] | select((.labels // []) | index("stage:finding")) | select(.metadata.sanity_finding | not)]
+   + ([$all[] | select((.labels // []) | index("stage:fix"))]
+      | group_by([.metadata.sprint_bead, .metadata.finding_ref]) | map(max_by(.metadata.round)))) as $f |
+  {snapshot_at: $completed_at, snapshot_local: $completed_local, phase: $ph, trigger_task: $task,
+   findings_filed: $findings_filed, findings_screened_out: $findings_screened_out,
+   tot: ($f | length),
+   open: ([$f[] | select(.status=="open")] | length),
+   blk: ([$f[] | select(.status=="open" and .metadata.severity=="blocking")] | length),
+   imp: ([$f[] | select(.status=="open" and .metadata.severity=="important")] | length),
+   min: ([$f[] | select(.status=="open" and .metadata.severity=="minor")] | length)}')
+printf '%s\n' "$STATS" >> .sc/qa-log/phase-{{ phase | string }}-stats.jsonl
+```
+Never commit these logs from a QA worktree.]]></step>
   </workflow>
 </atm-task>

@@ -714,7 +714,8 @@ class PlanFixRoundTests(unittest.TestCase):
         self.assertIn("fix-round-scope check --plan --carried", text)
         self.assertNotIn("Run `req-qa` and `arch-qa` as background agents", text)
         self.assertNotIn("over the whole set", text)
-        self.assertNotIn("Run `ceremony-finding-screen`", text)
+        self.assertIn("Run `ceremony-finding-screen`", text)
+        self.assertIn("If there are no findings, skip the screen", text)
         self.assertIn("files no new findings", text)
         self.assertIn("validate-plan", text)  # step b still runs
 
@@ -900,10 +901,10 @@ class QaLogContractTests(unittest.TestCase):
     """The QA metrics log is a stable contract (paths, record fields and their order); config never changes it."""
 
     ROUND_ROW = ("'{completed_at:$completed_at, completed_local:$completed_local, duration:$duration, phase:$phase, sprint:$sprint,\n"
-                 "    task:$task, pr_number:(($pr_number|tonumber?)//null), iteration:$iteration, verdict:$verdict, tested:$tested,\n"
+                 "    task:$task, kind:\"qa\", round:$iteration, findings_filed:$findings_filed, findings_screened_out:$findings_screened_out, screened_ids:$screened_ids, pr_number:(($pr_number|tonumber?)//null), iteration:$iteration, verdict:$verdict, tested:$tested,\n"
                  "    fnd:$fnd, blk:$blk, imp:$imp, min:$min}')\nprintf '%s\\n' \"$ROW\" >> .sc/qa-log/phase-d.jsonl")
     STATS_ROW = ("  {snapshot_at: $completed_at, snapshot_local: $completed_local, phase: $ph, trigger_task: $task,\n"
-                 "   tot: ($f | length),\n")
+                 "   findings_filed: $findings_filed, findings_screened_out: $findings_screened_out,\n   tot: ($f | length),\n")
 
     def test_log_paths_and_fields_are_unchanged(self):
         for example in ("qa-template-vars.json", "qa-template-fix-round-vars.json"):
@@ -916,6 +917,23 @@ class QaLogContractTests(unittest.TestCase):
                 self.assertIn(self.ROUND_ROW, step)
                 self.assertIn(self.STATS_ROW, step)
                 self.assertIn("min: ([$f[] | select(.status==\"open\" and .metadata.severity==\"minor\")] | length)}')\nprintf '%s\\n' \"$STATS\" >> .sc/qa-log/phase-d-stats.jsonl", step)
+
+    def test_qa_and_plan_review_render_screening_rows(self):
+        for template, example, kind in (("qa-template.xml.j2", "qa-template-vars.json", "qa"),
+                                        ("plan-review-template.xml.j2", "plan-review-template-vars.json", "plan-review")):
+            with self.subTest(template=template):
+                result = _render(template, _example(example))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for field in (f'kind:"{kind}"', "round:", "findings_filed:", "findings_screened_out:", "screened_ids:"):
+                    self.assertIn(field, result.stdout)
+                self.assertIn("SCREEN.UNAVAILABLE", result.stdout)
+                self.assertIn("no missing, extra, or duplicate ids", result.stdout)
+
+    def test_finding_bead_refuses_missing_screen_verdict(self):
+        values = {key: value for key, value in _example("finding-bead-vars.json").items() if key != "screen"}
+        result = _render("finding-bead.json.j2", values)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("screen", result.stderr)
 
 
 if __name__ == "__main__":
