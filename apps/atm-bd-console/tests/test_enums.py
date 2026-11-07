@@ -1,14 +1,14 @@
 import pytest
 
 from atm_bd_console.atm_source import sprint_state_of
-from atm_bd_console.enums import FAILING_CI, AgentIcon, CiState, MergeState, PrState, SprintState
+from atm_bd_console.enums import FAILING_CI, AgentIcon, CiState, MergeState, PrState, SprintState, StackReason
 from atm_bd_console.facts import agent_icon_of
 from atm_bd_console.github_source import ci_state_of, pr_state_of
 from atm_bd_console.icons import AGENT_ICONS, CI_ICONS, PR_ICONS, SPRINT_ICONS, icon
 from atm_bd_console.types import Member
 
 
-@pytest.mark.parametrize("enum", (SprintState, CiState, PrState, MergeState))
+@pytest.mark.parametrize("enum", (SprintState, CiState, PrState, MergeState, StackReason))
 def test_unknown_enum_value_is_rejected(enum):
     with pytest.raises(ValueError):
         enum("bogus")
@@ -28,6 +28,9 @@ def test_enum_members_cover_the_contract():
     }
     assert {member.value for member in PrState} == {"none", "open", "draft", "merged", "closed", "conflict", "unknown"}
     assert {member.value for member in MergeState} == {"clean", "conflict", "head not pushed", "base deleted", "error", "unknown"}
+    assert {member.value for member in StackReason} == {
+        "STACK.LEDGER_UNREAD", "STACK.MEMBERSHIP_UNREAD", "STACK.MISMATCH", "STACK.SNAPSHOT_MISSING", "STACK.TOP_INACTIVE",
+    }
 
 
 def test_icon_tables_cover_each_enum_without_cross_type_collisions():

@@ -10,10 +10,11 @@ from rich.cells import cell_len
 from atm_bd_console.agent_roles import agent_group
 from atm_bd_console.codec import from_json, to_json
 from atm_bd_console.dispatch import sprint_of
-from atm_bd_console.enums import CiState, MergeState, PrState, QaState, SprintState
+from atm_bd_console.enums import CiState, MergeState, PrState, QaState, SprintState, StackReason
 from atm_bd_console.icons import icon_for
 from atm_bd_console.model import _reconcile_problems, _sprint_views, due, qa_state_from_close, tick
-from atm_bd_console.result import CommandFailed, Err, NotFound, Ok, Timeout
+from atm_bd_console.result import CommandFailed, Err, NotFound, Ok, ParseFailed, Result, Timeout
+from atm_bd_console.stack_topology import stack_topology
 from atm_bd_console.types import (
     Bead,
     DispatchSpec,
@@ -1272,3 +1273,58 @@ def test_unlinked_newer_pr_outside_membership_is_ignored_for_the_top() -> None:
 def test_no_membership_configured_keeps_the_projection_fallback() -> None:
     snapshot = _topology_tick((LOWER, UPPER))
     assert snapshot.top_pr == 959 and snapshot.top_error is None
+
+
+@pytest.mark.parametrize("state", (PrState.MERGED, PrState.CLOSED))
+def test_inactive_lower_member_is_normal_and_the_open_top_stays_the_top(state) -> None:
+    """A landed or abandoned lower layer never fails the stack: only the last canonical member is looked up."""
+    landed = replace(LOWER, state=state)
+    snapshot = _topology_tick((landed, UPPER), stack_prs=Ok((959, 963)), stack_ledger=Ok((959, 963)))
+    assert snapshot.top_pr == 963 and snapshot.top_error is None
+    assert [(row.pr.number, row.top) for row in snapshot.prs if row.top] == [(963, True)]
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+
+
+def test_lower_member_absent_from_the_snapshot_does_not_fail_the_stack() -> None:
+    snapshot = _topology_tick((UPPER,), stack_prs=Ok((959, 963)), stack_ledger=Ok((959, 963)))
+    assert snapshot.top_pr == 963 and snapshot.top_error is None
+
+
+@pytest.mark.parametrize("state", (PrState.MERGED, PrState.CLOSED))
+def test_inactive_top_is_no_top_with_the_top_inactive_reason(state) -> None:
+    """A merged or closed top is a distinct reason from a top the snapshot never carried."""
+    landed_top = replace(UPPER, state=state)
+    snapshot = _topology_tick((LOWER, landed_top), stack_prs=Ok((959, 963)), stack_ledger=Ok((959, 963)))
+    assert snapshot.top_pr is None and not any(row.top for row in snapshot.prs)
+    assert isinstance(snapshot.top_error, ParseFailed)
+    assert snapshot.top_error.source == StackReason.TOP_INACTIVE
+    assert "963" in snapshot.top_error.message and state.value in snapshot.top_error.message
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+
+
+def test_absent_top_is_snapshot_missing_and_names_only_the_top() -> None:
+    snapshot = _topology_tick((LOWER,), stack_prs=Ok((959, 963)), stack_ledger=Ok((959, 963)))
+    assert snapshot.top_pr is None and isinstance(snapshot.top_error, NotFound)
+    assert snapshot.top_error.what.startswith(f"{StackReason.SNAPSHOT_MISSING}:")
+    assert "963" in snapshot.top_error.what and "959" not in snapshot.top_error.what
+
+
+def test_stack_topology_reasons_are_the_stack_reason_enum() -> None:
+    """The pure function's every no-top reason is a StackReason member, never a free-form label."""
+    members: Result[tuple[int, ...]] = Ok((959, 963))
+    shorter: Result[tuple[int, ...]] = Ok((959,))
+    merged_top = replace(UPPER, state=PrState.MERGED)
+    cases = {
+        StackReason.LEDGER_UNREAD: stack_topology((LOWER, UPPER), members, None),
+        StackReason.MEMBERSHIP_UNREAD: stack_topology((LOWER, UPPER), None, members),
+        StackReason.MISMATCH: stack_topology((LOWER, UPPER), members, shorter),
+        StackReason.SNAPSHOT_MISSING: stack_topology((LOWER,), members, members),
+        StackReason.TOP_INACTIVE: stack_topology((LOWER, merged_top), members, members),
+    }
+    for reason, result in cases.items():
+        assert isinstance(result, Err), reason
+        error = result.error
+        assert isinstance(error, (ParseFailed, NotFound)), reason
+        label = error.source if isinstance(error, ParseFailed) else error.what.split(":", 1)[0]
+        assert StackReason(label) is reason
+    assert stack_topology((replace(LOWER, state=PrState.MERGED), UPPER), members, members) == Ok(UPPER)

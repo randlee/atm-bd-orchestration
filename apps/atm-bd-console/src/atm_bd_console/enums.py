@@ -60,6 +60,15 @@ class PrState(StrEnum):
     UNKNOWN = "unknown"
 
 
+class StackReason(StrEnum):
+    """Why the canonical stack has no top; every `stack_topology` error carries one of these, never a free-form label."""
+    LEDGER_UNREAD = "STACK.LEDGER_UNREAD"
+    MEMBERSHIP_UNREAD = "STACK.MEMBERSHIP_UNREAD"
+    MISMATCH = "STACK.MISMATCH"
+    SNAPSHOT_MISSING = "STACK.SNAPSHOT_MISSING"
+    TOP_INACTIVE = "STACK.TOP_INACTIVE"
+
+
 class MergeState(StrEnum):
     CLEAN = "clean"
     CONFLICT = "conflict"
