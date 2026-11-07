@@ -1,7 +1,7 @@
 """The sc-compose CLI and the wheel the scripts run with are one version, in the manifest's supported range.
 
-It runs in CI too, which installs the floor (SC_COMPOSE_VERSION in .github/workflows/tests.yml), so the floor stays
-tested; locally it checks whatever newer release is installed. A new upstream release does not fail it.
+It runs in CI too, which installs the newest release (SC_COMPOSE_VERSION in .github/workflows/tests.yml, the version the
+script runtime resolves); locally it checks the installed release. A new upstream release fails it until the pin moves.
 """
 from __future__ import annotations
 
