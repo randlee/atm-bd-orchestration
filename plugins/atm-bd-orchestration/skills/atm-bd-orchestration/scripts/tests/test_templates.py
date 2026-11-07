@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from subprocess_helpers import run_command
 from rendering import render
@@ -935,6 +936,19 @@ class QaLogContractTests(unittest.TestCase):
         result = _render("finding-bead.json.j2", values)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("screen", result.stderr)
+
+    def test_filed_findings_without_a_screen_file_cannot_be_logged_as_zero(self):
+        """A round that filed findings but saved no screen result refuses SCREEN.UNAVAILABLE; it never logs findings_filed 0."""
+        from test_qa_report_contract import _concrete, _finding, _produce, _step_j   # the step j runner lives with its consumer
+        blocking = {"sprint": "p-d-4", "round": 1, "filed_by": "p-d-4-qa1", "found_at_commit": "abc1234",
+                    "findings": [{"ref": "qa1-f1", "severity": "blocking", "reviewer": "r", "title": "t", "remedy": "m", "priority": 1}]}
+        for name, findings, blk in (("finding-beads", [_finding(1, "important", "keep")], None), ("blocking-only", None, blocking)):
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(subprocess.CalledProcessError) as error:
+                    _produce(_step_j(_concrete(_example("qa-template-vars.json"))), Path(tmp), findings, blocking=blk)
+                self.assertIn("SCREEN.UNAVAILABLE", error.exception.stderr)
+                self.assertIn("screen did not run", error.exception.stderr)
+                self.assertFalse((Path(tmp) / ".sc/qa-log/phase-d.jsonl").exists())
 
 
 if __name__ == "__main__":

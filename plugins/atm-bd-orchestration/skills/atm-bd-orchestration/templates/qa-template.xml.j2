@@ -1,6 +1,6 @@
 ---
 name: qa-task
-version: 4.18.0
+version: 4.19.0
 description: lead QA assignment for quality-mgr in atm-bd-orchestration. task_id is the QA bead. Reviews one layer at a pinned commit and closes the QA bead whatever the verdict; nothing waits on it.
 format: xml
 required_variables:
@@ -105,17 +105,27 @@ DURATION="$((SECS/60))m$(printf '%02d' $((SECS%60)))s"
 
 FNDFILE=<scratch>/{{ task_id | string | cdata_escape }}-findings.jsonl
 BLKFILE=<scratch>/{{ task_id | string | cdata_escape }}-blocking.json
-BLK=$( [ -f "$BLKFILE" ] && jq '.findings | length' "$BLKFILE" || echo 0 )
+BLK=$( [ -f "$BLKFILE" ] && jq '[.findings[] | select(.screen != "ceremony")] | length' "$BLKFILE" || echo 0 )
 IMP=$( [ -f "$FNDFILE" ] && jq -sc '[.[] | select(.metadata.screen!="ceremony" and .metadata.severity=="important")] | length' "$FNDFILE" || echo 0 )
 MIN=$( [ -f "$FNDFILE" ] && jq -sc '[.[] | select(.metadata.screen!="ceremony" and .metadata.severity=="minor")] | length' "$FNDFILE" || echo 0 )
 FND=$((BLK + IMP + MIN))
 SCREENFILE=<scratch>/{{ task_id | string | cdata_escape }}-screen.json
+{% if fix_round %}SCREENED='[]'   # fix verification files no new findings and runs no screen: findings_filed 0/0 displays n/a
+{% else %}# Every finding this round filed, ceremony verdicts included: finding beads by reviewer id (metadata.finding_ref) plus every poured blocking finding.
+FILED_REFS=$( [ -s "$FNDFILE" ] && jq -sc '[.[].metadata.finding_ref] | unique' "$FNDFILE" || echo '[]' )
+FILED_N=$(( $(printf '%s' "$FILED_REFS" | jq 'length') + $( [ -f "$BLKFILE" ] && jq '.findings | length' "$BLKFILE" || echo 0 ) ))
 if [ -f "$SCREENFILE" ]; then
   SCREENED=$(jq -ec 'select(.success == true) | .data.screened | select(type == "array") | select(all(.[]; (.id | type == "string" and length > 0) and (.verdict == "keep" or .verdict == "not_applicable" or .verdict == "ceremony" or .verdict == "concern_valid_remedy_ceremony")))' "$SCREENFILE") || { echo "SCREEN.UNAVAILABLE: invalid screen result $SCREENFILE" >&2; exit 1; }
+elif [ "$FILED_N" -gt 0 ]; then
+  echo "SCREEN.UNAVAILABLE: $FILED_N findings were filed ($FILED_REFS plus the blocking file) but $SCREENFILE is absent: the screen did not run; refuse the round (step i1), never log findings_filed 0" >&2; exit 1
 else
   SCREENED='[]'
 fi
-FILED=$(printf '%s' "$SCREENED" | jq 'length')
+# The screen covered exactly the filed findings: one unique verdict per filed finding, every finding bead's reviewer id among them.
+SCREENED_IDS=$(printf '%s' "$SCREENED" | jq -c '[.[].id]')
+jq -en --argjson s "$SCREENED_IDS" --argjson f "$FILED_REFS" --argjson n "$FILED_N" '($s | length) == $n and ($s | unique | length) == $n and ($f - $s) == []' >/dev/null \
+  || { echo "SCREEN.UNAVAILABLE: screened ids $SCREENED_IDS differ from the $FILED_N filed finding ids ($FILED_REFS plus the blocking file)" >&2; exit 1; }
+{% endif %}FILED=$(printf '%s' "$SCREENED" | jq 'length')
 OUT=$(printf '%s' "$SCREENED" | jq '[.[] | select(.verdict == "ceremony")] | length')
 IDS=$(printf '%s' "$SCREENED" | jq -c '[.[] | select(.verdict == "ceremony") | .id]')
 TESTED="{% if carry_forward %}{{ carry_forward | string | cdata_escape }}{% else %}{{ checked_bead | string | cdata_escape }}{% endif %}"
