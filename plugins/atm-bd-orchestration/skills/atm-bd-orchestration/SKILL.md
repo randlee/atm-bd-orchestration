@@ -14,7 +14,6 @@ depends_on:
   atm-beads: 0.x
   sc-gh-stack: 0.x
   quality-mgr: 0.x
-  ceremony-finding-screen: 0.x
 ---
 
 # ATM Bead Orchestration
@@ -248,7 +247,7 @@ on every restack and show up as out-of-scope work in that sprint's PR.
    skips the sanity-PASS check a quick fix has no sanity for, and `pr_target`,
    which its PR base must descend from). No PR merges without QA. A failed
    quick-fix QA pours nothing and lists its blocking findings in the close's
-   `findings_md`; the lead files each as a finding bead (`finding-bead.json.j2`,
+   `findings_md`; The screen ran in quality-mgr’s round: copy each finding’s recorded `screen` verdict from the close; a close missing any verdict is not pourable, return it to quality-mgr as a refused round with `SCREEN.UNAVAILABLE`. The lead files each as a finding bead (`finding-bead.json.j2`,
    `qa_bead` = the quick-fix QA bead) and dispatches it to an idle roster agent
    (the finder when idle) with the phase's `templates.fix` on the same fix branch when
    nothing is linked above it, else on a new layer cut from the stack's
@@ -302,7 +301,7 @@ No dev bead is dispatched until the plan passes review.
    from the repository root; its header lists what it checks. Exit 0 or stop.
 
 3. Dispatch it with
-   `templates.plan_review` from the phase file.
+   `templates.plan_review` from the phase file. Every round that reports findings screens all of them before routing; an unavailable screen refuses the round with `SCREEN.UNAVAILABLE` and the agent error.
    - PASS closes the bead and releases the root sprints. With minor
      findings, it is handed to you open; you fix them and close it.
    - FAIL leaves it open. The author fixes the beads with `bd update`; you
@@ -373,8 +372,8 @@ Then, on each task close:
 | qa-complete | nothing: quality-mgr poured a fix group under the sprint per blocking finding (round n+1 for a failed fix verification) and filed the rest as finding beads before it closed the QA bead; the fix beads are now ready. A failed quick-fix QA (`metadata.quick_fix`) poured none: file and dispatch its blocking findings (Parallel Quick Fix step 4). When no step is open under the sprint, close it (below) |
 | fix-complete (`fixed`) | verify the dev's PR and record it on the fix bead (`bd update <bead> --append-notes "layer PR #<n> <url>"`); sanity links after its PASS close hook. For a poured fix bead or an important or minor finding bead, nothing more: the group's sanity check is now ready. For a quick-fix finding, once every finding from that failed QA has closed, one more quick-fix QA bead (Parallel Quick Fix step 4) |
 | stack notice `rebase_required` (from sanity-stack-link), or a QA `SANITY_STALE` refusal after a rebase | before the next `bd ready` dispatch: the re-check sanity bead (Stack Discipline). Dispatch no new dev bead while one is pending: `stack-top` sees only linked layers, so a new sprint would fork below the unlinked layer |
-| review-complete | file each finding with `finding-bead.json.j2` (`qa_bead` = the review bead) |
-| task-refused | read the reason and the bead state (`open`, or `blocked-failed` for a dev bead that declared failure). Reassign it only once `bd ready` lists the bead (a blocker refusal: as the not-ready or blocker row), split it, or close the bead yourself with `bd close <bead> --force --reason "<why>"`. A `blocked` bead is never in `bd ready`: run `bd update <bead> --status open --assignee <new agent>` before you re-dispatch it. A sanity refusal for no PR, not stacked or not rebased is yours as stack writer (Stack Discipline). `REVIEW_PENDING_JEV`: file each code finding in its notes with `finding-bead.json.j2` (`qa_bead` = the review bead) and re-dispatch the review only after the Jev outage clears, with the prior `post_mortem_jev` run IDs in its notes so they are reused |
+| review-complete | file each finding with `finding-bead.json.j2` (`qa_bead` = the review bead). The screen ran in quality-mgr’s round: copy each finding’s recorded `screen` verdict from the close; a close missing any verdict is not pourable, return it to quality-mgr as a refused round with `SCREEN.UNAVAILABLE`. |
+| task-refused | read the reason and the bead state (`open`, or `blocked-failed` for a dev bead that declared failure). Reassign it only once `bd ready` lists the bead (a blocker refusal: as the not-ready or blocker row), split it, or close the bead yourself with `bd close <bead> --force --reason "<why>"`. A `blocked` bead is never in `bd ready`: run `bd update <bead> --status open --assignee <new agent>` before you re-dispatch it. A sanity refusal for no PR, not stacked or not rebased is yours as stack writer (Stack Discipline). `REVIEW_PENDING_JEV`: file each code finding in its notes with `finding-bead.json.j2` (`qa_bead` = the review bead). The screen ran in quality-mgr’s round: copy each finding’s recorded `screen` verdict from the close; a close missing any verdict is not pourable, return it to quality-mgr as a refused round with `SCREEN.UNAVAILABLE`. Re-dispatch the review only after the Jev outage clears, with the prior `post_mortem_jev` run IDs in its notes so they are reused |
 | fix-complete (`not_reproducible`) | no commit, no sanity check; the finding is closed. For a poured fix bead or an important or minor finding bead, close its group's sanity bead, then its QA bead, each with `bd close <bead> --reason "not_reproducible: <fix bead>"`. For a quick-fix finding, as for `fixed` |
 | assignee stopped on an active task (it acts as if pair-programming: states what it will do next and waits for a user who does not exist; a turn ending on a promise of future work, status-only replies to reminders, `lead_notified` mail, or an atm-bd `task_stalled` row) | the lead gets it running again on the first sign, never waiting for the reminder budget: `atm send <assignee>` "Create a checklist for all deliverables for this task, outside the worktree's tracked tree (an untracked file in the worktree fails the dev-sanity clean-worktree check). Go through the checklist one item at a time and complete the task, marking the task complete AFTER you verify that the task is done and tests pass. Follow the task complete process, closing bd and notifying the task assigner when all deliverables are complete." |
 | assignee silent past the re-nudge | announce it as in Lead Role, then `bd update <bead> --status open --assignee <new agent>` and re-assign the same task id with the same template and vars: `atm task assign <new agent> --task-id <same id> --template <same> --vars <same>` |
@@ -438,7 +437,7 @@ On review-complete, file each finding with `finding-bead.json.j2`. A lead-filed 
   stack layer, and `bead-groups` refuses anything else (omit it and put free
   text in the description);
 - `found_at_commit` = the reviewed commit;
-- `screen` = `keep`, unless you ran `ceremony-finding-screen` over them;
+- `screen` = the verdict returned by `ceremony-finding-screen` for each finding; screen every finding before rendering; if the screen cannot run, refuse the round with `SCREEN.UNAVAILABLE` and its error;
 - `finding_ref` = the reviewer's numbering (`R-1`, `R-2`, …);
 - `sprint_bead`, `requirements` and `adrs` = the cited dev bead's id and
   lists. For a finding that spans sprints, use the root as `sprint_bead`. For

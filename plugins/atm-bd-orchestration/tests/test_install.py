@@ -1026,16 +1026,28 @@ def test_missing_reviewer_agent_fails(tmp_path, capsys):
     repo = make_repo(tmp_path, agents=("quality-mgr", "req-qa"))
     rc, err = run(repo, *QA, capsys=capsys)
     assert rc == 1
-    assert "no .claude/agents/<name>.md for: arch-qa (reviewers_round1)" in err
+    assert "INSTALL.AGENT_MISSING" in err and ".claude/agents/arch-qa.md" in err
     assert "dev_sanity_member" not in err
+    assert not (repo / ".claude/skills").exists()
+
+
+@needs_sc_compose
+def test_missing_host_quality_manager_is_refused_even_with_alternate_qa_member(tmp_path, capsys):
+    repo = make_repo(tmp_path, agents=("req-qa", "arch-qa", "ruthless-boundary-qa"))
+    rc, err = run(repo, "--set", "qa_member=req-qa", capsys=capsys)
+    assert rc == 1
+    assert "INSTALL.AGENT_MISSING" in err and ".claude/agents/quality-mgr.md" in err
+    assert "atm-core" in err and "config" in err
     assert not (repo / ".claude/skills").exists()
 
 
 @needs_sc_compose
 def test_agent_shipped_by_the_package_counts(tmp_path, capsys):
     repo = make_repo(tmp_path, agents=("quality-mgr", "req-qa", "arch-qa", "ruthless-boundary-qa"))
+    assert not (repo / ".claude/agents/ceremony-finding-screen.md").exists()
     rc, err = run(repo, *QA, "--set", "dev_sanity_member=dev-sanity", capsys=capsys)
     assert rc == 0, err
+    assert (repo / ".claude/agents/ceremony-finding-screen.md").read_bytes() == (PKG / "agents/ceremony-finding-screen.md").read_bytes()
 
 
 @needs_sc_compose
