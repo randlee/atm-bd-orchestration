@@ -22,14 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      SC_COMPOSE_VERSION: "1.7.0"
-      SC_COMPOSE_SHA256: 5e2ffeb47072b26c47a44bfcc0d7068d0dfb8d5742feecc309fc535dab2e1c84
+      SC_COMPOSE_VERSION: "1.8.0"
+      SC_COMPOSE_SHA256: a12a16259c1cab58c4c611320653e442fe3440c2a15cce0ba617ad77d145809a
       UV_TOOL_DIR: ${{ github.workspace }}/../console-tools
       UV_TOOL_BIN_DIR: ${{ github.workspace }}/../console-bin
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11"]   # sc-compose 1.7.0 ships cp311 wheels only
+        python-version: ["3.11"]   # the host python the installer requires (sc-compose 1.8.0 ships cp39-abi3 wheels)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,14 +92,14 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            sha256: 5e2ffeb47072b26c47a44bfcc0d7068d0dfb8d5742feecc309fc535dab2e1c84
+            sha256: a12a16259c1cab58c4c611320653e442fe3440c2a15cce0ba617ad77d145809a
           - os: macos-latest
             target: aarch64-apple-darwin
-            sha256: d7590a41921bef5a428bcbd33dda48006c6f6df5eafa83217cb820240fe6544b
+            sha256: c7b03453d357f36997b27467b02cfe6124713ca1ee9344175c31f8e0dc5f5408
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
-      SC_COMPOSE_VERSION: "1.7.0"
+      SC_COMPOSE_VERSION: "1.8.0"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -107,7 +107,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"   # sc-compose publishes cp311 wheels
+          python-version: "3.11"   # the host python the installer requires
 
       - uses: astral-sh/setup-uv@v5
 
@@ -118,7 +118,7 @@ jobs:
         run: just warm-py311
 
       # The scripts render with the sc-compose wheel; it is the same version as the CLI below
-      # (the floor of the `sc-compose >=` range in plugins/atm-bd-orchestration/manifest.yaml, so the floor stays tested).
+      # (the newest release, the version `uv run --script` resolves for the `sc-compose >=` range in plugins/atm-bd-orchestration/manifest.yaml).
       - name: Install Python test dependencies
         run: python3 -m pip install pytest pydantic pyyaml "sc-compose==${SC_COMPOSE_VERSION}" "sc-sha>=1.7.0,<2"
 
