@@ -186,7 +186,7 @@ background subagent, with `metadata.model_class` set where it differs from the
 sprint's. The split sprint's own dev is a frontier-class agent (its `model_class`
 says so) that runs each child with a background subagent, merges every
 result into its own worktree, and closes every child before closing its own bead;
-the lead never dispatches them.
+the lead never dispatches them. The dev close hook refuses `CLOSE.OPEN_SUBTASKS` while any child is open, stamps `metadata.commit` on every child at the closing head, and assigns one sanity per child; the sprint's own sanity is assigned once, after the last child sanity passes. QA sees every child through the `children` variable.
 
 `requirements` and `adrs` are never left empty. The dev reads each listed id
 before coding, QA checks the change against each one, and plan review

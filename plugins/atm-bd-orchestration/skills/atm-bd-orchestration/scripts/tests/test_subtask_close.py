@@ -85,6 +85,8 @@ def test_qa_template_carries_each_childs_deliverables(world):
     from task_close_world import SCRIPTS, hook
     values = json.loads((SCRIPTS.parent / "examples/qa-template-vars.json").read_text())
     path = SCRIPTS.parent / "templates/qa-template.xml.j2"
-    assert "<subtasks>" not in hook.sc_render.render(path, values)
+    assert "<subtasks>" not in hook.sc_render.render(path, {**values, "children": []})
     split = hook.sc_render.render(path, {**values, "children": CHILDREN})
     assert "<subtasks>" in split and "atm-bj-1.sub-2: wiring\n1. wire it" in split
+    shipped = hook.sc_render.render(path, values)
+    assert "sub-1: OTLP exporter transport\n1. transport sends" in shipped and "sub-2: OTLP exporter batching" in shipped

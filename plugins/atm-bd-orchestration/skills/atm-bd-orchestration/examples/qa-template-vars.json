@@ -12,6 +12,10 @@
   "base": "sprint/d-3-otlp-config",
   "worktree_path": "{{ worktree_base }}/sprint/d-4-otlp-sync-exporter",
   "pr_number": 231,
+  "children": [
+    {"id": "{{ bead_prefix }}-d-4.sub-1", "title": "OTLP exporter transport", "deliverables": "1. transport sends spans over OTLP/HTTP"},
+    {"id": "{{ bead_prefix }}-d-4.sub-2", "title": "OTLP exporter batching", "deliverables": "1. spans are batched before send"}
+  ],
   "policy_path": ".claude/project/quality-policy.md",
   "reviewers_round1": [
     "req-qa",

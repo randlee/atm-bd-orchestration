@@ -61,6 +61,21 @@ The dev agent may instead declare failure, with the reason the work cannot be
 completed. It sets the bead `blocked` with a `DEV_CANNOT_COMPLETE` note and does not close
 it: a closed dev bead would release its sanity check.
 
+### Sprints Split Into Subtasks
+
+A sprint with `stage:subtask` children is dispatched like any other: one dev
+task, with `children` (from `bd children <container> --json`, filtered on
+`stage:subtask`) in the dev template vars, `[]` when none. The dev runs each
+child with a background subagent, merges every result into the one worktree,
+branch and PR, and `bd close`s each child before its own close. The dev close
+refuses `CLOSE.OPEN_SUBTASKS` while one is open, then stamps the closing commit
+on every child and assigns each child's sanity. Sanity runs once per bead: the
+sprint's own sanity is assigned once, when the last child sanity passes (either
+order; a replay assigns nothing). A child sanity FAIL reopens the child and the
+sprint's dev bead and re-assigns the dev task, never the child alone; the
+re-close assigns only the reopened children's sanities. QA receives every child
+and its deliverables.
+
 ## QA And Findings
 
 Nothing waits on QA. A dev bead is released by its prerequisites'
