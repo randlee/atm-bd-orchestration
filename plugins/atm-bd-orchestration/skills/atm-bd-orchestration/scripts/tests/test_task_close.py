@@ -811,6 +811,12 @@ def test_metadata_update_preserves_concurrent_keys_and_writes_fail_counter_atomi
 @pytest.mark.parametrize("role,verdict", [("dev", "PASS"), ("fix", "PASS"), ("sanity", "PASS"),
                                           ("sanity", "FAIL"), ("sanity", "CANNOT_RUN"), ("qa", "PASS")])
 def test_replay_state_is_snapshotted_before_writes(world, role, verdict):
+    """Decision reads snapshot replay inputs before the first write.
+
+    Postcondition reads verify applied bead/sanity state; fence reads reject
+    reassignment during writes. Those two read classes stay after writes,
+    in the exact sequence below; no further decision read is permitted.
+    """
     assert "ok" in world.run(role, verdict=verdict, undone=[{"number": 1, "reason": "missing"}])
     calls = [argv for argv, _ in world.calls if not cache_call(argv)]  # the drain's own reads apply the write
     first_write = next(index for index, argv in enumerate(calls) if argv[:2] in (["bd", "update"], ["bd", "close"], ["atm", "send"]) or argv[:3] in (["atm", "task", "assign"], ["atm", "task", "close"]))
