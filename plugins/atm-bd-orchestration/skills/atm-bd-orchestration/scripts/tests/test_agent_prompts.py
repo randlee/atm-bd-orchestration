@@ -9,7 +9,8 @@ EXAMPLES = AGENTS.parent / "skills/atm-bd-orchestration/examples"
 
 
 def render_qa_template(example: str) -> str:
-    command = ["sc-compose", "render", "--strict", "--file", str(TEMPLATE), "--var-file", str(EXAMPLES / example)]
+    command = ["sc-compose", "render", "--strict", "--root", str(AGENTS.parent),
+               "--file", str(TEMPLATE), "--var-file", str(EXAMPLES / example)]
     return run_command(command, capture_output=True, text=True, check=True).stdout
 
 
