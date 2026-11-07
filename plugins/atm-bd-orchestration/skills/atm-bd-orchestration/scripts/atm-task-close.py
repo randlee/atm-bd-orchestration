@@ -634,29 +634,27 @@ class Hook:
             raise CloseError("BASE.PR_UNVERIFIED", f"{prefix}{base} is not a verified ancestor of {head}", fix)
 
     def resolve_nr_base(self, *, skip_checks=False):
+        """Anchor a not-reproducible sanity dispatch with the shared linked-layer rule: a frozen layer keeps its recorded predecessor."""
         values = self.values
-        layers = []
-        if values.get("stack_bead"):
-            layers = [layer for layer in ((self.bead(values["stack_bead"]).get("metadata") or {}).get("layers") or [])
-                      if layer.get("linked") is True]
-        index = next((i for i, layer in enumerate(layers) if layer.get("branch") == self.checked_worktree_branch), None)
-        source = "ledger" if index is not None else "pr_target"
-        if index is not None and layers[index].get("head") != self.checked_worktree_head:
-            raise CloseError("BASE.PR_UNVERIFIED", f"linked branch {self.checked_worktree_branch} has a different ledger head than {self.checked_worktree_head}",
-                             pr_unverified_fix(values["checked_bead"], linked=True) + "Ask the lead to inspect the frozen ledger entry; do not rebase it.")
-        if index is not None and index > 0:
-            sha = layers[index - 1].get("head")
-        else:
-            branch = ((self.bead(values["stack_bead"]).get("metadata") or {}).get("trunk")
-                      if index is not None else values.get("pr_target"))
-            ref = f"origin/{branch}"
+        bead, branch, head = values["checked_bead"], self.checked_worktree_branch, self.checked_worktree_head
+        metadata = (self.bead(values["stack_bead"]).get("metadata") or {}) if values.get("stack_bead") else {}
+
+        def resolve_head(name, *, linked=True):
+            ref = f"origin/{name}"
             result = self.run(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], git=True, check=False)
             if result.returncode:
-                raise CloseError("BASE.PR_UNVERIFIED", f"cannot resolve {ref} for checked head {self.checked_worktree_head}",
-                                 pr_unverified_fix(values["checked_bead"]) + "Fetch the correct base commit and ask the dispatcher to retry.")
-            sha = result.stdout.strip()
-        self.verify_sanity_base(sha, self.checked_worktree_head)
-        values.update(rebased_onto=sha, base_source=source, nr=True, base_verified=not skip_checks)
+                raise CloseError("BASE.PR_UNVERIFIED", f"cannot resolve {ref} for checked head {head}",
+                                 pr_unverified_fix(bead, linked=linked) + "Fetch the correct base commit and ask the dispatcher to retry.")
+            return result.stdout.strip()
+
+        (anchor, sha), linked = linked_base_anchor(metadata, branch, head, (values.get("pr_target"), ""), resolve_head)
+        if not linked:
+            sha = resolve_head(anchor, linked=False)
+        fix = pr_unverified_fix(bead, linked=linked) + (
+            "Ask the lead to inspect the frozen ledger entry; do not rebase it." if linked
+            else "Run `git fetch origin`, then ask the dispatcher to select a full 40-hex ancestor base and rerun the sanity assignment.")
+        self.verify_sanity_base(sha, head, fix=fix, detail=f"{bead} ledger predecessor {anchor}" if linked else "")
+        values.update(rebased_onto=sha, base_source="ledger" if linked else "pr_target", nr=True, base_verified=not skip_checks)
 
     def render(self, template, values=None):
         try:
