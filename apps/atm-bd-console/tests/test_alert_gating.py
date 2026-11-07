@@ -241,3 +241,28 @@ def test_each_outbound_stack_notice_contains_its_bead_id(ledger, hosted, expecte
     assert "atm-phase-bk.stack" in batches[0].text
     assert expected in batches[0].text
     assert "Fix:" in batches[0].text
+
+
+def _member_outside_projection(top_ci: CiState, lower_ci: CiState):
+    value = make_phase(step("atm-bk-1", "atm-bk-1", layer=1, branch="sprint/bk-1", target="main"),
+                       sprints=(sprint(1),))
+    prs = (pr(959, "sprint/bk-1", "main", ci=lower_ci),
+           pr(963, "outside/963", "sprint/bk-1", ci=top_ci))
+    remotes = Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs))
+    snapshot, actions, _ = tick(inputs(value, prs=Ok(prs), remotes=remotes,
+                                       stack_prs=Ok((959, 963)), stack_ledger=Ok((959, 963))),
+                                STATE, NOW, render)
+    return snapshot, actions
+
+
+def test_failing_non_top_member_sends_no_ci_alert_when_the_top_passes() -> None:
+    snapshot, actions = _member_outside_projection(CiState.PASS, CiState.FAIL_WINDOWS)
+    assert snapshot.top_pr == 963
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    assert not any("CI failed" in action.text for action in actions)
+
+
+def test_failing_canonical_top_sends_the_ci_alert() -> None:
+    snapshot, _ = _member_outside_projection(CiState.FAIL_BUG, CiState.PASS)
+    assert snapshot.top_pr == 963
+    assert [problem.key for problem in snapshot.problems if problem.key.startswith("top_ci:")] == ["top_ci:sha963"]

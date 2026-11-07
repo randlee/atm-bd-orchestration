@@ -52,7 +52,7 @@ TEST_REVIEWER = "test-reviewer"
 ALLOW_EMPTY = {"stack_trunk", "stack_repo"}  # an unconfigured optional config block
 OPTIONAL_ADDITIONS = {"agent_type", "model", "harness", "qa_state", "close_reason", "severity", "qa_row", "checked_row", "assignee", "code_checkout", "stack_ledger",
                       "template", "core_remaining", "core_limit", "core_reset", "graphql_remaining", "graphql_limit",
-                      "graphql_reset", "quota_at", "stack_prs", "stack_trunk", "stack_number", "stack_repo"}
+                      "graphql_reset", "quota_at", "stack_prs", "stack_trunk", "stack_number", "stack_repo", "top_error"}
 
 
 def test_old_console_state_without_consumed_github_timestamp_decodes() -> None:

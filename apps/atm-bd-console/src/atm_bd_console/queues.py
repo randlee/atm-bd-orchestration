@@ -10,9 +10,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import atm_bd, command, config
+from . import atm_bd, command, config, state
 from .log import error_message
-from .result import CommandFailed, Err, Timeout
+from .paths import console_config_path
+from .result import CommandFailed, Err, Ok, ParseFailed, Result, Timeout
+from .stack_source import read_stack_ledger
+from .stack_topology import fresh_prs, stack_topology
+from .types import PullRequest
 
 SCHEMA = "atm-bd-orchestration/bead-queues/v1"
 FAILED = 2
@@ -283,20 +287,37 @@ def build(args, repo_root: Path, *, now: datetime | None = None, runner=command.
             add("ready_other", bead, since)
 
     stack_note = "not checked (--stack reads it)"
+    topology: Result[PullRequest | None] | None = None
     if args.stack:
         if not integration_branch:
             stack_note = "no integration_branch: stack not checked"
         else:
-            metas = [_meta(bead) for bead in beads]
-            layered = sorted((meta["layer"], meta["branch"]) for meta in metas
-                             if isinstance(meta.get("layer"), int) and not isinstance(meta["layer"], bool)
-                             and isinstance(meta.get("branch"), str) and meta["branch"])
-            layers = tuple(dict.fromkeys(branch for _, branch in layered))
-            stack_note = stacks(str(integration_branch), queues, now, code_root, runner, layers)
+            loaded = state.load_prs(repo_root, root)
+            settings = console_config_path(repo_root)
+            interval = 60
+            try:
+                values = tomllib.loads(settings.read_text(encoding="utf-8")) if settings.exists() else {}
+                interval = values.get("console", {}).get("interval", 60)
+                if type(interval) is not int or interval < 10:
+                    raise ValueError("console.interval must be an integer of at least 10 seconds")
+            except (OSError, UnicodeError, ValueError, AttributeError) as error:
+                loaded = Err(ParseFailed("parse_failed", "PRS.UNREADABLE", str(error), "repair console.toml and run the console tick"))
+                interval = 60
+            cached = fresh_prs(loaded, now, interval)
+            ledger = read_stack_ledger(root, runner=runner, cwd=str(repo_root))
+            topology = ledger if isinstance(ledger, Err) else cached if isinstance(cached, Err) else stack_topology(
+                cached.value.prs, Ok(cached.value.stack_prs) if cached.value.stack_prs is not None else None, ledger)
+            layers = ()
+            if isinstance(cached, Ok) and isinstance(topology, Ok):
+                by_number = {pr.number: pr for pr in cached.value.prs}
+                layers = tuple(by_number[number].head for number in cached.value.stack_prs or () if number in by_number)
+            stack_note = stacks(str(integration_branch), queues, now, code_root, runner, layers, topology=topology)
     for rows in queues.values():
         rows.sort(key=lambda row: (row["priority"] if row["priority"] is not None else 9, row["id"]))
     return {"schema": SCHEMA, "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "root": root,
-            "integration_branch": integration_branch, "stack": stack_note, "queues": queues}
+            "integration_branch": integration_branch, "stack": stack_note, "queues": queues,
+            "stack_top": topology.value.number if isinstance(topology, Ok) and topology.value else None,
+            "stack_error": asdict(topology.error) if isinstance(topology, Err) else None}
 
 
 def _worktrees(repo_root: Path, runner=command.run) -> dict[str, str]:
@@ -389,7 +410,7 @@ def _stack_row(row_id: str, title: str, detail: str, now: datetime) -> dict[str,
 
 
 def stacks(trunk: str, queues: dict[str, list[dict[str, Any]]], now: datetime, repo_root: Path, runner=command.run,
-           layers: tuple[str, ...] = ()) -> str:
+           layers: tuple[str, ...] = (), *, topology: Result[PullRequest | None] | None = None) -> str:
     """One stack check: one `gh stack view --json`, or the local read-only fallback, producing at most one queue row."""
     paths = _worktrees(repo_root, runner)
     view, reasons = _stack_view(trunk, list(reversed(layers)), paths, runner)
@@ -404,7 +425,14 @@ def stacks(trunk: str, queues: dict[str, list[dict[str, Any]]], now: datetime, r
         queues["stack_incoherent"].append(_stack_row(f"stack:{trunk}:gh-unavailable", f"stack on {trunk} (degraded)", degraded, now))
     if issues:
         queues["stack_incoherent"].append(_stack_row(f"stack:{trunk}", f"stack on {trunk}", "; ".join(issues), now))
-    return f"{len(issues)} stack issue(s) on {trunk} ({source})"
+    note = f"{len(issues)} stack issue(s) on {trunk} ({source})"
+    if isinstance(topology, Err):
+        reason = error_message(asdict(topology.error))
+        queues["stack_incoherent"].append(_stack_row(f"stack:{trunk}:top-unknown", f"stack on {trunk}: no top", reason, now))
+        note += f"; no top: {reason}"
+    elif isinstance(topology, Ok):
+        note += f"; top PR #{topology.value.number}" if topology.value else "; no top (empty stack)"
+    return note
 
 
 def cron(report: dict[str, Any], state_file: Path, min_age: int, *, now: datetime | None = None) -> dict[str, Any] | None:

@@ -22,6 +22,7 @@
 ### Fixed
 - Package CI now collects the skill script and atm-beads test suites, and the installer regression test asserts its current `uv tool install atm-bd --python 3.11` recovery command (#904).
 - QA template prompt tests pin sc-compose to the package root, so they render from both the scripts directory and package root (#932).
+- Console and `atm-bd queues --stack` choose the stack top from the canonical membership (the last member, read from the raw PR snapshot) through one shared function, never a lower frozen PR; a top that cannot be known (unread or disagreeing ledger/membership, member absent from the snapshot, missing/unreadable/stale `prs.json` as `PRS.MISSING`/`PRS.UNREADABLE`/`PRS.STALE`) is no top with a typed reason in the snapshot and the queue row (#935).
 
 ## [0.19.15] - 2026-11-06
 
