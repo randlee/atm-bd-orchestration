@@ -182,12 +182,28 @@ def read_current_pr(repo: Path, number: str) -> dict:
             "head": row.get("headRefName"), "head_sha": row.get("headRefOid")}
 
 
-def build_qa_assignment(repo: Path, bead: str, *, pr_reader=None) -> dict:
+def read_subtasks(repo: Path, sprint_bead: str) -> list[dict]:
+    """The sprint's stage:subtask children for the QA template, from `bd children`."""
+    try:
+        result = subprocess.run(["bd", "children", sprint_bead, "--json", "--limit", "0"], cwd=repo, capture_output=True, text=True,
+                                timeout=GH_PR_TIMEOUT_S, check=False)
+        rows = json.loads(result.stdout or "[]") if result.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError) as error:
+        raise close_fields.CloseFieldsError("ASSIGN_VARS.SUBTASKS_UNREADABLE", f"bd children {sprint_bead}: {error}",
+                                            f"Retry `bd children {sprint_bead} --json`.") from error
+    if not isinstance(rows, list):
+        raise close_fields.CloseFieldsError("ASSIGN_VARS.SUBTASKS_UNREADABLE", f"bd children {sprint_bead} exited {result.returncode}",
+                                            f"Retry `bd children {sprint_bead} --json` and inspect its output.")
+    return close_fields.subtask_children(rows)
+
+
+def build_qa_assignment(repo: Path, bead: str, *, pr_reader=None, subtask_reader=None) -> dict:
     reader = pr_reader or read_current_pr
-    return cached_then_fresh(lambda fresh, fallback: _build_qa_assignment(repo, bead, fresh, fallback, reader))
+    subtasks = subtask_reader or read_subtasks
+    return cached_then_fresh(lambda fresh, fallback: _build_qa_assignment(repo, bead, fresh, fallback, reader, subtasks))
 
 
-def _build_qa_assignment(repo, bead, fresh, fallback, pr_reader):
+def _build_qa_assignment(repo, bead, fresh, fallback, pr_reader, subtask_reader):
     row = read(repo, bead, fallback, fresh=fresh)
     checked = (row.get("metadata") or {}).get("checked_bead")
     if not checked:
@@ -197,7 +213,9 @@ def _build_qa_assignment(repo, bead, fresh, fallback, pr_reader):
     checked_meta = checked_row.get("metadata") or {}
     recorded_number = checked_meta.get("pr_number")
     current_pr = pr_reader(repo, str(recorded_number)) if recorded_number not in (None, "") else None
-    values = close_fields.qa_assignment_vars(row, checked_row, repo, current_pr)
+    sprint_bead = (row.get("metadata") or {}).get("sprint_bead")
+    children = subtask_reader(repo, sprint_bead) if sprint_bead else []
+    values = close_fields.qa_assignment_vars(row, checked_row, repo, current_pr, children)
     return {"bead": bead, "role": "qa-assignment", "vars": values, "remaining": [], "read_fallback": fallback}
 
 

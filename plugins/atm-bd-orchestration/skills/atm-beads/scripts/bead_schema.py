@@ -237,6 +237,35 @@ class GateBead(Bead):
     pass
 
 
+class SubtaskMetadata(BaseModel):
+    """A stage:subtask child's own metadata: the model class of the background subagent that runs it, where it differs from the sprint's."""
+    model_config = ConfigDict(extra="allow")
+    model_class: Literal["astra", "terra", "luna"] | None = None
+    sprint_bead: NonEmpty | None = None
+
+
+def container_of(child_id: str) -> str:
+    """The sprint container a `<container>.sub-<n>` child id names; empty when the id is not of that shape."""
+    container, separator, number = child_id.rpartition(".sub-")
+    return container if separator and container and number.isdigit() and int(number) >= 1 else ""
+
+
+class SubtaskBead(Bead):
+    """A stage:subtask child. Its id names its parent sprint container; validate_phase checks that bead is a stage:sprint container."""
+    parent: NonEmpty | None = None
+    metadata: SubtaskMetadata = SubtaskMetadata()
+
+    @model_validator(mode="after")
+    def id_names_its_container(self) -> SubtaskBead:
+        container = container_of(self.id)
+        if not container:
+            raise ValueError("id must be <sprint container>.sub-<n> (n >= 1)")
+        for name, claimed in (("parent", self.parent), ("metadata.sprint_bead", self.metadata.sprint_bead)):
+            if claimed is not None and claimed != container:
+                raise ValueError(f"{name} {claimed} is not the container {container} its id names")
+        return self
+
+
 class FindingMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
     severity: Literal["blocking", "important", "minor"]
@@ -274,12 +303,12 @@ MODELS_BY_STAGE: dict[str, type[Bead]] = {
     "stage:sprint": SprintBead, "stage:dev": DevBead, "stage:dev-sanity": SanityBead,
     "stage:qa": QaBead, "stage:fix": FixBead, "stage:finding": FindingBead,
     "stage:stack": StackBead, "stage:plan": Bead, "stage:plan-review": Bead, "stage:review": Bead,
-    "stage:subtask": Bead,
+    "stage:subtask": SubtaskBead,
 }
 MODELS: dict[str, type[Bead]] = {
     "sprint-bead": SprintBead, "dev-bead": DevBead, "sanity-bead": SanityBead,
     "qa-bead": QaBead, "fix-bead": FixBead, "finding-bead": FindingBead,
-    "stack-bead": StackBead, "root-bead": RootBead, "gate-bead": GateBead,
+    "stack-bead": StackBead, "root-bead": RootBead, "gate-bead": GateBead, "subtask-bead": SubtaskBead,
 }
 
 
@@ -296,8 +325,14 @@ def problems(bead: JsonObject, model: type[Bead]) -> list[str]:
     return []
 
 
+def sprint_containers(beads: list[JsonObject]) -> set[str]:
+    return {str(bead.get("id")) for bead in beads
+            if "stage:sprint" in (labels if is_object_list(labels := bead.get("labels")) else [])}
+
+
 def validate_phase(beads: list[JsonObject]) -> list[str]:
     found: list[str] = []
+    containers = sprint_containers(beads)
     for bead in beads:
         raw_labels = bead.get("labels")
         labels = raw_labels if is_object_list(raw_labels) else []
@@ -318,6 +353,8 @@ def validate_phase(beads: list[JsonObject]) -> list[str]:
         else:
             found.extend(problem.replace(f"{bead_id}: metadata.", f"{bead_id}: ", 1)
                          for problem in problems(bead, model))
+            if model is SubtaskBead and container_of(bead_id) and container_of(bead_id) not in containers:
+                found.append(f"{bead_id}: parent {container_of(bead_id)} is not a stage:sprint container of this phase")
     return found
 
 

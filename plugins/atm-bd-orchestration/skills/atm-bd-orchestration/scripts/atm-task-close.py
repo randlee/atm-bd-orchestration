@@ -34,6 +34,7 @@ import repo_config
 import sc_render
 from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
 from stack_top import LedgerError, StackTopMismatch, select_live_top, select_passed_unlinked_top
+from task_close_subtasks import SubtaskClose
 from task_close_validation import (ASSIGNMENT_EVENTS, CloseError, assignment_details, assignment_id_for_round,
                                    sanity_round, sanity_round_key, validate_command_json, header, reviewer_list, validate,
                                    sanity_close_mode, bd_value, read_vars, merge_result, validate_outcome,
@@ -140,7 +141,7 @@ def validate_shared_vars(values, role):
 
 
 
-class Hook:
+class Hook(SubtaskClose):
     def __init__(self, role, values, path, runner, clock, sleep=time.sleep, sample=load_sample):
         self.role, self.values, self.path = role, values, Path(path).resolve()
         self.runner, self.clock, self.sleep, self.sample = runner, clock, sleep, sample
@@ -166,6 +167,7 @@ class Hook:
         self.task = values[{"dev": "dev_task_id", "fix": "dev_task_id", "sanity": "sanity_task_id", "qa": "qa_task_id"}[role]]
         self.key = [self.task, values.get("verdict", ""), values.get("commit", "")]
         self.records, self.task_history = {}, {}
+        self.child_sanities = []
         self.attempts = []
         self.beads = None
         self.assignment_id = None
@@ -262,6 +264,8 @@ class Hook:
         self.lead_env["BEADS_DIR"] = path
         return path
 
+
+
     def snapshot(self, *, include_stack=False):
         values = self.values
         beads = {self.task}
@@ -271,6 +275,10 @@ class Hook:
             if include_stack and values.get("stack_bead"):
                 beads.add(values["stack_bead"])
             tasks.add(values["sanity_task_id"])
+            self.child_sanities = self.discover_child_sanities() if self.role == "dev" else []
+            for child, child_sanity in self.child_sanities:
+                beads.update((child, child_sanity))
+                tasks.add(child_sanity)
         elif self.role == "sanity":
             beads.add(values["checked_bead"])
             if values["verdict"] == "PASS":
@@ -405,6 +413,10 @@ class Hook:
                          and record.get("status") == "closed"
                          and record.get("close_reason") == expected_reason)
                 if exact:
+                    if self.child_sanities:
+                        for _, child_sanity in self.child_sanities:
+                            self.verify_child_sanity(child_sanity, allow_pass=True)
+                        return True
                     sanity = self.values["sanity_task_id"]
                     self.verify_sanity_assignment(sanity, self.task_history[sanity], metadata.get("sanity_assignment_id"), allow_pass=True)
                     return True
@@ -460,6 +472,7 @@ class Hook:
                    f"`bd update {self.values['checked_bead']} --set-metadata sanity_assignment_id=<verified-id>` or cancel the orphan and reassign, then retry.")
             raise CloseError("CLOSE.POSTCONDITION", f"{detail}; {observed}", fix)
         return str(actual)
+
 
     def stack_top(self):
         if not self.values.get("stack_bead"):
@@ -634,29 +647,27 @@ class Hook:
             raise CloseError("BASE.PR_UNVERIFIED", f"{prefix}{base} is not a verified ancestor of {head}", fix)
 
     def resolve_nr_base(self, *, skip_checks=False):
+        """Anchor a not-reproducible sanity dispatch with the shared linked-layer rule: a frozen layer keeps its recorded predecessor."""
         values = self.values
-        layers = []
-        if values.get("stack_bead"):
-            layers = [layer for layer in ((self.bead(values["stack_bead"]).get("metadata") or {}).get("layers") or [])
-                      if layer.get("linked") is True]
-        index = next((i for i, layer in enumerate(layers) if layer.get("branch") == self.checked_worktree_branch), None)
-        source = "ledger" if index is not None else "pr_target"
-        if index is not None and layers[index].get("head") != self.checked_worktree_head:
-            raise CloseError("BASE.PR_UNVERIFIED", f"linked branch {self.checked_worktree_branch} has a different ledger head than {self.checked_worktree_head}",
-                             pr_unverified_fix(values["checked_bead"], linked=True) + "Ask the lead to inspect the frozen ledger entry; do not rebase it.")
-        if index is not None and index > 0:
-            sha = layers[index - 1].get("head")
-        else:
-            branch = ((self.bead(values["stack_bead"]).get("metadata") or {}).get("trunk")
-                      if index is not None else values.get("pr_target"))
-            ref = f"origin/{branch}"
+        bead, branch, head = values["checked_bead"], self.checked_worktree_branch, self.checked_worktree_head
+        metadata = (self.bead(values["stack_bead"]).get("metadata") or {}) if values.get("stack_bead") else {}
+
+        def resolve_head(name, *, linked=True):
+            ref = f"origin/{name}"
             result = self.run(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], git=True, check=False)
             if result.returncode:
-                raise CloseError("BASE.PR_UNVERIFIED", f"cannot resolve {ref} for checked head {self.checked_worktree_head}",
-                                 pr_unverified_fix(values["checked_bead"]) + "Fetch the correct base commit and ask the dispatcher to retry.")
-            sha = result.stdout.strip()
-        self.verify_sanity_base(sha, self.checked_worktree_head)
-        values.update(rebased_onto=sha, base_source=source, nr=True, base_verified=not skip_checks)
+                raise CloseError("BASE.PR_UNVERIFIED", f"cannot resolve {ref} for checked head {head}",
+                                 pr_unverified_fix(bead, linked=linked) + "Fetch the correct base commit and ask the dispatcher to retry.")
+            return result.stdout.strip()
+
+        (anchor, sha), linked = linked_base_anchor(metadata, branch, head, (values.get("pr_target"), ""), resolve_head)
+        if not linked:
+            sha = resolve_head(anchor, linked=False)
+        fix = pr_unverified_fix(bead, linked=linked) + (
+            "Ask the lead to inspect the frozen ledger entry; do not rebase it." if linked
+            else "Run `git fetch origin`, then ask the dispatcher to select a full 40-hex ancestor base and rerun the sanity assignment.")
+        self.verify_sanity_base(sha, head, fix=fix, detail=f"{bead} ledger predecessor {anchor}" if linked else "")
+        values.update(rebased_onto=sha, base_source="ledger" if linked else "pr_target", nr=True, base_verified=not skip_checks)
 
     def render(self, template, values=None):
         try:
@@ -840,6 +851,10 @@ class Hook:
         self.derive_local()
         if self.snapshot(include_stack=not skip or (values["outcome"] == "not_reproducible" and bool(values.get("stack_bead")))):
             return
+        open_children = self.open_subtasks() if self.role == "dev" else []
+        if open_children:
+            raise CloseError("CLOSE.OPEN_SUBTASKS", f"{values['checked_bead']} has open subtask beads: {', '.join(open_children)}",
+                             f"Merge each child's work into this branch, then `bd close <child> --reason \"<what landed, where>\"` for {', '.join(open_children)}, and run the hook again.")
         template = "fix-complete.md.j2" if self.role == "fix" else "dev-complete.md.j2"
         record = self.bead(values["checked_bead"])
         sanity = (record.get("metadata") or {}).get("sanity_bead")
@@ -880,6 +895,8 @@ class Hook:
         values = self.values
         self.require_completion_identity()
         assignment_values = json.loads(Path(path).read_text()) if path else values
+        if self.child_sanities:
+            return self.finish_dev_with_children(template, assignment_values)
         sanity_events = self.task_history[sanity]
         terminal = is_terminal(sanity_events)
         open_assignment = bool(sanity_events) and not terminal
@@ -925,6 +942,7 @@ class Hook:
         # Sanity state lives on the sanity task; a FAIL re-assigns this task through the lead.
         self.close_task(self.task, reason=reason)
 
+
     def sanity(self):
         values = self.values
         bead = values["sanity_bead"]
@@ -942,7 +960,7 @@ class Hook:
         if verdict == "PASS":
             checked = self.bead(values["checked_bead"])
             current_pr = self.current_pr_for_qa(checked)
-            qa_values = close_fields.qa_assignment_vars(self.bead(values["qa_bead"]), checked, self.root, current_pr)
+            qa_values = close_fields.qa_assignment_vars(self.bead(values["qa_bead"]), checked, self.root, current_pr, self.subtask_rows(checked))
             if qa_values["checked_bead"] != checked["id"]:
                 raise CloseError("ASSIGN_VARS.CONFLICT", f"{values['qa_bead']} points to {qa_values['checked_bead']}, but sanity checked {checked['id']}",
                                  f"Correct metadata.checked_bead on {values['qa_bead']} to {checked['id']} and retry.")
@@ -979,7 +997,9 @@ class Hook:
             self.close_task(bead, "dev-sanity-complete.md.j2")
             return "SANITY.ROUND_CAP"
         checked = self.bead(values["checked_bead"])
-        template, dispatch = close_fields.reassignment(self.root, values["phase"], checked, self.config)
+        sprint_bead = (checked.get("metadata") or {}).get("sprint_bead")
+        children = close_fields.subtask_children(self.json(["bd", "children", sprint_bead, "--json", "--limit", "0"])) if sprint_bead else []
+        template, dispatch = close_fields.reassignment(self.root, values["phase"], checked, self.config, children)
         sc_render.render(template, dispatch)
         notes = f"sanity FAIL round {count} at {values['commit']}:\n" + "\n".join(
             f"{item['number']}. {item['reason']}" for item in values["undone"])

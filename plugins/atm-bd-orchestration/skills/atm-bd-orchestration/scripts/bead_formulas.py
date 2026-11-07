@@ -79,6 +79,13 @@ class Bd:
             raise BdError(argv, proc.returncode, proc.stdout, proc.stderr)
         return proc
 
+    def children(self, bead: str) -> list[BeadRecord]:
+        """Every child of `bead` (closed ones included), as validated bd bead records."""
+        rows: object = json.loads(self.run("children", bead, "--json", "--limit", "0").stdout or "[]")
+        if not is_bead_records(rows):
+            raise ValueError("bd children returned invalid bead records")
+        return rows
+
     def show(self, bead: str) -> BeadRecord | None:
         """One validated bd bead record, or None when it does not exist."""
         proc = self.run("show", bead, "--json", check=False)

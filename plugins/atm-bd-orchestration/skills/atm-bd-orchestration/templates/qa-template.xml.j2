@@ -1,6 +1,6 @@
 ---
 name: qa-task
-version: 4.18.0
+version: 4.19.0
 description: lead QA assignment for quality-mgr in atm-bd-orchestration. task_id is the QA bead. Reviews one layer at a pinned commit and closes the QA bead whatever the verdict; nothing waits on it.
 format: xml
 required_variables:
@@ -26,6 +26,7 @@ defaults:
   carry_forward: ""
   sprint_bead: ""
   layer_prs: []
+  children: []
 metadata:
   type: qa-task
   tags:
@@ -57,7 +58,11 @@ metadata:
   <base><![CDATA[{{ base | string | cdata_escape }}]]></base>
   <worktree><![CDATA[{{ worktree_path | string | cdata_escape }}]]></worktree>
   <carry-forward><![CDATA[{{ carry_forward | string | cdata_escape }}]]></carry-forward>
-  <stack-discipline><![CDATA[`{{ branch | string | cdata_escape }}` is frozen at `{{ commit | string | cdata_escape }}` for this review. Every reviewer gets the same branch, commit, and worktree and must reject a mismatched or moving checkout. Review exact content with `git show {{ commit | string | cdata_escape }}:<path>`. The change under review is {% if layer_prs %}the sprint's own layer ranges, `git diff <baseRefOid>...<headRefOid>` of each PR {{ layer_prs | join(", ") | string | cdata_escape }} (`gh pr view <n> --json baseRefOid,headRefOid`){% else %}`git diff origin/{{ base | string | cdata_escape }}...{{ commit | string | cdata_escape }}`{% endif %}, never a diff against a moving base. Every round-1 finding, at every severity, is filed in that round (blocking as a poured fix group, others as finding beads); none is deferred. Each is fixed later on a new layer at the top of stack `{{ stack | string | cdata_escape }}`. A fix-verification round checks only its carried findings against their original acceptance criteria and files no new findings.]]></stack-discipline>
+{% if children %}  <subtasks><![CDATA[This sprint was split into subtask beads; their work is merged into this one branch and PR. Reviewers check the merged work against each child's deliverables as well as the sprint's:
+{% for child in children %}{{ child.id | string | cdata_escape }}: {{ child.title | string | cdata_escape }}
+{{ child.deliverables | string | cdata_escape }}
+{% endfor %}]]></subtasks>
+{% endif %}  <stack-discipline><![CDATA[`{{ branch | string | cdata_escape }}` is frozen at `{{ commit | string | cdata_escape }}` for this review. Every reviewer gets the same branch, commit, and worktree and must reject a mismatched or moving checkout. Review exact content with `git show {{ commit | string | cdata_escape }}:<path>`. The change under review is {% if layer_prs %}the sprint's own layer ranges, `git diff <baseRefOid>...<headRefOid>` of each PR {{ layer_prs | join(", ") | string | cdata_escape }} (`gh pr view <n> --json baseRefOid,headRefOid`){% else %}`git diff origin/{{ base | string | cdata_escape }}...{{ commit | string | cdata_escape }}`{% endif %}, never a diff against a moving base. Every round-1 finding, at every severity, is filed in that round (blocking as a poured fix group, others as finding beads); none is deferred. Each is fixed later on a new layer at the top of stack `{{ stack | string | cdata_escape }}`. A fix-verification round checks only its carried findings against their original acceptance criteria and files no new findings.]]></stack-discipline>
 
   <fix-verification-precedence><![CDATA[A fix-verification review is not a sprint review, regardless of round number or inherited review-mode. Dispatch only the agent needed to confirm the original finding, normally its filing reviewer; no automatic req-qa/arch-qa/rust-qa or screening panel. Lock scope to the assigned finding ID and its original acceptance criterion; no sprint diff, TODO scan, duplicate sweep, or new findings. The verifier may run focused checks to confirm the fix. Report fixed/open/regressed for that finding and reconcile verified original-finding closure, not just QA-task closure. Required CI remains a separate merge requirement. This rule overrides the sprint-only instructions in stack-discipline and workflow steps c, e, g, and i. Sprint rounds 1–2 remain sprint reviews.]]></fix-verification-precedence>
 

@@ -187,3 +187,44 @@ def test_quick_fix_qa_alone_may_omit_sanity_bead_and_dispatched_findings_carry_c
     assert any("stack_bead" in problem for problem in bead_schema.validate_phase([finding]))
     finding["metadata"].update({**FAMILY, **close("fix")})
     assert bead_schema.validate_phase([finding]) == []
+
+
+SPRINT_CONTAINER = {"id": "atm-bi-7", "labels": ["phase-bi", "stage:sprint"],
+                    "metadata": {"phase": "bi", "sprint": "bi-7", "stack": "phase-bi", "difficulty": "normal"}}
+
+
+def subtask(child_id="atm-bi-7.sub-1", **metadata):
+    return {"id": child_id, "labels": ["phase-bi", "stage:subtask"], "parent": "atm-bi-7", "metadata": metadata}
+
+
+def about(bead, others=()):
+    """The phase problems that name this bead (the container fixture is not a complete sprint bead)."""
+    return [p for p in bead_schema.validate_phase([SPRINT_CONTAINER, *others, bead]) if p.startswith(bead["id"] + ":")]
+
+
+def test_subtask_bead_validates_against_its_container_and_model_class():
+    assert about(subtask(model_class="luna")) == []
+    assert about(subtask()) == []
+    assert "subtask-bead" in bead_schema.MODELS and bead_schema.MODELS_BY_STAGE["stage:subtask"] is bead_schema.SubtaskBead
+
+
+@pytest.mark.parametrize("bad, fragment", [
+    (subtask("atm-bi-7.group-dev"), "id must be <sprint container>.sub-<n>"),
+    (subtask("atm-bi-7.sub-0"), "id must be <sprint container>.sub-<n>"),
+    ({**subtask(), "parent": "atm-bi-8"}, "parent atm-bi-8 is not the container atm-bi-7 its id names"),
+    (subtask(sprint_bead="atm-bi-8"), "sprint_bead atm-bi-8 is not the container atm-bi-7 its id names"),
+    (subtask(model_class="gpt"), "model_class"),
+])
+def test_subtask_bead_refuses_a_wrong_shape(bad, fragment):
+    found = about(bad)
+    assert found and any(fragment in problem for problem in found), found
+
+
+def test_subtask_whose_container_is_not_a_sprint_of_this_phase_is_refused():
+    found = [p for p in bead_schema.validate_phase([subtask()]) if p.startswith("atm-bi-7.sub-1:")]
+    assert found == ["atm-bi-7.sub-1: parent atm-bi-7 is not a stage:sprint container of this phase"]
+
+
+def test_subtask_schema_file_matches_the_model():
+    path = Path(__file__).resolve().parents[1] / "schemas" / "subtask-bead.schema.json"
+    assert json.loads(path.read_text()) == bead_schema.SubtaskBead.model_json_schema()

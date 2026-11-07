@@ -47,6 +47,8 @@ import repo_config  # noqa: E402
 TIMEOUT_MS = 2500
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 ASSIGNMENTS = {"assigned", "reassigned", "reopened"}
+SUBTASK_ID = re.compile(r"(.+)\.sub-[1-9][0-9]*")
+SUBTASK_SANITY = re.compile(r".+\.[a-z0-9-]+-sub-[1-9][0-9]*-sanity")
 
 
 class Failure(Exception):
@@ -305,12 +307,21 @@ def prepare(runtime, sanity):
     meta = sanity.get("metadata") or {}
     dev_id = meta.get("dev_bead")
     require(isinstance(dev_id, str) and dev_id, "metadata.dev_bead", "required on sanity bead", "phase-lead")
-    require(values.get("checked_bead", dev_id) == dev_id, "checked_bead", "does not match sanity bead's dev_bead")
-    values["checked_bead"] = dev_id
+    # A subtask's sanity bead checks `<sprint>.sub-<n>`; the sprint's single dev bead carries the commit.
+    checked = meta.get("checked_bead")
+    subtask = checked if isinstance(checked, str) and SUBTASK_ID.fullmatch(checked) else None
+    expected = subtask or dev_id
+    require(values.get("checked_bead", expected) == expected, "checked_bead",
+            "does not match sanity bead's " + ("checked_bead" if subtask else "dev_bead"))
+    values["checked_bead"] = expected
     sanity, dev = runtime.refresh([task, dev_id])
+    if subtask:
+        require((child := runtime.refresh([subtask])[0]) and "stage:subtask" in child.get("labels", []),
+                "checked_bead", f"{subtask} must be a stage:subtask bead", "phase-lead")
     require(any(d.get("depends_on_id") == dev_id and d.get("type") == "blocks"
                 for d in sanity.get("dependencies", [])), "dependencies", "sanity must be blocked by dev bead", "phase-lead")
     labels = set(dev.get("labels", []))
+    require(not subtask or "stage:dev" in labels, "metadata.dev_bead", "a subtask sanity checks the sprint's stage:dev bead", "phase-lead")
     direct_finding_fix = "stage:finding" in labels and (dev.get("metadata") or {}).get("sanity_bead") == task
     require(bool({"stage:dev", "stage:fix"}.intersection(labels)) or direct_finding_fix,
             "checked_bead", "must be a dev/fix bead or a finding linked to this sanity bead", "phase-lead")
@@ -372,6 +383,7 @@ def prepare(runtime, sanity):
     prior = runtime.state().get(key)
     require(prior is None or prior["signature"] == signature, "result", "conflicts with an already prepared close; lead must reconcile", "phase-lead")
     done = bool(dev_history and dev_history[-1].get("to_state") == "complete")
+    require(not subtask or done, "dev task", f"subtask sanity needs the sprint's dev task {dev_id} complete; the dev close assigns subtask sanity", "phase-lead")
     # [bead, op, args, precondition]; the precondition is re-checked against fresh bd rows at drain.
     writes = []
     template, dispatch = Path(), {}
@@ -380,24 +392,65 @@ def prepare(runtime, sanity):
             writes.append([task, "close", {"reason": f"PASS at {commit}"}, {}])
     else:
         try:
+            sprint_bead = (dev.get("metadata") or {}).get("sprint_bead")
+            children = close_fields.subtask_children(runtime.read_json(["bd", "children", sprint_bead, "--json", "--limit", "0"])) if sprint_bead else []
             template, dispatch = close_fields.reassignment(runtime.root, runtime.envelope["phase"], dev,
-                                                            repo_config.load(runtime.root))
+                                                            repo_config.load(runtime.root), children)
             template.read_bytes()
         except (OSError, ValueError, KeyError) as error:
             raise Failure("SANITY_CLOSE.CONFIG", f"reassignment configuration: {error}", "phase-lead") from error
-        notes = f"sanity FAIL round {values.get('round', 1)} at {commit}:\n" + "\n".join(
+        notes = f"sanity FAIL{' of ' + subtask if subtask else ''} round {values.get('round', 1)} at {commit}:\n" + "\n".join(
             f"{item['deliverable']}. {item['issue']}" for item in findings)
         writes.append([dev_id, "update", {"append_notes": notes}, {"assignee": dev_agent}])
         if dev.get("status") != "open":
             writes.append([dev_id, "update", {"status": "open"}, {"assignee": dev_agent}])
         if sanity.get("status") != "open" or sanity.get("assignee"):
             writes.append([task, "update", {"status": "open", "assignee": ""}, {"assignee": sanity.get("assignee") or ""}])
-    return {"key": key, "signature": signature, "task_id": task, "dev_id": dev_id,
+    release = release_parent_sanity(runtime, task, sanity, dev, subtask) if subtask and verdict == "PASS" else {}
+    return {"key": key, "signature": signature, "task_id": task, "dev_id": dev_id, "subtask": subtask or "", "release": release,
             "dev_agent": dev_agent, "lead": lead, "values": values, "writes": (prior or {}).get("writes", writes),
             "dev_complete": done, "journaled": (prior or {}).get("journaled", []),
             "phase": runtime.envelope["phase"], "team": runtime.team,
             "reassignment_template": str(template) if verdict == "FAIL" else "",
             "reassignment_vars": dispatch}
+
+
+def release_parent_sanity(runtime, task, sanity, dev, subtask):
+    """The assignment of the sprint's own sanity task once this is the last subtask sanity to pass; {} until then.
+
+    Readiness comes from the parent sanity's blockers: this close is journaled and not yet visible to `bd ready`.
+    """
+    parent_id = (dev.get("metadata") or {}).get("sanity_bead")
+    require(isinstance(parent_id, str) and bool(parent_id), "checked_bead.metadata.sanity_bead", "required to release the sprint sanity", "phase-lead")
+    (parent,) = runtime.refresh([parent_id])
+    blockers = [d.get("depends_on_id") for d in parent.get("dependencies", []) if d.get("type") == "blocks"]
+    others = [b for b in blockers if b not in (task, dev["id"]) and isinstance(b, str) and SUBTASK_SANITY.fullmatch(b)]
+    if any(row.get("status") != "closed" for row in (runtime.refresh(others) if others else [])):
+        return {}
+    qa_id = (parent.get("metadata") or {}).get("qa_bead")
+    require(isinstance(qa_id, str) and bool(qa_id), "metadata.qa_bead", "required on the sprint sanity bead", "phase-lead")
+    qa = runtime.bead(qa_id)
+    pmeta, dmeta = parent.get("metadata") or {}, dev.get("metadata") or {}
+    missing = [name for name in ("sanity_base", "commit", "pr_url", "worktree", "branch") if not dmeta.get(name)]
+    require(not missing, "checked_bead.metadata", f"{dev['id']} lacks {', '.join(missing)}; its dev close did not record them", "phase-lead")
+    worktree = Path(dmeta["worktree"])
+    worktree_path = str(worktree if worktree.is_absolute() else (runtime.root / worktree).resolve())
+    close_context = {"base": dmeta["sanity_base"], "base_verified": False, "base_source": "", "nr": False, "carry_forward": "",
+                     "checked_title": pmeta.get("checked_title", ""), "commit": dmeta["commit"], "evidence": "", "layer": (qa.get("metadata") or {}).get("layer", 1),
+                     "layer_prs": [str(dmeta["pr_number"])] if dmeta.get("pr_number") else [], "max_sanity_rounds": pmeta.get("max_sanity_rounds"),
+                     "outcome": "fixed", "phase": pmeta.get("phase"), "phase_feature": pmeta.get("phase_feature"),
+                     "policy_path": pmeta.get("policy_path"), "pr_number": str(dmeta.get("pr_number", "")), "pr_url": dmeta["pr_url"],
+                     "primary_checkout": str(runtime.root), "qa_bead": qa_id, "qa_task_id": qa_id,
+                     "reviewers_round1": (qa.get("metadata") or {}).get("reviewers_round1", []), "round": 1,
+                     "sprint_bead": pmeta.get("sprint_bead"), "stack": pmeta.get("stack"), "stack_bead": pmeta.get("stack_bead"),
+                     "phase_lead": runtime.lead(), "budget": "full"}
+    vars_ = {"task_id": parent_id, "checked_bead": dev["id"], "sprint": pmeta.get("sprint"), "worktree_path": worktree_path,
+             "base": dmeta["sanity_base"], "pr_url": dmeta["pr_url"], "primary_checkout": str(runtime.root),
+             "lint_command": pmeta.get("lint_command"), "beads_dir": str(runtime.root / ".beads"), "close_context": close_context,
+             "commit": dmeta["commit"], "branch": dmeta["branch"], "pr_number": str(dmeta.get("pr_number", "")),
+             "sanity_task_id": parent_id, "dev_task_id": dev["id"], "qa_task_id": qa_id, "layer_prs": close_context["layer_prs"],
+             "sanity_close_mode": "daemon"}
+    return {"task": parent_id, "vars": vars_}
 
 
 def close_actions(runtime, plan):
@@ -412,6 +465,10 @@ def close_actions(runtime, plan):
     original = copy.deepcopy(runtime.request)
     original["task_op"] = {"op": "close", "outcome": "completed"}
     actions.append({"command": "task.close", "request": original})
+    release = plan.get("release")
+    if release:
+        actions.append(runtime.action("task.assign", release["task"], runtime.lead(), "dev-sanity-template.xml.j2",
+                                      release["vars"], recipient=runtime.identity))
     return actions
 
 

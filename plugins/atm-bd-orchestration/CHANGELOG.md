@@ -5,6 +5,8 @@
 - Ship ceremony-finding-screen, screen every finding round and record per-round and cumulative screening rates (#938).
 - Refuse installs missing host-required agents with an actionable INSTALL.AGENT_MISSING error (#909).
 
+- A sprint split into `stage:subtask` beads works end to end: `bead_schema.SubtaskBead` (id `<container>.sub-<n>`, optional `model_class`, container checked by `validate-plan`) with `subtask-bead.schema.json`; the sprint-group pour adds a `sub-<n>-sanity` step per child that the sprint's sanity needs; the dev template (3.18.0, `children`) and QA template (4.19.0) list the children; the dev close refuses `CLOSE.OPEN_SUBTASKS` and assigns each child's sanity task; the sanity hook closes a child sanity against the sprint's one dev bead and assigns the sprint sanity when the last child passes.
+
 ### Fixed
 - Stack landings are recorded once under the ledger lock; archived stacks no longer supply a live top, while new layers after a landing remain live and stale copied layers carry a typed repair (#928).
 - Frozen linked layers re-close against their predecessor or pinned trunk cut through the shared base predicate, including offline verification (#911).
@@ -22,7 +24,7 @@
 ### Fixed
 - Package CI now collects the skill script and atm-beads test suites, and the installer regression test asserts its current `uv tool install atm-bd --python 3.11` recovery command (#904).
 - QA template prompt tests pin sc-compose to the package root, so they render from both the scripts directory and package root (#932).
-- Console and `atm-bd queues --stack` choose the stack top from the canonical membership (the last member, read from the raw PR snapshot) through one shared function, never a lower frozen PR; a top that cannot be known (unread or disagreeing ledger/membership, member absent from the snapshot, missing/unreadable/stale `prs.json` as `PRS.MISSING`/`PRS.UNREADABLE`/`PRS.STALE`) is no top with a typed reason in the snapshot and the queue row (#935).
+- Console and `atm-bd queues --stack` choose the stack top from the canonical membership (the last member, read from the raw PR snapshot) through one shared function, never a lower frozen PR; a top that cannot be known (unread or disagreeing ledger/membership, the top absent from the snapshot as `STACK.SNAPSHOT_MISSING`, a merged or closed top as `STACK.TOP_INACTIVE`, missing/unreadable/stale `prs.json` as `PRS.MISSING`/`PRS.UNREADABLE`/`PRS.STALE`) is no top with a typed `StackReason` in the snapshot and the queue row; merged or closed lower layers are normal and never fail the stack (#935).
 
 ## [0.19.15] - 2026-11-06
 

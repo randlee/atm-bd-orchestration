@@ -32,7 +32,7 @@ def test_script_population():
                          "stack-landed", "sanity-merge", "sanity-run-history", "sanity-split", "sanity-stack-link"}
     assert selected == main_entries | {SCRIPTS / name for name in other_pep_scripts}
     excluded_libraries = {"bd_models.py", "bead_formulas.py", "command_timeout.py", "qa_reviewers.py",
-                          "stack_top.py", "task_close_validation.py", "transitions.py"}
+                          "stack_top.py", "task_close_subtasks.py", "task_close_validation.py", "transitions.py"}
     excluded_shell_scripts = {"bead-queues"}
     assert {path.name for path in python_files - selected} == excluded_libraries
     shell_scripts = {path.name for path in SCRIPTS.iterdir()

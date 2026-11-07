@@ -148,6 +148,8 @@ class World:
             output = [self.beads[bead] for bead in argv[argv.index("--id") + 1].split(",") if bead in self.beads]
         elif argv[:2] == ["bd", "show"]:
             output = [self.beads[argv[2]]]
+        elif argv[:2] == ["bd", "children"]:
+            output = [row for row in self.beads.values() if row.get("parent") == argv[2]]
         elif argv[:2] == ["bd", "list"]:
             output = [row for row in self.beads.values() if row["metadata"].get("dev_bead")]
         elif argv[:2] == ["bd", "update"]:
@@ -208,7 +210,7 @@ class World:
                 assert task in body
                 events = self.tasks[task]
                 event = self.assignment(len(events) + 1)
-                if task == self.values["sanity_task_id"]:
+                if task == self.values["sanity_task_id"] or task.endswith("-sanity"):
                     event["assignee"] = recipient.split("@", 1)[0]
                 if events and events[-1].get("to_state") == "assigned":
                     event = None  # ATM resending the same open assignment does not create an event.
