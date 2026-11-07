@@ -41,7 +41,7 @@ class World:
                               "branch": "sprint/test", "worktree": str(tmp_path)})
         self.histories = {self.task: [{"event": "assigned", "assignee": "test-sanity", "message_id": "assign-s", "to_state": "assigned"}],
                           self.dev: [{"event": "assigned", "assignee": "test-dev", "message_id": "assign-d", "to_state": "assigned"}]}
-        self.values = {"task_id": self.task, "checked_bead": self.dev, "assignment_id": "assign-s", "commit": self.sha,
+        self.values = {"task_id": self.task, "checked_bead": self.dev, "assignment_id": "assign-s", "commit": self.sha, "base": "b" * 40,
                        "reviewer": "sanity-selected", "run_id": "run-1", "verdict": "PASS", "findings": []}
         self.request = {"schema_version": "1.0.0", "hook": "task.close", "team": "test-team", "phase": "test",
                         "caller": {"identity": "test-sanity"}, "custom": {},
@@ -61,6 +61,8 @@ class World:
             return subprocess.CompletedProcess(command, 1, "", "Dolt unavailable")
         if command[0] == "bd":
             return self.bd(command, **kwargs)
+        if command[0] == "git":
+            return subprocess.CompletedProcess(command, 0, "", "")
         if command[:3] == ["atm", "task", "events"]:
             output = {"events": self.histories[command[3]]}
         elif command[:2] == ["atm", "send"] or command[:3] == ["atm", "task", "assign"]:
@@ -147,6 +149,15 @@ def test_fail_reopens_dev_leaves_sanity_blocked_and_notifies_dev_before_close(wo
     assert world.beads[world.dev]["status"] == "open"
     assert (world.beads[world.task]["status"], world.beads[world.task]["assignee"]) == ("open", "")
     assert world.beads[world.task]["dependencies"] == before
+
+
+def test_fail_notes_use_current_assignment_iteration(world):
+    world.histories[world.task] += [{"event": "completed", "to_state": "complete"},
+                                    {"event": "reopened", "assignee": "test-sanity", "message_id": "assign-2", "to_state": "assigned"}]
+    world.values.update(assignment_id="assign-2", round=1, verdict="FAIL", findings=[{"deliverable": 1, "issue": "missing"}])
+    assert world.invoke()["result"] == "handled"
+    assert "sanity FAIL round 2" in world.journal()[0][2]["append_notes"]
+    assert ["atm", "task", "events", world.task, "--all", "--json"] in world.commands
 
 
 def test_pending_drain_refuses_then_retry_assigns_without_repeating_writes(world, monkeypatch):
@@ -332,6 +343,46 @@ def test_new_templates_render_with_real_composer(world):
     import sc_render
     for name in ("sanity-task-close.md.j2", "sanity-dev-close.md.j2"):
         assert sc_render.render(hook.TEMPLATES / name, world.values)
+    template = hook.TEMPLATES / "sanity-task-close.md.j2"
+    assert "Base: " in sc_render.render(template, {**world.values, "base": "a" * 40})
+    assert "a" * 40 in sc_render.render(template, {**world.values, "base": "a" * 40})
+    assert "Base: " in sc_render.render(template, {key: value for key, value in world.values.items() if key != "base"})
+
+
+@pytest.mark.parametrize("base", [None, "", "main", "x" * 40, "a" * 39, "a" * 64])
+def test_daemon_close_refuses_missing_or_invalid_base(world, base):
+    world.values["base"] = base
+    result = world.invoke()
+    assert result["result"] == "refused" and json.loads(result["message"])["code"] == "SANITY_CLOSE.BASE"
+    assert not world.journal()
+
+
+def test_daemon_close_renders_selected_base(world):
+    sys.path.insert(0, str(SCRIPTS.parents[1] / "atm-beads/scripts"))
+    import sc_render
+    base = "b" * 40
+    world.values["base"] = base
+    assert world.invoke()["result"] == "handled"
+    assert ["git", "-C", str(world.root), "merge-base", "--is-ancestor", base, world.sha] in world.commands
+    assert f"Base: {base}" in sc_render.render(hook.TEMPLATES / "sanity-task-close.md.j2", world.values)
+
+
+def test_daemon_close_refuses_non_ancestor_base(world):
+    def non_ancestor(command, **kwargs):
+        if command[0] == "git":
+            return subprocess.CompletedProcess(command, 1, "", "")
+        return world.run(command, **kwargs)
+    reply = world.invoke(runner=non_ancestor)
+    assert reply["result"] == "refused"
+    assert json.loads(reply["message"])["code"] == "SANITY_CLOSE.BASE"
+    assert not world.journal()
+
+
+def test_daemon_close_replay_rejects_a_changed_base(world):
+    assert world.invoke()["result"] == "handled"
+    world.values["base"] = "c" * 40
+    reply = world.invoke()
+    assert reply["result"] == "refused" and "conflicts" in reply["message"]
 
 
 def test_rollout_other_agents_never_touch_dolt(world):

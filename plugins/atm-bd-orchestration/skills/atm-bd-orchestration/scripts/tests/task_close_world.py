@@ -73,9 +73,14 @@ class World:
         self.beads[self.values["checked_bead"]]["metadata"]["sanity_bead"] = self.values["sanity_bead"]
         self.beads[self.values["checked_bead"]]["metadata"].update(
             pr_number=self.pr_number, pr_url=self.values["pr_url"], branch=self.values["branch"],
-            worktree=str(root), sprint=self.values["sprint"], stack=self.values["stack"], pr_target=self.values["pr_target"])
+            pr_base="fix/recorded-parent", worktree=str(root), sprint=self.values["sprint"], stack=self.values["stack"], pr_target=self.values["pr_target"])
         self.beads[self.values["sanity_bead"]]["metadata"]["dev_bead"] = self.values["checked_bead"]
         self.beads[self.values["qa_bead"]]["metadata"]["reviewers_round1"] = list(self.values["reviewers_round1"])
+        self.beads[self.values["qa_bead"]]["metadata"]["round"] = 1
+        qa = self.beads[self.values["qa_bead"]]
+        qa["labels"] = ["stage:qa"]
+        qa["metadata"].update({name: self.values[name] for name in hook.close_fields.POURED if name in self.values})
+        qa["metadata"].update(role="qa", worktree=str(root), sprint_bead="atm-bj-1", layer=1)
         self.beads["atm-phase-bj.stack"] = json.loads((SCRIPTS / "tests/fixtures/stack-bead.json").read_text())
         self.tasks = {self.values[name]: [] for name in ("dev_task_id", "sanity_task_id", "qa_task_id")}
         self.tasks[self.values["dev_task_id"]].append(self.assignment(1))
@@ -98,6 +103,9 @@ class World:
 
     def run(self, role="dev", *, skip_checks=False, **changes):
         self.values.update(changes)
+        if role == "sanity" and self.values.get("checked_bead") in self.beads:
+            # A standalone sanity run represents work whose dev close already recorded its commit.
+            self.beads[self.values["checked_bead"]]["metadata"].setdefault("commit", self.head)
         task = self.values.get({"dev": "dev_task_id", "fix": "dev_task_id", "sanity": "sanity_task_id", "qa": "qa_task_id"}[role])
         if task in self.tasks and not self.tasks[task]:
             self.tasks[task].append(self.assignment(1))
@@ -180,7 +188,8 @@ class World:
                 values = json.loads(Path(argv[argv.index("--vars") + 1]).read_text())
                 body = hook.sc_render.render(argv[argv.index("--template") + 1], values)
                 assert argv[3] in body
-            self.tasks[argv[3]].append(dict(event=argv[4], to_state="complete", close_outcome=argv[4]))
+            detail = argv[5] if len(argv) > 5 and not argv[5].startswith("--") else None
+            self.tasks[argv[3]].append(dict(event=argv[4], to_state="complete", close_outcome=argv[4], detail=detail))
         elif argv[:2] == ["atm", "send"] or argv[:3] == ["atm", "task", "assign"]:
             write = True
             recipient = argv[3] if argv[1] == "task" else argv[2]
@@ -199,6 +208,8 @@ class World:
                 assert task in body
                 events = self.tasks[task]
                 event = self.assignment(len(events) + 1)
+                if task == self.values["sanity_task_id"]:
+                    event["assignee"] = recipient.split("@", 1)[0]
                 if events and events[-1].get("to_state") == "assigned":
                     event = None  # ATM resending the same open assignment does not create an event.
                 elif events:
@@ -220,6 +231,12 @@ class World:
                 output = "git@github.com:example/repo.git"
             else:
                 assert argv[1] in ("status", "fetch", "merge-base"), argv
+        elif argv[:3] == ["gh", "pr", "view"]:
+            checked = self.beads[self.values["checked_bead"]]
+            metadata = checked.get("metadata") or {}
+            output = {"number": self.values.get("pr_number", self.pr_number),
+                      "baseRefName": metadata.get("pr_base"), "headRefName": metadata.get("branch"),
+                      "headRefOid": self.values.get("commit", self.head)}
         elif argv[:2] == ["gh", "api"]:
             if self.github_failure == "raise":
                 raise OSError("GitHub unavailable")

@@ -5,7 +5,6 @@ import importlib.util
 import io
 import json
 import os
-from pathlib import Path
 import select
 import shlex
 import shutil
@@ -16,9 +15,15 @@ import tempfile
 import time
 import unittest
 import unittest.mock
+from pathlib import Path
 
 from rendering import render
-from subprocess_helpers import HANG_GUARD_SECONDS
+from subprocess_helpers import (
+    HANG_GUARD_SECONDS,
+    isolated_git_env,
+    run_command,
+    run_fixture_git,
+)
 
 SCRIPTS = Path(__file__).parents[1]
 SCRIPT = SCRIPTS / "sanity-split"
@@ -123,9 +128,11 @@ class WaitGuardTests(unittest.TestCase):
 
     def test_event_timeout_names_step(self):
         event = unittest.mock.Mock()
-        with unittest.mock.patch.object(select, "select", return_value=([], [], [])) as poll:
-            with self.assertRaisesRegex(AssertionError, "marker lint.pid timed out"):
-                read_event(event, "marker lint.pid")
+        with (
+            unittest.mock.patch.object(select, "select", return_value=([], [], [])) as poll,
+            self.assertRaisesRegex(AssertionError, "marker lint.pid timed out"),
+        ):
+            read_event(event, "marker lint.pid")
         poll.assert_called_once_with([event], [], [], HANG_GUARD_SECONDS)
         event.read.assert_not_called()
 
@@ -152,7 +159,9 @@ def bead(description=DESCRIPTION, owned=("crates/types/src/**",)):
 
 
 def git(cwd, *argv):
-    return subprocess.run(["git", "-C", str(cwd), *argv], check=True, capture_output=True, text=True).stdout.strip()
+    env, _ = isolated_git_env(Path(cwd).parent)
+    command = ["git", "-C", str(cwd), *argv]
+    return run_fixture_git(command, env=env).stdout.strip()
 
 
 def result(number, sha, findings=()):
@@ -165,10 +174,16 @@ class Repo:
     """A clone with a bare origin: develop pushed, sprint/x pushed with one change."""
 
     def __init__(self, root):
+        self.git_env, template = isolated_git_env(root)
         self.origin = root / "origin.git"
         self.wt = root / "wt"
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "develop", str(self.origin)], check=True)
-        subprocess.run(["git", "clone", "-q", str(self.origin), str(self.wt)], check=True, capture_output=True)
+        run_fixture_git(["git", "init", "-q", "--template", str(template), "--bare", "-b", "develop",
+                         str(self.origin)], env=self.git_env)
+        run_fixture_git(["git", "clone", "-q", "--template", str(template), str(self.origin), str(self.wt)],
+                        env=self.git_env)
+        git_info = self.wt / ".git" / "info"
+        git_info.mkdir(parents=True, exist_ok=True)
+        (git_info / "exclude").touch(exist_ok=True)
         git(self.wt, "config", "user.email", "t@example.com")
         git(self.wt, "config", "user.name", "t")
         git(self.wt, "checkout", "-q", "-b", "develop")
@@ -192,6 +207,34 @@ class Repo:
         git(self.wt, "push", "-q", "origin", "sprint/x")
         self.sha = git(self.wt, "rev-parse", "HEAD")
         return self.sha
+
+
+class RepoFixtureTests(unittest.TestCase):
+    def test_fixture_ignores_inherited_git_config_and_hooks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / "caller-template"
+            hooks = template / "hooks"
+            hooks.mkdir(parents=True)
+            marker = root / "inherited-hook-ran"
+            pre_commit = hooks / "pre-commit"
+            pre_commit.write_text(f"#!/bin/sh\nprintf invoked > {shlex.quote(str(marker))}\nexit 1\n")
+            pre_commit.chmod(0o755)
+            global_config = root / "caller.gitconfig"
+            global_config.write_text(f"[init]\n\ttemplateDir = {template}\n[core]\n\thooksPath = {hooks}\n")
+            inherited = {
+                "HOME": str(root / "caller-home"),
+                "GIT_CONFIG_GLOBAL": str(global_config),
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.hooksPath",
+                "GIT_CONFIG_VALUE_0": str(hooks),
+                "GIT_TEMPLATE_DIR": str(template),
+            }
+            with unittest.mock.patch.dict(os.environ, inherited):
+                repo = Repo(root / "fixture")
+
+            self.assertTrue(repo.wt.is_dir())
+            self.assertFalse(marker.exists())
 
 
 class SanitySplit(unittest.TestCase):
@@ -286,9 +329,9 @@ class SanitySplit(unittest.TestCase):
         manifest_file = self.root / "manifest.json"
         manifest_file.write_text(json.dumps(manifest))
         completed = time.time()
-        return subprocess.run([str(MERGE), str(manifest_file), "{{ bead_prefix }}-x-1-sanity", "{{ bead_prefix }}-x-1", "x",
+        return run_command([str(MERGE), str(manifest_file), "{{ bead_prefix }}-x-1-sanity", "{{ bead_prefix }}-x-1", "x",
                                "--reviewer", "sanity-llm", "--started-at", str(completed), "--completed-at", str(completed)],
-                              input=json.dumps(results), capture_output=True, text=True)
+                              check=False, input=json.dumps(results), capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
 
     def test_manifest_has_fixed_reviewer_roster_and_rejects_obsolete_override(self):
         out = self.run_split(lint="echo ran >> lint-count")
@@ -318,6 +361,7 @@ class SanitySplit(unittest.TestCase):
         self.assertEqual(first["deliverable"]["number"], 1)
         self.assertIn("pub mod retry", first["deliverable"]["text"])
         self.assertIn("in the types crate.", first["deliverable"]["text"])
+
         self.assertEqual(first["deliverables_total"], 2)
         self.assertEqual(first["context"], [])
         self.assertEqual(first["external_evidence"], [])  # no notes, no --layer-pr
@@ -342,6 +386,20 @@ class SanitySplit(unittest.TestCase):
         self.assertEqual(merged.returncode, 0, merged.stderr)
         self.assertEqual(json.loads(merged.stdout)["verdict"], "FAIL")   # the fake lint exits 1
 
+    def test_immutable_base_sha_is_accepted(self):
+        out = self.run_split(base=self.repo.base_sha)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        manifest = json.loads(out.stdout)
+        self.assertEqual(manifest["base_sha"], self.repo.base_sha)
+        # The lower layer changed docs/notes.md, outside the owned paths; the pinned parent excludes it.
+        self.assertEqual(manifest["changed_files"], ["crates/types/src/retry.rs"])
+        self.assertEqual(manifest["files_outside_owned_paths"], [])
+
+    def test_64_hex_base_is_refused(self):
+        out = self.run_split(base="a" * 64)
+        self.assertEqual(out.returncode, 3)
+        self.assertIn("40-hex", out.stderr)
+
     def test_rerun_assignment_is_the_manifest_assignment_with_context(self):
         out = self.run_split()
         self.assertEqual(out.returncode, 0, out.stderr)
@@ -350,9 +408,9 @@ class SanitySplit(unittest.TestCase):
         assignment = json.loads(out.stdout)["assignments"][1]["assignment"]
         context = ["crates/types/src/lib.rs"]
         # agents/dev-sanity.md step 4, rerun
-        rerun = subprocess.run(["jq", "--argjson", "n", "2", "--argjson", "context", json.dumps(context),
+        rerun = run_command(["jq", "--argjson", "n", "2", "--argjson", "context", json.dumps(context),
                                 ".assignments[] | select(.number == $n) | .assignment | .context = $context",
-                                str(manifest_file)], capture_output=True, text=True)
+                                str(manifest_file)], check=False, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertEqual(rerun.returncode, 0, rerun.stderr)
         variables = {"sanity_bead": assignment["sanity_bead"], "dev_bead_id": assignment["dev_bead"]["id"],
                      "dev_bead_title": assignment["dev_bead"]["title"],
@@ -807,7 +865,7 @@ class SanitySplit(unittest.TestCase):
         self.assertFalse(self.scratch.exists())
 
     def test_usage(self):
-        out = subprocess.run([str(SCRIPT), "--task", "t"], capture_output=True, text=True)
+        out = run_command([str(SCRIPT), "--task", "t"], check=False, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         self.assertEqual(out.returncode, 1)
 
 

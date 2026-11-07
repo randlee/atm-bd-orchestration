@@ -3,11 +3,17 @@ import contextlib
 import importlib.util
 import io
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+from subprocess_helpers import (
+    isolated_git_env,
+    run_fixture_git,
+    set_fixture_hooks_path,
+)
 
 spec = importlib.util.spec_from_file_location("jev_client", Path(__file__).parents[1] / "jev_client.py")
 assert spec is not None and spec.loader is not None
@@ -45,6 +51,21 @@ class FakeClock:
 
 
 class JevClientTests(unittest.TestCase):
+    def fixture_repo(self, root):
+        root = Path(root)
+        repo = root / "repo"
+        repo.mkdir()
+        env, _ = isolated_git_env(root)
+        self.git(repo, env, "init", "-q")
+        set_fixture_hooks_path(repo, env=env)
+        return repo, env
+
+    def git(self, repo, env, *args):
+        return run_fixture_git(
+            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+            env=env,
+        ).stdout.strip()
+
     def test_missing_key_no_network(self):
         with patch.dict(client.os.environ, {}, clear=True), patch.object(client.http.client, "HTTPSConnection") as http:
             with self.assertRaises(client.JevError):
@@ -542,23 +563,21 @@ class JevClientTests(unittest.TestCase):
         self.assertFalse(client.verify_receipt({k: v for k, v in receipt.items() if k != "mac"}, "test-only-key"))
 
     def test_assignment_request_carries_the_deliverable_verbatim_and_the_committed_diff(self):
-        import subprocess, tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            def git(*args):
-                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                      check=True, capture_output=True, text=True).stdout.strip()
-            git("init", "-q")
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            tmp, env = self.fixture_repo(directory)
             Path(tmp, "server.py").write_text("bind()\ndrop()\nrebind()\n")
             Path(tmp, "notes.md").write_text("context note\n")
-            git("add", "-A"); git("commit", "-qm", "base")
-            base = git("rev-parse", "HEAD")
+            self.git(tmp, env, "add", "-A"); self.git(tmp, env, "commit", "-qm", "base")
+            base = self.git(tmp, env, "rev-parse", "HEAD")
             Path(tmp, "server.py").write_text("bind()\nhand_off_fd()\n")
-            git("commit", "-qam", "fix")
-            commit = git("rev-parse", "HEAD")
+            self.git(tmp, env, "commit", "-qam", "fix")
+            commit = self.git(tmp, env, "rev-parse", "HEAD")
             assignment = {"deliverable": {"number": 1, "text": "Keep the listener open and hand its fd to the child."},
-                          "worktree_path": tmp, "commit": commit, "base_sha": base,
+                          "worktree_path": str(tmp), "commit": commit, "base_sha": base,
                           "changed_files": ["server.py"], "context": ["notes.md"]}
-            (request,) = client.assignment_requests(assignment)
+            with patch.dict(client.os.environ, env):
+                (request,) = client.assignment_requests(assignment)
             self.assertEqual(request["state"]["deliverable"], assignment["deliverable"]["text"])
             self.assertIn("+hand_off_fd()", request["state"]["evidence"])
             self.assertIn("-rebind()", request["state"]["evidence"])
@@ -574,7 +593,7 @@ class JevClientTests(unittest.TestCase):
             file.write_text(json.dumps(assignment))
             try:
                 output = io.StringIO()
-                with patch.dict(client.os.environ, {"TYPESAFE_API_KEY": "test-only-key"}), \
+                with patch.dict(client.os.environ, {**env, "TYPESAFE_API_KEY": "test-only-key"}), \
                      patch.object(client.http.client, "HTTPSConnection", return_value=conn), contextlib.redirect_stdout(output):
                     self.assertEqual(client.main(["--assignment", str(file)], sleep=no_sleep), 0)
                 sent = json.loads(conn.request.call_args.kwargs["body"])
@@ -588,7 +607,7 @@ class JevClientTests(unittest.TestCase):
                                          "Assignment lacks deliverable text, worktree, commits or file lists")):
                     file.write_text(json.dumps(broken))
                     output = io.StringIO()
-                    with patch.dict(client.os.environ, {"TYPESAFE_API_KEY": "test-only-key"}), contextlib.redirect_stdout(output):
+                    with patch.dict(client.os.environ, {**env, "TYPESAFE_API_KEY": "test-only-key"}), contextlib.redirect_stdout(output):
                         self.assertEqual(client.main(["--assignment", str(file)], sleep=no_sleep), 2)
                     error = json.loads(output.getvalue())["error"]
                     self.assertEqual((error["code"], error["message"]), ("VALIDATION.INPUT", message))
@@ -596,77 +615,74 @@ class JevClientTests(unittest.TestCase):
                 file.unlink()
 
     def test_oversize_assignment_splits_and_preserves_context(self):
-        import subprocess, tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            def git(*args):
-                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                      check=True, capture_output=True, text=True).stdout.strip()
-            git("init", "-q")
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            tmp, env = self.fixture_repo(directory)
             Path(tmp, "server.py").write_text("bind()\n")
             big = "".join(f"line {i} " + "x" * 90 + "\n" for i in range(1, 1201))  # ~120 KB, over the cap
             Path(tmp, "big.md").write_text(big)
-            git("add", "-A"); git("commit", "-qm", "base")
-            base = git("rev-parse", "HEAD")
+            self.git(tmp, env, "add", "-A"); self.git(tmp, env, "commit", "-qm", "base")
+            base = self.git(tmp, env, "rev-parse", "HEAD")
             Path(tmp, "server.py").write_text("bind()\nhand_off_fd()\n")
-            git("commit", "-qam", "fix")
-            assignment = {"deliverable": {"number": 1, "text": "Hand the fd to the child."}, "worktree_path": tmp,
-                          "commit": git("rev-parse", "HEAD"), "base_sha": base,
+            self.git(tmp, env, "commit", "-qam", "fix")
+            assignment = {"deliverable": {"number": 1, "text": "Hand the fd to the child."}, "worktree_path": str(tmp),
+                          "commit": self.git(tmp, env, "rev-parse", "HEAD"), "base_sha": base,
                           "changed_files": ["server.py"], "context": ["big.md"]}
             file = Path(tmp, "..", Path(tmp).name + "-assignment.json").resolve()
             file.write_text(json.dumps(assignment))
             try:
-                requests = client.assignment_requests(assignment)
+                with patch.dict(client.os.environ, env):
+                    requests = client.assignment_requests(assignment)
                 self.assertGreater(len(requests), 1)
                 self.assertEqual("".join(r["state"].get("context", {}).get("big.md", "") for r in requests), big)
                 self.assertTrue(all(client.size(r) <= client.MAX_REQUEST_BYTES for r in requests))
-                (rebuilt,) = client.assignment_requests({**assignment, "context": ["big.md:600-602"]})  # the rebuild fits
+                with patch.dict(client.os.environ, env):
+                    (rebuilt,) = client.assignment_requests({**assignment, "context": ["big.md:600-602"]})  # the rebuild fits
                 client.validate_request(rebuilt)
                 self.assertEqual(rebuilt["state"]["context"], {"big.md:600-602": "".join(big.splitlines(keepends=True)[599:602])})
-                (retry,) = client.assignment_requests({**assignment, "context": []})
+                with patch.dict(client.os.environ, env):
+                    (retry,) = client.assignment_requests({**assignment, "context": []})
                 client.validate_request(retry)
             finally:
                 file.unlink()
 
     def test_a_line_range_context_entry_sends_only_those_lines_and_a_bad_range_is_rejected(self):
         import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            base, commit = self.split_repo(tmp, {"a.py": "start\nchanged\n"})
+        with tempfile.TemporaryDirectory() as directory:
+            tmp, env = self.fixture_repo(directory)
+            base, commit = self.split_repo(tmp, env, {"a.py": "start\nchanged\n"})
             Path(tmp, "notes.md").write_text("one\ntwo\nthree\nfour\n")
-            client.subprocess.run(["git", "-C", tmp, "add", "notes.md"], check=True)
-            client.subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "notes"],
-                                  check=True, capture_output=True)
-            commit = client.subprocess.run(["git", "-C", tmp, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-            assignment = {"deliverable": {"number": 1, "text": "d"}, "worktree_path": tmp, "commit": commit,
+            self.git(tmp, env, "add", "notes.md")
+            self.git(tmp, env, "commit", "-qm", "notes")
+            commit = self.git(tmp, env, "rev-parse", "HEAD")
+            assignment = {"deliverable": {"number": 1, "text": "d"}, "worktree_path": str(tmp), "commit": commit,
                           "base_sha": base, "changed_files": ["a.py"], "context": ["notes.md:2-3", "notes.md"]}
-            (request,) = client.assignment_requests(assignment)
+            with patch.dict(client.os.environ, env):
+                (request,) = client.assignment_requests(assignment)
             self.assertEqual(request["state"]["context"], {"notes.md:2-3": "two\nthree\n", "notes.md": "one\ntwo\nthree\nfour\n"})
             for entry in ("notes.md:0-2", "notes.md:3-2", "notes.md:4-5"):
-                with self.subTest(entry=entry), self.assertRaises(client.JevError) as raised:
+                with self.subTest(entry=entry), patch.dict(client.os.environ, env), \
+                     self.assertRaises(client.JevError) as raised:
                     client.assignment_requests({**assignment, "context": [entry]})
                 self.assertEqual((raised.exception.code, raised.exception.message),
                                  ("VALIDATION.INPUT", f"Context entry {entry} names lines outside its file at the pinned commit"))
                 self.assertIn("Fix that `context` entry", client.failure(raised.exception)["error"]["suggested_action"])
-            with self.assertRaises(client.JevError) as raised:
+            with patch.dict(client.os.environ, env), self.assertRaises(client.JevError) as raised:
                 client.assignment_requests({**assignment, "context": ["missing.md:1-2"]})
             self.assertEqual(raised.exception.message, "Committed evidence unreadable at the pinned commits")
 
-    def split_repo(self, tmp, files):
+    def split_repo(self, tmp, env, files):
         """A repository whose one commit changes `files` (name -> new text) from a one-line base."""
-        import subprocess
-        def git(*args):
-            return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                  check=True, capture_output=True, text=True).stdout.strip()
-        git("init", "-q")
         for name in files:
             Path(tmp, name).write_text("start\n" + "\n".join(f"keep {i}" for i in range(0, 4000, 40)) + "\n")
-        git("add", "-A"); git("commit", "-qm", "base")
-        base = git("rev-parse", "HEAD")
+        self.git(tmp, env, "add", "-A"); self.git(tmp, env, "commit", "-qm", "base")
+        base = self.git(tmp, env, "rev-parse", "HEAD")
         for name, text in files.items():
             Path(tmp, name).write_text(text)
-        git("commit", "-qam", "change")
-        return base, git("rev-parse", "HEAD")
+        self.git(tmp, env, "commit", "-qam", "change")
+        return base, self.git(tmp, env, "rev-parse", "HEAD")
 
-    def run_split(self, assignment, choices):
+    def run_split(self, assignment, choices, env):
         """Run `--assignment` with Jev answering each part in turn from `choices`; the sent requests and the output."""
         sent, replies = [], iter(choices)
         def connection(*_args, **_kwargs):
@@ -684,7 +700,7 @@ class JevClientTests(unittest.TestCase):
         file.write_text(json.dumps(assignment))
         try:
             output = io.StringIO()
-            with patch.dict(client.os.environ, {"TYPESAFE_API_KEY": "test-only-key"}), \
+            with patch.dict(client.os.environ, {**env, "TYPESAFE_API_KEY": "test-only-key"}), \
                  patch.object(client.http.client, "HTTPSConnection", side_effect=connection), contextlib.redirect_stdout(output):
                 rc = client.main(["--assignment", str(file)], sleep=no_sleep)
         finally:
@@ -693,17 +709,18 @@ class JevClientTests(unittest.TestCase):
 
     def test_a_diff_over_the_cap_is_split_by_hunks_and_every_part_returns_its_own_result(self):
         import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp, env = self.fixture_repo(directory)
             # one file whose diff alone is over the cap: 100 changed hunks of ~1.5 KB each, plus a small file
             big = "start\n" + "\n".join(f"keep {i}\n" + "\n".join(f"added {i}.{j} " + "y" * 60 for j in range(20))
                                        for i in range(0, 4000, 40)) + "\n"
-            base, commit = self.split_repo(tmp, {"big.py": big, "small.py": "start\nsmall change\n"})
-            assignment = {"deliverable": {"number": 1, "text": "Add the generated lines."}, "worktree_path": tmp,
+            base, commit = self.split_repo(tmp, env, {"big.py": big, "small.py": "start\nsmall change\n"})
+            assignment = {"deliverable": {"number": 1, "text": "Add the generated lines."}, "worktree_path": str(tmp),
                           "commit": commit, "base_sha": base, "changed_files": ["big.py", "small.py"], "context": []}
-            whole = client.subprocess.run(["git", "-C", tmp, "diff", "--no-color", f"{base}...{commit}", "--", "big.py"],
-                                          capture_output=True, text=True).stdout
+            whole = self.git(tmp, env, "diff", "--no-color", f"{base}...{commit}", "--", "big.py")
             self.assertGreater(len(whole.encode()), client.MAX_REQUEST_BYTES)
-            requests = client.assignment_requests(assignment)
+            with patch.dict(client.os.environ, env):
+                requests = client.assignment_requests(assignment)
             self.assertGreater(len(requests), 1)
             for i, request in enumerate(requests, 1):
                 self.assertLessEqual(len(client.validate_request(request)), client.MAX_REQUEST_BYTES)
@@ -720,7 +737,7 @@ class JevClientTests(unittest.TestCase):
                 self.assertNotIn("every part", instruction)  # a part is asked only about its own share
 
             choices = ["yes"] + ["no"] + ["yes"] * (len(requests) - 2)
-            rc, sent, result = self.run_split(assignment, choices)
+            rc, sent, result = self.run_split(assignment, choices, env)
             self.assertEqual((rc, result["error"]), (0, None))
             self.assertEqual([json.loads(b) for b in sent], requests)
             data = result["data"]
@@ -749,11 +766,12 @@ class JevClientTests(unittest.TestCase):
 
     def test_deliverable_text_alone_over_the_cap_names_the_plan_fix(self):
         import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            base, commit = self.split_repo(tmp, {"a.py": "start\nchanged\n"})
-            with self.assertRaises(client.JevError) as raised:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp, env = self.fixture_repo(directory)
+            base, commit = self.split_repo(tmp, env, {"a.py": "start\nchanged\n"})
+            with patch.dict(client.os.environ, env), self.assertRaises(client.JevError) as raised:
                 client.assignment_requests({"deliverable": {"number": 1, "text": "d" * client.MAX_REQUEST_BYTES},
-                                            "worktree_path": tmp, "commit": commit, "base_sha": base,
+                                            "worktree_path": str(tmp), "commit": commit, "base_sha": base,
                                             "changed_files": ["a.py"], "context": []})
             action = client.failure(raised.exception)["error"]["suggested_action"]
             self.assertIn("split into smaller numbered deliverables", action)
@@ -835,29 +853,28 @@ class JevClientTests(unittest.TestCase):
             self.assertEqual(raised.exception.message, "External evidence unreadable: pr_body o/r#460")
 
     def test_layered_source_reads_lower_layer_context_at_the_pinned_top(self):
-        import subprocess, tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            def git(*args):
-                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                      check=True, capture_output=True, text=True).stdout.strip()
-            git("init", "-q")
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            tmp, env = self.fixture_repo(directory)
             Path(tmp, "lib.py").write_text("def old(): pass\n")
             Path(tmp, "server.py").write_text("old()\n")
-            git("add", "-A"); git("commit", "-qm", "trunk")
-            trunk = git("rev-parse", "HEAD")
+            self.git(tmp, env, "add", "-A"); self.git(tmp, env, "commit", "-qm", "trunk")
+            trunk = self.git(tmp, env, "rev-parse", "HEAD")
             Path(tmp, "lib.py").write_text("def hand_off(fd): pass\n")  # lower layer
-            git("commit", "-qam", "layer 1")
-            lower = git("rev-parse", "HEAD")
+            self.git(tmp, env, "commit", "-qam", "layer 1")
+            lower = self.git(tmp, env, "rev-parse", "HEAD")
             Path(tmp, "server.py").write_text("hand_off(3)\n")  # top layer, the one checked
-            git("commit", "-qam", "layer 2")
-            top = git("rev-parse", "HEAD")
-            assignment = {"deliverable": {"number": 1, "text": "Call hand_off with the listener fd."}, "worktree_path": tmp,
+            self.git(tmp, env, "commit", "-qam", "layer 2")
+            top = self.git(tmp, env, "rev-parse", "HEAD")
+            assignment = {"deliverable": {"number": 1, "text": "Call hand_off with the listener fd."}, "worktree_path": str(tmp),
                           "commit": top, "base_sha": lower, "changed_files": ["server.py"], "context": ["lib.py"]}
-            (request,) = client.assignment_requests(assignment)
+            with patch.dict(client.os.environ, env):
+                (request,) = client.assignment_requests(assignment)
             self.assertEqual(request["state"]["context"], {"lib.py": "def hand_off(fd): pass\n"})
             self.assertIn("+hand_off(3)", request["state"]["evidence"])
             self.assertNotIn("lib.py", request["state"]["evidence"])
-            (layered,) = client.assignment_requests({**assignment, "base_sha": trunk, "changed_files": ["lib.py", "server.py"]})
+            with patch.dict(client.os.environ, env):
+                (layered,) = client.assignment_requests({**assignment, "base_sha": trunk, "changed_files": ["lib.py", "server.py"]})
             self.assertIn("+def hand_off(fd): pass", layered["state"]["evidence"])
             self.assertIn("+hand_off(3)", layered["state"]["evidence"])
 

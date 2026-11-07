@@ -83,6 +83,12 @@ def _target(step: Step, phase: Phase, bead_prefix: str) -> str | None:
     return sprint.target if sprint else None
 
 
+def _fresh_github(inputs: Inputs, state: State) -> bool:
+    last_read = state.last_github_read if state.last_github_read is not None else state.last_cycle
+    return (isinstance(inputs.prs, Ok) and inputs.gh.mode != "off" and inputs.gh.ok is True
+            and inputs.gh.at is not None and (last_read is None or inputs.gh.at > last_read))
+
+
 def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Snapshot, tuple[Action, ...], State]:
     errors = _read_errors(inputs)
     phase = inputs.phase.value if isinstance(inputs.phase, Ok) else None
@@ -232,6 +238,8 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
         sent=(state.sent + actions)[-5:],
         remotes=remotes,
         batch_due=batch_due,
+        last_github_read=inputs.gh.at if phase is not None and stopped is None and _fresh_github(inputs, state)
+        else state.last_github_read,
     )
     snapshot = replace(snapshot, sent=new_state.sent)
     return snapshot, actions, new_state
@@ -519,7 +527,7 @@ def _problems(
     if phase is None:
         return tuple(
             problem for problem in state.problems
-            if problem.key.startswith(("missing_pr:", "conflict:"))
+            if problem.key.startswith(("missing_pr:", "pr_base_outside_stack:", "conflict:"))
         )
     by_branch = _branch_owners(phase)
     by_id = {step.bead_id: step for step in phase.steps}
@@ -577,9 +585,8 @@ def _problems(
             f"{step.bead_id} ({step.kind}) cannot be dispatched: {row.reason}", now,
         ))
     problems.extend(conflicts.values())
-    fresh_github = isinstance(inputs.prs, Ok) and inputs.gh.mode != "off" and inputs.gh.ok is True and (
-        inputs.gh.at is not None and (state.last_cycle is None or inputs.gh.at > state.last_cycle)
-    )
+    fresh_github = _fresh_github(inputs, state)
+    unresolved_base_warning_keys: set[str] = set()
     if fresh_github and stack_mismatch:
         problems.append(Problem(
             "stack_top_mismatch", stack_bead, inputs.lead,
@@ -621,6 +628,57 @@ def _problems(
                     f"{step.bead_id} ({step.kind}): pushed branch {branch} has no open PR; open a PR with "
                     f"head {branch} against its pr_target (a stacked layer is submitted by the stack writer)", now,
                 ))
+        open_prs_by_number = {pr.number: pr for pr in prs if active_pr(pr)}
+        if (
+            isinstance(inputs.stack_prs, Ok)
+            and isinstance(inputs.stack_ledger, Ok)
+            and inputs.stack_prs.value == inputs.stack_ledger.value
+            and all(number in open_prs_by_number for number in inputs.stack_ledger.value)
+        ):
+            stack_chain = tuple(
+                open_prs_by_number[number]
+                for number in inputs.stack_ledger.value
+            )
+            open_pr_by_head = {pr.head: pr for pr in prs if active_pr(pr)}
+            for branch, step in by_branch.items():
+                pr = open_pr_by_head.get(branch)
+                target = step.target
+                if branch not in open_branches or pr is None or target is None:
+                    continue
+                allowed_bases = {target}
+                first_layer_above_target = None
+                for index, layer_pr in enumerate(stack_chain):
+                    if layer_pr.head == target:
+                        first_layer_above_target = index + 1
+                    if layer_pr.base == target:
+                        first_layer_above_target = index
+                if first_layer_above_target is not None:
+                    allowed_bases.update(layer.head for layer in stack_chain[first_layer_above_target:])
+                if pr.base not in allowed_bases:
+                    problems.append(Problem(
+                        f"pr_base_outside_stack:{branch}", step.bead_id, step.assignee or inputs.lead,
+                        f"{step.bead_id} ({step.kind}): open PR #{pr.number} for {branch} has base {pr.base}, "
+                        f"outside its linked stack from pr_target {target}; set the base to pr_target or a layer above it",
+                        now,
+                    ))
+        else:
+            open_prs_by_head = {pr.head: pr for pr in prs if active_pr(pr)}
+            for previous in state.problems:
+                prefix = "pr_base_outside_stack:"
+                if not previous.key.startswith(prefix):
+                    continue
+                branch = previous.key.removeprefix(prefix)
+                step = by_branch.get(branch)
+                pr = open_prs_by_head.get(branch)
+                if (
+                    step is not None
+                    and branch in open_branches
+                    and pr is not None
+                    and (step.target is None or pr.base != step.target)
+                ):
+                    # A fresh PR read can resolve the warning if its base is now the exact target.
+                    # Any other base needs the linked ledger to determine whether it is above target.
+                    unresolved_base_warning_keys.add(previous.key)
     if (fresh_github and not stack_mismatch and top_pr is not None and top_pr.ci in FAILING_CI
             and not (inputs.stack_prs is None and inputs.stack_ledger is None)):
         checks = ", ".join(top_pr.failed_checks)
@@ -636,6 +694,9 @@ def _problems(
             continue
         if (
             previous.key.startswith("missing_pr:") and not fresh_github
+            or previous.key.startswith("pr_base_outside_stack:") and (
+                not fresh_github or previous.key in unresolved_base_warning_keys
+            )
             or previous.key.startswith("top_ci:") and not fresh_github
             and not (inputs.stack_prs is None and inputs.stack_ledger is None)
             and top_pr is not None and previous.key == f"top_ci:{top_pr.head_sha}"

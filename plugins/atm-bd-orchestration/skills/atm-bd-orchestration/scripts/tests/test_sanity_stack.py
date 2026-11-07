@@ -803,6 +803,9 @@ def test_rebase_then_real_sanity_hook_preserves_round_and_hands_off(world, tmp_p
     hook.beads[hook.values["sanity_bead"]]["metadata"]["sanity_round"] = 2
     hook.values.update(stack_bead="phase.stack", branch="rival", commit=rival["commit"],
                        pr_number=2, base="first", stacked=result)
+    hook.beads[hook.values["checked_bead"]]["metadata"].update(
+        branch="rival", commit=rival["commit"], pr_number=2, pr_base="first")
+    hook.beads[hook.values["qa_bead"]]["metadata"].update(branch="rival", pr_number=2)
     hook.tasks[hook.values["sanity_task_id"]].append(hook.assignment(1))
     hook.path.write_text(json.dumps(hook.values))
     world.hook = hook

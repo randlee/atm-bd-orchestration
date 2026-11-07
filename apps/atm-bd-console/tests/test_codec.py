@@ -19,6 +19,7 @@ from contract_samples import (
     PRS_FILE,
     SAMPLES,
     SNAPSHOT,
+    STATE,
     STEP,
     TASK,
 )
@@ -52,6 +53,14 @@ ALLOW_EMPTY = {"stack_trunk", "stack_repo"}  # an unconfigured optional config b
 OPTIONAL_ADDITIONS = {"agent_type", "model", "harness", "qa_state", "close_reason", "severity", "qa_row", "checked_row", "assignee", "code_checkout", "stack_ledger",
                       "template", "core_remaining", "core_limit", "core_reset", "graphql_remaining", "graphql_limit",
                       "graphql_reset", "quota_at", "stack_prs", "stack_trunk", "stack_number", "stack_repo"}
+
+
+def test_old_console_state_without_consumed_github_timestamp_decodes() -> None:
+    legacy = json.loads(to_json(STATE))
+    legacy.pop("last_github_read")
+    decoded = from_json(types.State, json.dumps(legacy))
+    assert isinstance(decoded, Ok)
+    assert decoded.value.last_github_read is None
 
 
 def test_pre_enum_snapshot_decodes_to_typed_states() -> None:

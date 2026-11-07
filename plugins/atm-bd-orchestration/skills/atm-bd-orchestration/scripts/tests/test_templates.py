@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -11,6 +12,20 @@ from rendering import render
 
 
 ROOT = Path(__file__).parents[2]
+
+
+def _embedded_git_env(root):
+    """Run embedded fixtures against hostile caller settings without inheriting them."""
+    hostile = root / "hostile-gitconfig"
+    hostile.write_text('[init]\n\tdefaultBranch = invalid..branch\n')
+    caller = {**os.environ, "GIT_CONFIG_GLOBAL": str(hostile), "GIT_CONFIG_SYSTEM": str(hostile),
+              "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "init.defaultBranch",
+              "GIT_CONFIG_VALUE_0": "invalid..branch"}
+    env = {key: value for key, value in caller.items() if not key.startswith(("BEADS_", "BD_", "DOLT_", "GIT_"))}
+    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+    return env
+
+
 class TemplateContractTests(unittest.TestCase):
     def test_refusal_assignments_do_not_require_workflow_class_beads_or_citations(self):
         for name in (
@@ -431,6 +446,13 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         self.assertIn("scripts/bead-groups --findings <scratch>/", step_g)
         self.assertIn("<its metadata.round + 1>", step_g)
         self.assertIn("PASS requires a PASS from the filing reviewer and the carried finding confirmed fixed.", out)
+        step_i = out[out.index('<step id="i">'):out.index('<step id="i1">')]
+        self.assertLess(step_i.index("bead-groups --findings"), step_i.index("atm-task-close.py --role qa"))
+        self.assertIn("round N+1 would exceed the existing QA round cap", step_i)
+        quality_mgr = (ROOT / "roles/quality-mgr.md").read_text()
+        self.assertIn("After a fix-verification\n  FAIL, pour the next fix round", quality_mgr)
+        self.assertIn("`ROUND_CAP` applies only when round N+1\n  would exceed `max_rounds`", quality_mgr)
+        self.assertNotIn("A second FAIL is `ROUND_CAP`", quality_mgr)
 
     def test_fix_round_with_empty_scope_fails(self):
         for scope in (None, "[]", "[ ]", "", "  ", "null"):
@@ -752,6 +774,45 @@ REPO_DEFAULTS = ("team-lead", "just validate", "just lint", "quality-policy.md",
 class ConfigVariableTests(unittest.TestCase):
     """Repository values are required dispatch variables: no defaults, so a missing one fails the render."""
 
+    def test_undispatched_qa_omits_empty_layer_and_commit(self):
+        import sys
+        sys.path.insert(0, str(ROOT.parent / "atm-beads" / "scripts"))
+        import bead_schema
+
+        result = _render("qa-bead.json.j2", {**_example("qa-bead-vars.json"), "layer": "", "commit": ""})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bead = json.loads(result.stdout)
+        self.assertNotIn("layer", bead["metadata"])
+        self.assertNotIn("commit", bead["metadata"])
+        self.assertEqual(bead_schema.validate_phase([bead]), [])
+
+    def test_undispatched_qa_imports_with_embedded_bd(self):
+        import os
+        import tempfile
+
+        bd = os.environ.get("ATM_TEST_BD")
+        if not bd:
+            self.skipTest("ATM_TEST_BD must name the CI-pinned embedded bd")
+        values = {**_example("qa-bead-vars.json"), "id": "t-d-4-qa1", "checked_bead": "t-d-4",
+                  "sprint_bead": "t-d-4", "layer": "", "commit": ""}
+        rendered = _render("qa-bead.json.j2", values)
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = _embedded_git_env(root)
+            for command in (["git", "init", "-q"], [bd, "init", "--prefix", "t", "--non-interactive", "--quiet"],
+                            [bd, "create", "sprint", "--id", "t-d-4"]):
+                result = run_command(command, cwd=root, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            (root / "qa.jsonl").write_text(json.dumps(json.loads(rendered.stdout)) + "\n")
+            result = run_command([bd, "import", "qa.jsonl"], cwd=root, env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run_command([bd, "show", "t-d-4-qa1", "--json"], cwd=root, env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            metadata = json.loads(result.stdout)[0]["metadata"]
+            self.assertNotIn("layer", metadata)
+            self.assertNotIn("commit", metadata)
+
     def test_qa_bead_render_matches_stage_qa_schema_and_rejects_empty_branch(self):
         import sys
         sys.path.insert(0, str(ROOT.parent / "atm-beads" / "scripts"))
@@ -872,12 +933,23 @@ def test_daemon_sanity_has_no_pin_gate_or_build_running_merge():
     capture = result.stdout.index("Before inspecting any PR, deliverable, or review evidence, capture the binding")
     review = result.stdout.index("Verify the numbered deliverables")
     assert capture < review
-    assert "Save both exact values to scratch/sanity-binding.json and do not overwrite it during this review" in result.stdout
+    assert "Save all three exact values to scratch/sanity-binding.json together and do not overwrite it during this review" in result.stdout
     assert "Use the immutable values from scratch/sanity-binding.json for assignment_id and commit" in result.stdout
+    assert "Capture the assigned <base> full 40-hex SHA" in result.stdout
+    assert "base copied verbatim from the captured assignment <base>" in result.stdout
     assert "assignment_id and commit against current task history and checked bead" in result.stdout
     assert "do not update or submit the selected result under the new values" in result.stdout
     assert "do not invoke Cargo" in result.stdout
     assert "sanity-task-close.md.j2" in result.stdout
+
+
+def test_sanity_assignment_requires_full_40_hex_base_at_render():
+    values = _example("dev-sanity-template-vars.json")
+    for base in ("sprint/parent", "x" * 40, "a" * 64):
+        result = _render("dev-sanity-template.xml.j2", {**values, "base": base})
+        assert result.returncode != 0, base
+        assert "dispatcher_must_supply_full_40_hex_base" in result.stderr
+    assert _render("dev-sanity-template.xml.j2", {**values, "base": "a" * 40}).returncode == 0
 
 
 def test_hook_escalation_template_tracks_recovery_and_preserves_error_state():
