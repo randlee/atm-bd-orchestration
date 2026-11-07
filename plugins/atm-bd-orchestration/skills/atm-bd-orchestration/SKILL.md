@@ -157,9 +157,8 @@ atm send <agent> "Operate under <prompt> for every task until told otherwise. Re
 
 Background agents (a subagent or child agent, whichever the harness provides)
 receive a bead piped into their prompt as in `orchestrating.md` ("Passing A
-Bead To A Background Agent"). A background subagent is not assumed to be able to run `bd`, so the agent
-that starts one pipes the bead into its prompt. A role runs `bd` when its
-agent definition says so; nothing here forbids it.
+Bead To A Background Agent"). Only these background subagents never run `bd` and never write to beads
+or ATM; teammates and the lead write beads as the work happens.
 
 ## Stack Discipline
 
