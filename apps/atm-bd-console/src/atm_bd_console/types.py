@@ -388,6 +388,7 @@ class Snapshot:
     member_data: tuple[Member, ...] = ()
     task_bead_data: tuple[Bead, ...] = ()
     worktree_data: tuple[Worktree, ...] = ()
+    top_error: Error | None = None
 
 
 @dataclass(frozen=True)

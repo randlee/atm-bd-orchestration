@@ -15,6 +15,7 @@ from .ids import short_id
 from .prs import active_pr
 from .render import render_agent
 from .result import Err, Error, Ok, Result
+from .stack_topology import stack_topology
 from .types import (
     Action,
     AgentView,
@@ -143,7 +144,13 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
         assigned = outcome.actions
         errors.extend(outcome.errors)
 
-    pr_rows, top_pr = _pr_rows(phase, prs, merges, inputs.stack_prs, inputs.stack_ledger)
+    ownership = _branch_owners(phase) if phase is not None else {}
+    layers = {branch: owner.layer for branch, owner in ownership.items()}
+    if phase is not None:
+        layers.update({sprint.branch: sprint.layer for sprint in phase.sprints if sprint.branch not in layers})
+    topology = stack_topology(prs, inputs.stack_prs, inputs.stack_ledger, layers=layers)
+    top_pr = topology.value if isinstance(topology, Ok) else None
+    pr_rows = _pr_rows(phase, prs, merges, inputs.stack_prs, inputs.stack_ledger, topology=topology)[0]
     top_ci = top_pr.ci if top_pr else None
     proposed = _problems(phase, held, merges, prs, top_pr, inputs, state, now) if stopped is None else ()
     agents = _agent_views(members, tasks, phase, inputs.task_beads, now, inputs.repo.bead_prefix,
@@ -186,6 +193,7 @@ def tick(inputs: Inputs, state: State, now: datetime, spec: SpecFn) -> tuple[Sna
         metrics=_metrics(phase, now),
         gh=inputs.gh,
         top_pr=top_pr.number if top_pr else None,
+        top_error=topology.error if isinstance(topology, Err) else None,
         top_ci=top_ci,
         mermaid=mermaid,
         sprints=sprint_views,
@@ -456,13 +464,14 @@ def _metrics(phase: Phase | None, now: datetime) -> Metrics:
 def _pr_rows(
     phase: Phase | None, prs: tuple[PullRequest, ...], merges: tuple[Merge, ...],
     stack_prs: Result[tuple[int, ...]] | None = None, stack_ledger: Result[tuple[int, ...]] | None = None,
+    *, topology: Result[PullRequest | None] | None = None,
 ) -> tuple[tuple[PrRow, ...], PullRequest | None]:
     if phase is None:
         return (), None
     by_branch: dict[str, Step | None] = dict(_branch_owners(phase))
     by_branch.update({sprint.branch: None for sprint in phase.sprints if sprint.branch not in by_branch})
-    relevant = tuple(pr for pr in prs if pr.head in by_branch)
-    bases = {pr.base for pr in relevant}
+    membership = set(stack_prs.value) if isinstance(stack_prs, Ok) else set()
+    relevant = tuple(pr for pr in prs if pr.head in by_branch or pr.number in membership)
 
     def layer_of(head: str) -> int | None:
         owner = by_branch.get(head)
@@ -470,27 +479,13 @@ def _pr_rows(
             return owner.layer
         return next((sprint.layer for sprint in phase.sprints if sprint.branch == head), None)
 
-    # Canonical top: among active PRs whose head is not another PR's base, take
-    # the HIGHEST stack layer. Never let a stale lower layer win just because it
-    # appears first in GitHub's tuple order (that produces frozen-edit advice).
-    top_candidates = [pr for pr in relevant if active_pr(pr) and pr.head not in bases]
-    if isinstance(stack_prs, Ok):
-        membership = stack_prs.value
-        if (isinstance(stack_ledger, Ok) and stack_ledger.value and membership
-                and stack_ledger.value[-1] == membership[-1]):
-            top = next((pr for pr in relevant if active_pr(pr) and pr.number == membership[-1]), None)
-        else:
-            top = None
-    elif isinstance(stack_prs, Err) or stack_ledger is not None:
-        top = None
-    else:
-        layered = [(layer_of(pr.head), pr) for pr in top_candidates]
-        known = [(layer, pr) for layer, pr in layered if layer is not None]
-        top = max(known, key=lambda pair: (pair[0], pair[1].number))[1] if known else None
+    if topology is None:
+        topology = stack_topology(prs, stack_prs, stack_ledger, layers={head: layer_of(head) for head in by_branch})
+    top = topology.value if isinstance(topology, Ok) else None
     merge_by_branch = {merge.branch: merge for merge in merges}
     rows = tuple(PrRow(
         pr=pr,
-        layer=owner.layer if (owner := by_branch[pr.head]) else next(
+        layer=owner.layer if (owner := by_branch.get(pr.head)) else next(
             (sprint.layer for sprint in phase.sprints if sprint.branch == pr.head), None
         ),
         bead_id=owner.bead_id if owner else next(

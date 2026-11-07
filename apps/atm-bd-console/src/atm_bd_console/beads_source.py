@@ -32,9 +32,9 @@ def _bead(raw: dict[str, Any]) -> Bead:
     )
 
 
-def _raw(argv: list[str], *, cwd: str | None = None) -> Result[list[dict[str, Any]]]:
+def _raw(argv: list[str], *, cwd: str | None = None, runner=None) -> Result[list[dict[str, Any]]]:
     line = " ".join(argv)
-    completed = command.run(argv, f"run `{line}` by hand and repair what it reports", cwd=cwd, env=command.repo_env())
+    completed = (runner or command.run)(argv, f"run `{line}` by hand and repair what it reports", cwd=cwd, env=command.repo_env())
     if isinstance(completed, Err):
         error = completed.error
         if isinstance(error, Timeout):
@@ -55,8 +55,8 @@ def _raw(argv: list[str], *, cwd: str | None = None) -> Result[list[dict[str, An
         return Err(ParseFailed("parse_failed", "bd", str(error), f"run `{line}` by hand; its JSON is not the expected array of bead objects, so upgrade or repair bd"))
 
 
-def _run(argv: list[str], *, cwd: str | None = None) -> Result[tuple[Bead, ...]]:
-    raw = _raw(argv, cwd=cwd)
+def _run(argv: list[str], *, cwd: str | None = None, runner=None) -> Result[tuple[Bead, ...]]:
+    raw = _raw(argv, cwd=cwd, runner=runner)
     if isinstance(raw, Err):
         return raw
     try:
@@ -65,8 +65,8 @@ def _run(argv: list[str], *, cwd: str | None = None) -> Result[tuple[Bead, ...]]
         return Err(ParseFailed("parse_failed", "bd", str(error), "repair bd JSON"))
 
 
-def show(ids: tuple[str, ...]) -> Result[tuple[Bead, ...]]:
-    return Ok(()) if not ids else _run(["bd", "show", *ids, "--json"])
+def show(ids: tuple[str, ...], *, runner=None, cwd: str | None = None) -> Result[tuple[Bead, ...]]:
+    return Ok(()) if not ids else _run(["bd", "show", *ids, "--json"], runner=runner, cwd=cwd)
 
 
 def _only_not_found(stderr: str, ids: tuple[str, ...]) -> bool:

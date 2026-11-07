@@ -357,6 +357,8 @@ def test_phase_stack_check_uses_valid_sibling_checkout(monkeypatch, tmp_path: Pa
             return Ok(Output(0, f"worktree {code_root / 'integrate'}\nbranch refs/heads/integrate/phase-bj\n"))
         if tuple(argv) == ("gh", "stack", "view", "--json"):
             return Ok(Output(0, json.dumps({"trunk": "integrate/phase-bj", "branches": []})))
+        if argv[:2] == ["bd", "show"]:
+            return Ok(Output(0, json.dumps([bead(f"{ROOT}.stack", "stack", metadata={"layers": []})])))
         return source_runner(list(argv), fix, cwd=cwd, **kwargs)
     monkeypatch.setattr(config.command, "run", run)
     monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase: Ok(
@@ -572,3 +574,91 @@ def test_no_phase_team_and_no_default_team_is_a_named_error_before_any_read(monk
     err = capsys.readouterr().err
     assert f'add team = "<ATM team>" to {tmp_path}/.atm-bd/phase-bj.toml, or set atm.default_team in {tmp_path}/.atm.toml' in err
     assert calls == []
+
+
+# --- #935: queues and the console tick share one topology rule over one PrsFile ---
+
+def _topology_build(monkeypatch, tmp_path: Path, prs_file, ledger_pr_numbers=(959, 963)):
+    from dataclasses import replace as _replace  # noqa: F401
+
+    from atm_bd_console.paths import state_directory
+    from atm_bd_console.state import StateStore
+    (tmp_path / ".atm-bd").mkdir(exist_ok=True)
+    (tmp_path / ".atm-bd" / "phase-bj.toml").write_text('integration_branch = "integrate/phase-bj"\n')
+    if prs_file is not None:
+        directory = state_directory(tmp_path, ROOT)
+        directory.mkdir(parents=True)
+        assert isinstance(StateStore(directory, None)._write("prs.json", prs_file), Ok)
+    layers = [{"pr": number, "linked": True} for number in ledger_pr_numbers]
+    source_runner, _ = fixed_runner()
+
+    def run(argv, fix, *, cwd=None, **kwargs):
+        if tuple(argv) == ("git", "rev-parse", "--show-toplevel"):
+            return Ok(Output(0, f"{tmp_path}\n"))
+        if tuple(argv) == ("git", "remote", "get-url", "origin"):
+            return Ok(Output(0, "https://github.com/owner/repo.git\n"))
+        if tuple(argv) == ("git", "worktree", "list", "--porcelain"):
+            return Ok(Output(0, f"worktree {tmp_path}\nbranch refs/heads/integrate/phase-bj\n"))
+        if tuple(argv) == ("gh", "stack", "view", "--json"):
+            return Ok(Output(0, json.dumps({"trunk": "integrate/phase-bj", "branches": []})))
+        if argv[:2] == ["bd", "show"]:
+            return Ok(Output(0, json.dumps([bead(f"{ROOT}.stack", "stack", metadata={"layers": layers})])))
+        return source_runner(list(argv), fix, cwd=cwd, **kwargs)
+    monkeypatch.setattr(config.command, "run", run)
+    monkeypatch.setattr(queues.atm_bd, "phase_file", lambda repo, phase: Ok(SimpleNamespace(root_id=ROOT, code_checkout=None)))
+    args = SimpleNamespace(phase="bj", root=None, stack=True)
+    return queues.build(args, tmp_path, now=NOW, runner=run)
+
+
+def _prs_file(read_at=NOW, members=(959, 963)):
+    from datetime import timedelta
+
+    from atm_bd_console.enums import CiState
+    from atm_bd_console.types import GhStatus, PrsFile, PullRequest
+    prs = (PullRequest(959, "u959", "branch-959", "base", "sha959", CiState.FAIL_WINDOWS, ("windows",)),
+           PullRequest(963, "u963", "outside-963", "branch-959", "sha963", CiState.PASS, ()))
+    return PrsFile(read_at - timedelta(seconds=10), GhStatus("graphql", True, None, read_at, False), prs,
+                   stack_number=949, stack_prs=members)
+
+
+def _console_snapshot(prs_file, ledger):
+    from dataclasses import replace as _replace
+
+    from test_model import inputs, phase, render, sprint, step
+
+    from atm_bd_console.model import tick
+    from atm_bd_console.types import RemoteRef, State
+    value = phase(step("dev-1", "atm-bh-1", branch="branch-959", layer=1), sprints=(sprint(1),))
+    base = inputs(value, prs=Ok(prs_file.prs), stack_prs=Ok(prs_file.stack_prs), stack_ledger=Ok(ledger))
+    base = _replace(base, remotes=Ok(tuple(RemoteRef(p.head, p.head_sha) for p in prs_file.prs)))
+    return tick(base, State((), None, None, None, None, (), (), {}), NOW, render)[0]
+
+
+def test_queues_and_console_tick_name_the_same_top_from_one_prs_file(monkeypatch, tmp_path: Path):
+    prs_file = _prs_file()
+    report = _topology_build(monkeypatch, tmp_path, prs_file)
+    snapshot = _console_snapshot(prs_file, (959, 963))
+    assert report["stack_top"] == snapshot.top_pr == 963
+    assert report["stack_error"] is None and snapshot.top_error is None
+
+
+def test_queues_and_console_tick_name_the_same_no_top_reason(monkeypatch, tmp_path: Path):
+    from dataclasses import asdict
+    prs_file = _prs_file(members=(959, 963))
+    report = _topology_build(monkeypatch, tmp_path, prs_file, ledger_pr_numbers=(959,))
+    snapshot = _console_snapshot(prs_file, (959,))
+    assert report["stack_top"] is None and snapshot.top_pr is None and snapshot.top_error is not None
+    assert report["stack_error"] == asdict(snapshot.top_error)
+    assert any(row["id"] == "stack:integrate/phase-bj:top-unknown" for row in report["queues"]["stack_incoherent"])
+
+
+def test_queues_without_prs_json_show_no_top_and_prs_missing_with_the_fix(monkeypatch, tmp_path: Path):
+    report = _topology_build(monkeypatch, tmp_path, None)
+    assert report["stack_top"] is None
+    assert "PRS.MISSING" in report["stack_error"]["what"] and "run the console tick" in report["stack_error"]["fix"]
+
+
+def test_queues_with_a_stale_prs_json_show_no_top_and_prs_stale(monkeypatch, tmp_path: Path):
+    from datetime import timedelta
+    report = _topology_build(monkeypatch, tmp_path, _prs_file(read_at=NOW - timedelta(seconds=500)))
+    assert report["stack_top"] is None and report["stack_error"]["source"] == "PRS.STALE"

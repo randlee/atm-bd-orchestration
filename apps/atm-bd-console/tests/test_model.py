@@ -1217,3 +1217,58 @@ def test_an_error_raised_by_several_reads_is_one_errors_row() -> None:
     other = NotFound("not_found", "elsewhere", "repair it")
     snapshot, _, _ = tick(inputs(phase(), merges=(Err(error), Err(other), Err(error))), STATE, NOW, render)
     assert snapshot.errors == (error, other)
+
+
+# --- #935: canonical membership decides the top; phase ownership only decorates rows ---
+
+def _topology_tick(prs, **stack):
+    """Phase owns only branch-959 (layer 1); PR 963's head is outside the phase projection."""
+    value = phase(step("dev-1", "atm-bh-1", branch="branch-959", layer=1), sprints=(sprint(1),))
+    return tick(inputs(
+        value, prs=Ok(tuple(prs)), remotes=Ok(tuple(RemoteRef(item.head, item.head_sha) for item in prs)),
+        gh=GhStatus("graphql", True, None, NOW, False), **stack,
+    ), STATE, NOW, render)[0]
+
+
+LOWER = PullRequest(959, "u959", "branch-959", "base", "sha959", CiState.FAIL_WINDOWS, ("windows",))
+UPPER = PullRequest(963, "u963", "outside-963", "branch-959", "sha963", CiState.PASS, ())
+
+
+def test_935_reproduction_top_is_the_last_canonical_member_outside_the_phase_projection() -> None:
+    snapshot = _topology_tick((LOWER, UPPER), stack_prs=Ok((959, 963)), stack_ledger=Ok((959, 963)))
+    assert snapshot.top_pr == 963 and snapshot.top_error is None
+    assert sorted([(row.pr.number, row.layer, row.top) for row in snapshot.prs]) == [(959, 1, False), (963, None, True)]
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+
+
+def test_top_missing_from_the_snapshot_is_no_top_and_names_it() -> None:
+    snapshot = _topology_tick((LOWER,), stack_prs=Ok((959, 963)), stack_ledger=Ok((959, 963)))
+    assert snapshot.top_pr is None and "963" in str(snapshot.top_error)
+    assert not any(row.top for row in snapshot.prs)
+
+
+def test_unreadable_membership_is_no_top() -> None:
+    failure = Err(NotFound("not_found", "gh", "restore access"))
+    snapshot = _topology_tick((LOWER, UPPER), stack_prs=failure, stack_ledger=Ok((959, 963)))
+    assert snapshot.top_pr is None and snapshot.top_error == failure.error
+
+
+def test_ledger_and_membership_disagreeing_is_no_top() -> None:
+    snapshot = _topology_tick((LOWER, UPPER), stack_prs=Ok((959, 963)), stack_ledger=Ok((959,)))
+    assert snapshot.top_pr is None and "STACK.MISMATCH" in str(snapshot.top_error)
+
+
+def test_membership_without_a_ledger_read_is_no_top_naming_the_unread_ledger() -> None:
+    snapshot = _topology_tick((LOWER, UPPER), stack_prs=Ok((959, 963)), stack_ledger=None)
+    assert snapshot.top_pr is None and "STACK.LEDGER_UNREAD" in str(snapshot.top_error)
+
+
+def test_unlinked_newer_pr_outside_membership_is_ignored_for_the_top() -> None:
+    newer = PullRequest(964, "u964", "branch-964", "outside-963", "sha964", CiState.PASS, ())
+    snapshot = _topology_tick((LOWER, UPPER, newer), stack_prs=Ok((959, 963)), stack_ledger=Ok((959, 963)))
+    assert snapshot.top_pr == 963
+
+
+def test_no_membership_configured_keeps_the_projection_fallback() -> None:
+    snapshot = _topology_tick((LOWER, UPPER))
+    assert snapshot.top_pr == 959 and snapshot.top_error is None
