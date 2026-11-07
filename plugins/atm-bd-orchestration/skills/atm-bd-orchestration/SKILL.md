@@ -523,6 +523,15 @@ atm task assign <agent> --task-id <bead> \
   bead id; the bead supplies most of the rest
   (`bd show <bead> --json | jq '.[0].metadata'`). Keep vars files outside the
   repository.
+- A dev assignment carries `children`: the sprint's `stage:subtask` beads as
+  `{id, title, model_class}` (`close_fields.subtask_children` on
+  `bd children <sprint> --json`), or `[]`. The dev template then adds the step
+  that runs each child with a background subagent. A poured sprint with children
+  has one sanity task per child (`<sprint>.group-sub-<n>-sanity`) and its own
+  sanity needs them all. The dev close refuses `CLOSE.OPEN_SUBTASKS` while a child
+  is open, then assigns the children's sanity tasks (not the sprint's); the sanity
+  hook assigns the sprint's own sanity when the last child passes. A FAIL on a
+  child reopens the one dev bead. The QA assignment takes `children` the same way.
 - Preview with `atm compose --template <phase.templates.purpose> --vars <file>`. Never
   render and paste a body.
 

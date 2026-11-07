@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
+from types import SimpleNamespace
 import os
 from pathlib import Path
 import shutil
@@ -349,6 +350,7 @@ class SprintGroupReviewersTests(unittest.TestCase):
         runner.show = lambda bead: root if bead == "t-phase-d" else container
         runner.plan = lambda _: {"d-1": ("t-d-1", "t-d-1.group-sanity", [])}
         runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "group"}
+        runner.subtask_numbers = lambda _: []
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             runner.repo = work
@@ -367,6 +369,60 @@ class SprintGroupReviewersTests(unittest.TestCase):
             qa = [step["metadata"] for step in steps if step["metadata"].get("role") == "qa"]
             self.assertEqual([m["reviewers_round1"] for m in qa], [reviewers])
             self.assertTrue(all("reviewers_round1" not in step["metadata"] for step in steps if step["metadata"].get("role") != "qa"))
+
+
+class SubtaskPourTests(unittest.TestCase):
+    def render(self, groups, children: list[str], option: str = "C") -> list[dict]:
+        runner = object.__new__(groups.Run)
+        runner.option = None
+        runner.config = {"worktree_base": "/worktrees", "lint_command": "just lint", "policy_path": "policy.md",
+                         "max_sanity_rounds": 5, "reviewers_round1": ["req-qa"]}
+        container = {"status": "open", "title": "d-1: the work", "priority": 2,
+                     "metadata": {"phase": "d", "sprint": "d-1", "stack": "stack", "layer": 1, "difficulty": "normal",
+                                  "branch": "sprint/d-1-work", "worktree": "/worktrees/sprint/d-1-work", "pr_target": "integrate/phase-d"}}
+        runner.show = lambda bead: {"id": "t-phase-d", "title": "phase d"} if bead == "t-phase-d" else container
+        runner.plan = lambda _: {"d-1": ("t-d-1", "t-d-1.group-sanity", [])}
+        runner.sidecar = lambda _: {"default_option": option, "options": {option: {}}, "ref": "group"}
+        runner.subtask_numbers = lambda _: children
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            runner.repo = work
+            shutil.copyfile(SCRIPTS.parent / "formulas/sprint-group.formula.toml.j2", work / "formula.toml.j2")
+            with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d"}):
+                target = runner.sprint_target("t-d-1")
+            self.assertEqual(target["compose"]["children"], children)
+            request = {"schema": "sc-compose/beads/v1", "operation": "render", "working_directory": directory,
+                       "template": "formula.toml.j2", "rendered_formula": "rendered.formula.toml",
+                       "bead_variables": {}, "compose_variables": target["compose"]}
+            (work / "request.json").write_text(json.dumps(request))
+            output = subprocess.run(["sc-compose", "bead", "render", "--request", "request.json", "--json"],
+                                    cwd=work, capture_output=True, text=True, timeout=30)
+            self.assertEqual(output.returncode, 0, output.stdout + output.stderr)
+            return tomllib.loads((work / "rendered.formula.toml").read_text())["steps"]
+
+    @unittest.skipUnless(shutil.which("sc-compose"), "sc-compose is required to render bead formulas")
+    def test_each_subtask_pours_a_sanity_step_the_sprint_sanity_needs(self):
+        steps = self.render(load_groups("bead_groups_subtasks"), ["1", "2"])
+        by_id = {step["id"]: step for step in steps}
+        self.assertEqual(list(by_id), ["dev", "sanity", "sub-1-sanity", "sub-2-sanity", "qa"])
+        self.assertEqual(by_id["sanity"]["needs"], ["dev", "sub-1-sanity", "sub-2-sanity"])
+        self.assertEqual(by_id["sub-2-sanity"]["needs"], ["dev"])
+        meta = by_id["sub-2-sanity"]["metadata"]
+        self.assertEqual((meta["checked_bead"], meta["dev_bead"], meta["sanity_bead"]),
+                         ("t-d-1.sub-2", "t-d-1.group-dev", "t-d-1.group-sub-2-sanity"))
+
+    @unittest.skipUnless(shutil.which("sc-compose"), "sc-compose is required to render bead formulas")
+    def test_sprint_without_subtasks_pours_the_same_three_steps(self):
+        steps = self.render(load_groups("bead_groups_no_subtasks"), [])
+        self.assertEqual([step["id"] for step in steps], ["dev", "sanity", "qa"])
+        self.assertEqual(steps[1]["needs"], ["dev"])
+
+    def test_subtask_numbers_reads_only_this_containers_sub_children(self):
+        groups = load_groups("bead_groups_numbers")
+        runner = object.__new__(groups.Run)
+        rows = [{"id": "t-d-1.sub-10"}, {"id": "t-d-1.sub-2"}, {"id": "t-d-1.group-dev"}, {"id": "t-d-10.sub-1"}, {"id": "t-d-1.sub-0"}]
+        runner.bd = SimpleNamespace(children=lambda bead: rows)
+        self.assertEqual(runner.subtask_numbers("t-d-1"), ["2", "10"])
 
 
 def test_compose_timeout_is_typed_and_actionable_for_preview_and_attach(tmp_path, monkeypatch):

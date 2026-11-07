@@ -255,6 +255,7 @@ class Compose(TypedDict, total=False):
     pr_target: str
     edge_option: str
     reviewers_round1: list[str]
+    children: list[str]
     stack_bead: str
     phase_feature: str
     checked_title: str
@@ -675,6 +676,15 @@ class Run:
             raise TargetError("BEAD_GROUPS_OPTION_UNKNOWN", f"option {option!r} is not in {sorted(sidecar['options'])}")
         return option
 
+    def subtask_numbers(self, container: str) -> list[str]:
+        """The n of every `<container>.sub-<n>` child of the sprint container, in numeric order."""
+        try:
+            rows = self.bd.children(container)
+        except (BdError, ValueError) as exc:
+            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{container}: bd children failed: {exc}; Fix: run bd children {container} --json") from exc
+        found = [m.group(1) for row in rows if (m := re.fullmatch(re.escape(container) + r"\.sub-([1-9][0-9]*)", row.get("id", "")))]
+        return sorted(found, key=int)
+
     def sprint_target(self, bead: str) -> Target:
         _, container = self.show_typed(bead)
         meta = bead_metadata(container)
@@ -705,6 +715,7 @@ class Run:
                    "layer": meta.get("layer") or 0, "difficulty": difficulty, "priority": priority,
                    "branch": branch, "worktree": worktree, "pr_target": pr_target,
                    "edge_option": option, "reviewers_round1": list(self.config["reviewers_round1"]),
+                   "children": self.subtask_numbers(bead),
                    **self.close_compose(phase, str(container.get("title") or ""))}
         compose["ref"] = fmt(sidecar["ref"], {"vars": compose})
         relate_vars: dict[str, ComposeValue] = {**sidecar.get("defaults", {}), "predecessor_sanity": [plan[d][1] for d in deps],

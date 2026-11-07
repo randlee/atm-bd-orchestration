@@ -41,6 +41,7 @@ class PlanFixture:
         self.runner.sidecars = {}
         self.rows = {}
         self.runner.bd = Mock()
+        self.runner.bd.children.return_value = []
         self.runner.bd.show.side_effect = lambda bead: deepcopy(self.rows.get(bead))
 
     def sprint(self, phase="x", number=1, predecessors=()):

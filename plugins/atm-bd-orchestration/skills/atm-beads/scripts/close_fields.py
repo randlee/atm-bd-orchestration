@@ -29,13 +29,25 @@ def is_fix_bead(bead: dict) -> bool:
     return (bead.get("metadata") or {}).get("role") == "fix" or "stage:fix" in (bead.get("labels") or [])
 
 
-def reassignment(root: Path, phase: str, bead: dict, config: dict) -> tuple[Path, dict]:
+def subtask_children(rows: list[dict]) -> list[dict]:
+    """The dev template's `children` from `bd children <sprint> --json` rows: each stage:subtask bead, by number."""
+    found = []
+    for row in rows:
+        if "stage:subtask" not in (row.get("labels") or []):
+            continue
+        meta = row.get("metadata") or {}
+        found.append({"id": row["id"], "title": row.get("title") or "", "model_class": meta.get("model_class"),
+                      "deliverables": row.get("description") or ""})
+    return sorted(found, key=lambda child: int(child["id"].rsplit(".sub-", 1)[1]))
+
+
+def reassignment(root: Path, phase: str, bead: dict, config: dict, children: list[dict] | None = None) -> tuple[Path, dict]:
     meta = bead.get("metadata") or {}
     phase_config = tomllib.loads((root / ".atm-bd" / f"phase-{phase}.toml").read_text())
     template = root / phase_config["templates"]["fix" if is_fix_bead(bead) else "dev"]
     values = {name: meta[name] for name in ("sprint", "stack", "pr_target", "branch")}
     values.update(task_id=bead["id"], worktree_path=meta["worktree"], phase_root=phase_config["root"],
-                  primary_checkout=str(root))
+                  primary_checkout=str(root), children=children or [])
     values.update({name: config[name] for name in ("test_command", "lint_command", "policy_path",
                                                     "requirements_globs", "adr_globs")})
     return template, values
@@ -102,7 +114,8 @@ def close_vars(row: dict, repo: Path) -> tuple[str, dict, list[str]]:
 RECORDED = ("branch", "pr_number")
 
 
-def qa_assignment_vars(qa_row: dict, checked_row: dict, repo: Path, current_pr: dict | None = None) -> dict:
+def qa_assignment_vars(qa_row: dict, checked_row: dict, repo: Path, current_pr: dict | None = None,
+                       children: list[dict] | None = None) -> dict:
     """The `templates.qa` vars of one QA bead, using its currently observed PR head and base.
 
     The checked bead identifies the PR number and expected branch. The current PR supplies its head SHA and base ref;
@@ -162,4 +175,4 @@ def qa_assignment_vars(qa_row: dict, checked_row: dict, repo: Path, current_pr: 
             "policy_path": metadata["policy_path"], "reviewers_round1": metadata["reviewers_round1"],
             "commit": str(live_fields["headRefOid"]), "branch": str(live_fields["headRefName"]),
             "pr_number": str(live_fields["number"]),
-            "carry_forward": checked_row["id"] if is_fix else ""}
+            "carry_forward": checked_row["id"] if is_fix else "", "children": children or []}

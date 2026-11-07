@@ -118,6 +118,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/sanity_task_close_hook.py
     - skills/atm-bd-orchestration/scripts/stack-landed
     - skills/atm-bd-orchestration/scripts/stack_top.py
+    - skills/atm-bd-orchestration/scripts/task_close_subtasks.py
     - skills/atm-bd-orchestration/scripts/task_close_validation.py
     - skills/atm-bd-orchestration/scripts/tests/fixtures/bd-1.3.1/bd-schema.json
     - skills/atm-bd-orchestration/scripts/tests/fixtures/bd-1.3.1/list-rows.json
@@ -178,6 +179,8 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_report.py
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_tools.py
     - skills/atm-bd-orchestration/scripts/tests/test_subprocess_helpers.py
+    - skills/atm-bd-orchestration/scripts/tests/test_subtask_close.py
+    - skills/atm-bd-orchestration/scripts/tests/test_subtask_sanity_hook.py
     - skills/atm-bd-orchestration/scripts/tests/test_task_close.py
     - skills/atm-bd-orchestration/scripts/tests/test_task_close_validation.py
     - skills/atm-bd-orchestration/scripts/tests/test_templates.py
@@ -239,6 +242,7 @@ artifacts:
     - skills/atm-beads/schemas/sanity-bead.schema.json
     - skills/atm-beads/schemas/sprint-bead.schema.json
     - skills/atm-beads/schemas/stack-bead.schema.json
+    - skills/atm-beads/schemas/subtask-bead.schema.json
     - skills/atm-beads/scripts/bead_schema.py
     - skills/atm-beads/scripts/check-phase-artifact
     - skills/atm-beads/scripts/close_fields.py

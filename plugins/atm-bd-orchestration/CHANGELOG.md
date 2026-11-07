@@ -5,6 +5,8 @@
 - Ship ceremony-finding-screen, screen every finding round and record per-round and cumulative screening rates (#938).
 - Refuse installs missing host-required agents with an actionable INSTALL.AGENT_MISSING error (#909).
 
+- A sprint split into `stage:subtask` beads works end to end: `bead_schema.SubtaskBead` (id `<container>.sub-<n>`, optional `model_class`, container checked by `validate-plan`) with `subtask-bead.schema.json`; the sprint-group pour adds a `sub-<n>-sanity` step per child that the sprint's sanity needs; the dev template (3.18.0, `children`) and QA template (4.19.0) list the children; the dev close refuses `CLOSE.OPEN_SUBTASKS` and assigns each child's sanity task; the sanity hook closes a child sanity against the sprint's one dev bead and assigns the sprint sanity when the last child passes.
+
 ### Fixed
 - Stack landings are recorded once under the ledger lock; archived stacks no longer supply a live top, while new layers after a landing remain live and stale copied layers carry a typed repair (#928).
 - Frozen linked layers re-close against their predecessor or pinned trunk cut through the shared base predicate, including offline verification (#911).

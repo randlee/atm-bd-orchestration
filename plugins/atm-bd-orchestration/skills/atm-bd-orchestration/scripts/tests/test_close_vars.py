@@ -99,7 +99,7 @@ def test_rebased_fixture_layer_updates_qa_vars_and_sanity_close_context(tmp_path
 
     with patch.object(close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
         qa_assignment = close_vars_cli.build_qa_assignment(
-            fixture, QA["id"], pr_reader=lambda repo, number: current_pr)
+            fixture, QA["id"], pr_reader=lambda repo, number: current_pr, subtask_reader=lambda repo, sprint: [])
     qa_vars = qa_assignment["vars"]
     assert qa_vars["base"] == "stack-new"
     assert qa_vars["commit"] == rebased_head
@@ -279,7 +279,9 @@ class QaAssignmentTests(unittest.TestCase):
         current = {**CURRENT_PR, "base": "fix/new-stack-top", "head_sha": "fedcba987"}
         with patch.object(close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
             result = close_vars_cli.build_qa_assignment(REPO, QA["id"],
-                                                        pr_reader=lambda repo, number: current)
+                                                        pr_reader=lambda repo, number: current,
+                                                        subtask_reader=lambda repo, sprint: [{"id": f"{sprint}.sub-1", "title": "t", "model_class": None, "deliverables": "d"}])
+        self.assertEqual(result["vars"]["children"], [{"id": "t-d-1.sub-1", "title": "t", "model_class": None, "deliverables": "d"}])
         self.assertEqual(result["vars"]["base"], "fix/new-stack-top")
         self.assertEqual(result["vars"]["commit"], "fedcba987")
 

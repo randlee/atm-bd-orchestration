@@ -99,7 +99,7 @@ def validate_command_json(argv, data):
             raise CloseError("COMMAND.INVALID", f"{producer}: {field} must be {expected}",
                              f"Repair {field} in the JSON returned by `{producer}` to be {expected}, then retry.")
 
-    if argv[:2] in (["bd", "show"], ["bd", "list"]):
+    if argv[:2] in (["bd", "show"], ["bd", "list"], ["bd", "children"]):
         require(isinstance(data, list), "$", "an array of bead objects")
         for index, row in enumerate(data):
             field = f"$[{index}]"
