@@ -18,7 +18,7 @@ READ_TASK_EVENTS = CLOSE.task_events
 
 @pytest.fixture(autouse=True)
 def task_events(monkeypatch):
-    monkeypatch.setattr(CLOSE, "task_events", lambda task: [{"event": "assigned"}])
+    monkeypatch.setattr(CLOSE, "task_events", lambda task, phase: [{"event": "assigned"}])
 
 
 @pytest.fixture
@@ -56,14 +56,15 @@ def test_reopened_assignment_counts_from_task_events_not_old_context(inputs):
     assert CLOSE.build(manifest, selected, events=events)["round"] == 2
 
 
-def test_event_reader_requests_complete_history(monkeypatch):
+def test_event_reader_requests_complete_history(monkeypatch, tmp_path):
     calls = []
     def run(command, **kwargs):
         calls.append(command)
         return type("Result", (), {"stdout": '{"events": [{"event": "assigned"}]}'})()
     monkeypatch.setattr(CLOSE.subprocess, "run", run)
-    assert READ_TASK_EVENTS("task") == [{"event": "assigned"}]
-    assert calls == [["atm", "task", "events", "task", "--all", "--json"]]
+    monkeypatch.setattr(CLOSE.phase_settings, "phase_settings", lambda root, phase: type("Settings", (), {"team": "team", "lead": "lead"})())
+    assert READ_TASK_EVENTS("task", "x", tmp_path) == [{"event": "assigned"}]
+    assert calls == [["atm", "task", "events", "task", "--all", "--json", "--team", "team", "--as", "lead"]]
 
 
 def test_fail_retains_verbatim_deliverable_reason_and_stack_result(inputs):
@@ -165,3 +166,29 @@ def test_a_close_context_without_reviewers_is_refused_not_defaulted(inputs):
     del manifest["close_context"]["reviewers_round1"]
     with pytest.raises(ValueError, match="lacks reviewers_round1"):
         CLOSE.build(manifest, selected)
+
+
+@pytest.mark.parametrize("failure,code", [
+    (FileNotFoundError("atm"), "SANITY_VARS.ATM_MISSING"),
+    (CLOSE.subprocess.TimeoutExpired(["atm"], 17), "SANITY_VARS.TIMEOUT"),
+    (CLOSE.subprocess.CalledProcessError(2, ["atm"], stderr="task not found"), "SANITY_VARS.TASK_NOT_FOUND"),
+])
+def test_event_errors_are_typed_and_actionable(monkeypatch, tmp_path, failure, code):
+    monkeypatch.setattr(CLOSE.phase_settings, "phase_settings", lambda root, phase: type("Settings", (), {"team": "configured-team", "lead": "configured-lead"})())
+    monkeypatch.setattr(CLOSE.command_timeout, "repo_timeout", lambda environ, root: 17)
+    def run(command, **kwargs):
+        assert command[-4:] == ["--team", "configured-team", "--as", "configured-lead"]
+        assert kwargs["timeout"] == 17
+        raise failure
+    monkeypatch.setattr(CLOSE.subprocess, "run", run)
+    with pytest.raises(CLOSE.SanityVarsError, match=code.replace(".", r"\.")) as error:
+        READ_TASK_EVENTS("missing-task", "x", tmp_path)
+    assert ";" in str(error.value)
+
+
+def test_missing_team_is_typed(monkeypatch, tmp_path):
+    def no_settings(root, phase):
+        raise CLOSE.phase_settings.PhaseSettingsError("set team in phase-x.toml")
+    monkeypatch.setattr(CLOSE.phase_settings, "phase_settings", no_settings)
+    with pytest.raises(CLOSE.SanityVarsError, match=r"SANITY_VARS\.TEAM_UNSET.*phase-x.toml"):
+        READ_TASK_EVENTS("task", "x", tmp_path)
