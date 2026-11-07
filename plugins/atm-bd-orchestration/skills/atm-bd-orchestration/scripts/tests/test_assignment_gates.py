@@ -533,3 +533,38 @@ class AssignmentGateTests(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+def test_stack_top_landed_live_and_stale_ledgers():
+    old = {"pr": 1, "branch": "old", "head": "a" * 40, "linked": True}
+    new = {"pr": 2, "branch": "new", "head": "b" * 40, "linked": True}
+    for state, layers, expected in [("landed", [], "target"), ("live", [new], "new"), ("stale", [old], None)]:
+        meta = {"trunk": "target", "landed_head": "c" * 40, "landed_layers": [old], "layers": layers}
+        runner = FakeRunner({
+            ("bd", "show", "phase.stack", "--json"): (0, dumped([{"metadata": meta}])),
+            ("gh", "api", "repos/{owner}/{repo}/stacks", "--paginate", "--jq", ".[] | {number, base: .base.ref, prs: [.pull_requests[].number]}"):
+                (0, dumped([{"number": 7, "base": "target", "prs": [1 if state == "landed" else 2]}])),
+        })
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            status = gates.main(["stack-top", "--root", "phase", "--pr-target", "target"], runner)
+        if state == "stale":
+            assert status == 2 and output.getvalue().strip() == "GATE_CANNOT_RUN"
+            assert "LEDGER.STALE_LANDING" in errors.getvalue() and "phase.stack" in errors.getvalue()
+            assert "stack-landed phase.stack" in errors.getvalue()
+        else:
+            assert status == 0 and output.getvalue().strip() == expected
+        if state == "landed":
+            assert not any(argv[0] == "gh" for _, argv in runner.calls)
+
+
+
+def test_stack_top_accepts_the_verbatim_phase_br_landed_ledger():
+    from task_close_world import BR_LANDED_METADATA
+    runner = FakeRunner({("bd", "show", "atm-phase-br.stack", "--json"):
+                         (0, dumped([{"metadata": BR_LANDED_METADATA}]))})
+    output = io.StringIO()
+    with redirect_stdout(output):
+        assert gates.main(["stack-top", "--root", "atm-phase-br", "--pr-target", "integrate/phase-br"], runner) == 0
+    assert output.getvalue().strip() == "integrate/phase-br"
+    assert not any(a[0] == "gh" for _, a in runner.calls)

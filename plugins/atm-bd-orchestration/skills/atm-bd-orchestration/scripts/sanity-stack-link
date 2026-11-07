@@ -19,7 +19,7 @@ from typing import Any
 import tempfile
 import time
 
-from stack_top import StackTop, StackTopMismatch, select_confirmed_stack_top, select_passed_unlinked_top
+from stack_top import StackTop, StackTopMismatch, LedgerError, select_live_top, select_passed_unlinked_top
 
 
 PULL_FILTER = '.[] | {number, base: .base.ref, head: .head.ref, sha: .head.sha, draft}'
@@ -285,6 +285,7 @@ class Linker:
                 not isinstance(metadata.get('layers'), list) or
                 (metadata.get('stack_number') is not None and (type(metadata['stack_number']) is not int or metadata['stack_number'] <= 0))):
             raise StackError('stack bead metadata is invalid')
+        select_live_top(metadata, bead=self.values['stack_bead'])
         layers = metadata['layers']
         previous = metadata['trunk']
         branches, numbers = set(), set()
@@ -323,7 +324,7 @@ class Linker:
             for layer in layers:
                 if layer['linked'] and layer['pr'] not in hosted_prs:
                     self.invalid_layer(metadata, layer, 'linked: true but absent from the hosted stack')
-            selected = select_confirmed_stack_top(layers, hosted_prs)
+            selected = select_live_top(metadata, hosted_prs, bead=self.values['stack_bead'])
             if isinstance(selected, StackTopMismatch):
                 linked_prs = [layer['pr'] for layer in layers if layer['linked']]
                 anchors = [layer['pr'] for layer in layers if not layer.get('held_on')]
@@ -347,7 +348,7 @@ class Linker:
         def resolve_head(branch):
             return self.command(['git', 'rev-parse', 'refs/remotes/origin/' + branch]).stdout.strip()
 
-        selected = select_confirmed_stack_top(layers, hosted_prs)
+        selected = select_live_top(metadata, hosted_prs, bead=self.values['stack_bead'])
         if isinstance(selected, StackTopMismatch):
             raise StackError(f'stack top mismatch: ledger {selected.ledger_top}; hosted {selected.hosted_top}')
         base = selected.branch if selected.branch is not None else metadata['trunk']
@@ -538,8 +539,10 @@ def main(argv=None, runner=subprocess.run, clock=time.time):
                 result = linker.execute()
             except (StackError, OSError, ValueError, TypeError, KeyError) as error:
                 result = {'result': 'stack_failed', 'evidence': str(error)}
-                if isinstance(error, LayerError):
+                if isinstance(error, (LayerError, LedgerError)):
                     result['fix'] = error.fix
+                    if isinstance(error, LedgerError):
+                        result['code'] = error.code
         finally:
             try:
                 linker.release()

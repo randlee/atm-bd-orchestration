@@ -60,6 +60,33 @@ malformed or non-ancestor base. The assignment message is not independently
 fetched to authenticate the submitted base; origin-bound provenance is tracked
 in atm-bd#889.
 
+
+## Stack landing and close replay
+
+After merging a hosted stack, `stack-landed <stack-bead> --head <merged-sha>
+--stack <number>` verifies origin's trunk contains the landing and its linked
+heads, then archives `landed_at`, `landed_head`, `landed_stack_number` and
+`landed_layers`, retaining earlier events in `previous_landings`. Under the
+same assignee lock as `sanity-stack-link`, one metadata write clears `layers`,
+`stack_number`, `top` and `top_pr`. The lead never edits these fields by hand.
+The next close and assignment select the trunk; sanity starts a new hosted
+stack. Non-empty current layers after an earlier landing are live. Current
+layers entirely copied from `landed_layers` refuse `LEDGER.STALE_LANDING`,
+naming the stack bead and the `stack-landed` command to repair it.
+
+A linked layer re-closes only at its frozen recorded head. Its base is the
+linked layer below it (or the bottom layer's pinned trunk cut), and that
+predecessor's SHA is `rebased_onto`. Only a new head must descend from the
+current top. A refusal for a frozen layer never prescribes rebasing it.
+
+A completed close made before `close_assignment_id` existed replays as `ok`
+when the recorded commit and close reason match the closing head. A different
+head refuses `CLOSE.LEGACY_REPLAY_MISMATCH`, naming the missing field and the
+commands for replaying the recorded head or requesting a new assignment; it
+is not `CLOSE.STALE_ASSIGNMENT`. This historical replay makes no writes.
+Replay decision reads precede writes. Postcondition and reassignment-fence
+reads remain required after writes and are tested as an exact sequence.
+
 ## Inputs and actions
 
 Bead reads use bd-cache (`BD-CACHE.md`): the routing read is served from the

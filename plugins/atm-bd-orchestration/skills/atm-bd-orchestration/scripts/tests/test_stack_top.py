@@ -36,3 +36,24 @@ def test_passed_first_layer_wins_over_trunk_but_held_layers_do_not():
             "held_on": {"pr": 1, "branch": "first"}}
     assert select_stack_top({"metadata": {"layers": [first, held]}}, "trunk", lambda _: "ccc") == ("first", "aaa")
     assert select_stack_top({"metadata": {"layers": [held]}}, "trunk", lambda _: "ccc") == ("trunk", "ccc")
+
+
+def test_landing_state_is_metadata_bearing_and_old_wrapper_stays_compatible():
+    import pytest
+    from stack_top import LedgerError, is_landed, select_live_top
+    old = {"pr": 1, "branch": "old", "head": "aaa", "linked": True}
+    new = {"pr": 2, "branch": "new", "head": "bbb", "linked": True}
+    meta = {"landed_head": "merged", "landed_layers": [old], "layers": [], "trunk": "trunk"}
+    assert is_landed(meta)
+    assert select_live_top(meta, [1]) == StackTop(None, "trunk", None)
+    meta["layers"] = [new]
+    assert not is_landed(meta)
+    assert select_live_top(meta, [2]) == StackTop(2, "new", "bbb")
+    meta["layers"] = [old]
+    with pytest.raises(LedgerError) as error:
+        select_live_top(meta, [1], bead="phase.stack")
+    assert error.value.code == "LEDGER.STALE_LANDING"
+    assert "phase.stack" in str(error.value)
+    assert "stack-landed phase.stack" in error.value.fix
+    # bs-2 consumes this compatibility API; it intentionally retains the old behavior.
+    assert select_stack_top({"metadata": meta}, "trunk", lambda _: "ccc") == ("old", "aaa")

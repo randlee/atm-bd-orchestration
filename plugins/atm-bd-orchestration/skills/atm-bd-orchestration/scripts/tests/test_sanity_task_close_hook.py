@@ -50,6 +50,7 @@ class World:
         self.commands, self.spawned = [], []
         self.fail = None
         self.spawn_error = None
+        self.git_results = {}
 
     @property
     def beads(self):
@@ -62,7 +63,8 @@ class World:
         if command[0] == "bd":
             return self.bd(command, **kwargs)
         if command[0] == "git":
-            return subprocess.CompletedProcess(command, 0, "", "")
+            code, output, error = self.git_results.get(tuple(command), (0, "", ""))
+            return subprocess.CompletedProcess(command, code, output, error)
         if command[:3] == ["atm", "task", "events"]:
             output = {"events": self.histories[command[3]]}
         elif command[:2] == ["atm", "send"] or command[:3] == ["atm", "task", "assign"]:
@@ -533,3 +535,14 @@ def test_dry_run_refusal_writes_no_journal_record_and_sends_nothing(world):
     assert world.invoke()["result"] == "refused"
     assert not (world.root / ".atm-bd/sanity-close/journal.sqlite3").exists()
     assert not any(c[:3] == ["atm", "task", "assign"] for c in world.commands)
+
+
+@pytest.mark.parametrize("code,expected", [(1, "SANITY_CLOSE.BASE"), (128, "SANITY_CLOSE.COMMAND")])
+def test_git_base_failure_is_observed_without_journaling(world, code, expected):
+    command = ["git", "-C", str(world.root), "merge-base", "--is-ancestor", world.values["base"], world.sha]
+    world.git_results = {tuple(command): (code, "", "injected git failure")}
+    reply = world.invoke()
+    assert reply["result"] == "refused"
+    assert expected in reply["message"]
+    assert command in world.commands
+    assert world.journal() == []

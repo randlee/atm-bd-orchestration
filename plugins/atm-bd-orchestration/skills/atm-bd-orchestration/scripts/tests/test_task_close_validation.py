@@ -76,3 +76,19 @@ def test_hook_reexports_the_shared_validators_and_error():
         validation.validate_command_json(["atm", "task", "events", "task", "--json"], {"events": "bad"})
     assert error.value.code == "COMMAND.INVALID"
     assert "atm task events task" in error.value.fix
+
+
+def test_linked_base_predicate_pins_lower_layers_and_only_checks_new_heads_against_top():
+    sha, parent, top = "a" * 40, "b" * 40, ("newer", "c" * 40)
+    metadata = {"trunk": "trunk", "layers": [
+        {"branch": "parent", "head": parent, "linked": True},
+        {"branch": "checked", "head": sha, "linked": True},
+        {"branch": "newer", "head": top[1], "linked": True}]}
+    def unexpected(_):
+        raise AssertionError("lower layer never resolves the moving trunk")
+    assert validation.linked_base_anchor(metadata, "checked", sha, top, unexpected) == (("parent", parent), True)
+    assert validation.linked_base_anchor(metadata, "new", sha, top, unexpected) == (top, False)
+    with pytest.raises(validation.CloseError) as error:
+        validation.linked_base_anchor(metadata, "checked", "d" * 40, top, unexpected)
+    assert error.value.code == "BASE.LINKED_HEAD"
+    assert "git show" in error.value.fix and "do not rebase" in error.value.fix

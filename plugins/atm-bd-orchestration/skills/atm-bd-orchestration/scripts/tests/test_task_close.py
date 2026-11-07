@@ -19,7 +19,7 @@ import pytest
 from unittest.mock import patch
 
 
-from task_close_world import DERIVED, EXAMPLES, SCRIPTS, World, cache_call, example_values, hook
+from task_close_world import BR_LANDED_METADATA, DERIVED, EXAMPLES, SCRIPTS, World, cache_call, example_values, hook
 
 
 def record_checked_commit(world):
@@ -127,8 +127,8 @@ def test_dev_handoff_is_immediate_and_closes_the_dev_task_as_the_dev(world, monk
     dev_task = world.tasks[world.values["dev_task_id"]]
     assert dev_task[-1]["to_state"] == "complete" and dev_task[-1]["close_outcome"] == "completed"
     assert world.tasks[world.values["sanity_task_id"]][-1]["to_state"] == "assigned"
-    assert ["atm", "task", "close", world.values["dev_task_id"], "completed",
-            f"dev complete at {world.values['commit']}"] in calls[close_index + 3:]
+    assert calls[close_index + 9] == ["atm", "task", "close", world.values["dev_task_id"], "completed",
+                                      f"dev complete at {world.values['commit']}"]
     for argv, sender in world.writes:
         assert sender == ("phase-lead" if argv[:3] == ["atm", "task", "assign"] else "caller")
         if argv[0] == "bd":
@@ -617,6 +617,8 @@ def test_reclose_of_linked_lower_layer_uses_its_predecessor(world):
         {"branch": branch, "pr": 351, "head": world.head, "base": "parent", "linked": True},
         {"branch": "descendant", "pr": 352, "head": "c" * 40, "base": branch, "linked": True}]
     world.overrides[("git", "merge-base", "--is-ancestor", "origin/descendant", world.head)] = (1, "")
+    world.overrides[("gh", "api", f"repos/example/repo/pulls?head=example:{branch}&state=open")] = (
+        0, json.dumps([{"number": 351, "head": {"sha": world.head}, "base": {"ref": "parent"}}]))
     result = world.run()
     assert "ok" in result, result
     assert layers[1]["head"] == world.head
@@ -815,8 +817,10 @@ def test_replay_state_is_snapshotted_before_writes(world, role, verdict):
     reads = [argv for argv in calls[first_write + 1:] if argv[:2] in (["bd", "show"], ["bd", "list"]) or argv[:3] == ["atm", "task", "events"]]
     expected = [["atm", "task", "events", world.values["sanity_task_id"], "--all", "--json"]] if role == "sanity" and verdict == "FAIL" else []
     if role in ("dev", "fix"):
-        assert ["bd", "show", world.values["checked_bead"], "--json"] in reads
-        assert ["atm", "task", "events", world.values["sanity_task_id"], "--all", "--json"] in reads
+        fence = ["atm", "task", "events", world.values["dev_task_id"], "--all", "--json"]
+        postcondition = ["bd", "show", world.values["checked_bead"], "--json"]
+        sanity = ["atm", "task", "events", world.values["sanity_task_id"], "--all", "--json"]
+        assert reads == [fence, postcondition, sanity, fence, postcondition, sanity]
     else:
         assert reads == expected
 
@@ -2254,3 +2258,108 @@ def test_lead_closing_its_own_qa_task_skips_the_self_addressed_status(world, mon
     assert "ok" in world.run("qa", verdict="PASS")
     assert [argv[:2] for argv, _sender in world.writes] == [["bd", "close"], ["atm", "task"]]
     assert world.messages == []
+
+
+@pytest.mark.parametrize("role", ["dev", "fix"])
+def test_snapshot_assertion_rejects_a_controlled_extra_read(world, monkeypatch, role):
+    original = hook.Hook.finish_dev
+    def finish_with_extra_read(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        self.read_bead(self.task)
+    monkeypatch.setattr(hook.Hook, "finish_dev", finish_with_extra_read)
+    with pytest.raises(AssertionError):
+        test_replay_state_is_snapshotted_before_writes(world, role, "PASS")
+
+
+def test_close_position_assertion_rejects_a_controlled_delay(world, monkeypatch):
+    original = hook.Hook.close_task
+    def delayed_close(self, *args, **kwargs):
+        self.events(self.task)
+        return original(self, *args, **kwargs)
+    monkeypatch.setattr(hook.Hook, "close_task", delayed_close)
+    with pytest.raises(AssertionError):
+        test_dev_handoff_is_immediate_and_closes_the_dev_task_as_the_dev(world, monkeypatch)
+
+
+@pytest.mark.parametrize("role", ["dev", "fix"])
+@pytest.mark.parametrize("same_head", [True, False])
+def test_legacy_completed_close_replays_by_recorded_sha(world, role, same_head):
+    assert "ok" in world.run(role)
+    metadata = world.beads[world.values["checked_bead"]]["metadata"]
+    del metadata["close_assignment_id"]
+    # Older records may also lack the later sanity binding; their close is still historical fact.
+    metadata.pop("sanity_assignment_id", None)
+    if not same_head:
+        world.head = "c" * 40
+        world.values["commit"] = world.head
+    world.writes.clear()
+    result = world.run(role)
+    if same_head:
+        assert "ok" in result, result
+        assert result["ok"]["commit"] == metadata["commit"]
+    else:
+        assert result["err"]["code"] == "CLOSE.LEGACY_REPLAY_MISMATCH"
+        assert "close_assignment_id" in result["err"]["message"]
+        assert "git checkout" in result["err"]["fix"] and "atm task assign" in result["err"]["fix"]
+    assert world.writes == []
+
+
+@pytest.mark.parametrize("skip", [False, True], ids=["github-outage", "skip-checks"])
+def test_unverified_pr_base_names_recovery_in_order(world, skip):
+    world.github_failure = True
+    del world.beads[world.values["checked_bead"]]["metadata"]["pr_base"]
+    result = world.run(skip_checks=skip)
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED"
+    fix = result["err"]["fix"]
+    assert fix.index("First re-run the close when GitHub is reachable") < fix.index("Only if the PR genuinely cannot be read")
+    assert "base.ref and base.sha" in fix and "metadata.pr_base" in fix
+    assert "bd update" in fix and not world.writes
+
+
+@pytest.mark.parametrize("state", ["landed", "live", "stale"])
+def test_close_uses_current_ledger_after_a_landing(world, state):
+    metadata = world.beads[world.values["stack_bead"]]["metadata"]
+    old = {"pr": 20, "branch": "merged-layer", "head": "d" * 40, "linked": True}
+    metadata.update(landed_head="e" * 40, landed_layers=[old], layers=[])
+    if state != "landed":
+        metadata["layers"] = [old if state == "stale" else {"pr": 21, "branch": "new-stack", "head": "b" * 40, "linked": True}]
+    result = world.run()
+    if state == "stale":
+        assert result["err"]["code"] == "LEDGER.STALE_LANDING"
+        assert world.values["stack_bead"] in result["err"]["message"]
+        assert "stack-landed" in result["err"]["fix"] and not world.writes
+    else:
+        assert "ok" in result, result
+        base = "new-stack" if state == "live" else world.values["pr_target"]
+        assert ["git", "merge-base", "--is-ancestor", f"origin/{base}", world.head] in [a for a, _ in world.calls]
+        assert not any("origin/merged-layer" in a for a, _ in world.calls)
+
+
+@pytest.mark.parametrize("offline", [False, True])
+def test_frozen_bottom_uses_cut_base_when_trunk_has_advanced(world, offline):
+    trunk, branch = world.values["pr_target"], world.values["branch"]
+    cut = "c" * 40
+    world.beads[world.values["stack_bead"]]["metadata"]["layers"] = [
+        {"pr": 351, "branch": branch, "head": world.head, "base_head": cut, "linked": True},
+        {"pr": 352, "branch": "later", "head": "d" * 40, "linked": True}]
+    world.beads[world.values["checked_bead"]]["metadata"]["pr_base"] = trunk
+    world.github_failure = offline
+    world.overrides[("gh", "api", f"repos/example/repo/pulls?head=example:{branch}&state=open")] = (
+        1 if offline else 0, json.dumps([{"number": 351, "head": {"sha": world.head}, "base": {"ref": trunk}}]))
+    # The moving trunk and top are not ancestors of the frozen head; its pinned cut is.
+    world.overrides[("git", "merge-base", "--is-ancestor", "b" * 40, world.head)] = (1, "")
+    world.overrides[("git", "merge-base", "--is-ancestor", "origin/later", world.head)] = (1, "")
+    result = world.run()
+    assert "ok" in result, result
+    dispatch = next(m for m in world.messages if m["type"] == "dev-sanity-task")["values"]
+    assert dispatch["rebased_onto"] == dispatch["base"] == cut
+
+
+
+def test_close_accepts_the_verbatim_phase_br_landed_ledger(world):
+    world.beads[world.values["stack_bead"]]["metadata"] = copy.deepcopy(BR_LANDED_METADATA)
+    world.values["pr_target"] = BR_LANDED_METADATA["trunk"]
+    result = world.run()
+    assert "ok" in result, result
+    assert ["git", "merge-base", "--is-ancestor", "origin/integrate/phase-br", world.head] in [a for a, _ in world.calls]
+    assert result["ok"]["ledger_top"] is None
