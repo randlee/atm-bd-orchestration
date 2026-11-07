@@ -188,7 +188,113 @@ def test_event_errors_are_typed_and_actionable(monkeypatch, tmp_path, failure, c
 
 def test_missing_team_is_typed(monkeypatch, tmp_path):
     def no_settings(root, phase):
-        raise CLOSE.phase_settings.PhaseSettingsError("set team in phase-x.toml")
+        raise CLOSE.phase_settings.PhaseSettingsError(CLOSE.phase_settings.PhaseSettingsCause.TEAM_UNSET, "set team in phase-x.toml")
     monkeypatch.setattr(CLOSE.phase_settings, "phase_settings", no_settings)
     with pytest.raises(CLOSE.SanityVarsError, match=r"SANITY_VARS\.TEAM_UNSET.*phase-x.toml"):
         READ_TASK_EVENTS("task", "x", tmp_path)
+
+
+def test_every_phase_settings_cause_has_its_own_sanity_code():
+    """RBQA-F007: TEAM_UNSET names an unset team only; every other cause gets a distinct code and fix."""
+    causes = set(CLOSE.phase_settings.PhaseSettingsCause)
+    assert set(CLOSE.PHASE_SETTINGS_CODES) == causes
+    codes = {cause: CLOSE.PHASE_SETTINGS_CODES[cause][0] for cause in causes}
+    assert len(set(codes.values())) == len(causes)
+    assert [cause for cause, code in codes.items() if code == "SANITY_VARS.TEAM_UNSET"] == [CLOSE.phase_settings.PhaseSettingsCause.TEAM_UNSET]
+    assert all(fix.strip() for _, fix in CLOSE.PHASE_SETTINGS_CODES.values())
+
+
+def test_a_missing_lead_is_not_reported_as_an_unset_team(monkeypatch, tmp_path):
+    def no_lead(root, phase):
+        raise CLOSE.phase_settings.PhaseSettingsError(CLOSE.phase_settings.PhaseSettingsCause.LEAD_UNSET, "set lead in phase-x.toml")
+    monkeypatch.setattr(CLOSE.phase_settings, "phase_settings", no_lead)
+    with pytest.raises(CLOSE.SanityVarsError, match=r"SANITY_VARS\.LEAD_UNSET.*phase-x.toml") as error:
+        READ_TASK_EVENTS("task", "x", tmp_path)
+    assert "TEAM_UNSET" not in str(error.value)
+
+
+def repository(root, *, phase, phase_text, atm_text="", config_text="max_sanity_rounds: 5\n"):
+    """A real planning repository: .atm-bd/phase-<phase>.toml, optional .atm.toml, and the installer's yaml."""
+    (root / ".atm-bd").mkdir(parents=True, exist_ok=True)
+    if phase_text is not None:
+        (root / ".atm-bd" / f"phase-{phase}.toml").write_text(phase_text)
+    if atm_text:
+        (root / ".atm.toml").write_text(atm_text)
+    if config_text is not None:
+        config = root / ".claude/project/atm-bd-orchestration.yaml"
+        config.parent.mkdir(parents=True)
+        config.write_text(config_text)
+    return root
+
+
+def test_task_events_reads_team_and_lead_from_a_real_phase_configuration(monkeypatch, tmp_path):
+    root = repository(tmp_path, phase="bs", phase_text='lead = "phase-lead"\nteam = "phase-team"\n',
+                      atm_text='[atm]\ndefault_team = "default-team"\n')
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        return type("Result", (), {"stdout": '{"events": [{"event": "assigned"}]}'})()
+    monkeypatch.setattr(CLOSE.subprocess, "run", run)
+    assert READ_TASK_EVENTS("atm-bs-1.group-sanity", "bs", root) == [{"event": "assigned"}]
+    assert calls == [["atm", "task", "events", "atm-bs-1.group-sanity", "--all", "--json", "--team", "phase-team", "--as", "phase-lead"]]
+
+
+def test_task_events_falls_back_to_the_repository_default_team_from_a_real_configuration(monkeypatch, tmp_path):
+    root = repository(tmp_path, phase="bs", phase_text='lead = "phase-lead"\n', atm_text='[atm]\ndefault_team = "default-team"\n')
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        return type("Result", (), {"stdout": '{"events": [{"event": "assigned"}]}'})()
+    monkeypatch.setattr(CLOSE.subprocess, "run", run)
+    READ_TASK_EVENTS("task", "bs", root)
+    assert calls[0][-4:] == ["--team", "default-team", "--as", "phase-lead"]
+
+
+@pytest.mark.parametrize(("phase_text", "atm_text", "config_text", "code"), [
+    (None, "", "max_sanity_rounds: 5\n", "SANITY_VARS.PHASE_CONFIG_UNREADABLE"),
+    ('lead = \n', "", "max_sanity_rounds: 5\n", "SANITY_VARS.PHASE_CONFIG_UNREADABLE"),
+    ('team = "phase-team"\n', "", "max_sanity_rounds: 5\n", "SANITY_VARS.LEAD_UNSET"),
+    ('lead = "phase-lead"\n', "", "max_sanity_rounds: 5\n", "SANITY_VARS.TEAM_UNSET"),
+    ('lead = "phase-lead"\n', "[atm\n", "max_sanity_rounds: 5\n", "SANITY_VARS.DEFAULT_TEAM_UNREADABLE"),
+    ('lead = "phase-lead"\nteam = "phase-team"\ncode_checkout = ""\n', "", "max_sanity_rounds: 5\n", "SANITY_VARS.CODE_CHECKOUT_INVALID"),
+    ('lead = "phase-lead"\nteam = "phase-team"\n', "", None, "SANITY_VARS.REPO_CONFIG_INVALID"),
+    ('lead = "phase-lead"\nteam = "phase-team"\n', "", 'tool_identity: ""\n', "SANITY_VARS.TOOL_IDENTITY_INVALID"),
+])
+def test_each_real_configuration_defect_is_reported_by_its_own_cause(monkeypatch, tmp_path, phase_text, atm_text, config_text, code):
+    root = repository(tmp_path, phase="bs", phase_text=phase_text, atm_text=atm_text, config_text=config_text)
+    def run(command, **kwargs):
+        raise AssertionError("atm must not run before the configuration resolves")
+    monkeypatch.setattr(CLOSE.subprocess, "run", run)
+    with pytest.raises(CLOSE.SanityVarsError) as error:
+        READ_TASK_EVENTS("task", "bs", root)
+    assert error.value.code == code
+    assert str(error.value).startswith(code + ": ") and "; " in str(error.value)
+    if code != "SANITY_VARS.TEAM_UNSET":
+        assert "TEAM_UNSET" not in str(error.value)
+
+
+@pytest.mark.parametrize("phase", [None, "", "  ", 7])
+def test_build_requires_the_phase_from_close_context_and_never_guesses_it(inputs, monkeypatch, phase):
+    """RBQA-F007: the phase was `context.get("phase") or sprint.split("-")[0]`, a naming-convention guess."""
+    manifest, selected = inputs
+    if phase is None:
+        manifest["close_context"].pop("phase", None)
+    else:
+        manifest["close_context"]["phase"] = phase
+    selected["sprint"] = "bj-1"
+    def never(task, phase):
+        raise AssertionError("task_events must not run without a close_context phase")
+    monkeypatch.setattr(CLOSE, "task_events", never)
+    with pytest.raises(CLOSE.SanityVarsError, match=r"SANITY_VARS\.PHASE_UNSET.*close_context\.phase") as error:
+        CLOSE.build(manifest, selected)
+    assert error.value.code == "SANITY_VARS.PHASE_UNSET"
+
+
+def test_build_passes_the_close_context_phase_not_the_sprint_prefix_to_task_events(inputs, monkeypatch):
+    manifest, selected = inputs
+    manifest["close_context"]["phase"] = "bs"
+    selected["sprint"] = "zz-9"
+    seen = []
+    monkeypatch.setattr(CLOSE, "task_events", lambda task, phase: seen.append((task, phase)) or [{"event": "assigned"}])
+    CLOSE.build(manifest, selected)
+    assert seen == [(manifest["sanity_bead"], "bs")]

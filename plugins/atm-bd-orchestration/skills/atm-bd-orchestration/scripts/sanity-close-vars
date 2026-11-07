@@ -27,12 +27,36 @@ class SanityVarsError(ValueError):
         super().__init__(f"{code}: {message}")
 
 
+# One SANITY_VARS code and fix per PhaseSettingsCause: the cause is the enum on the error, never its wording.
+PHASE_SETTINGS_CODES = {
+    phase_settings.PhaseSettingsCause.PHASE_CONFIG_UNREADABLE: (
+        "SANITY_VARS.PHASE_CONFIG_UNREADABLE", "create or repair the named .atm-bd/phase-<phase>.toml and retry"),
+    phase_settings.PhaseSettingsCause.LEAD_UNSET: (
+        "SANITY_VARS.LEAD_UNSET", "set lead in the named phase configuration to the phase lead's ATM identity and retry"),
+    phase_settings.PhaseSettingsCause.DEFAULT_TEAM_UNREADABLE: (
+        "SANITY_VARS.DEFAULT_TEAM_UNREADABLE", "repair the named .atm.toml or set team in the phase configuration and retry"),
+    phase_settings.PhaseSettingsCause.TEAM_UNSET: (
+        "SANITY_VARS.TEAM_UNSET", "set team in the named phase configuration or atm.default_team in .atm.toml and retry"),
+    phase_settings.PhaseSettingsCause.CODE_CHECKOUT_INVALID: (
+        "SANITY_VARS.CODE_CHECKOUT_INVALID", "set code_checkout in the named phase configuration to a nonempty path or remove it and retry"),
+    phase_settings.PhaseSettingsCause.REPO_CONFIG_INVALID: (
+        "SANITY_VARS.REPO_CONFIG_INVALID", f"repair {repo_config.RELATIVE_PATH} (the installer renders it) and retry"),
+    phase_settings.PhaseSettingsCause.TOOL_IDENTITY_INVALID: (
+        "SANITY_VARS.TOOL_IDENTITY_INVALID", f"set tool_identity in {repo_config.RELATIVE_PATH} to <identity>@<team> and retry"),
+}
+
+
+def phase_settings_error(error):
+    code, fix = PHASE_SETTINGS_CODES[error.cause]
+    return SanityVarsError(code, f"{error}; {fix}")
+
+
 def task_events(task, phase, root=None):
     root = Path(root) if root is not None else repo_config.repo_root()
     try:
         settings = phase_settings.phase_settings(root, phase)
     except phase_settings.PhaseSettingsError as error:
-        raise SanityVarsError("SANITY_VARS.TEAM_UNSET", f"{error}; fix the named phase or repository configuration") from error
+        raise phase_settings_error(error) from error
     timeout = command_timeout.repo_timeout({}, root)
     command = ["atm", "task", "events", task, "--all", "--json", "--team", settings.team, "--as", settings.lead]
     try:
@@ -65,6 +89,11 @@ def build(manifest, selected, stacked=None, *, events=None):
     context = manifest.get("close_context")
     if not isinstance(context, dict) or not context:
         raise ValueError("manifest lacks assignment close_context; rerun split with --close-context")
+    phase = context.get("phase")
+    if not isinstance(phase, str) or not phase.strip():
+        raise SanityVarsError("SANITY_VARS.PHASE_UNSET",
+                              f"manifest close_context.phase is {json.dumps(phase)}, not the phase id; the dispatch carries it from the "
+                              "dev or fix close vars (task-close-vars.j2 `phase`): rerun split with the assignment's --close-context")
     values = {**contract.get("defaults", {}), **context}
     total = manifest["deliverables_total"]
     findings = selected.get("findings") or []
@@ -73,7 +102,7 @@ def build(manifest, selected, stacked=None, *, events=None):
     if selected["verdict"] == "FAIL" and not undone:
         undone = [{"number": item["number"], "reason": selected.get("lint_md") or selected.get("findings_md") or "Lint failed"}
                   for item in manifest["assignments"]]
-    history = task_events(manifest["sanity_bead"], context.get("phase") or selected["sprint"].split("-")[0]) if events is None else events
+    history = task_events(manifest["sanity_bead"], phase) if events is None else events
     iteration = sum(event.get("event") in {"assigned", "reassigned", "reopened"} for event in history)
     if not iteration:
         raise SanityVarsError("SANITY_VARS.TASK_NOT_FOUND", f"no assignment in `atm task events {manifest['sanity_bead']} --json`; assign the sanity task and retry")
