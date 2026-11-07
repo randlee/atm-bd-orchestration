@@ -223,7 +223,7 @@ class PourPlanTests(unittest.TestCase):
             events.append(operation)
             return self.fixture.receipt(preview if operation == "preview_attach" else applied)
 
-        def validate(rows):
+        def validate(schema, phase, rows, bd=None):
             events.append("validate")
             self.assertEqual(rows, [missing])
             return []
@@ -233,7 +233,7 @@ class PourPlanTests(unittest.TestCase):
               patch.object(groups.bead_formulas, "template", return_value=template),
               patch.object(groups.subprocess, "run", side_effect=respond),
               patch.object(bead_schema, "load_phase", return_value=[]),
-              patch.object(bead_schema, "validate_phase", side_effect=validate),
+              patch.object(groups, "schema_records", side_effect=validate),
               redirect_stdout(io.StringIO()) as output):
             code = groups.main(["--json", "--sprint", self.sprint])
         self.assertEqual(code, 0)
@@ -289,7 +289,7 @@ class PourPlanTests(unittest.TestCase):
                 report = json.loads(output.getvalue())
                 self.assertEqual(code, groups.PROBLEMS)
                 self.assertTrue(report["schema_problems"])
-                self.assertTrue(any(problem.startswith(f"{ids['sanity']}: branch:")
+                self.assertTrue(any(problem["message"].startswith(f"{ids['sanity']}: branch:")
                                     for problem in report["targets"][0]["problems"]))
                 self.assertEqual([request["operation"] for request in requests], ["preview_attach"])
                 self.assertTrue(all("pour_authorization" not in request for request in requests))
@@ -425,3 +425,88 @@ class PourPlanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_failed_predecessor_preview_blocks_dependent_independent_of_wording(tmp_path):
+    import bead_schema
+    fixture = PlanFixture(tmp_path)
+    first = fixture.sprint(number=1)
+    second = fixture.sprint(number=2, predecessors=("x-1",))
+    calls = []
+    def preview(target, *, preview):
+        calls.append((target["id"], preview))
+        if target["id"] == first:
+            raise groups.TargetError("BEAD_GROUPS_IO", "unrelated wording without any repair marker")
+        raise AssertionError("dependent must never be previewed or poured")
+    with (patch.object(groups, "Run", return_value=fixture.runner),
+          patch.object(groups.repo_config, "repo_root", return_value=tmp_path),
+          patch.object(fixture.runner, "pour", side_effect=preview),
+          patch.object(bead_schema, "load_phase", return_value=[]),
+          redirect_stdout(io.StringIO()) as output):
+        code = groups.main(["--json", "--sprint", first, "--sprint", second])
+    report = json.loads(output.getvalue())
+    assert code == groups.FAILED
+    assert calls == [(first, True)]
+    issue = report["targets"][1]["problems"][0]
+    assert issue["kind"] == "predecessor_failed" and first in issue["message"]
+
+
+def test_missing_formula_and_failed_command_have_distinct_causes(tmp_path):
+    fixture = PlanFixture(tmp_path)
+    sprint = fixture.sprint()
+    target = fixture.runner.sprint_target(sprint)
+    with patch.object(groups.bead_formulas, "template", side_effect=FileNotFoundError("missing formula.toml.j2")):
+        with unittest.TestCase().assertRaises(groups.TargetError) as error:
+            fixture.runner.pour(target, preview=True)
+    assert error.exception.code == "BEAD_GROUPS_CONFIG"
+    assert "formula.toml.j2" in str(error.exception) and "fix" in str(error.exception)
+
+    template = tmp_path / "formula.toml.j2"
+    template.write_text("fixture")
+    with (patch.object(groups.bead_formulas, "template", return_value=template),
+          patch.object(groups.subprocess, "run", side_effect=FileNotFoundError("sc-compose"))):
+        with unittest.TestCase().assertRaises(groups.TargetError) as error:
+            fixture.runner.pour(target, preview=True)
+    assert error.exception.code == "BEAD_GROUPS_IO"
+    assert "sc-compose" in str(error.exception) and "install" in str(error.exception)
+
+
+def test_bd_and_compose_use_repository_database(monkeypatch, tmp_path):
+    monkeypatch.setenv("BEADS_DIR", "/unrelated/database")
+    calls = []
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(returncode=0, stdout="[]", stderr="")
+    with patch.object(groups.subprocess, "run", side_effect=run):
+        groups.Bd(tmp_path).run("list", "--json")
+    assert calls[0][1]["env"]["BEADS_DIR"] == str(tmp_path / ".beads")
+    assert calls[0][1]["cwd"] == tmp_path
+    fixture = PlanFixture(tmp_path)
+    target = fixture.runner.sprint_target(fixture.sprint())
+    _, _, command = fixture.invoke(target, fixture.receipt(), preview=True)
+    assert command.call_args.kwargs["env"]["BEADS_DIR"] == str(tmp_path / ".beads")
+
+
+def test_missing_phase_file_and_failed_bd_list_report_typed_causes(tmp_path):
+    fixture = PlanFixture(tmp_path)
+    with patch.object(groups.sprint_index_common, "load_phase_config", side_effect=RuntimeError("missing plan key")):
+        with unittest.TestCase().assertRaises(groups.TargetError) as error:
+            fixture.runner.phase_config("x")
+    assert error.exception.code == "BEAD_GROUPS_CONFIG"
+    assert "phase-x.toml" in str(error.exception) and "plan" in str(error.exception)
+    failure = groups.BdError(["bd", "list", "--json"], 17, "", "database unavailable")
+    message = groups.bd_failure(failure)
+    assert "bd list --json" in message and "17" in message and "database unavailable" in message
+
+
+def test_stack_missing_list_field_names_corrected_full_metadata(tmp_path):
+    fixture = PlanFixture(tmp_path)
+    sprint = fixture.sprint()
+    stack = fixture.rows["t-phase-x.stack"]
+    del stack["metadata"]["layers"]
+    finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "req-qa", "title": "issue", "remedy": "fix"}
+    with unittest.TestCase().assertRaises(groups.TargetError) as error:
+        fixture.findings(sprint, f"{sprint}.group-qa", finding)
+    assert error.exception.code == "BEAD_GROUPS_TARGET_INVALID"
+    assert "t-phase-x.stack" in str(error.exception) and "layers" in str(error.exception)
+    assert "--metadata @<file>" in str(error.exception) and '"layers": []' in str(error.exception)

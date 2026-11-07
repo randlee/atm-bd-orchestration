@@ -385,7 +385,7 @@ def test_compose_timeout_is_typed_and_actionable_for_preview_and_attach(tmp_path
                 assert False, "expected timeout"
             except groups.TargetError as error:
                 request = tmp_path / ".atm-bd/pour/phase.group.group.sprint-group.request.json"
-                assert error.code == "BEAD_GROUPS_POUR_TIMEOUT"
+                assert error.code == "BEAD_GROUPS_IO"
                 assert all(part in str(error) for part in (f"sc-compose bead {operation}", str(request),
                            str(groups.SC_COMPOSE_TIMEOUT_SECONDS), "inspect", "before retrying"))
                 assert run.call_args.kwargs["timeout"] == groups.SC_COMPOSE_TIMEOUT_SECONDS
@@ -483,6 +483,10 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
                  "issue_type": "task", "labels": ["phase-d", "stage:qa"],
                  "metadata": {"round": 1, "checked_bead": "t-d-1.f1-r1-fix"}}, qa,
             ]
+            null_qa = json.loads(json.dumps(qa))
+            null_qa["id"] = "t-d-1.null-qa"
+            null_qa["metadata"]["layer"] = None
+            rows.append(null_qa)
             other_sprint = json.loads(json.dumps(rows[2]))
             other_sprint["id"] = "t-d-2"
             other_sprint["metadata"]["sprint"] = "d-2"
@@ -497,6 +501,8 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
             self.assertEqual(report["outcome"], "succeeded", report)
             fix_id = report["targets"][0]["ids"]["fix"]
             run(str(bd), "show", fix_id, "--json")
+            validated = run(sys.executable, str(SCRIPTS / "bead-groups"), "--findings", "findings.json", "--validate", "--json")
+            self.assertEqual(json.loads(validated.stdout)["outcome"], "succeeded")
             bad_qa = json.loads(json.dumps(qa))
             bad_qa["id"] = "t-d-2.bad-qa"
             bad_qa["dependencies"] = []
@@ -512,7 +518,7 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
             partial_report = json.loads(partial.stdout)
             self.assertIn("t-d-2.bad-qa", partial.stdout)
             self.assertIn("reviewers_round1", partial.stdout)
-            self.assertIn("metadata.layer", partial.stdout)
+            self.assertNotIn("metadata.layer", partial.stdout)
             healthy = next(item for item in partial_report["targets"] if item["kind"] == "finding")
             run(str(bd), "show", healthy["ids"]["fix"], "--json")
             run(str(bd), "update", "t-d-1.f1-r1-qa", "--set-metadata", "round=2")
@@ -520,3 +526,18 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
             (root / "findings.json").write_text(json.dumps(findings))
             capped = run(sys.executable, str(SCRIPTS / "bead-groups"), "--findings", "findings.json", "--json", expected=2)
             self.assertIn("BEAD_GROUPS_ROUND_CAP", capped.stdout)
+
+
+def test_row_type_repairs_and_null_layer_are_deterministic():
+    groups = load_groups("bead_groups_typed_repairs")
+    assert groups.row_type_issues({"id": "x", "metadata": {"layer": None}}) == []
+    assert groups.row_type_issues({"id": "x", "metadata": {}}) == []
+    layer = groups.row_type_issues({"id": "x", "labels": ["stage:sprint"], "metadata": {"layer": "3"}})[0]["message"]
+    assert "metadata.layer" in layer and '"layer": 3' in layer
+    assert "--metadata @<file>" in layer and "--set-metadata" not in layer
+    optional = groups.row_type_issues({"id": "x", "metadata": {"requirements": 9}})[0]["message"]
+    assert "--unset-metadata requirements" in optional
+    branch = groups.row_type_issues({"id": "x", "metadata": {"branch": 9}})[0]["message"]
+    assert "--set-metadata branch=<branch>" in branch
+    row = groups.row_type_issues({"id": "x", "status": 9})[0]["message"]
+    assert "bd update x --status" in row

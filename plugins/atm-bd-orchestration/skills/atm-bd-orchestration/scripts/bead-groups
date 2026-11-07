@@ -63,14 +63,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from enum import StrEnum
 import re
 import string
 import subprocess
 import sys
 from types import ModuleType
-from typing import Mapping, NotRequired, Protocol, Sequence, TypedDict
+from typing import Any, Mapping, NotRequired, Protocol, Sequence, TypedDict, cast
 from pathlib import Path
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
@@ -79,7 +81,7 @@ import bead_formulas  # noqa: E402
 import transitions  # noqa: E402
 import repo_config  # noqa: E402
 import sprint_index_common  # noqa: E402
-from bead_formulas import Bd, BdError, attach_id  # noqa: E402
+from bead_formulas import Bd as BaseBd, BdError, attach_id  # noqa: E402
 from operation_models import JsonObject, JsonValue, matches_typeddict  # noqa: E402
 from stack_top import select_stack_top, stack_bead_id  # noqa: E402
 
@@ -91,6 +93,32 @@ from qa_reviewers import qa_capable_reviewer, qa_capable_reviewers
 SPRINT_KEYS = ("phase", "sprint", "stack", "layer", "difficulty", "branch", "worktree", "pr_target")
 FINDING_FIELDS = ("ref", "severity", "reviewer", "title", "remedy")
 REF = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+
+
+def beads_environment(repo: Path) -> dict[str, str]:
+    """Pin subprocesses to this repository, ignoring the caller's beads database."""
+    return {**os.environ, "BEADS_DIR": str(repo / ".beads")}
+
+
+class Bd(BaseBd):
+    def __init__(self, repo: Path):
+        super().__init__()
+        self.repo = repo
+
+    def run(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        argv = [self.executable, *args]
+        try:
+            proc = subprocess.run(argv, cwd=self.repo, env=beads_environment(self.repo), text=True, capture_output=True)
+        except OSError as exc:
+            raise TargetError("BEAD_GROUPS_IO", f"{' '.join(argv)} could not run: {exc}; install bd and retry") from exc
+        self.log.append((argv, proc.returncode))
+        if check and proc.returncode:
+            raise BdError(argv, proc.returncode, proc.stdout, proc.stderr)
+        return proc
+
+
+def bd_failure(error: BdError) -> str:
+    return f"{' '.join(error.argv)} exited {error.returncode}: {error.stderr.strip() or error.stdout.strip()}; inspect bd and retry the named command"
 
 
 class TargetError(Exception):
@@ -128,13 +156,15 @@ class Metadata(TypedDict, total=False):
     phase: str
     sprint: str
     stack: str
-    layer: int
+    layer: int | None
     difficulty: str
     branch: str
     worktree: str
     pr_target: str
     requirements: list[str]
     adrs: list[str]
+    owned_paths: list[str]
+    quick_fix: bool
     predecessors: list[str]
     trunk: str
     stack_number: int | None
@@ -156,6 +186,7 @@ class BeadRow(TypedDict):
     priority: NotRequired[int | str | bool | None]
     issue_type: NotRequired[str]
     labels: NotRequired[list[str]]
+    parent: NotRequired[str | None]
     metadata: NotRequired[Metadata]
 
 
@@ -183,7 +214,7 @@ class FindingsDocument(TypedDict):
 def metadata_string(metadata: Metadata, key: str, bead: str) -> str:
     value = metadata.get(key)
     if not isinstance(value, str) or not value:
-        raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{bead} metadata {key} must be a nonempty string")
+        raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{bead}: metadata.{key}: invalid value {value!r}; Fix: {repair_metadata(bead, key, value, metadata, optional=False)}")
     return value
 
 
@@ -345,10 +376,27 @@ class ReportError(TypedDict):
     message: str
 
 
+class ProblemKind(StrEnum):
+    MISSING = "missing"
+    SCHEMA_INVALID = "schema_invalid"
+    PREDECESSOR_FAILED = "predecessor_failed"
+    PREVIEW_FAILED = "preview_failed"
+    ALREADY_POURED = "already_poured"
+
+
+class PourProblem(TypedDict):
+    kind: ProblemKind
+    message: str
+
+
+def problem(kind: ProblemKind, message: str) -> PourProblem:
+    return {"kind": kind, "message": message}
+
+
 class ReportEntry(TypedDict):
     id: str
     kind: str
-    problems: list[str]
+    problems: list[PourProblem]
     error: NotRequired[ReportError]
     formula: NotRequired[str]
     option: NotRequired[str]
@@ -404,18 +452,71 @@ def split_ids(values: list[str]) -> list[str]:
     return [v for value in values for v in value.split(",") if v]
 
 
-def row_type_issues(row: JsonObject) -> list[str]:
-    """Name invalid fields without refusing unrelated beads in the phase."""
+class RowIssueKind(StrEnum):
+    OPTIONAL_METADATA = "optional_metadata"
+    REQUIRED_METADATA = "required_metadata"
+    ROW_FIELD = "row_field"
+
+
+class RowIssue(TypedDict):
+    bead: str
+    key: str
+    kind: RowIssueKind
+    message: str
+
+
+def row_type_issues(row: JsonObject) -> list[RowIssue]:
+    """Report typed row errors with a repair selected from the field and value kind."""
     bead = str(row.get("id", "?"))
-    issues: list[str] = []
+    issues: list[RowIssue] = []
+    metadata = row.get("metadata")
     for field, value in row.items():
         if field == "metadata" and isinstance(value, dict):
             for name, item in value.items():
                 if not matches_typeddict({name: item}, Metadata):
-                    issues.append(f"{bead}: metadata.{name}: invalid value {item!r}")
+                    required = {"branch", "worktree", "pr_target", "difficulty"}
+                    labels = row.get("labels")
+                    if isinstance(labels, list) and "stage:sprint" in labels:
+                        required.update({"layer", "requirements", "adrs"})
+                    if isinstance(labels, list) and "stage:stack" in labels:
+                        required.update({"trunk", "stack_number", "layers"})
+                    repair = repair_metadata(bead, name, item, metadata, optional=name not in required)
+                    issues.append({"bead": bead, "key": name,
+                                   "kind": RowIssueKind.REQUIRED_METADATA if name in required else RowIssueKind.OPTIONAL_METADATA,
+                                   "message": f"{bead}: metadata.{name}: invalid value {item!r}; Fix: {repair}"})
         elif not matches_typeddict({field: value}, BeadRow):
-            issues.append(f"{bead}: {field}: invalid value {value!r}")
+            commands = {"status": f"bd update {bead} --status <status>",
+                        "labels": f"bd label add {bead} <label>",
+                        "parent": f"bd update {bead} --parent <parent-id>"}
+            repair = commands.get(field, f"bd update {bead} --metadata @<file>")
+            issues.append({"bead": bead, "key": field, "kind": RowIssueKind.ROW_FIELD,
+                           "message": f"{bead}: {field}: invalid value {value!r}; Fix: {repair}"})
     return issues
+
+
+def repair_metadata(bead: str, key: str, value: object, metadata: object, *, optional: bool) -> str:
+    if optional:
+        return f"bd update {bead} --unset-metadata {key}"
+    strings = {"branch": "<branch>", "pr_target": "<branch>", "trunk": "<branch>", "worktree": "<path>",
+               "phase": "<phase>", "sprint": "<sprint>", "stack": "<stack>", "difficulty": "<difficulty>",
+               "commit": "<commit-sha>", "checked_bead": "<bead-id>", "stack_bead": "<bead-id>",
+               "sprint_bead": "<bead-id>", "dev_bead": "<bead-id>", "qa_bead": "<bead-id>", "sanity_bead": "<bead-id>"}
+    if key in strings:
+        return f"bd update {bead} --set-metadata {key}={strings[key]}"
+    corrected: dict[str, object] = TypeAdapter(dict[str, object]).validate_python(metadata) if isinstance(metadata, dict) else {}
+    if key in {"layer", "round", "max_sanity_rounds"}:
+        corrected[key] = int(value) if isinstance(value, str) and value.isdecimal() else 1
+    elif key in {"requirements", "adrs"}:
+        corrected[key] = ["NONE"]
+    elif key == "owned_paths":
+        corrected[key] = ["<path>"]
+    elif key == "reviewers_round1":
+        corrected[key] = ["<reviewer>"]
+    elif key == "layers":
+        corrected[key] = []
+    elif key == "stack_number":
+        corrected[key] = None
+    return f"bd update {bead} --metadata @<file> (write corrected full metadata JSON to <file>: {json.dumps(corrected, sort_keys=True)})"
 
 
 def schema_issues(bead_schema: Schema, phase: str, prospective: list[JsonObject]) -> list[str]:
@@ -429,41 +530,103 @@ def schema_issues(bead_schema: Schema, phase: str, prospective: list[JsonObject]
             continue
         current.append(raw_bead)
     rows = [*current, *prospective]
-    return [issue for row in rows for issue in row_type_issues(row)] + bead_schema.validate_phase(rows)
+    return [issue["message"] for row in rows for issue in row_type_issues(row)] + bead_schema.validate_phase(rows)
+
+
+def schema_records(schema: Any, phase: str, prospective: list[JsonObject], bd: BaseBd | None = None) -> list[tuple[str, str]]:
+    """Use validator locations and error kinds, not rendered validation prose, for repairs."""
+    if bd is None:
+        current = schema.load_phase(phase)
+    else:
+        proc = bd.run("list", "-l", f"phase-{phase}", "--status", "open,in_progress,blocked,deferred,closed",
+                      "--include-gates", "-n", "0", "--json")
+        try:
+            current = schema.json_objects(json.loads(proc.stdout), context="bd list output")
+        except (ValueError, TypeError) as exc:
+            raise TargetError("BEAD_GROUPS_IO", f"bd list -l phase-{phase} --json returned invalid output (exit {proc.returncode}): {exc}; inspect bd and retry") from exc
+    rows: list[JsonObject] = [row for row in current if row.get("status") != "closed"] + prospective
+    found: list[tuple[str, str]] = []
+    for row in rows:
+        bead = str(row.get("id", "?"))
+        found.extend((issue["bead"], issue["message"]) for issue in row_type_issues(row))
+        raw_labels = row.get("labels")
+        labels = raw_labels if isinstance(raw_labels, list) else []
+        if "anchor" in labels:
+            continue
+        if re.fullmatch(r".+-phase-[a-z0-9]+", bead):
+            model = schema.RootBead
+        elif row.get("issue_type") == "gate":
+            model = schema.GateBead
+        else:
+            stages = [label for label in labels if isinstance(label, str) and label.startswith("stage:")]
+            model = schema.MODELS_BY_STAGE.get(stages[0]) if len(stages) == 1 else None
+        if model is None:
+            found.append((bead, f"{bead}: labels: no stage model; Fix: bd label add {bead} <stage:label>"))
+            continue
+        try:
+            model.model_validate(row)
+        except ValidationError as error:
+            for detail in error.errors():
+                loc = detail["loc"]
+                key = str(loc[1] if len(loc) > 1 and loc[0] == "metadata" else loc[0] if loc else "metadata")
+                meta = row.get("metadata", {})
+                if key in {"status", "parent", "labels"}:
+                    commands = {"status": f"bd update {bead} --status <status>", "parent": f"bd update {bead} --parent <parent-id>", "labels": f"bd label add {bead} <label>"}
+                    repair = commands[key]
+                elif key == "dependencies":
+                    repair = f"bd dep add {bead} <bead-id> --type blocks"
+                else:
+                    value = meta.get(key) if isinstance(meta, dict) else None
+                    repair = repair_metadata(bead, key, value, meta, optional=False)
+                found.append((bead, f"{bead}: {key}: {detail['msg']}; Fix: {repair}"))
+    return found
 
 
 class Run:
     def __init__(self, repo: Path, option: str | None):
         self.repo, self.option = repo, option
-        self.config = repo_config.load(repo)
-        self.bd = Bd()
+        try:
+            self.config = repo_config.load(repo)
+        except repo_config.ConfigError as exc:
+            raise TargetError("BEAD_GROUPS_CONFIG", f"{exc}; create or fix the named repository configuration") from exc
+        self.bd = Bd(repo)
         self.plans: dict[str, dict[str, PlanEntry]] = {}
         self.sidecars: dict[str, Sidecar] = {}
         self.features: dict[str, JsonObject] = {}
 
     def sidecar(self, formula: str) -> Sidecar:
         if formula not in self.sidecars:
-            path = bead_formulas.relations(formula, self.repo)
-            decoded = json.loads(path.read_text())
+            try:
+                path = bead_formulas.relations(formula, self.repo)
+            except OSError as exc:
+                raise TargetError("BEAD_GROUPS_CONFIG", f"formula {formula}: {exc}; create or fix the named relations file") from exc
+            try:
+                decoded = json.loads(path.read_text())
+            except (OSError, ValueError) as exc:
+                raise TargetError("BEAD_GROUPS_CONFIG", f"{path}: {exc}; create or fix the named relations file") from exc
             if not matches_typeddict(decoded, Sidecar):
-                raise ValueError(f"{path}: malformed sidecar")
+                raise TargetError("BEAD_GROUPS_CONFIG", f"{path}: malformed sidecar; fix the named relations file")
             parsed = decoded
             self.sidecars[formula] = parsed
         return self.sidecars[formula]
 
+    def phase_config(self, phase: str) -> Any:
+        path = self.repo / ".atm-bd" / f"phase-{phase}.toml"
+        try:
+            return sprint_index_common.load_phase_config(self.repo, phase)
+        except (RuntimeError, OSError, ValueError) as exc:
+            raise TargetError("BEAD_GROUPS_CONFIG", f"{path}: {exc}; create or fix the named phase configuration") from exc
+
     def plan(self, phase: str) -> dict[str, PlanEntry]:
         """sprint name -> (container id, initial sanity id, predecessor sprint names), from the phase's plan file."""
         if phase not in self.plans:
-            try:
-                config = sprint_index_common.load_phase_config(self.repo, phase)
-            except RuntimeError as exc:
-                raise TargetError("BEAD_GROUPS_PLAN_NOT_FOUND", str(exc)) from exc
+            config = self.phase_config(phase)
             path = self.repo / config["plan"]
             if not path.is_file():
-                raise TargetError("BEAD_GROUPS_PLAN_NOT_FOUND", f"{path} does not exist")
+                raise TargetError("BEAD_GROUPS_CONFIG", f"{path} does not exist; create the plan file")
             rows, problems = sprint_index_common.parse_plan(path.read_text(), str(path))
             if problems:
-                raise TargetError("BEAD_GROUPS_PLAN_INVALID", "; ".join(problems))
+                raise TargetError("BEAD_GROUPS_CONFIG", f"{path}: {'; '.join(problems)}; fix the named plan lines")
             prefix = sprint_index_common.bead_prefix(config["root"], self.repo)
             ref = self.sidecar("sprint-group")["ref"]
             self.plans[phase] = {r["sprint"]: (f"{prefix}-{r['sprint']}",
@@ -482,8 +645,8 @@ class Run:
         row = self.show(bead)
         payload = bead_formulas.bead_record_to_json(row)
         if not matches_typeddict(row, BeadRow):
-            details = "; ".join(row_type_issues(payload)) or f"{bead}: malformed bead record"
-            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{details}; inspect `bd show {bead} --json` and repair the named field with `bd update {bead} --metadata <full JSON>`")
+            details = "; ".join(issue["message"] for issue in row_type_issues(payload)) or f"{bead}: metadata: invalid record; Fix: bd update {bead} --metadata @<file>"
+            raise TargetError("BEAD_GROUPS_TARGET_INVALID", details)
         return payload, row
 
     def close_compose(self, phase: str, checked_title: str, stack_bead: str | None = None) -> Compose:
@@ -492,11 +655,11 @@ class Run:
             self.features = {}
         features = self.features
         if phase not in features:
-            root = sprint_index_common.load_phase_config(self.repo, phase)["root"]
+            root = self.phase_config(phase)["root"]
             _, root_bead = self.show_typed(root)
             title = root_bead.get("title")
             if not isinstance(title, str) or not title:
-                raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"phase root {root} has no title for phase_feature")
+                raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{root}: title: missing phase feature; Fix: bd update {root} --title <title>")
             features[phase] = {"stack_bead": stack_bead or stack_bead_id(root), "phase_feature": title}
         if not checked_title:
             raise TargetError("BEAD_GROUPS_TARGET_INVALID", "the checked work has no title for checked_title")
@@ -517,7 +680,11 @@ class Run:
         meta = bead_metadata(container)
         missing = [k for k in SPRINT_KEYS if meta.get(k) in (None, "")]
         if missing:
-            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{bead} lacks {', '.join(missing)}")
+            raise TargetError("BEAD_GROUPS_TARGET_INVALID", "; ".join(
+                f"{bead}: metadata.{key}: required value is missing; Fix: {repair_metadata(bead, key, meta.get(key), meta, optional=False)}"
+                for key in missing))
+        if not container.get("title"):
+            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{bead}: title: missing checked title; Fix: bd update {bead} --title <title>")
         sidecar = self.sidecar("sprint-group")
         option = self.option_for(sidecar)
         phase = metadata_string(meta, "phase", bead)
@@ -535,7 +702,7 @@ class Run:
         if not isinstance(priority, int) or isinstance(priority, bool):
             priority = 2
         compose: Compose = {"parent": bead, "phase": phase, "sprint": sprint, "stack": stack_name,
-                   "layer": meta.get("layer", 0), "difficulty": difficulty, "priority": priority,
+                   "layer": meta.get("layer") or 0, "difficulty": difficulty, "priority": priority,
                    "branch": branch, "worktree": worktree, "pr_target": pr_target,
                    "edge_option": option, "reviewers_round1": list(self.config["reviewers_round1"]),
                    **self.close_compose(phase, str(container.get("title") or ""))}
@@ -570,7 +737,9 @@ class Run:
         difficulty_value = meta.get("difficulty")
         missing = [k for k, value in (("phase", phase), ("sprint", sprint_name), ("stack", stack_name), ("difficulty", difficulty_value)) if not value]
         if missing and not (phase_end and missing == ["difficulty"]):
-            raise TargetError("BEAD_GROUPS_TARGET_INVALID", f"{sprint} lacks {', '.join(missing)}")
+            raise TargetError("BEAD_GROUPS_TARGET_INVALID", "; ".join(
+                f"{sprint}: metadata.{key}: required value is missing; Fix: {repair_metadata(sprint, key, meta.get(key), meta, optional=False)}"
+                for key in missing))
         filed_by_json, filed_by_bead = self.show_typed(filed_by)
         qa_closed = filed_by_bead.get("status") == "closed"
         reason = filed_by_json.get("close_reason")
@@ -594,12 +763,21 @@ class Run:
         sidecar = self.sidecar("finding-group")
         option = self.option_for(sidecar)
         import bead_schema
-        phase_config = sprint_index_common.load_phase_config(self.repo, phase)
+        phase_config = self.phase_config(phase)
         stack_id = stack_bead_id(phase_config['root'])
         stack_json, stack = self.show_typed(stack_id)
-        issues = bead_schema.problems(stack_json, bead_schema.StackBead)
-        if issues:
-            raise TargetError("BEAD_GROUPS_TARGET_INVALID", "; ".join(issues))
+        try:
+            bead_schema.StackBead.model_validate(stack_json)
+        except ValidationError as error:
+            details: list[str] = []
+            metadata = stack_json.get("metadata", {})
+            for item in error.errors():
+                loc = item["loc"]
+                key = str(loc[1] if len(loc) > 1 and loc[0] == "metadata" else loc[0] if loc else "metadata")
+                value = metadata.get(key) if isinstance(metadata, dict) else None
+                repair = repair_metadata(stack_id, key, value, metadata, optional=False)
+                details.append(f"{stack_id}: metadata.{key}: {item['msg']}; Fix: {repair}")
+            raise TargetError("BEAD_GROUPS_TARGET_INVALID", "; ".join(details)) from error
         stack_meta = bead_schema.StackMetadata.model_validate(bead_metadata(stack))
         # This pour needs only the branch; no Git head lookup is needed for the trunk fallback.
         pr_target, _ = select_stack_top(stack_json, stack_meta.trunk, lambda _: "unused")
@@ -672,7 +850,9 @@ class Run:
                            "edge_option": option, **self.close_compose(phase, f"{sprint_name}: fix {ref}: {finding['title']}", stack_id)}
                 compose["ref"] = fmt(sidecar["ref"], {"vars": compose | {"finding_ref": slug}})
                 existing_row = self.bd.show(attach_id(sprint, compose["ref"], "fix"))
-                existing = TypeAdapter(BeadRow).validate_python(existing_row, strict=True) if existing_row is not None else None
+                if existing_row is not None and not matches_typeddict(existing_row, BeadRow):
+                    raise TargetError("BEAD_GROUPS_TARGET_INVALID", "; ".join(issue["message"] for issue in row_type_issues(bead_formulas.bead_record_to_json(existing_row))))
+                existing = existing_row
                 existing_metadata: Metadata = bead_metadata(existing) if existing is not None else {}
                 existing_cut: dict[str, str] = {key: value for key in cut
                                                 if isinstance((value := existing_metadata.get(key)), str)}
@@ -694,7 +874,10 @@ class Run:
 
     def pour(self, target: Target, *, preview: bool) -> Attachment:
         formula = target["formula"]
-        template = bead_formulas.template(formula, self.repo).resolve()
+        try:
+            template = bead_formulas.template(formula, self.repo).resolve()
+        except (OSError, ValueError) as exc:
+            raise TargetError("BEAD_GROUPS_CONFIG", f"formula {formula}: {exc}; create or fix the named template") from exc
         try:
             template = template.relative_to(self.repo.resolve())
         except ValueError as exc:
@@ -722,10 +905,12 @@ class Run:
         subcommand = operation.replace("_", "-")
         command = ["sc-compose", "bead", subcommand, "--request", str(path), "--json"]
         try:
-            proc = subprocess.run(command, cwd=self.repo, text=True, capture_output=True, timeout=SC_COMPOSE_TIMEOUT_SECONDS)
+            proc = subprocess.run(command, cwd=self.repo, env=beads_environment(self.repo), text=True, capture_output=True, timeout=SC_COMPOSE_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired as exc:
-            raise TargetError("BEAD_GROUPS_POUR_TIMEOUT", f"{' '.join(command)} timed out after {SC_COMPOSE_TIMEOUT_SECONDS} seconds; "
+            raise TargetError("BEAD_GROUPS_IO", f"{' '.join(command)} timed out after {SC_COMPOSE_TIMEOUT_SECONDS} seconds; "
                               f"inspect request {path} and any partially created beads before retrying") from exc
+        except OSError as exc:
+            raise TargetError("BEAD_GROUPS_IO", f"{' '.join(command)} could not run: {exc}; install sc-compose and retry") from exc
         (out / f"{stem}.{subcommand}.receipt.json").write_text(proc.stdout)
         try:
             decoded: object = json.loads(proc.stdout)
@@ -734,7 +919,7 @@ class Run:
             receipt = decoded
             payload = receipt["payload"]
         except (ValueError, KeyError, TypeError) as exc:
-            raise TargetError("BEAD_GROUPS_POUR_FAILED", f"attach gave no receipt (exit {proc.returncode}): {proc.stderr.strip()}") from exc
+            raise TargetError("BEAD_GROUPS_IO", f"{' '.join(command)} gave no receipt (exit {proc.returncode}): {proc.stderr.strip()}; inspect the command and retry") from exc
         if proc.returncode or payload.get("outcome") != "succeeded":
             outcome = payload.get("outcome")
             diagnostics = receipt.get("diagnostics", [])
@@ -853,7 +1038,7 @@ def main(argv: list[str]) -> int:
             try:
                 finding_targets.extend(run.finding_targets(path))
             except (TargetError, BdError, ValueError) as exc:
-                error = exc if isinstance(exc, TargetError) else TargetError("BEAD_GROUPS_TARGET_INVALID", str(exc))
+                error = exc if isinstance(exc, TargetError) else TargetError("BEAD_GROUPS_IO" if isinstance(exc, BdError) else "BEAD_GROUPS_CONFIG", bd_failure(exc) if isinstance(exc, BdError) else f"{exc}; inspect and fix the named input")
                 error.target_id = str(path)
                 finding_targets.append(error)
     except (repo_config.ConfigError, TargetError, RuntimeError, OSError) as exc:
@@ -884,11 +1069,19 @@ def main(argv: list[str]) -> int:
             entry.update({"formula": target["formula"], "option": target["option"]})
             targets.append((entry, target))
         except (TargetError, BdError) as exc:
-            entry["error"] = {"code": getattr(exc, "code", "BEAD_GROUPS_BD_FAILED"), "message": str(exc)}
+            code = "BEAD_GROUPS_IO" if isinstance(exc, BdError) else exc.code
+            entry["error"] = {"code": code, "message": bd_failure(exc) if isinstance(exc, BdError) else str(exc)}
     ordered = dependency_order(targets)
     previews: list[tuple[ReportEntry, Target, Attachment]] = []
     graph_conflict = False
+    failed_previews: set[str] = {entry["id"] for entry in entries if "error" in entry}
     for entry, target in ordered:
+        predecessors = target["vars"].get("predecessors", [])
+        failed = next((p for p in predecessors if p in failed_previews), None) if isinstance(predecessors, list) else None
+        if failed:
+            entry["problems"].append(problem(ProblemKind.PREDECESSOR_FAILED, f"predecessor {failed} failed preview; fix it and retry"))
+            failed_previews.add(target["id"])
+            continue
         try:
             if target.get("qa_closed") and not args.validate:
                 parent = compose_string(target["compose"], "parent")
@@ -900,22 +1093,24 @@ def main(argv: list[str]) -> int:
             previews.append((entry, target, attachment))
             entry.update({"ids": attachment["ids"], "nodes": attachment["nodes"], "edges": attachment["edges"]})
             created = {n["id"] for n in attachment["nodes"] if n["action"] == "create"}
-            entry["problems"] += [f"missing bead {i}" for i in created] + attachment["missing"]
+            entry["problems"] += [problem(ProblemKind.MISSING, f"missing bead {i}") for i in created] + [problem(ProblemKind.MISSING, m) for m in attachment["missing"]]
             edges = [e for e in attachment["edges"] if e["action"] == "add" and e["from"] not in created]
-            entry["problems"] += [f"missing edge {e['from']} -{e['type']}-> {e['to']}" for e in edges]
+            entry["problems"] += [problem(ProblemKind.MISSING, f"missing edge {e['from']} -{e['type']}-> {e['to']}") for e in edges]
         except (TargetError, BdError, OSError, ValueError, KeyError) as exc:
+            failed_previews.add(target["id"])
+            entry["problems"].append(problem(ProblemKind.PREVIEW_FAILED, str(exc)))
             if str(getattr(exc, "code", "")).startswith("BEADS_GRAPH_"):
                 graph_conflict = True
-            entry["error"] = {"code": getattr(exc, "code", "BEAD_GROUPS_BD_FAILED"), "message": str(exc)}
+            code = "BEAD_GROUPS_IO" if isinstance(exc, (BdError, OSError)) else getattr(exc, "code", "BEAD_GROUPS_CANNOT_RUN")
+            entry["error"] = {"code": code, "message": bd_failure(exc) if isinstance(exc, BdError) else str(exc)}
     if previews:
         try:
             import bead_schema
             for phase in sorted({compose_string(target["compose"], "phase") for _, target, _ in previews}):
                 prospective = [node for _, target, attachment in previews if compose_string(target["compose"], "phase") == phase
                                for node in run.prospective(attachment)]
-                issues = schema_issues(bead_schema, phase, prospective)
-                for issue in issues:
-                    bead = issue.split(":", 1)[0]
+                issues = schema_records(bead_schema, phase, prospective, run.bd if isinstance(cast(Any, run.bd), Bd) else None)
+                for bead, issue in issues:
                     owner = next((entry for entry, target, attachment in previews
                                   if compose_string(target["compose"], "phase") == phase
                                   and bead in attachment["ids"].values()), None)
@@ -924,24 +1119,34 @@ def main(argv: list[str]) -> int:
                         if owner is None:
                             owner = ReportEntry(id=bead, kind="bead", problems=[])
                             entries.append(owner)
-                    owner["problems"].append(issue + f"; Fix: inspect `bd show {bead} --json` and repair the named field with `bd update {bead} --metadata <full JSON>`")
+                    owner["problems"].append(problem(ProblemKind.SCHEMA_INVALID, issue))
                     result["schema_problems"] = True
-        except (OSError, ValueError, KeyError) as exc:
-            result.update({"targets": entries, "outcome": "failed", "error": {"code": "BEAD_GROUPS_CANNOT_RUN", "message": str(exc)}})
+        except (OSError, ValueError, KeyError, BdError, TargetError) as exc:
+            code = "BEAD_GROUPS_IO" if isinstance(exc, (BdError, OSError)) else getattr(exc, "code", "BEAD_GROUPS_CANNOT_RUN")
+            result.update({"targets": entries, "outcome": "failed", "error": {"code": code, "message": bd_failure(exc) if isinstance(exc, BdError) else str(exc)}})
             return report(result, args.json, FAILED)
     if not args.validate and not graph_conflict:
+        failed_apply: set[str] = set(failed_previews)
         for entry, target, _ in previews:
-            if entry.get("error") or (result.get("schema_problems") and any("Fix: inspect `bd show " in p for p in entry["problems"])):
+            predecessors = target["vars"].get("predecessors", [])
+            failed = next((p for p in predecessors if p in failed_apply), None) if isinstance(predecessors, list) else None
+            if failed:
+                entry["problems"].append(problem(ProblemKind.PREDECESSOR_FAILED, f"predecessor {failed} failed; fix it and retry"))
+                failed_apply.add(target["id"])
+                continue
+            if entry.get("error") or (result.get("schema_problems") and any(p["kind"] == ProblemKind.SCHEMA_INVALID for p in entry["problems"])):
+                failed_apply.add(target["id"])
                 continue
             try:
                 attachment = run.pour(target, preview=False)
                 entry.update({"ids": attachment["ids"], "nodes": attachment["nodes"], "edges": attachment["edges"], "problems": []})
             except (TargetError, BdError) as exc:
-                entry["error"] = {"code": getattr(exc, "code", "BEAD_GROUPS_BD_FAILED"), "message": str(exc)}
+                failed_apply.add(target["id"])
+                entry["error"] = {"code": "BEAD_GROUPS_IO" if isinstance(exc, BdError) else exc.code, "message": bd_failure(exc) if isinstance(exc, BdError) else str(exc)}
     result["targets"] = entries
     if any("error" in e for e in entries):
         result["outcome"], code = "failed", FAILED
-    elif result.get("schema_problems") or (args.validate and any(e["problems"] for e in entries)):
+    elif result.get("schema_problems") or any(p["kind"] == ProblemKind.PREDECESSOR_FAILED for e in entries for p in e["problems"]) or (args.validate and any(e["problems"] for e in entries)):
         result["outcome"], code = "problems", PROBLEMS
     else:
         result["outcome"], code = "succeeded", SUCCESS
@@ -965,7 +1170,7 @@ def report(result: ReportResult, as_json: bool, code: int) -> int:
         added = [r for r in entry.get("edges", []) if r["action"] == "added"]
         print(f"{entry['id']}: {len(made)} bead(s) poured, {len(added)} edge(s) added")
         for problem in entry["problems"]:
-            print(f"  {problem}")
+            print(f"  {problem['kind']}: {problem['message']}")
     return code
 
 

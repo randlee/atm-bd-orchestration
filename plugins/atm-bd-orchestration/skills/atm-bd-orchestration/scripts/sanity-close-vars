@@ -16,18 +16,41 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 import close_fields  # noqa: E402
+import repo_config  # noqa: E402
+import phase_settings  # noqa: E402
+import command_timeout  # noqa: E402
 
 
-def task_events(task):
-    command = ["atm", "task", "events", task, "--all", "--json"]
+class SanityVarsError(ValueError):
+    def __init__(self, code, message):
+        self.code = code
+        super().__init__(f"{code}: {message}")
+
+
+def task_events(task, phase, root=None):
+    root = Path(root) if root is not None else repo_config.repo_root()
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=True)
+        settings = phase_settings.phase_settings(root, phase)
+    except phase_settings.PhaseSettingsError as error:
+        raise SanityVarsError("SANITY_VARS.TEAM_UNSET", f"{error}; fix the named phase or repository configuration") from error
+    timeout = command_timeout.repo_timeout({}, root)
+    command = ["atm", "task", "events", task, "--all", "--json", "--team", settings.team, "--as", settings.lead]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=True)
+    except FileNotFoundError as error:
+        raise SanityVarsError("SANITY_VARS.ATM_MISSING", "atm executable is missing; install atm and retry") from error
+    except subprocess.TimeoutExpired as error:
+        raise SanityVarsError("SANITY_VARS.TIMEOUT", f"{' '.join(command)} timed out after {timeout}s; raise gate_timeout_s in the repository configuration and retry") from error
+    except (OSError, subprocess.CalledProcessError) as error:
+        detail = getattr(error, "stderr", "") or str(error)
+        raise SanityVarsError("SANITY_VARS.TASK_NOT_FOUND", f"{' '.join(command)} failed: {detail}; verify the team and assign the sanity task before retrying") from error
+    try:
         events = json.loads(result.stdout)["events"]
-        if not isinstance(events, list):
-            raise ValueError("events must be an array")
+        if not isinstance(events, list) or not events:
+            raise ValueError("no task events")
         return events
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
-        raise ValueError(f"cannot read `atm task events {task} --json`: {error}; repair the task history and retry") from error
+    except (ValueError, KeyError, TypeError) as error:
+        raise SanityVarsError("SANITY_VARS.TASK_NOT_FOUND", f"{' '.join(command)} returned no valid task history: {error}; verify the team and assign the sanity task") from error
 
 
 def build(manifest, selected, stacked=None, *, events=None):
@@ -50,10 +73,10 @@ def build(manifest, selected, stacked=None, *, events=None):
     if selected["verdict"] == "FAIL" and not undone:
         undone = [{"number": item["number"], "reason": selected.get("lint_md") or selected.get("findings_md") or "Lint failed"}
                   for item in manifest["assignments"]]
-    history = task_events(manifest["sanity_bead"]) if events is None else events
+    history = task_events(manifest["sanity_bead"], context.get("phase") or selected["sprint"].split("-")[0]) if events is None else events
     iteration = sum(event.get("event") in {"assigned", "reassigned", "reopened"} for event in history)
     if not iteration:
-        raise ValueError(f"no assignment in `atm task events {manifest['sanity_bead']} --json`; assign the sanity task and retry")
+        raise SanityVarsError("SANITY_VARS.TASK_NOT_FOUND", f"no assignment in `atm task events {manifest['sanity_bead']} --json`; assign the sanity task and retry")
     values.update(task_id=manifest["sanity_bead"], sanity_bead=manifest["sanity_bead"],
                   sanity_task_id=manifest["sanity_bead"], checked_bead=manifest["dev_bead"],
                   dev_task_id=manifest["dev_bead"], branch=manifest["branch"], commit=manifest["sha"],

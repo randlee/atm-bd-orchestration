@@ -11,6 +11,9 @@
 - Pre-generation close records replay by their recorded head, with an explicit legacy replay mismatch and repair for a different head (#908).
 - Unverified PR-base errors first prescribe retrying when GitHub is reachable, then documenting the verified PR base only if it cannot be read (#926).
 - Close-order and snapshot assertions enforce exact positions/sequences, retain postcondition and reassignment fences, and reject controlled extra reads; sanity's Git fake exposes per-command failures (#905).
+- Bead group validation accepts historical null QA layers and names malformed bead fields with typed, actionable repairs; configuration and command failures identify their own causes (#922).
+- Pour outcomes carry typed problem kinds, and a sprint is held when a predecessor preview fails (#907).
+- Sanity close variables resolve team, identity and command timeout from configuration and report typed task-history failures (#906).
 
 ### Changed
 - sc-compose pin moved to 1.8.0 (CI CLI assets and checksums, the console lockfile's `sc-compose` and `sc-sha` wheels): a `uv run --script` runtime resolves the newest release in the `>= 1.7.0, < 2` range, and the installer refuses a CLI older than that wheel, so every PR went red the hour 1.8.0 reached PyPI. The range floor is unchanged; hosts upgrade with `brew upgrade randlee/tap/sc-compose` (a `cargo install` copy on PATH must be upgraded too) and `uv cache clean sc-compose`.
