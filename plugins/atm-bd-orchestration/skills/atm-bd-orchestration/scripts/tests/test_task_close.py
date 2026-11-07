@@ -243,6 +243,73 @@ def test_not_reproducible_uses_linked_predecessor_not_current_top(world):
     assert dispatch["close_context"]["base_verified"] is True
 
 
+def test_not_reproducible_frozen_bottom_layer_keeps_its_recorded_base_head_after_the_trunk_advances(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": world.values["branch"], "pr": 351, "head": world.head, "base": "integrate/phase-bj",
+         "base_head": "a" * 40, "linked": True}]
+    # origin/integrate/phase-bj now resolves to b*40, which is no longer an ancestor of the frozen layer.
+    world.overrides[("git", "merge-base", "--is-ancestor", "b" * 40, world.head)] = (1, "")
+    result = world.run("fix", outcome="not_reproducible")
+    assert "ok" in result, result
+    dispatch = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert (dispatch["base"], dispatch["base_source"], dispatch["nr"], dispatch["base_verified"]) == ("a" * 40, "ledger", True, True)
+    assert not any(argv[:3] == ["git", "rev-parse", "--verify"] for argv, _kwargs in world.calls)
+
+
+def no_rebase_advice(fix):
+    """The linked wording says `do not rebase`; nothing else in it may tell the fixer to rebase."""
+    return "do not rebase" in fix and "rebase" not in fix.replace("do not rebase", "")
+
+
+def test_not_reproducible_non_ancestor_ledger_predecessor_refuses_without_rebase_advice(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": "parent", "pr": 350, "head": "c" * 40, "base": "integrate/phase-bj", "linked": True},
+        {"branch": world.values["branch"], "pr": 351, "head": world.head, "base": "parent", "linked": True}]
+    world.overrides[("git", "merge-base", "--is-ancestor", "c" * 40, world.head)] = (1, "")
+    result = world.run("fix", outcome="not_reproducible")
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED"
+    assert "parent" in result["err"]["message"] and "c" * 40 in result["err"]["message"] and world.head in result["err"]["message"]
+    assert "recorded ledger predecessor" in result["err"]["fix"] and no_rebase_advice(result["err"]["fix"])
+    assert not world.writes
+
+
+def test_not_reproducible_ledger_predecessor_without_40_hex_head_refuses_without_rebase_advice(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": "parent", "pr": 350, "head": "c" * 64, "base": "integrate/phase-bj", "linked": True},
+        {"branch": world.values["branch"], "pr": 351, "head": world.head, "base": "parent", "linked": True}]
+    result = world.run("fix", outcome="not_reproducible")
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED"
+    assert "not a full 40-hex commit" in result["err"]["message"]
+    assert no_rebase_advice(result["err"]["fix"])
+    assert not world.writes
+
+
+def test_not_reproducible_linked_layer_with_a_different_ledger_head_is_refused_by_the_shared_rule(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    world.beads["atm-phase-bj.stack"]["metadata"]["layers"] = [
+        {"branch": world.values["branch"], "pr": 351, "head": "e" * 40, "base": "integrate/phase-bj", "linked": True}]
+    result = world.run("fix", outcome="not_reproducible")
+    assert result["err"]["code"] == "BASE.LINKED_HEAD"
+    assert no_rebase_advice(result["err"]["fix"])
+    assert not world.writes
+
+
+def test_not_reproducible_unlinked_base_keeps_the_pr_target_wording(world):
+    world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
+    record_checked_commit(world)
+    world.overrides[("git", "merge-base", "--is-ancestor", "b" * 40, world.head)] = (1, "")
+    result = world.run("fix", outcome="not_reproducible")
+    assert result["err"]["code"] == "BASE.PR_UNVERIFIED"
+    assert "select a full 40-hex ancestor base" in result["err"]["fix"] and "frozen" not in result["err"]["fix"]
+
+
 def test_not_reproducible_skip_checks_marks_base_unverified(world):
     world.beads[world.values["checked_bead"]]["metadata"]["role"] = "fix"
     record_checked_commit(world)
