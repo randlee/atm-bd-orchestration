@@ -22,6 +22,7 @@
 ### Fixed
 - Package CI now collects the skill script and atm-beads test suites, and the installer regression test asserts its current `uv tool install atm-bd --python 3.11` recovery command (#904).
 - QA template prompt tests pin sc-compose to the package root, so they render from both the scripts directory and package root (#932).
+- The QA metrics row refuses `SCREEN.UNAVAILABLE` instead of logging `findings_filed` 0 when a round filed findings but saved no screen result, or when the screened ids differ from the filed findings (qa-template 4.19.0 step j: finding beads by reviewer id plus every poured blocking finding; plan-review-template 3.12.0 step g: the step e report counts and the screen input of step d); a poured blocking finding screened `ceremony` is excluded from `blk` like `imp` and `min`.
 - Console and `atm-bd queues --stack` choose the stack top from the canonical membership (the last member, read from the raw PR snapshot) through one shared function, never a lower frozen PR; a top that cannot be known (unread or disagreeing ledger/membership, member absent from the snapshot, missing/unreadable/stale `prs.json` as `PRS.MISSING`/`PRS.UNREADABLE`/`PRS.STALE`) is no top with a typed reason in the snapshot and the queue row (#935).
 
 ## [0.19.15] - 2026-11-06

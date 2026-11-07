@@ -57,16 +57,30 @@ def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
     return json.loads(round_rows[0]), json.loads(stats_rows[0])
 
 
-def _produce_plan(workdir: Path, screened: list[dict]) -> tuple[dict, dict]:
+def _produce_plan(workdir: Path, screened: list[dict] | None, reported: int | None = None,
+                  input_ids: list[str] | None = None) -> tuple[dict, dict]:
+    """Run plan-review step g after a round whose step d screened `screened` (None: no screen file was saved)
+    and whose step e report counted `reported` findings (default: one per screened verdict)."""
     values = _concrete(_example("plan-review-template-vars.json"))
     result = _render("plan-review-template.xml.j2", values)
     assert result.returncode == 0, result.stderr
     step = result.stdout[result.stdout.index('<step id="g">'):]
     commands = step[step.index("SCREENFILE="):step.index("\n```", step.index("SCREENFILE="))]
     commands = commands.replace("<scratch>", str(workdir)).replace("bd list --all --json 2>/dev/null", "cat bd-list.json", 1)
-    (workdir / f"{values['task_id']}-screen.json").write_text(json.dumps({"success": True, "data": {"screened": screened}}))
+    if not (workdir / "bd-list.json").exists():
+        (workdir / "bd-list.json").write_text("[]")
+    if screened is not None:
+        (workdir / f"{values['task_id']}-screen.json").write_text(json.dumps({"success": True, "data": {"screened": screened}}))
+    if input_ids is None:
+        input_ids = [row["id"] for row in screened or []]
+    if input_ids:   # step d saved the screen input alongside the result
+        (workdir / f"{values['task_id']}-screen-input.json").write_text(json.dumps({"findings": [{"id": i} for i in input_ids]}))
+    counted = len(screened or []) if reported is None else reported
+    report = {**_concrete(_example("plan-review-complete-vars.json")), "findings_blocking": counted, "findings_important": 0, "findings_minor": 0}
+    (workdir / f"plan-review-{values['task_id']}-vars.json").write_text(json.dumps(report))
     env = {**os.environ, "NOW": "2026-10-02T12:01:00Z", "LOCAL": "05:01", "VERDICT": "FAIL"}
-    run_command(["bash", "-c", "set -eu\n" + commands], timeout=HANG_GUARD_SECONDS, cwd=workdir, env=env, check=True, capture_output=True, text=True)
+    run_command(["bash", "-c", "set -eu\nmkdir -p .sc/qa-log\n" + commands], timeout=HANG_GUARD_SECONDS, cwd=workdir, env=env,
+                check=True, capture_output=True, text=True)
     logs = workdir / ".sc/qa-log"
     return (json.loads((logs / "phase-d.jsonl").read_text().splitlines()[-1]),
             json.loads((logs / "phase-d-stats.jsonl").read_text().splitlines()[-1]))
@@ -77,9 +91,11 @@ def _concrete(values: dict) -> dict:
     return json.loads(json.dumps(values).replace("{{ " + "bead_prefix }}", "p"))
 
 
-def _finding(n: int, severity: str, screen: str) -> dict:
-    """A finding row exactly as qa-template step g renders it from finding-bead.json.j2."""
-    values = {**_concrete(_example("finding-bead-vars.json")), "id": f"p-d-4-qa1-f{n}", "severity": severity, "screen": screen}
+def _finding(n: int, severity: str, screen: str, ref: str | None = None) -> dict:
+    """A finding row exactly as qa-template step g renders it from finding-bead.json.j2; `ref` is the reviewer's
+    own finding id (metadata.finding_ref), the id the screen keys its verdict by."""
+    values = {**_concrete(_example("finding-bead-vars.json")), "id": f"p-d-4-qa1-f{n}", "severity": severity, "screen": screen,
+              "finding_ref": ref or f"RQA-00{n}"}
     result = _render("finding-bead.json.j2", values)
     if result.returncode:
         raise AssertionError(result.stderr)
@@ -150,10 +166,14 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
                                  "severity": "blocking"}}
         workdir = Path(self.tmp.name) / "real"
         workdir.mkdir()
+        # step f screened all three findings by the reviewers' ids: the two finding beads' finding_ref and the blocking one
+        screened = [{"id": "RQA-002", "verdict": "not_applicable"}, {"id": "RQA-003", "verdict": "ceremony"},
+                    {"id": "R-F001", "verdict": "keep"}]
         round_row, stats_row = _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir, findings,
                                         [findings[0], closed, sanity_child, other_phase, fix(1, "closed"), fix(2, "open")],
-                                        blocking)
+                                        blocking, screened)
         self.assertEqual((round_row["fnd"], round_row["blk"], round_row["imp"], round_row["min"]), (2, 1, 0, 1))
+        self.assertEqual((round_row["findings_filed"], round_row["findings_screened_out"], round_row["screened_ids"]), (3, 1, ["RQA-003"]))
         # one finding per poured fix lineage (its latest round decides open), plus the finding beads
         self.assertEqual({k: stats_row[k] for k in ("tot", "open", "blk", "imp", "min")},
                          {"tot": 3, "open": 2, "blk": 1, "imp": 0, "min": 1})
@@ -162,6 +182,7 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
         workdir = Path(self.tmp.name) / "both"
         workdir.mkdir()
         qa, qa_stats = _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir,
+                                [_finding(1, "important", "ceremony", "q1"), _finding(2, "minor", "keep", "q2")],
                                 screened=[{"id": "q1", "verdict": "ceremony"}, {"id": "q2", "verdict": "keep"}])
         plan, stats = _produce_plan(workdir, [{"id": "p1", "verdict": "ceremony"},
                                              {"id": "p2", "verdict": "not_applicable"},
@@ -183,6 +204,53 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
                      screened=[{"id": "q1", "verdict": "invalid"}])
         self.assertIn("SCREEN.UNAVAILABLE", error.exception.stderr)
         self.assertFalse((workdir / ".sc/qa-log/phase-d.jsonl").exists())
+
+    def test_screened_ids_must_match_the_filed_findings(self):
+        # a screen over some other id set (a stale file, an omitted finding) never counts as this round's denominator
+        for name, findings, screened in (
+                ("other-id", [_finding(1, "important", "keep", "RQA-001")], [{"id": "SOMETHING-ELSE", "verdict": "keep"}]),
+                ("omitted", [_finding(1, "important", "keep", "RQA-001"), _finding(2, "minor", "keep", "RQA-002")],
+                 [{"id": "RQA-001", "verdict": "keep"}]),
+                ("duplicate", [_finding(1, "important", "keep", "RQA-001"), _finding(2, "minor", "keep", "RQA-002")],
+                 [{"id": "RQA-001", "verdict": "keep"}, {"id": "RQA-001", "verdict": "ceremony"}]),
+                ("stale-without-findings", None, [{"id": "RQA-001", "verdict": "keep"}])):
+            with self.subTest(case=name):
+                workdir = Path(self.tmp.name) / f"ids-{name}"
+                workdir.mkdir()
+                with self.assertRaises(subprocess.CalledProcessError) as error:
+                    _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir, findings, screened=screened)
+                self.assertIn("SCREEN.UNAVAILABLE", error.exception.stderr)
+                self.assertIn("differ from", error.exception.stderr)
+                self.assertFalse((workdir / ".sc/qa-log/phase-d.jsonl").exists())
+
+    def test_a_blocking_finding_screened_ceremony_is_not_counted_in_blk(self):
+        blocking = {"sprint": "p-d-4", "round": 1, "filed_by": "p-d-4.group-qa", "found_at_commit": "abc1234",
+                    "findings": [{"ref": "qa1-f1", "severity": "blocking", "reviewer": "r", "title": "t", "remedy": "m", "priority": 1},
+                                 {"ref": "qa1-f2", "severity": "blocking", "reviewer": "r", "title": "t", "remedy": "m", "priority": 1,
+                                  "screen": "ceremony"}]}
+        workdir = Path(self.tmp.name) / "blk-ceremony"
+        workdir.mkdir()
+        row, _ = _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir, blocking=blocking,
+                          screened=[{"id": "R-F001", "verdict": "keep"}, {"id": "R-F002", "verdict": "ceremony"}])
+        self.assertEqual((row["blk"], row["fnd"]), (1, 1))   # like imp and min: a ceremony verdict is not a filed finding
+        self.assertEqual((row["findings_filed"], row["findings_screened_out"], row["screened_ids"]), (2, 1, ["R-F002"]))
+
+    def test_plan_review_findings_without_a_screen_file_cannot_be_logged_as_zero(self):
+        for name, kwargs in (("counted-in-report", {"screened": None, "reported": 2}),
+                             ("screen-input-only", {"screened": None, "reported": 0, "input_ids": ["P-001"]}),
+                             ("ids-differ", {"screened": [{"id": "P-001", "verdict": "keep"}], "input_ids": ["P-001", "P-002"]}),
+                             ("fewer-than-counted", {"screened": [{"id": "P-001", "verdict": "keep"}], "reported": 2})):
+            with self.subTest(case=name):
+                workdir = Path(self.tmp.name) / f"plan-{name}"
+                workdir.mkdir()
+                with self.assertRaises(subprocess.CalledProcessError) as error:
+                    _produce_plan(workdir, **kwargs)
+                self.assertIn("SCREEN.UNAVAILABLE", error.exception.stderr)
+                self.assertFalse((workdir / ".sc/qa-log/phase-d.jsonl").exists())
+        clean = Path(self.tmp.name) / "plan-clean"
+        clean.mkdir()
+        row, _ = _produce_plan(clean, screened=None, reported=0)   # a round without findings needs no screen file
+        self.assertEqual((row["findings_filed"], row["findings_screened_out"], row["screened_ids"]), (0, 0, []))
 
 
 if __name__ == "__main__":
