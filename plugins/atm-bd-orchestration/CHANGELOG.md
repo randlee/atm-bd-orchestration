@@ -2,7 +2,24 @@
 
 ## [Unreleased]
 
+## [0.19.15] - 2026-11-06
+
+Integrity-hardening release. Every close hook and dispatch producer now takes its values from the task events, the beads and the pull request, never from a copied earlier assignment context, and a producer's problem in one finding group no longer refuses another group's work. #825 (dev close path) and #671 (sanity close path) are the two legs of one rule: close-vars context is seeded from the bead graph, never hand-stuffed.
+
 ### Fixed
+- Close replay keys include the assignment generation, reject stale closes, and verify their postconditions; a previously closed non-latest commit is refused after a bead reopen (#861).
+- Sanity close iteration comes from the complete task assignment history (#881).
+- QA dispatch uses the QA bead round rather than the sanity iteration (#851).
+- Sanity uses the PR parent commit as its pinned diff base, validates it as a full 40-hex local ancestor, and records it in reports (#849).
+- Fix close context carries the checked finding and the QA reviewers for role=fix beads (#671).
+- Finding dispatch and repair are documented; cache cron dependencies are declared; every PEP 723 script entrypoint is verified with a bounded `--help` run that must exit 0 (#846).
+- Empty QA metadata is omitted and a malformed bead report in one finding group no longer refuses independent groups (#852).
+- The next fix round is poured before a failed QA is closed, and a closed failure is recovered within the existing round cap (#856).
+- Superseded original sanity references are preserved, and independent groups are backfilled when another group needs repair (#857).
+- The console validates stacked PR bases and withholds a branch's PR classification while its stack membership is incomplete, instead of reporting a false `missing_pr` (#865).
+- `atm-task-close.py` is held under the 1000-line limit by moving its validation to `task_close_validation.py`; no behaviour change.
+- The script line gate counts every physical line spanned by a non-docstring token, so a multi-line string no longer counts as one line (#930).
+- Every Git test fixture is isolated from the host's `core.hooksPath`, global and system git config, so the suite passes under hostile hooks (#929, #933).
 - Queue reports withhold sprint closure when open blockers or sprint-owned findings remain, and identify the blocking beads (#832).
 - Console notices, counters, status and cron alerts identify their actual causes and recovery (#372, #599, #355, #350, #624, #601).
 - Stack linking reports duplicate and ghost layers with repairs, skips self notices, holds pending parents and selects the confirmed stack top (#826, #828, #604).
