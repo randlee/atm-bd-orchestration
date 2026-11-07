@@ -1212,3 +1212,57 @@ def test_linker_accepts_the_verbatim_phase_br_landed_ledger(world):
     assert [a for a in world.calls if a[:3] == ['gh', 'stack', 'link']] == [
         ['gh', 'stack', 'link', '--base', 'integrate/phase-br', '934', '935']]
     assert world.bead['metadata']['landed_layers'] == [927, 930, 929, 933]
+
+
+
+@pytest.mark.parametrize('field,value', [('head', 'not-a-sha'), ('base', 'wrong-parent'), ('pr', None)])
+def test_stack_landing_validates_layer_rows(world, field, value):
+    _, second = merged_stack(world)
+    world.bead['metadata']['layers'][0][field] = value
+    before = copy.deepcopy(world.bead['metadata'])
+    with pytest.raises(LAND.LandingError) as error:
+        land_stack(world, second['commit'])
+    assert error.value.code == 'LANDED.INVALID_LEDGER'
+    assert world.bead['metadata'] == before
+    assert world.bead['assignee'] == ''
+
+
+def test_stack_landing_cli_uses_the_shared_json_envelope(world):
+    _, second = merged_stack(world)
+    output, errors = io.StringIO(), io.StringIO()
+    with redirect_stdout(output), redirect_stderr(errors):
+        assert LAND.main(['phase.stack', '--head', second['commit'], '--stack', '7'], runner=world,
+                         now=lambda: '2026-11-07T00:00:00Z') == 0
+    assert output.getvalue() == errors.getvalue()
+    assert json.loads(output.getvalue())['ok']['landed_head'] == second['commit']
+    output, errors = io.StringIO(), io.StringIO()
+    with redirect_stdout(output), redirect_stderr(errors):
+        assert LAND.main(['phase.stack', '--head', 'bad', '--stack', '0'], runner=world) == 1
+    assert output.getvalue() == errors.getvalue()
+    assert json.loads(output.getvalue())['err']['code'] == 'LANDED.INVALID_LEDGER'
+
+
+
+def test_stack_landed_repairs_stale_copied_layers_without_duplicating_history(world):
+    _, second = merged_stack(world)
+    old = copy.deepcopy(world.bead['metadata']['layers'])
+    land_stack(world, second['commit'])
+    world.bead['metadata']['layers'] = old
+    assert land_stack(world, second['commit'])['landed_head'] == second['commit']
+    assert world.bead['metadata']['layers'] == []
+    assert world.bead['metadata']['previous_landings'] == []
+
+
+
+def test_stack_landing_renews_the_assignee_lock_with_a_controlled_clock(world):
+    _, second = merged_stack(world)
+    world.calls.clear()
+    def runner(argv, **kwargs):
+        result = world(argv, **kwargs)
+        if argv[:3] == ['git', 'fetch', 'origin']:
+            world.clock.now += 121
+        return result
+    LAND.land('phase.stack', second['commit'], 7, runner=runner, clock=world.clock,
+              now=lambda: '2026-11-07T00:00:00Z')
+    assert [a for a in world.calls if a[:2] == ['bd', 'heartbeat']] == [
+        ['bd', 'heartbeat', 'phase.stack', '--actor', 'sanity']]

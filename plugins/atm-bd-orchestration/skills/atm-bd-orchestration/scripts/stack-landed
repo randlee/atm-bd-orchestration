@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 from stack_top import select_confirmed_stack_top
 
@@ -26,14 +27,25 @@ class LandingError(ValueError):
         self.code, self.fix = code, fix
 
 
-def land(bead, head, number, *, runner=subprocess.run, now=lambda: datetime.now(timezone.utc).isoformat()):
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise LandingError('ARGS.INVALID', message, 'Run `stack-landed --help` and supply the stack bead, --head and --stack.')
+
+
+def land(bead, head, number, *, runner=subprocess.run, now=lambda: datetime.now(timezone.utc).isoformat(), clock=time.monotonic):
     actor = os.environ.get('ATM_IDENTITY')
     retry = f'stack-landed {bead} --head {head} --stack {number}'
     repair = f'Inspect `bd show {bead} --json`, repair the ledger from verified stack history, then run `{retry}`.'
     if not actor:
         raise LandingError('LANDED.LOCKED', 'ATM_IDENTITY is required', f'Set ATM_IDENTITY to the landing lead and run `{retry}`.')
 
+    held, heartbeat_at = False, clock()
+
     def command(argv, *, check=True):
+        nonlocal heartbeat_at
+        if held and argv[:2] != ['bd', 'heartbeat'] and clock() - heartbeat_at >= 120:
+            heartbeat_at = clock()
+            command(['bd', 'heartbeat', bead, '--actor', actor])
         try:
             result = runner(argv, capture_output=True, text=True, timeout=120)
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -46,6 +58,7 @@ def land(bead, head, number, *, runner=subprocess.run, now=lambda: datetime.now(
     if claimed.returncode:
         raise LandingError('LANDED.LOCKED', f'{bead}: stack claim failed: {claimed.stderr or claimed.stdout}',
                            f'Inspect `bd show {bead} --json`; have the holder release its claim with `bd update {bead} --if-assignee <holder> --status open --assignee ""`, then run `{retry}`.')
+    held, heartbeat_at = True, clock()
     try:
         try:
             rows = json.loads(command(['bd', 'show', bead, '--json']).stdout)
@@ -58,17 +71,36 @@ def land(bead, head, number, *, runner=subprocess.run, now=lambda: datetime.now(
             if not isinstance(layers, list) or any(not isinstance(layer, dict) for layer in layers):
                 raise ValueError('metadata.layers must be an array of layer objects')
             select_confirmed_stack_top(layers)
+            branches, numbers = set(), set()
+            previous = metadata['trunk']
+            for layer in layers:
+                if (not re.fullmatch(r'[0-9a-fA-F]{40}|[0-9a-fA-F]{64}', str(layer.get('head', '')))
+                        or layer.get('base') != previous or layer.get('branch') in branches or layer.get('pr') in numbers):
+                    raise ValueError('layer heads, predecessor bases and unique branch/PR identities must be valid')
+                branches.add(layer['branch'])
+                numbers.add(layer['pr'])
+                previous = layer['branch']
             history = metadata.get('previous_landings', [])
             if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
                 raise ValueError('previous_landings must be an array of landing objects')
             linked = [layer for layer in layers if layer.get('linked') is True]
-            if layers and (len(linked) != len(layers) or metadata.get('stack_number') != number):
+            archived = metadata.get('landed_layers', [])
+            if not isinstance(archived, list):
+                raise ValueError('landed_layers must be an array')
+            archived_numbers = [item.get('pr') if isinstance(item, dict) else item for item in archived]
+            if any(type(item) is not int or item <= 0 for item in archived_numbers):
+                raise ValueError('landed_layers must contain positive PR numbers or layer objects with a PR')
+            archived_prs = set(archived_numbers)
+            stale_copy = (metadata.get('stack_number') is None and metadata.get('landed_stack_number') == number
+                          and all(layer.get('pr') in archived_prs for layer in layers))
+            if layers and (len(linked) != len(layers) or (metadata.get('stack_number') != number and not stale_copy)):
                 raise ValueError('every current layer must be linked and stack_number must match --stack')
             if not layers and not (metadata.get('landed_head') == head and metadata.get('landed_stack_number') == number):
                 raise ValueError('no current linked stack matches this landing')
-            if metadata.get('landed_head') and (not isinstance(metadata.get('landed_layers'), list)
+            if metadata.get('landed_head') and (not re.fullmatch(r'[0-9a-fA-F]{40}|[0-9a-fA-F]{64}', str(metadata['landed_head']))
+                                                or not isinstance(metadata.get('landed_layers'), list)
                                                 or not isinstance(metadata.get('landed_at'), str)
-                                                or type(metadata.get('landed_stack_number')) is not int):
+                                                or type(metadata.get('landed_stack_number')) is not int or metadata['landed_stack_number'] <= 0):
                 raise ValueError('previous landing requires landed_at, landed_stack_number and landed_layers')
         except (ValueError, TypeError, KeyError) as error:
             raise LandingError('LANDED.INVALID_LEDGER', f'{bead}: {error}', repair) from error
@@ -82,9 +114,10 @@ def land(bead, head, number, *, runner=subprocess.run, now=lambda: datetime.now(
                                    f'Land stack {number} into {trunk}, run `git fetch origin`, verify `git merge-base --is-ancestor {sha} {target}`, then run `{retry}`.')
         if not layers:
             return {'stack_bead': bead, 'landed_head': head, 'replayed': True}
-        if metadata.get('landed_head'):
+        same_landing = metadata.get('landed_head') == head and metadata.get('landed_stack_number') == number
+        if metadata.get('landed_head') and not same_landing:
             history.append({key: metadata[key] for key in ('landed_at', 'landed_head', 'landed_stack_number', 'landed_layers')})
-        metadata.update(landed_at=now(), landed_head=head, landed_stack_number=number,
+        metadata.update(landed_at=metadata['landed_at'] if same_landing else now(), landed_head=head, landed_stack_number=number,
                         landed_layers=linked, previous_landings=history, layers=[], stack_number=None, top=None, top_pr=None)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', encoding='utf-8') as stream:
             json.dump(metadata, stream)
@@ -96,6 +129,7 @@ def land(bead, head, number, *, runner=subprocess.run, now=lambda: datetime.now(
         return {'stack_bead': bead, 'landed_head': head, 'landed_stack_number': number, 'landed_layers': linked}
     finally:
         active_error = sys.exc_info()[0] is not None
+        held = False
         released = command(['bd', 'update', bead, '--if-assignee', actor, '--status', 'open', '--assignee', '', '--actor', actor], check=False)
         if released.returncode and not active_error:
             raise LandingError('LANDED.LOCKED', f'{bead}: failed to release claim: {released.stderr or released.stdout}',
@@ -103,13 +137,13 @@ def land(bead, head, number, *, runner=subprocess.run, now=lambda: datetime.now(
 
 
 def main(argv=None, *, runner=subprocess.run, now=lambda: datetime.now(timezone.utc).isoformat()):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = Parser(description=__doc__)
     parser.add_argument('stack_bead')
     parser.add_argument('--head', required=True)
     parser.add_argument('--stack', required=True, type=int)
-    args = parser.parse_args(argv)
     try:
-        if not re.fullmatch(r'[0-9a-fA-F]{40}|[0-9a-fA-F]{64}', args.head) or args.stack <= 0:
+        args = parser.parse_args(argv)
+        if not args.stack_bead.strip() or not re.fullmatch(r'[0-9a-fA-F]{40}|[0-9a-fA-F]{64}', args.head) or args.stack <= 0:
             raise LandingError('LANDED.INVALID_LEDGER', '--head must be a full Git SHA and --stack a positive integer',
                                f'Run `stack-landed {args.stack_bead} --head <merged-sha> --stack <positive-number>`.')
         result = {'ok': land(args.stack_bead, args.head, args.stack, runner=runner, now=now)}

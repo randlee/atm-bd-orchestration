@@ -122,7 +122,9 @@ def is_landed(metadata: JsonObject) -> bool:
         archived_prs.add(number)
     if layers and archived and all(is_json_object(layer) and layer.get("pr") in archived_prs for layer in layers):
         raise LedgerError("LEDGER.STALE_LANDING", "current layers are all in landed_layers",
-                          "stack-landed was not run or layers was hand-edited; run `stack-landed <stack-bead> --head <merged-sha> --stack <number>`")
+                          "stack-landed was not run or layers was hand-edited; run "
+                          f"`stack-landed <stack-bead> --head {metadata.get('landed_head') or '<merged-sha>'} "
+                          f"--stack {metadata.get('stack_number') or metadata.get('landed_stack_number') or '<number>'}`")
     return bool(metadata.get("landed_head")) and not layers
 
 
