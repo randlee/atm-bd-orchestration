@@ -29,7 +29,7 @@ def test_script_population():
     assert main_entries
     assert main_entries <= selected, f"Python entrypoints missing PEP 723 metadata: {main_entries - selected}"
     other_pep_scripts = {"phase_settings.py", "bead-groups", "bv-analyze", "fix-round-scope", "sanity-close-vars",
-                         "sanity-merge", "sanity-run-history", "sanity-split", "sanity-stack-link"}
+                         "stack-landed", "sanity-merge", "sanity-run-history", "sanity-split", "sanity-stack-link"}
     assert selected == main_entries | {SCRIPTS / name for name in other_pep_scripts}
     excluded_libraries = {"bd_models.py", "bead_formulas.py", "command_timeout.py", "qa_reviewers.py",
                           "stack_top.py", "task_close_validation.py", "transitions.py"}

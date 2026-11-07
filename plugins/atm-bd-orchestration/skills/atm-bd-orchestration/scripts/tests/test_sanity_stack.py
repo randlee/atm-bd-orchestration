@@ -17,8 +17,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "atm-beads/scripts"))
 
-from stack_top import StackTop, select_confirmed_stack_top
-from task_close_world import World as HookWorld, hook as close_hook
+from stack_top import StackTop, select_live_top
+from task_close_world import BR_LANDED_METADATA, World as HookWorld, hook as close_hook
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 GIT_TIMEOUT_SECONDS = 15
@@ -439,12 +439,12 @@ def test_failed_post_close_handoff_notifies_lead_without_task_writes(world):
 def test_stack_top_selector_drives_empty_and_populated_ledgers(world, monkeypatch):
     selected = []
 
-    def capture(layers, hosted=None):
-        top = select_confirmed_stack_top(layers, hosted)
-        selected.append((copy.deepcopy(layers), hosted, top))
+    def capture(metadata, hosted=None, **kwargs):
+        top = select_live_top(metadata, hosted, **kwargs)
+        selected.append((copy.deepcopy(metadata["layers"]), hosted, top))
         return top
 
-    monkeypatch.setattr(LINK, 'select_confirmed_stack_top', capture)
+    monkeypatch.setattr(LINK, 'select_live_top', capture)
     first = world.branch('first', 'trunk', 1)
     second = world.branch('second', 'first', 2)
     assert world.link(first)['result'] == 'stacked'
@@ -461,7 +461,7 @@ def test_recorded_head_check_uses_selected_head(world, monkeypatch, replay):
     assert world.link(first)['result'] == 'stacked'
     assert world.link(second)['result'] == 'stacked'
     before = copy.deepcopy(world.bead['metadata'])
-    monkeypatch.setattr(LINK, 'select_confirmed_stack_top', lambda layers, hosted=None: StackTop(2, 'second', 'wrong-head'))
+    monkeypatch.setattr(LINK, 'select_live_top', lambda metadata, hosted=None, **kwargs: StackTop(2, 'second', 'wrong-head'))
     result = world.link(first if replay else third)
     assert result['result'] == 'stack_failed'
     assert ('recorded stack top' if replay else 'recorded head') in result['evidence']
@@ -1095,3 +1095,174 @@ def test_hosted_ahead_must_include_the_unlinked_ledger_anchor(world):
     assert result["result"] == "stack_failed"
     assert "stack top mismatch" in result["evidence"]
     assert [layer["pr"] for layer in world.bead["metadata"]["layers"]] == [1]
+
+
+LAND_LOADER = importlib.machinery.SourceFileLoader("stack_landed", str(SCRIPTS / "stack-landed"))
+LAND_SPEC = importlib.util.spec_from_loader(LAND_LOADER.name, LAND_LOADER)
+assert LAND_SPEC is not None
+LAND = importlib.util.module_from_spec(LAND_SPEC)
+LAND_LOADER.exec_module(LAND)
+
+
+def land_stack(world, head, number=7):
+    return LAND.land('phase.stack', head, number, runner=world, now=lambda: '2026-11-07T00:00:00Z')
+
+
+def merged_stack(world):
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    assert world.link(first)['result'] == 'stacked'
+    assert world.link(second)['result'] == 'stacked'
+    world.git('checkout', 'trunk')
+    world.git('merge', '--ff-only', 'second')
+    world.git('push', 'origin', 'trunk')
+    return first, second
+
+
+def test_stack_landing_is_one_locked_metadata_write_and_starts_a_new_stack(world):
+    _, second = merged_stack(world)
+    old_layers = copy.deepcopy(world.bead['metadata']['layers'])
+    world.bead['metadata'].update(top='second', top_pr=2, custom='preserved')
+    world.calls.clear()
+    result = land_stack(world, second['commit'])
+    assert result['landed_layers'] == old_layers
+    metadata = world.bead['metadata']
+    assert metadata['landed_at'] == '2026-11-07T00:00:00Z'
+    assert metadata['landed_head'] == second['commit'] and metadata['landed_stack_number'] == 7
+    assert metadata['landed_layers'] == old_layers and metadata['previous_landings'] == []
+    assert metadata['layers'] == [] and metadata['stack_number'] is None
+    assert metadata['top'] is metadata['top_pr'] is None and metadata['custom'] == 'preserved'
+    writes = [a for a in world.calls if '--metadata' in a]
+    assert len(writes) == 1 and writes[0][-2:] == ['--actor', 'sanity']
+    assert writes[0][3:5] == ['--if-assignee', 'sanity']
+    assert world.bead['assignee'] == ''
+    before = copy.deepcopy(metadata)
+    assert land_stack(world, second['commit'])['replayed'] is True
+    assert world.bead['metadata'] == before
+    # GitHub may still return the old hosted stack; it is no longer live.
+    world.pulls.clear()
+    third = world.branch('third', 'trunk', 3)
+    fourth = world.branch('fourth', 'third', 4)
+    assert world.link(third)['result'] == 'stacked'
+    assert world.link(fourth)['result'] == 'stacked'
+    links = [a for a in world.calls if a[:3] == ['gh', 'stack', 'link']]
+    assert links[-1] == ['gh', 'stack', 'link', '--base', 'trunk', '3', '4']
+    assert [x['pr'] for x in world.bead['metadata']['layers']] == [3, 4]
+    assert world.bead['metadata']['landed_layers'] == old_layers
+    world.git('checkout', 'trunk')
+    world.git('merge', '--ff-only', 'fourth')
+    world.git('push', 'origin', 'trunk')
+    land_stack(world, fourth['commit'])
+    assert world.bead['metadata']['previous_landings'] == [{
+        key: before[key] for key in ('landed_at', 'landed_head', 'landed_stack_number', 'landed_layers')}]
+
+
+@pytest.mark.parametrize('cause,code', [('unmerged', 'LANDED.NOT_MERGED'), ('held', 'LANDED.LOCKED'),
+                                      ('invalid', 'LANDED.INVALID_LEDGER'), ('cas', 'LANDED.LOCKED')])
+def test_stack_landing_refusals_preserve_metadata_and_name_repairs(world, cause, code):
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    assert world.link(first)['result'] == 'stacked'
+    assert world.link(second)['result'] == 'stacked'
+    if cause != 'unmerged':
+        world.git('checkout', 'trunk')
+        world.git('merge', '--ff-only', 'second')
+        world.git('push', 'origin', 'trunk')
+    if cause == 'held':
+        world.bead['assignee'] = 'other'
+    elif cause == 'invalid':
+        world.bead['metadata']['previous_landings'] = 'broken'
+    elif cause == 'cas':
+        world.cas_fail = True
+    before = copy.deepcopy(world.bead['metadata'])
+    with pytest.raises(LAND.LandingError) as error:
+        land_stack(world, second['commit'])
+    assert error.value.code == code
+    assert 'stack-landed phase.stack --head' in error.value.fix
+    assert world.bead['metadata'] == before
+    assert world.bead['assignee'] == ('other' if cause == 'held' else '')
+
+
+def test_linker_rejects_stale_landing_before_hosted_reconciliation(world):
+    first = world.branch('first', 'trunk', 1)
+    second = world.branch('second', 'first', 2)
+    assert world.link(first)['result'] == 'stacked'
+    assert world.link(second)['result'] == 'stacked'
+    metadata = world.bead['metadata']
+    metadata.update(landed_head=second['commit'], landed_layers=copy.deepcopy(metadata['layers']))
+    before = copy.deepcopy(metadata)
+    world.calls.clear()
+    result = world.link(first)
+    assert result['result'] == 'stack_failed' and result['code'] == 'LEDGER.STALE_LANDING'
+    assert 'phase.stack' in result['evidence'] and 'stack-landed phase.stack' in result['fix']
+    assert world.bead['metadata'] == before
+    assert not any(a[0] == 'gh' for a in world.calls)
+
+
+
+def test_linker_accepts_the_verbatim_phase_br_landed_ledger(world):
+    world.git('checkout', '-b', 'integrate/phase-br', 'trunk')
+    world.git('push', 'origin', 'integrate/phase-br')
+    world.bead['metadata'] = copy.deepcopy(BR_LANDED_METADATA)
+    world.stacks = [{'number': 931, 'base': 'integrate/phase-br', 'prs': [927, 930, 929, 933]}]
+    first = world.branch('new-first', 'integrate/phase-br', 934)
+    second = world.branch('new-second', 'new-first', 935)
+    assert world.link(first)['result'] == 'stacked'
+    assert world.link(second)['result'] == 'stacked'
+    assert [a for a in world.calls if a[:3] == ['gh', 'stack', 'link']] == [
+        ['gh', 'stack', 'link', '--base', 'integrate/phase-br', '934', '935']]
+    assert world.bead['metadata']['landed_layers'] == [927, 930, 929, 933]
+
+
+
+@pytest.mark.parametrize('field,value', [('head', 'not-a-sha'), ('base', 'wrong-parent'), ('pr', None)])
+def test_stack_landing_validates_layer_rows(world, field, value):
+    _, second = merged_stack(world)
+    world.bead['metadata']['layers'][0][field] = value
+    before = copy.deepcopy(world.bead['metadata'])
+    with pytest.raises(LAND.LandingError) as error:
+        land_stack(world, second['commit'])
+    assert error.value.code == 'LANDED.INVALID_LEDGER'
+    assert world.bead['metadata'] == before
+    assert world.bead['assignee'] == ''
+
+
+def test_stack_landing_cli_uses_the_shared_json_envelope(world):
+    _, second = merged_stack(world)
+    output, errors = io.StringIO(), io.StringIO()
+    with redirect_stdout(output), redirect_stderr(errors):
+        assert LAND.main(['phase.stack', '--head', second['commit'], '--stack', '7'], runner=world,
+                         now=lambda: '2026-11-07T00:00:00Z') == 0
+    assert output.getvalue() == errors.getvalue()
+    assert json.loads(output.getvalue())['ok']['landed_head'] == second['commit']
+    output, errors = io.StringIO(), io.StringIO()
+    with redirect_stdout(output), redirect_stderr(errors):
+        assert LAND.main(['phase.stack', '--head', 'bad', '--stack', '0'], runner=world) == 1
+    assert output.getvalue() == errors.getvalue()
+    assert json.loads(output.getvalue())['err']['code'] == 'LANDED.INVALID_LEDGER'
+
+
+
+def test_stack_landed_repairs_stale_copied_layers_without_duplicating_history(world):
+    _, second = merged_stack(world)
+    old = copy.deepcopy(world.bead['metadata']['layers'])
+    land_stack(world, second['commit'])
+    world.bead['metadata']['layers'] = old
+    assert land_stack(world, second['commit'])['landed_head'] == second['commit']
+    assert world.bead['metadata']['layers'] == []
+    assert world.bead['metadata']['previous_landings'] == []
+
+
+
+def test_stack_landing_renews_the_assignee_lock_with_a_controlled_clock(world):
+    _, second = merged_stack(world)
+    world.calls.clear()
+    def runner(argv, **kwargs):
+        result = world(argv, **kwargs)
+        if argv[:3] == ['git', 'fetch', 'origin']:
+            world.clock.now += 121
+        return result
+    LAND.land('phase.stack', second['commit'], 7, runner=runner, clock=world.clock,
+              now=lambda: '2026-11-07T00:00:00Z')
+    assert [a for a in world.calls if a[:2] == ['bd', 'heartbeat']] == [
+        ['bd', 'heartbeat', 'phase.stack', '--actor', 'sanity']]

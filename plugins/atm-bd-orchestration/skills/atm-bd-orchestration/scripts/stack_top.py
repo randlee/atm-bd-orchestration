@@ -91,6 +91,62 @@ def select_confirmed_stack_top(
     return ledger_top or StackTop(None, None, None)
 
 
+# A live selection can name the trunk without resolving its Git head. Callers own Git I/O.
+LiveTop = StackTop
+
+
+class LedgerError(ValueError):
+    def __init__(self, code: str, message: str, fix: str):
+        super().__init__(f"{code}: {message}; {fix}")
+        self.code, self.fix = code, fix
+
+
+def is_landed(metadata: JsonObject) -> bool:
+    """A recorded landing with no current layers is landed; subsequent layers are live."""
+    layers = metadata.get("layers", [])
+    archived = metadata.get("landed_layers", [])
+    if not isinstance(layers, list) or not isinstance(archived, list):
+        raise ValueError("stack bead metadata.layers and metadata.landed_layers must be arrays")
+    if layers:
+        last = layers[-1]
+        if not is_json_object(last) or not all(isinstance(last.get(key), str) and str(last.get(key)).strip() for key in ("branch", "head")):
+            raise ValueError("last stack layer must have non-empty branch and head strings")
+    if any(not is_json_object(layer) for layer in layers):
+        raise ValueError("stack ledger layers must be objects")
+    # Phase br's hand-recorded landings archived PR numbers, not full layer rows.
+    archived_prs: set[int] = set()
+    for layer in archived:
+        number = layer.get("pr") if is_json_object(layer) else layer
+        if type(number) is not int or number <= 0:
+            raise ValueError("landed_layers must contain positive PR numbers or layer objects with a PR")
+        archived_prs.add(number)
+    if layers and archived and all(is_json_object(layer) and layer.get("pr") in archived_prs for layer in layers):
+        raise LedgerError("LEDGER.STALE_LANDING", "current layers are all in landed_layers",
+                          "stack-landed was not run or layers was hand-edited; run "
+                          f"`stack-landed <stack-bead> --head {metadata.get('landed_head') or '<merged-sha>'} "
+                          f"--stack {metadata.get('stack_number') or metadata.get('landed_stack_number') or '<number>'}`")
+    return bool(metadata.get("landed_head")) and not layers
+
+
+def select_live_top(
+    metadata: JsonObject, hosted_prs: list[int] | None = None, *, bead: str = "<stack-bead>",
+) -> LiveTop | StackTopMismatch:
+    """Select using current ledger state, ignoring hosted membership of a landed stack."""
+    try:
+        landed = is_landed(metadata)
+    except LedgerError as error:
+        raise LedgerError(error.code, f"{bead}: current layers are all in landed_layers",
+                          error.fix.replace("<stack-bead>", bead)) from error
+    if landed:
+        trunk = metadata.get("pr_target") or metadata.get("trunk")
+        if not isinstance(trunk, str) or not trunk.strip():
+            raise ValueError("landed stack ledger must name its trunk/pr_target")
+        return LiveTop(None, trunk, None)
+    layers = metadata.get("layers", [])
+    assert isinstance(layers, list)
+    return select_confirmed_stack_top(layers, hosted_prs)
+
+
 def select_stack_top(
     bead: JsonObject,
     pr_target: object,

@@ -20,6 +20,32 @@ class CloseError(RuntimeError):
         self.code, self.fix = code, fix
 
 
+def linked_base_anchor(metadata, branch, head, top, resolve_head):
+    """A frozen linked head uses its predecessor; only new heads must descend from top."""
+    layers = [layer for layer in metadata.get("layers", []) if layer.get("linked") is True]
+    index = next((i for i, layer in enumerate(layers) if layer.get("branch") == branch), None)
+    if index is None:
+        return top, False
+    layer = layers[index]
+    if layer.get("head") != head:
+        raise CloseError("BASE.LINKED_HEAD", f"linked layer {branch} has a different ledger head",
+                         f"Inspect the frozen layer with `git show {layer.get('head')}` and ask the phase lead to reconcile its ledger entry; do not rebase it.")
+    if index:
+        parent = layers[index - 1]
+        return (parent["branch"], parent["head"]), True
+    trunk = metadata.get("trunk") or top[0]
+    return (trunk, layer.get("base_head") or resolve_head(trunk)), True
+
+
+def pr_unverified_fix(bead, *, linked=False):
+    """Recovery order is the same for an outage and an explicitly skipped PR read."""
+    correction = ("Retarget the PR to its recorded ledger predecessor; do not rebase the frozen layer. " if linked else "Retarget the PR to the ledger top or rebase onto it if ancestry verification fails. ")
+    return ("First re-run the close when GitHub is reachable so the base is read from the PR and verified. "
+            "Only if the PR genuinely cannot be read, inspect its verified base commit (the PR's base.ref and base.sha), "
+            f"run `git fetch origin`, then record metadata.pr_base from that verified PR base with "
+            f"`bd update {bead} --set-metadata pr_base=<verified-PR-base-branch>` and re-run the close. " + correction)
+
+
 def sanity_round(metadata, bead):
     count = metadata.get("sanity_round", 0)
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:

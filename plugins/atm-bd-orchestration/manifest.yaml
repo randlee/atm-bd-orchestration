@@ -116,6 +116,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/sanity-split
     - skills/atm-bd-orchestration/scripts/sanity-stack-link
     - skills/atm-bd-orchestration/scripts/sanity_task_close_hook.py
+    - skills/atm-bd-orchestration/scripts/stack-landed
     - skills/atm-bd-orchestration/scripts/stack_top.py
     - skills/atm-bd-orchestration/scripts/task_close_validation.py
     - skills/atm-bd-orchestration/scripts/tests/fixtures/bd-1.3.1/bd-schema.json

@@ -162,6 +162,18 @@ agent definition says so; nothing here forbids it.
 
 ## Stack Discipline
 
+Landing is a ledger event. After merging the hosted stack into its trunk, run
+`scripts/stack-landed <stack-bead> --head <merged-sha> --stack <number>` from
+the code checkout. It acquires the same assignee lock as `sanity-stack-link`,
+verifies the merged history and archives/clears the live layers in one write.
+Never edit landing fields or clear live ledger metadata by hand. Release any
+lead-held landing claim before calling the script so it can claim the ledger.
+A landed ledger selects its trunk; newly linked layers after a landing form a
+new live stack. `LEDGER.STALE_LANDING` names the `stack-landed` repair.
+A linked frozen head re-closes against its recorded predecessor (or its
+pinned trunk cut), never the newer stack top; do not rebase a frozen layer.
+
+
 Every sprint container declares `metadata.pr_target` (the branch of its
 nearest `must_follow` prerequisite, or the trunk), which its
 poured dev bead takes; it is a lower bound: the PR's actual base (the layer
@@ -418,7 +430,10 @@ ones, against the final integration source. Assign `branch` = the root's
 `integration_branch` and `commit` = its fetched, pinned head; reviewing a
 stack tip alone does not satisfy this gate.
 
-After the sprint/fix stack has landed on the integration branch, create the
+After the sprint/fix stack has landed on the integration branch, record it
+with `scripts/stack-landed <stack-bead> --head <merged-integration-sha> --stack <number>`
+from the code checkout before dispatching further work. This is the only
+producer of the landing event; never hand-edit ledger metadata. Then create the
 review bead and dispatch it with the phase file's `templates.review`. After corrections,
 reuse its carried verification scope at the new integration head:
 

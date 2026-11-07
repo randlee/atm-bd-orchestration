@@ -260,3 +260,9 @@ class World:
         return subprocess.CompletedProcess(argv, 0, output if isinstance(output, str) else json.dumps(output), "")
 
 
+
+
+# Verbatim metadata from atm-phase-br.stack after the 2026-11-06 landing.
+BR_LANDED_METADATA = json.loads(
+    '{"landed_at":"2026-11-06T08:23:13Z","landed_head":"3272f06771b6ac8248246943000bf911282d493e","landed_layers":[927,930,929,933],"landed_pr":901,"landed_stack":885,"landed_stack_number":931,"layers":[],"phase":"br","previous_landings":[{"head":"f0a867d71bbb357520ed796565fc7b9879feb59a","stack_number":885},{"head":"e2b029fc3c18c6061bc20e3ab005ecf7ebca69bb","layers":[912,913,916,917,918,910,919,921,920,923,914,924,925],"stack_number":915}],"stack_number":null,"top":null,"top_pr":null,"trunk":"integrate/phase-br"}'
+)

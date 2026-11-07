@@ -25,7 +25,7 @@ from typing import Any, Callable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from command_timeout import DEFAULT_COMMAND_TIMEOUT, RAISE_FIX, TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
-from stack_top import StackTop, StackTopMismatch, select_confirmed_stack_top, select_passed_unlinked_top, stack_bead_id
+from stack_top import StackTop, StackTopMismatch, select_live_top, select_passed_unlinked_top, stack_bead_id
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 IGNORED_STATUS_PATHS = (".beads.gate.lock", ".sc-compose/")
@@ -128,12 +128,17 @@ def descends(runner: Runner, lower: str, base: str, git: list[str] | None = None
 
 
 def stack_top(runner: Runner, args: argparse.Namespace) -> str:
-    rows = json.loads(run(runner, "bd", "show", stack_bead_id(args.root), "--json", cwd=str(PRIMARY)))
+    bead_id = stack_bead_id(args.root)
+    rows = json.loads(run(runner, "bd", "show", bead_id, "--json", cwd=str(PRIMARY)))
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         raise ValueError("stack bead lookup must return exactly one bead object")
     if rows[0].get("metadata") is not None and not isinstance(rows[0]["metadata"], dict):
         raise ValueError("stack bead metadata must be an object or null")
     meta = metadata(rows[0])
+    initial = select_live_top(meta, bead=bead_id)
+    if isinstance(initial, StackTop) and initial.branch is not None and initial.head is None:
+        run(runner, "git", *git_dir(args), "rev-parse", f"origin/{initial.branch}")
+        return initial.branch
     layers = meta.get("layers", [])
     if not isinstance(layers, list):
         raise ValueError("stack bead metadata.layers must be an array")
@@ -156,7 +161,7 @@ def stack_top(runner: Runner, args: argparse.Namespace) -> str:
     if len(matches) > 1:
         raise ValueError("ambiguous hosted stacks overlap the ledger")
     hosted_prs = matches[0]["prs"] if matches else []
-    selected = select_confirmed_stack_top(layers, hosted_prs)
+    selected = select_live_top(meta, hosted_prs, bead=bead_id)
     if isinstance(selected, StackTopMismatch):
         raise ValueError(f"stack top mismatch: ledger {selected.ledger_top}; hosted {selected.hosted_top}")
     if isinstance(selected, StackTop) and selected.branch is not None:

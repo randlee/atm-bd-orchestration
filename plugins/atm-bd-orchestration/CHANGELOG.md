@@ -5,6 +5,13 @@
 - Ship ceremony-finding-screen, screen every finding round and record per-round and cumulative screening rates (#938).
 - Refuse installs missing host-required agents with an actionable INSTALL.AGENT_MISSING error (#909).
 
+### Fixed
+- Stack landings are recorded once under the ledger lock; archived stacks no longer supply a live top, while new layers after a landing remain live and stale copied layers carry a typed repair (#928).
+- Frozen linked layers re-close against their predecessor or pinned trunk cut through the shared base predicate, including offline verification (#911).
+- Pre-generation close records replay by their recorded head, with an explicit legacy replay mismatch and repair for a different head (#908).
+- Unverified PR-base errors first prescribe retrying when GitHub is reachable, then documenting the verified PR base only if it cannot be read (#926).
+- Close-order and snapshot assertions enforce exact positions/sequences, retain postcondition and reassignment fences, and reject controlled extra reads; sanity's Git fake exposes per-command failures (#905).
+
 ### Changed
 - sc-compose pin moved to 1.8.0 (CI CLI assets and checksums, the console lockfile's `sc-compose` and `sc-sha` wheels): a `uv run --script` runtime resolves the newest release in the `>= 1.7.0, < 2` range, and the installer refuses a CLI older than that wheel, so every PR went red the hour 1.8.0 reached PyPI. The range floor is unchanged; hosts upgrade with `brew upgrade randlee/tap/sc-compose` (a `cargo install` copy on PATH must be upgraded too) and `uv cache clean sc-compose`.
 - `sc_render.render` no longer re-parses a `.json` template's output: the 1.8.0 wheel applies the CLI's checked-render contract itself (sc-compose#787); `sc_render.error_text` prefixes the wheel's `ERR_...` code to the message, the shape the CLI prints.
