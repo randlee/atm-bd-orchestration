@@ -16,4 +16,10 @@ def _profile_suites(package: Path) -> list[str]:
     return [f"tests/{path.name}" for path in sorted(tests.iterdir()) if path.is_dir() and path.name in names]
 
 
-collect_ignore = ["skills", "agents", *_profile_suites(PKG)]
+collect_ignore = ["agents", *_profile_suites(PKG)]
+
+
+def pytest_configure(config):
+    # Package and skill suites contain same-name test modules; keep their import identities path-specific.
+    if config.option.importmode == "prepend":
+        config.option.importmode = "importlib"

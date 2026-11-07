@@ -19,6 +19,10 @@
 - sc-compose pin moved to 1.8.0 (CI CLI assets and checksums, the console lockfile's `sc-compose` and `sc-sha` wheels): a `uv run --script` runtime resolves the newest release in the `>= 1.7.0, < 2` range, and the installer refuses a CLI older than that wheel, so every PR went red the hour 1.8.0 reached PyPI. The range floor is unchanged; hosts upgrade with `brew upgrade randlee/tap/sc-compose` (a `cargo install` copy on PATH must be upgraded too) and `uv cache clean sc-compose`.
 - `sc_render.render` no longer re-parses a `.json` template's output: the 1.8.0 wheel applies the CLI's checked-render contract itself (sc-compose#787); `sc_render.error_text` prefixes the wheel's `ERR_...` code to the message, the shape the CLI prints.
 
+### Fixed
+- Package CI now collects the skill script and atm-beads test suites, and the installer regression test asserts its current `uv tool install atm-bd --python 3.11` recovery command (#904).
+- QA template prompt tests pin sc-compose to the package root, so they render from both the scripts directory and package root (#932).
+
 ## [0.19.15] - 2026-11-06
 
 Integrity-hardening release. Every close hook and dispatch producer now takes its values from the task events, the beads and the pull request, never from a copied earlier assignment context, and a producer's problem in one finding group no longer refuses another group's work. #825 (dev close path) and #671 (sanity close path) are the two legs of one rule: close-vars context is seeded from the bead graph, never hand-stuffed.
