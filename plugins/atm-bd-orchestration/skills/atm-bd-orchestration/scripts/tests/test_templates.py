@@ -928,6 +928,7 @@ class QaLogContractTests(unittest.TestCase):
                     self.assertIn(field, result.stdout)
                 self.assertIn("SCREEN.UNAVAILABLE", result.stdout)
                 self.assertIn("no missing, extra, or duplicate ids", result.stdout)
+                self.assertIn("so a round without findings cannot reuse an old result", result.stdout)
 
     def test_finding_bead_refuses_missing_screen_verdict(self):
         values = {key: value for key, value in _example("finding-bead-vars.json").items() if key != "screen"}
