@@ -2,17 +2,19 @@
 
 One file per agent, with its subagents and scripts: what it does, when, in what order. Each file has `Requirements` (checked against the package sources) and `Unresolved` (package sources that contradict each other). A prompt line that maps to no requirement goes to review: the requirement may be missing.
 
-| File | Agent |
-| --- | --- |
-| [dev.md](dev.md) | dev, dev-fix, fix; `assignment-gates.py` |
-| [dev-sanity.md](dev-sanity.md) | dev-sanity with sc-sanity-llm, sc-sanity-jev; sanity scripts |
-| [quality-mgr.md](quality-mgr.md) | QA, plan review, phase-end review; reviewers, ceremony screen |
-| [planner.md](planner.md) | design to beads; `validate-plan` |
-| [team-lead.md](team-lead.md) | sequencer; swarm-master (none in the package) |
-| [parallax.md](parallax.md) | work-orchestrator teammate (optional) |
-| [task-close-hook.md](task-close-hook.md) | `atm-task-close.py`: the one way a dev, fix, sanity or qa task completes; mechanical sanity and qa assignment as the lead |
-| [sanity-stack.md](sanity-stack.md) | sanity-stack subagent: links one next-top layer under the stack bead lock; the race, lean mode, lock timeout |
-| [console.md](console.md) | `atm-bd console` and `atm-bd cron`: identity, time, log, GitHub polling, rows |
+Each file is a Raptor requirements document (`.raptor/` at the repository root): one `REQ-<role>-NNNN` record per requirement, checked against the package sources, and an `Unresolved` section (package sources that contradict each other). `NNNN` is the requirement's former item number in its file, so `REQ-QM-0044` is quality-mgr requirement 44, and "requirement 5" or "(dev 5 and 16)" in the text still names `REQ-<role>-0005`. The package sources each file names are every record's Implementation Notes.
+
+| File | IDs | Agent |
+| --- | --- | --- |
+| [dev.md](dev.md) | `REQ-DEV-` | dev, dev-fix, fix; `assignment-gates.py` |
+| [dev-sanity.md](dev-sanity.md) | `REQ-DSAN-` | dev-sanity with sc-sanity-llm, sc-sanity-jev; sanity scripts |
+| [quality-mgr.md](quality-mgr.md) | `REQ-QM-` | QA, plan review, phase-end review; reviewers, ceremony screen |
+| [planner.md](planner.md) | `REQ-PLAN-` | design to beads; `validate-plan` |
+| [team-lead.md](team-lead.md) | `REQ-TL-` | sequencer; swarm-master (none in the package) |
+| [parallax.md](parallax.md) | `REQ-PLX-` | work-orchestrator teammate (optional) |
+| [task-close-hook.md](task-close-hook.md) | `REQ-TCH-` | `atm-task-close.py`: the one way a dev, fix, sanity or qa task completes; mechanical sanity and qa assignment as the lead |
+| [sanity-stack.md](sanity-stack.md) | `REQ-SST-` | sanity-stack subagent: links one next-top layer under the stack bead lock; the race, lean mode, lock timeout |
+| [console.md](console.md) | `REQ-CON-` | `atm-bd console` and `atm-bd cron`: identity, time, log, GitHub polling, rows |
 
 ## Who does what
 
