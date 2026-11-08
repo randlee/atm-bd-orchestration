@@ -1329,193 +1329,459 @@ Stack linking is serialized under the stack bead lock and must not feed back int
 
 Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
 
-## REQ-DSAN-0051: Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365) — not yet implemented (phase bl)
+## REQ-DSAN-0051: Jev client builds the sanity request from the assignment
 
 **Status:** Draft  
 ### Requirement Statement
 
-Rand (#497): "context packing LLM must split and send array of requests to jev." The dev-sanity agent that holds the full context splits each deliverable's evidence into an array of requests and sends that array to `jev_client.py`, which reads it as the array of requests.
+**MUST statements:**
 
+- `jev_client.py` MUST take exactly one mode: `--startup`, `--request <file>`, `--assignment <file>` or `--error <text>`.
+- With `--assignment`, `jev_client.py` MUST read one sanity assignment, as fenced JSON or bare JSON.
+- With `--assignment`, `jev_client.py` MUST reject an assignment that lacks `deliverable.text`, `worktree_path`, `commit`, `base_sha`, `changed_files` or `context` with `VALIDATION.INPUT`, before any Jev call.
+- `jev_client.py` MUST build the request itself, with one `written` choice question (`yes`/`no`) whose state holds:
+  - the deliverable text verbatim;
+  - the committed `git diff <base_sha>...<commit>` of `changed_files`;
+  - each `context` entry read at `commit`: the whole file for a plain `path`, only lines start..end for `path:start-end`.
+- `jev_client.py` MUST reject a `path:start-end` entry outside the file's line count with `VALIDATION.INPUT`.
+- `jev_client.py` MUST put each `external_evidence` reference into the state, labelled with its source:
+  - `bead_notes` text inline;
+  - a `pr_body` or `pr_comment` fetched with `gh api`.
+- `jev_client.py` MUST fail an unreadable or malformed `external_evidence` reference with `VALIDATION.INPUT` before any Jev call.
+- sc-sanity-jev MUST write the assignment it received, unchanged, to a file outside the worktree and run `jev_client.py --assignment <file>` on it.
+- dev-sanity MUST pass each manifest entry's assignment unchanged to one sc-sanity-llm child and one sc-sanity-jev child.
+
+**MUST NOT statements:**
+
+- sc-sanity-jev MUST NOT write a Jev request itself.
+- `jev_client.py --request` MUST NOT accept anything but one JSON object holding the pinned model, a state and nonempty Choice questions.
 
 ### Rationale
 
-Rand's #497 ruling is the origin of this requirement (commit 3c5baf412 records requirements 51-56): the agent that holds the full context, not Python, packs evidence into requests for Jev.
+Rand (2026-11-07): "The strategy for how to prompt jev sanity needs to get reviewed and tightened. For now we need documentation and code in sync." Today the request is built by `jev_client.py` from the assignment, one deliverable per call. No agent packs evidence into an array of requests.
 
 ### Success Criteria
 
 **Acceptance Criteria:**
 
-- [ ] The dev-sanity agent builds each deliverable's evidence into an array of requests and passes that array to `jev_client.py`
-- [ ] `jev_client.py` reads the argument as an array of requests
-
-### Implementation Notes
-
-Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
-
-Not yet implemented (phase bl): these items state the ruled target. Today `jev_client.py` still splits requests (`split_request`, `diff_pieces`) and shortens them after an HTTP 413, and dev-sanity still dispatches an `sc-sanity-jev` child.
-
-## REQ-DSAN-0052: Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365) — not yet implemented (phase bl)
-
-**Status:** Draft  
-### Requirement Statement
-
-`jev_client.py` never splits, packs or halves a request in Python: no `split_request`, no `diff_pieces`, no chunking, and no halving after an HTTP 413. It sends each request to Jev as given; Rand: "agreed: Python splitting deleted." A request over the input budget returns a named error, never a silent cut.
-
-
-### Rationale
-
-The CHANGELOG records that Python splitting was added for oversized requests (#94, then 413 shortening and 400 `max_tokens_exceeded` splitting), which the #497 ruling reverses: Rand, "agreed: Python splitting deleted" (commit 3c5baf412). Splitting belongs to the agent that holds the context.
-
-### Success Criteria
-
-**Acceptance Criteria:**
-
-- [ ] `jev_client.py` defines no `split_request` or `diff_pieces` function and contains no chunking or halving code after an HTTP 413
-- [ ] A request larger than the input budget makes `jev_client.py` return a named error object and send nothing cut
+- [ ] `jev_client.py --assignment` sends the deliverable text verbatim, the committed diff and the `context` files read at `commit` (`test_assignment_request_carries_the_deliverable_verbatim_and_the_committed_diff`)
+- [ ] A `path:start-end` context entry sends only those lines, and an out-of-range entry is rejected (`test_a_line_range_context_entry_sends_only_those_lines_and_a_bad_range_is_rejected`)
+- [ ] Context entries are read at the pinned top commit (`test_layered_source_reads_lower_layer_context_at_the_pinned_top`)
+- [ ] Bead notes go inline and PR text is fetched, each labelled with its source (`test_evidence_only_deliverable_sends_bead_notes_and_pr_text_with_their_source`)
+- [ ] Unreadable or malformed external evidence fails before any Jev call (`test_external_evidence_that_cannot_be_read_or_is_malformed_fails_before_any_jev_call`, `test_null_pr_body_is_empty_evidence_but_any_other_non_string_body_still_fails`)
 
 **Test Evidence:**
 
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_assignment_request_carries_the_deliverable_verbatim_and_the_committed_diff`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_a_line_range_context_entry_sends_only_those_lines_and_a_bad_range_is_rejected`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_layered_source_reads_lower_layer_context_at_the_pinned_top`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_evidence_only_deliverable_sends_bead_notes_and_pr_text_with_their_source`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_external_evidence_that_cannot_be_read_or_is_malformed_fails_before_any_jev_call`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_null_pr_body_is_empty_evidence_but_any_other_non_string_body_still_fails`
+
+### Implementation Notes
+
+Paths are under `plugins/atm-bd-orchestration/`; `jev_client.py` is `skills/atm-bd-orchestration/scripts/jev_client.py`.
+
+- Modes, mutually exclusive and required: `jev_client.py:966-970`.
+- Fenced or bare assignment JSON: `jev_client.py:920-922` (`FENCED`, line 59).
+- Missing assignment fields → `VALIDATION.INPUT`: `jev_client.py:741-751`.
+- Request built from the assignment (`assignment_requests`): `jev_client.py:765-797`. Diff: lines 782-783. Context excerpt: lines 785-794. The `written` question: `written_request`, lines 391-406.
+- Out-of-range context entry: `jev_client.py:792-793`.
+- External evidence shapes and fetch: `jev_client.py:644-728`. Invalid reference: lines 752-760. Unreadable fetch: line 676.
+- `--request` shape check: `jev_client.py:171-187`, `929-934`.
+- sc-sanity-jev writes the assignment unchanged and never writes a request: `agents/sc-sanity-jev.md:55-62`.
+- dev-sanity passes each assignment unchanged to both children: `agents/dev-sanity.md:48-50`.
+
+## REQ-DSAN-0052: Jev client splits oversized evidence losslessly
+
+**Status:** Draft  
+### Requirement Statement
+
+**MUST statements:**
+
+- `jev_client.py` MUST hold every request it sends at or under `MAX_REQUEST_BYTES` (96000 encoded bytes).
+- When an assignment's request is over the cap and it has `context` or `external_evidence`, `jev_client.py` MUST split the evidence, context and external text into labelled parts (`state.part` = `"i of n"`, with `state.changed_files`) without dropping content.
+- When an assignment's request is over the cap and only the diff is present, `jev_client.py` MUST group the `changed_files` diffs into parts that each fit. A diff over the cap is cut by hunk, then by line, then by character.
+- A `--request` over the cap MUST be split the same lossless way before sending.
+- After an HTTP 413, or a 4xx whose `detail.error_type` is `max_tokens_exceeded`, `jev_client.py` MUST split that part into halves. The halves share the part's remaining attempt budget.
+- When the deliverable text alone makes the request over the cap, `jev_client.py` MUST return `SANITY.JEV_REQUEST_TOO_LARGE` without a Jev call. Its `suggested_action` MUST tell the assigner to split the deliverable in the plan.
+- When no further split fits, `jev_client.py` MUST return `SANITY.JEV_REQUEST_TOO_LARGE`. The message MUST name the request size and the bound.
+- Each part MUST ask only whether that part delivers its share of the deliverable.
+
+**MUST NOT statements:**
+
+- `jev_client.py` MUST NOT drop or silently cut any evidence, context or external-evidence text when it splits.
+- `jev_client.py` MUST NOT make a Jev call for a request it cannot split to fit.
+- dev-sanity and sc-sanity-jev MUST NOT trim evidence to fit; splitting belongs to the client.
+
+### Rationale
+
+Rand (2026-11-07): "The strategy for how to prompt jev sanity needs to get reviewed and tightened. For now we need documentation and code in sync." Python splitting is still in the client: `split_request` and `diff_pieces`, and halving after a 413 or `max_tokens_exceeded`. This record states that splitting as it works today.
+
+### Success Criteria
+
+**Acceptance Criteria:**
+
+- [ ] A local oversize request is split before sending, every part fits, and the evidence rejoins byte-for-byte (`test_local_oversize_is_shortened_before_sending_with_independent_part_budgets`)
+- [ ] A diff over the cap is split by hunks, and a hunk by lines and characters (`test_a_diff_over_the_cap_is_split_by_hunks_and_every_part_returns_its_own_result`, `test_a_hunk_over_the_cap_is_cut_by_lines_and_a_line_by_characters`)
+- [ ] Context and external evidence over the cap split without loss, empty entries kept (`test_oversize_assignment_splits_and_preserves_context`, `test_external_evidence_over_the_cap_splits_without_dropping_text`, `test_split_preserves_empty_context_and_external_evidence`)
+- [ ] A 413 or `max_tokens_exceeded` splits the part, and the halves share its attempts (`test_server_oversize_splits_with_remaining_budget_and_eventually_succeeds`, `test_400_max_tokens_exceeded_splits_like_413`, `test_shortened_children_share_the_original_parts_remaining_attempts`, `test_four_oversize_attempts_never_issue_a_fifth`)
+- [ ] An unsplittable request returns `SANITY.JEV_REQUEST_TOO_LARGE` with no Jev call (`test_unsplittable_local_request_reports_too_large_without_sending`, `test_non_text_oversize_state_is_terminal_without_network`, `test_deliverable_text_alone_over_the_cap_names_the_plan_fix`)
+
+**Test Evidence:**
+
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_local_oversize_is_shortened_before_sending_with_independent_part_budgets`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_a_diff_over_the_cap_is_split_by_hunks_and_every_part_returns_its_own_result`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_a_hunk_over_the_cap_is_cut_by_lines_and_a_line_by_characters`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_oversize_assignment_splits_and_preserves_context`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_external_evidence_over_the_cap_splits_without_dropping_text`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_split_preserves_empty_context_and_external_evidence`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_server_oversize_splits_with_remaining_budget_and_eventually_succeeds`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_400_max_tokens_exceeded_splits_like_413`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_shortened_children_share_the_original_parts_remaining_attempts`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_four_oversize_attempts_never_issue_a_fifth`
 - `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_unsplittable_local_request_reports_too_large_without_sending`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_non_text_oversize_state_is_terminal_without_network`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_deliverable_text_alone_over_the_cap_names_the_plan_fix`
 
 ### Implementation Notes
 
-Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
+Paths are under `plugins/atm-bd-orchestration/`; `jev_client.py` is `skills/atm-bd-orchestration/scripts/jev_client.py`.
 
-Not yet implemented (phase bl): these items state the ruled target. Today `jev_client.py` still splits requests (`split_request`, `diff_pieces`) and shortens them after an HTTP 413, and dev-sanity still dispatches an `sc-sanity-jev` child.
+- Cap: `jev_client.py:35`. The send path refuses a body over the cap: lines 194-201.
+- Assignment split with context or external evidence (`split_request`): `jev_client.py:798-801`, `506-586`.
+- Diff-only grouping: `jev_client.py:802-816`. Hunk, line and character cuts (`diff_pieces`): lines 434-466.
+- `--request` split before sending (`evaluate_parts`): `jev_client.py:605-614`.
+- Halving after 413 or `max_tokens_exceeded`: `jev_client.py:256-259`, `620-627`. The halves reuse the parent's `AttemptBudget`: line 627.
+- Deliverable text alone over the cap, with the plan fix: `jev_client.py:803-807`. `suggested_action` uses `exc.fix`: lines 84-85.
+- Unsplittable request → `SANITY.JEV_REQUEST_TOO_LARGE` naming the size and bound: `jev_client.py:425-431`, `515-516`, `538-539`, `570-571`.
+- Per-part question: `jev_client.py:400-404`.
+- Agents leave splitting to the client: `agents/dev-sanity.md:51-53`, `agents/sc-sanity-jev.md:58-62`, `113-114`.
 
-## REQ-DSAN-0053: Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365) — not yet implemented (phase bl)
+## REQ-DSAN-0053: Jev client result envelope and verbatim receipts
 
 **Status:** Draft  
 ### Requirement Statement
 
-Rand (#365): "the jev call should be returned. I do NOT want an agent 'interpreting' what the jev python call returns. the return must be json and included in the final result/data written to sanity log." Rand: "client should return jsonl one response per request." `jev_client.py` reads the array of requests and writes JSONL to stdout: exactly one line per request, in request order, each line the JSON result for that request (an evaluation or an error). Every line is copied unchanged into the final result and the sanity log. No agent interprets the return.
+**MUST statements:**
 
+- `jev_client.py` MUST write exactly one JSON object to stdout: `{success, data, error, elapsed_s}`. It MUST exit 0 on success and 2 on failure.
+- For an unsplit request, `data` MUST be the validated Jev response plus a `receipt`.
+- For a split request, `data` MUST be `{model, parts}`, with every part in order. Each part is `{part, changed_files, response, receipt}`.
+- A failure MUST carry `data: null` and `error: {code, message, recoverable, suggested_action}`.
+- Each receipt MUST hold `model`, `question`, `choice`, `probabilities`, `response_id`, the `request_sha256` and an HMAC-SHA256 `mac` keyed with `TYPESAFE_API_KEY`.
+- `jev_client.py` MUST reject a Jev response with the wrong model, answer ids that differ from the questions, or an invalid Choice answer, as `SANITY.JEV_RESPONSE_INVALID`.
+- sc-sanity-jev MUST derive its findings from the client's choice:
+  - `no` gives exactly one `skipped` finding, `yes` none;
+  - for a split request, parts that agree set the findings;
+  - parts that disagree give one `skipped` finding wrapped with `--for-triage`, and dev-sanity triages them.
+- sc-sanity-jev MUST return the stdout of `wrap_jev_receipt.py`. That stdout copies the client's `data.receipt`, or its `data.parts`, verbatim into `data.jev`, and a client failure verbatim with `deliverable` added.
+- `sanity-merge --reviewer sanity-jev` MUST turn a reply into `SANITY.RESULT_INVALID` when:
+  - it has no verified receipt;
+  - its findings contradict its receipts;
+  - it reuses another deliverable's receipt.
+- The sanity log row of a sanity-jev PASS or FAIL MUST carry the reply's `data.jev` receipts in `jev_receipts`.
+
+**MUST NOT statements:**
+
+- `jev_client.py` MUST NOT reduce split parts to one combined choice, answer or receipt.
+- `jev_client.py` MUST NOT echo a Jev error response body or the API key. Only a short `detail.error_type` identifier may appear.
+- sc-sanity-jev and dev-sanity MUST NOT hand-write `data.jev` or edit a receipt.
 
 ### Rationale
 
-Rand's #365 ruling: an agent "interpreting" what the Jev call returns is not wanted. The CHANGELOG shows the opposite today: a split request returns `data.parts` that the agent reduces. One JSONL line per request in request order gives every result a fixed place in the log.
+Rand (2026-11-07): "The strategy for how to prompt jev sanity needs to get reviewed and tightened. For now we need documentation and code in sync." Today the client returns one envelope per call, not JSONL. The sc-sanity-jev child turns the choice into findings, and the receipts are carried verbatim and verified.
 
 ### Success Criteria
 
 **Acceptance Criteria:**
 
-- [ ] For an array of N requests, `jev_client.py` writes exactly N lines to stdout, each valid JSON, in request order, each an evaluation or an error
-- [ ] Each line appears byte-identical in the final result and in the sanity log
-- [ ] No agent prompt instructs the agent to turn the client's lines into a finding or verdict
+- [ ] An unsplit `--request` prints a receipt that verifies only with the API key (`test_request_prints_a_receipt_only_the_call_can_write`)
+- [ ] A split assignment returns `data` with exactly `model` and `parts`, each part with its own response and verified receipt (`test_a_diff_over_the_cap_is_split_by_hunks_and_every_part_returns_its_own_result`)
+- [ ] Error bodies and the key never reach the output (`test_auth_error_does_not_echo_body_or_key`, `test_4xx_names_the_parsed_error_type_and_nothing_else_from_the_body`)
+- [ ] Invalid Jev responses are `SANITY.JEV_RESPONSE_INVALID` (`test_invalid_responses_are_terminal`, `test_bad_answer_shapes`)
+- [ ] The wrapper copies receipts and parts verbatim and refuses edited ones (`test_single_receipt_passes_through_byte_identical`, `test_split_parts_pass_through_verbatim`, `test_hand_edited_receipt_field_is_rejected`, `test_hand_written_receipt_without_key_match_is_rejected`, `test_multi_choice_without_final_selection_is_rejected`)
+- [ ] `sanity-merge` rejects a reply without a valid receipt (`test_a_jev_reply_without_a_valid_receipt_becomes_a_result_invalid_failure`)
+- [ ] The ledger row carries the receipts (`test_jev_receipts_are_required_on_a_jev_verdict_and_absent_on_llm`)
+
+**Test Evidence:**
+
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_request_prints_a_receipt_only_the_call_can_write`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_a_diff_over_the_cap_is_split_by_hunks_and_every_part_returns_its_own_result`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_auth_error_does_not_echo_body_or_key`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_4xx_names_the_parsed_error_type_and_nothing_else_from_the_body`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_invalid_responses_are_terminal`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_bad_answer_shapes`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_wrap_jev_receipt.py::WrapJevReceipt::test_single_receipt_passes_through_byte_identical`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_wrap_jev_receipt.py::WrapJevReceipt::test_split_parts_pass_through_verbatim`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_wrap_jev_receipt.py::WrapJevReceipt::test_hand_edited_receipt_field_is_rejected`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_wrap_jev_receipt.py::WrapJevReceipt::test_hand_written_receipt_without_key_match_is_rejected`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_wrap_jev_receipt.py::WrapJevReceipt::test_multi_choice_without_final_selection_is_rejected`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_sanity_merge.py::SanityMerge::test_a_jev_reply_without_a_valid_receipt_becomes_a_result_invalid_failure`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_sanity_run_history.py::SanityHistory::test_jev_receipts_are_required_on_a_jev_verdict_and_absent_on_llm`
 
 ### Implementation Notes
 
-Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
+Paths are under `plugins/atm-bd-orchestration/`. Scripts are in `skills/atm-bd-orchestration/scripts/`.
 
-Not yet implemented (phase bl): these items state the ruled target. Today `jev_client.py` still splits requests (`split_request`, `diff_pieces`) and shortens them after an HTTP 413, and dev-sanity still dispatches an `sc-sanity-jev` child.
+- Envelope and exit codes: `jev_client.py:954-960`, `1009-1010`.
+- Unsplit data plus receipt: `jev_client.py:630-633`, `946-948`.
+- Split `{model, parts}`, unreduced: `jev_client.py:634-641`.
+- Failure object: `jev_client.py:91-95`.
+- Receipt fields and MAC: `jev_client.py:304-351`. Verification: lines 374-380.
+- Response validation: `jev_client.py:124-135`, `204-213`, `269-277`.
+- Body withheld, only `error_type`: `jev_client.py:265-268`, `409-418`.
+- Choice to findings, and split handling: `agents/sc-sanity-jev.md:62-69`. Triage of disagreeing parts: `agents/dev-sanity.md:63-65`.
+- Wrapper copies verbatim: `wrap_jev_receipt.py:21-24`, `330-331`. Agents must not hand-write: `agents/sc-sanity-jev.md:70-77`, `agents/dev-sanity.md:65`.
+- Merge screening: `sanity-merge:26-32`, `404-458`.
+- Ledger receipts: `skills/atm-bd-orchestration/templates/sanity-run-record.json.j2:4`, `50`.
 
-## REQ-DSAN-0054: Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365) — not yet implemented (phase bl)
+## REQ-DSAN-0054: Jev client measures its own elapsed time
 
 **Status:** Draft  
 ### Requirement Statement
 
-Rand (#365): "the elapsed time for the jev call is calculated in jev-py". `jev_client.py` measures the elapsed time of each Jev call and returns it in its JSON; no agent computes it.
+**MUST statements:**
 
+- `jev_client.py` MUST measure `elapsed_s` with a monotonic clock around all of one invocation's Jev calls, including retries, Retry-After waits and every split part.
+- `jev_client.py` MUST put `elapsed_s` in the outer envelope on success and on failure.
+- `elapsed_s` MUST be `0.0` when the invocation fails before any Jev call.
+- `wrap_jev_receipt.py` MUST copy the client's outer `elapsed_s` unchanged into the sc-sanity-jev reply. It MUST refuse a value that is not a finite nonnegative number.
+- `sanity-run-history` MUST record a sanity-jev row's `jev_elapsed_s` as the maximum `elapsed_s` of its replies, or null when none carries one.
+
+**MUST NOT statements:**
+
+- dev-sanity and sc-sanity-jev MUST NOT compute or edit a Jev `elapsed_s`.
 
 ### Rationale
 
-Rand (#365): "the elapsed time for the jev call is calculated in jev-py". The client already returns `elapsed_s` including retries and on failure, so agent-side timing is redundant and unreliable.
+Rand (2026-11-07): "The strategy for how to prompt jev sanity needs to get reviewed and tightened. For now we need documentation and code in sync." The client already times its own calls. The time is one value per invocation, not one per request line.
 
 ### Success Criteria
 
 **Acceptance Criteria:**
 
-- [ ] Each result line from `jev_client.py` contains the elapsed time of its Jev call, measured inside the client
-- [ ] No agent prompt computes a Jev elapsed time
+- [ ] `elapsed_s` includes retries and waits and is present on failure (`test_elapsed_includes_retries_and_is_present_on_failure`)
+- [ ] A split request's `elapsed_s` covers every part's calls (`test_local_oversize_is_shortened_before_sending_with_independent_part_budgets`)
+- [ ] A failure before any call reports `elapsed_s` 0.0 (`test_unsplittable_local_request_reports_too_large_without_sending`)
+- [ ] The wrapper copies `elapsed_s` unchanged and refuses invalid values (`test_client_elapsed_s_is_copied_unchanged`)
+- [ ] `sanity-merge` preserves a valid `elapsed_s` and rejects an invalid one (`test_jev_envelopes_accept_optional_elapsed_and_preserve_it`)
+- [ ] The ledger takes the maximum (`test_jev_elapsed_uses_maximum_and_missing_is_null`)
 
 **Test Evidence:**
 
 - `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_elapsed_includes_retries_and_is_present_on_failure`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_local_oversize_is_shortened_before_sending_with_independent_part_budgets`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_unsplittable_local_request_reports_too_large_without_sending`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_wrap_jev_receipt.py::WrapJevReceipt::test_client_elapsed_s_is_copied_unchanged`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_sanity_merge.py::SanityMerge::test_jev_envelopes_accept_optional_elapsed_and_preserve_it`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_sanity_run_history.py::SanityHistory::test_jev_elapsed_uses_maximum_and_missing_is_null`
 
 ### Implementation Notes
 
-Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
+Paths are under `plugins/atm-bd-orchestration/`. Scripts are in `skills/atm-bd-orchestration/scripts/`.
 
-Not yet implemented (phase bl): these items state the ruled target. Today `jev_client.py` still splits requests (`split_request`, `diff_pieces`) and shortens them after an HTTP 413, and dev-sanity still dispatches an `sc-sanity-jev` child.
+- Timing around the calls: `jev_client.py:935-945`. Outer field and `0.0` default: line 959.
+- Wrapper copy and validation: `wrap_jev_receipt.py:24`, `257-263`. The agent instruction: `agents/sc-sanity-jev.md:75-76`.
+- Merge validation: `sanity-merge:310-314`.
+- Ledger maximum: `sanity-run-history:110-123`.
+- dev-sanity records only reviewer start and completion epochs, and the scripts derive the elapsed fields: `agents/dev-sanity.md:57-61`, `86-88`.
 
-## REQ-DSAN-0055: Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365) — not yet implemented (phase bl)
+## REQ-DSAN-0055: Jev client retries transient failures within four attempts
 
 **Status:** Draft  
 ### Requirement Statement
 
-Rand (#365): "jev-py includes retry for known API 'busy' error (it does not stupidly retry on other errors like out-of-tokens, context-too-large)." `jev_client.py` retries only the known API-busy error and returns the number of retries in its JSON (zero when none). It never retries any other error.
+**MUST statements:**
 
+- `jev_client.py` MUST give each request part at most `MAX_JEV_ATTEMPTS` (4) HTTP attempts. Initial parts have independent budgets.
+- `jev_client.py` MUST retry, within that budget:
+  - HTTP 429, 502 and 529;
+  - a transport failure (`OSError`, socket timeout, `http.client.HTTPException`).
+- Before retrying a 429, 502 or 529, `jev_client.py` MUST wait for `Retry-After` (seconds or HTTP date), capped at 30 seconds. With no header it MUST wait 1 second, and with an unparseable one 30 seconds.
+- When the budget is exhausted, `jev_client.py` MUST return `SANITY.JEV_UNAVAILABLE` with `recoverable: true`.
+- Any other non-200 status MUST be terminal on the first attempt as `SANITY.JEV_UNAVAILABLE`. It is `recoverable: true` only for 429, 502 and 529.
+- An invalid 200 response MUST be terminal on the first attempt as `SANITY.JEV_RESPONSE_INVALID`.
+- A missing `TYPESAFE_API_KEY` MUST fail as `SANITY.JEV_UNAVAILABLE` before any network call.
+
+**MUST NOT statements:**
+
+- `jev_client.py` MUST NOT make a fifth attempt for one part, including the attempts used by the halves of a 413 or `max_tokens_exceeded` split.
+- `jev_client.py` MUST NOT resend an unchanged request after a 413 or `max_tokens_exceeded`; it splits instead (REQ-DSAN-0052).
+- `jev_client.py` MUST NOT retry any other 4xx or 5xx status, or an invalid response.
 
 ### Rationale
 
-Rand (#365): retry only the known API "busy" error. The client today retries transient statuses and transport errors up to four attempts (`test_transient_statuses_and_transport_retry_to_success`, `test_retry_is_bounded`), which also retries errors that cannot succeed on retry.
+Rand (2026-11-07): "The strategy for how to prompt jev sanity needs to get reviewed and tightened. For now we need documentation and code in sync." The four-attempt budget is the lead ruling recorded at `jev_client.py:37`. The client does not report a retry count.
 
 ### Success Criteria
 
 **Acceptance Criteria:**
 
-- [ ] After a busy response `jev_client.py` retries the request and the result JSON carries the retry count, which is 0 for a request that was not retried
-- [ ] After an out-of-tokens error or a context-too-large error the client sends the request once and returns the error with retry count 0
+- [ ] Each transient status and transport error stops at 4 attempts and is recoverable (`test_retry_is_bounded`)
+- [ ] A transient failure followed by success returns the result (`test_transient_statuses_and_transport_retry_to_success`)
+- [ ] Every other 4xx or 5xx is sent once and is not recoverable (`test_other_http_errors_are_terminal`)
+- [ ] Invalid responses are sent once (`test_invalid_responses_are_terminal`)
+- [ ] `Retry-After` is honoured and capped at 30 s (`test_retry_after_is_honoured_and_capped_without_sleeping`)
+- [ ] Each part has its own four attempts (`test_parts_have_independent_four_attempt_budgets`)
+- [ ] Split halves share the part's remaining attempts (`test_four_oversize_attempts_never_issue_a_fifth`, `test_shortened_children_share_the_original_parts_remaining_attempts`)
+- [ ] A missing key makes no network call (`test_missing_key_no_network`)
+
+**Test Evidence:**
+
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_retry_is_bounded`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_transient_statuses_and_transport_retry_to_success`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_other_http_errors_are_terminal`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_invalid_responses_are_terminal`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_retry_after_is_honoured_and_capped_without_sleeping`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_parts_have_independent_four_attempt_budgets`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_four_oversize_attempts_never_issue_a_fifth`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_shortened_children_share_the_original_parts_remaining_attempts`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_missing_key_no_network`
 
 ### Implementation Notes
 
-Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
+`jev_client.py` is `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/jev_client.py`.
 
-Not yet implemented (phase bl): these items state the ruled target. Today `jev_client.py` still splits requests (`split_request`, `diff_pieces`) and shortens them after an HTTP 413, and dev-sanity still dispatches an `sc-sanity-jev` child.
+- Budget: `jev_client.py:37-43`. Independent initial budgets: line 614. Shared by the halves: line 627.
+- Transport retry: `jev_client.py:248-251`. Status retry with delay: lines 260-264.
+- Retry-After parsing and cap: `jev_client.py:216-226`.
+- Budget exhausted: `jev_client.py:278`.
+- Other statuses terminal: `jev_client.py:265-268`. Invalid response terminal: lines 269-277.
+- Missing key before network: `jev_client.py:98-104`, `231`.
+- 413 and `max_tokens_exceeded` raise oversize and are never retried unchanged: `jev_client.py:256-259`.
+- dev-sanity leaves API retries to the client: `agents/dev-sanity.md:51`. sc-sanity-jev never retries: `agents/sc-sanity-jev.md:62`.
 
-## REQ-DSAN-0056: Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365) — not yet implemented (phase bl)
+## REQ-DSAN-0056: Jev client error codes and client-written messages
 
 **Status:** Draft  
 ### Requirement Statement
 
-Rand (#365): "jev should return an enum with all known errors which is exhaustively checked in match." Rand: "I am planning on writing a rust crate for launching which would have match. write the jev python code w/ this in mind." Every known `jev_client.py` error is a member of one closed enum with stable string codes, and the code that handles an error checks that enum exhaustively in a `match`. Each error is a tagged JSON variant, `{"kind": "<code>", ...fields}`, so a Rust enum with an exhaustive `match` mirrors it one to one. There is no Python-only behaviour: no exception classes carried in output, and no free-form message decides behaviour.
+**MUST statements:**
 
+- Every `jev_client.py` failure MUST carry one of four codes:
+  - `SANITY.JEV_UNAVAILABLE`;
+  - `SANITY.JEV_RESPONSE_INVALID`;
+  - `SANITY.JEV_REQUEST_TOO_LARGE`;
+  - `VALIDATION.INPUT`.
+- Every failure message `jev_client.py` writes MUST match one pattern in `CLIENT_MESSAGES`.
+- `jev_client.py` MUST pick `suggested_action` from the message: the oversize fix, then the HTTP case, then the first matching `FIXES` prefix, else "Report this error unchanged".
+- An unreadable `--request` or `--assignment` file, or invalid JSON in it, MUST be reported as `VALIDATION.INPUT` with "Request file unavailable or invalid JSON".
+- `wrap_jev_receipt.py` MUST refuse a client failure whose message is not a client message.
+- `sanity-merge` MUST turn a `SANITY.JEV_*` failure whose message is not a client message into `SANITY.RESULT_INVALID`.
+
+**MUST NOT statements:**
+
+- `jev_client.py` MUST NOT emit a failure message outside `CLIENT_MESSAGES`.
+- sc-sanity-jev MUST NOT change the client's error. It returns the error verbatim with `deliverable` added.
 
 ### Rationale
 
-Rand (#365): the errors should be an enum checked exhaustively in a `match`, mirrored by a planned Rust crate. The client today carries errors as `JevError` exception codes and free-form messages that other code matches on (`jev_client.py`, `SANITY.JEV_*` message screening in `sanity-merge`).
+Rand (2026-11-07): "The strategy for how to prompt jev sanity needs to get reviewed and tightened. For now we need documentation and code in sync." Today errors are `JevError` exceptions, each with a string code and a fixed message. Downstream screening matches the message text.
 
 ### Success Criteria
 
 **Acceptance Criteria:**
 
-- [ ] Every known `jev_client.py` error is one member of a single closed enum with a stable string code
-- [ ] Each emitted error is a JSON object `{"kind": "<code>", ...fields}`
-- [ ] No Python exception class or free-form message text decides behavior in the code that handles an error
+- [ ] Every `JevError` literal in the client is a recognised client message (`test_every_failure_message_the_client_writes_is_recognised`)
+- [ ] Each known error returns its fix (`test_each_known_error_returns_its_fix`)
+- [ ] An unsplittable request reports `SANITY.JEV_REQUEST_TOO_LARGE` with a recognised message (`test_400_max_tokens_exceeded_on_every_attempt_names_the_token_limit`)
+- [ ] The wrapper copies a client failure verbatim and refuses an edited message (`test_client_failure_is_copied_verbatim_with_deliverable`)
+
+**Test Evidence:**
+
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_every_failure_message_the_client_writes_is_recognised`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_each_known_error_returns_its_fix`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_400_max_tokens_exceeded_on_every_attempt_names_the_token_limit`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_wrap_jev_receipt.py::WrapJevReceipt::test_client_failure_is_copied_verbatim_with_deliverable`
 
 ### Implementation Notes
 
-Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
+Paths are under `plugins/atm-bd-orchestration/`. Scripts are in `skills/atm-bd-orchestration/scripts/`.
 
-Not yet implemented (phase bl): these items state the ruled target. Today `jev_client.py` still splits requests (`split_request`, `diff_pieces`) and shortens them after an HTTP 413, and dev-sanity still dispatches an `sc-sanity-jev` child.
+- `JevError` (code, message, recoverable): `jev_client.py:46-51`.
+- Codes raised: `SANITY.JEV_UNAVAILABLE` at lines 101, 103, 251, 267, 278. `SANITY.JEV_RESPONSE_INVALID` at 126-148, 205-210, 270-276, 952. `SANITY.JEV_REQUEST_TOO_LARGE` at 428. `VALIDATION.INPUT` at 175-198, 676, 707, 743-759, 779, 793, 924, 933, 958.
+- `CLIENT_MESSAGES`: `jev_client.py:281-301`.
+- `suggested_action` selection: `jev_client.py:54-88`.
+- File and JSON errors: `jev_client.py:957-958`.
+- Wrapper refusal: `wrap_jev_receipt.py:330-331`.
+- Merge screening: `sanity-merge:417-424`.
+- Verbatim error in the child: `agents/sc-sanity-jev.md:106-112`.
 
-## REQ-DSAN-0057: Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365) — not yet implemented (phase bl)
+## REQ-DSAN-0057: A failed Jev slot keeps its error and the LLM reply is selected
 
 **Status:** Draft  
 ### Requirement Statement
 
-Rand: "if jev-api failed (i.e. jev did not respond), the parallel llm evaluator's response is used. If both llm+jev respond a failure on either is failure on iteration #1. for iteration > 1, sanity-agent to triage (which should be done w/ background agent if sanity-agent has queue backlog)." When Jev returned no evaluation (any enum error), that deliverable mechanically takes the parallel LLM reply and the Jev error JSON stays in the log. When both reply, a failure from either is a FAIL on iteration 1; from iteration 2 the sanity agent triages the disagreement, by a background agent when it has a queue backlog.
+**MUST statements:**
 
+- dev-sanity MUST run the Jev startup probe (`jev_client.py --startup`) at session start and on a credential change.
+- The probe MUST send only synthetic state and pass only when Jev answers `ready`.
+- A failed probe, or `SANITY.JEV_UNAVAILABLE`, MUST keep the Jev slots unavailable with their exact error. dev-sanity MUST retry the probe at the start of the next task.
+- With `--announce --phase <phase>`, a failed probe MUST be sent through `atm send --as <tool_identity>`. The recipients are tried in this order:
+  - the phase team's escalation list;
+  - the daemon's escalation list;
+  - the phase lead, with a note that no escalation recipient is set.
+- dev-sanity MUST dispatch the sc-sanity-llm and sc-sanity-jev children for a deliverable concurrently.
+- dev-sanity MUST keep a Jev child's failure envelope unchanged in that deliverable's Jev slot. The selected reply is then the LLM reply already running beside it.
+- For `SANITY.JEV_REQUEST_TOO_LARGE`, dev-sanity MUST announce the error once per run with `jev_client.py --announce --phase <phase> --error "<code>: <message>"`. The announcement states that no LLM or haiku check replaces Jev for that slot.
+- `sanity-merge --reviewer sanity-selected` MUST reject:
+  - a selection that takes a `cannot_run` reply while the other reviewer's reply is valid;
+  - a disagreement or rerun without a `reason`.
+- When neither reviewer has a valid reply, the deliverable MUST be CANNOT_RUN, not FAIL.
+- The failed Jev slot's error MUST be logged verbatim in the sanity-jev ledger row, as `API_FAILURE`, while the LLM reply is selected.
+- On iteration 1, when Jev and the LLM both return a valid result, dev-sanity MUST treat a FAIL from either as the deliverable's FAIL. From iteration 2 it MUST triage the disagreement and name it in `reason`.
+
+**MUST NOT statements:**
+
+- dev-sanity MUST NOT start a new LLM or haiku check in place of a Jev slot.
+- dev-sanity MUST NOT let an LLM PASS override a Jev FAIL on iteration 1.
+- dev-sanity MUST NOT replace a valid original reply with a failed rerun.
 
 ### Rationale
 
-Rand's ruling (quoted in this requirement): a Jev outage must not stop the deliverable, and disagreement is a FAIL on iteration 1 but a triage question afterward. The existing prompts already forbid substituting one reviewer for the other except through selection.
+Rand (2026-11-07): "The strategy for how to prompt jev sanity needs to get reviewed and tightened. For now we need documentation and code in sync." The iteration-1 and iteration-2 rule is in the dev-sanity prompt only. `sanity-merge` does not read the iteration: it accepts a selected LLM PASS over a Jev FAIL when a reason is given (`test_selected_verdict_differs_from_one_reviewer`).
 
 ### Success Criteria
 
 **Acceptance Criteria:**
 
-- [ ] When Jev returned no evaluation (any enum error), the deliverable's selected reply is the parallel LLM reply and the Jev error JSON is in the log
-- [ ] With both replies valid on iteration 1, a failure from either makes the deliverable a FAIL
-- [ ] From iteration 2 the sanity agent triages the disagreement, using a background agent when it has a queue backlog
+- [ ] A failed startup probe with `--announce` reaches the phase escalation recipients as the tool identity (`test_startup_announcement_uses_configured_phase_recipients_despite_conflicting_environment`)
+- [ ] It falls back to the daemon list, then to the phase lead with the note (`test_announcement_falls_back_to_daemon_recipients`, `test_announcement_falls_back_to_phase_lead_with_no_recipient_note`)
+- [ ] `--error` announces verbatim without probing (`test_error_announces_a_child_failure_verbatim_without_probing`)
+- [ ] An oversized-request announcement says no LLM or haiku check replaces Jev (`test_an_oversized_request_error_is_announced_without_an_llm_fallback`, `test_oversized_jev_request_is_announced_and_never_starts_an_llm_check`)
+- [ ] A failed Jev slot is logged verbatim while the LLM reply is selected (`test_failed_jev_slot_error_is_logged_verbatim_while_llm_is_selected`, `test_oversized_jev_failure_reaches_ledger_with_reason`)
+- [ ] A disagreement without a reason makes the selected merge CANNOT_RUN (`test_selected_merge_cannot_run_keeps_reviewer_verdicts`)
+- [ ] No existing test covers the iteration-1 FAIL rule, the "take the valid reviewer" rejection, or the failed-rerun rejection
+
+**Test Evidence:**
+
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_startup_announcement_uses_configured_phase_recipients_despite_conflicting_environment`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_announcement_falls_back_to_daemon_recipients`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_announcement_falls_back_to_phase_lead_with_no_recipient_note`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_error_announces_a_child_failure_verbatim_without_probing`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_jev_client.py::JevClientTests::test_an_oversized_request_error_is_announced_without_an_llm_fallback`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_agent_prompts.py::test_oversized_jev_request_is_announced_and_never_starts_an_llm_check`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_sanity_run_history.py::ShippedFlow::test_failed_jev_slot_error_is_logged_verbatim_while_llm_is_selected`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_sanity_run_history.py::ShippedFlow::test_oversized_jev_failure_reaches_ledger_with_reason`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_sanity_run_history.py::ShippedFlow::test_selected_merge_cannot_run_keeps_reviewer_verdicts`
+- `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/tests/test_sanity_run_history.py::ShippedFlow::test_selected_verdict_differs_from_one_reviewer`
 
 ### Implementation Notes
 
-Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
+Paths are under `plugins/atm-bd-orchestration/`. Scripts are in `skills/atm-bd-orchestration/scripts/`.
 
-Not yet implemented (phase bl): these items state the ruled target. Today `jev_client.py` still splits requests (`split_request`, `diff_pieces`) and shortens them after an HTTP 413, and dev-sanity still dispatches an `sc-sanity-jev` child.
+- Probe duty: `agents/dev-sanity.md:22-25`. Synthetic probe: `jev_client.py:383-388`. Probe result: lines 949-953.
+- Announce argument rules: `jev_client.py:975-978`. Recipients: lines 852-874. Send as the tool identity: lines 877-888. Startup failure message: lines 1003-1008.
+- `--error` messages: `jev_client.py:990-1001`. The oversized branch: lines 992-996.
+- Concurrent children: `agents/dev-sanity.md:48-50`.
+- Failure kept in the slot, with no new check: `agents/dev-sanity.md:53`, `agents/sc-sanity-jev.md:123-131`.
+- Selection rules: `sanity-merge:603-604` (reason), `631-632` (take the valid reviewer), `633-635` (failed rerun).
+- CANNOT_RUN when neither reviewer is valid: `agents/dev-sanity.md:79-80`.
+- Iteration rule (prompt only): `agents/dev-sanity.md:67-70`.
 
-## REQ-DSAN-0058: Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365) — not yet implemented (phase bl)
+## REQ-DSAN-0058: dev-sanity checks that deliverables are written, not QA
 
 **Status:** Draft  
 ### Requirement Statement
@@ -1538,9 +1804,8 @@ The sanity role is bounded by minutes: in phase bk dev-sanity mistook its role f
 
 Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
 
-Not yet implemented (phase bl): these items state the ruled target. Today `jev_client.py` still splits requests (`split_request`, `diff_pieces`) and shortens them after an HTTP 413, and dev-sanity still dispatches an `sc-sanity-jev` child.
 
-## REQ-DSAN-0059: Jev request and return contract (Rand rulings 2026-10-21; issues #497, #365) — not yet implemented (phase bl)
+## REQ-DSAN-0059: dev-sanity works up to 3 sanity tasks in parallel
 
 **Status:** Draft  
 ### Requirement Statement
@@ -1563,12 +1828,11 @@ Sanity tasks queue behind each other when run one at a time. SKILL.md records th
 
 Sources: `agents/{dev-sanity,sanity-stack,sc-sanity-llm,sc-sanity-jev}.md`, `templates/{dev-sanity-template.xml.j2,dev-sanity-assignment.json.j2}`, `scripts/{sanity-split,sanity-merge,sanity-run-history,sanity-close-vars,sanity-stack-link,assignment-gates.py}`, `skills/atm-bd-orchestration/scripts/{jev_client.py,atm-task-close.py}`, `atm-bd-orchestration/SKILL.md`, `formulas/README.md`, `atm-beads/resources/{dev-sanity,orchestrating}.md`, `README.md`, `install.py`.
 
-Not yet implemented (phase bl): these items state the ruled target. Today `jev_client.py` still splits requests (`split_request`, `diff_pieces`) and shortens them after an HTTP 413, and dev-sanity still dispatches an `sc-sanity-jev` child.
 
 ## Unresolved
 
 1. Clean tree: all three ignore `.beads.gate.lock`/`.sc-compose/`; `assignment-gates.py` also ignores untracked files, while `sanity-split` and `sanity-merge` fail `COMMIT_MISMATCH` on any other `git status --porcelain` output.
-2. Jev child: requirements 20, 22, 24, 33 and 45 still describe an `sc-sanity-jev` child and a Jev reply screened by `sanity-merge --reviewer sanity-jev` (a reply whose choice contradicts its findings, a receipt check), where a request now yields one JSONL line (53) instead of one reply per child. Requirements 19, 40 and 51 to 53 now have dev-sanity send the request array to `jev_client.py` and copy its JSON unchanged with no agent interpreting it. What a Jev failure does is settled by 57 (the LLM reply is used); how a Jev evaluation becomes a verdict, and whether the `sc-sanity-jev` child and the receipt screening in 45 remain, awaits a ruling and the phase-bl design.
+2. Jev client: REQ-DSAN-0051..0057 describe today's `jev_client.py` (Rand 2026-11-07: "For now we need documentation and code in sync"). Requirements 19, 20, 22, 24, 33, 40 and 45 still describe the phase-bl request array, JSONL output or an `sc-sanity-jev` child, and must be corrected to match those records. The phase-bl contract items are future work, not records.
 
 ## REQ-DSAN-0060: Sanity pass closes the sanity task and bead
 
