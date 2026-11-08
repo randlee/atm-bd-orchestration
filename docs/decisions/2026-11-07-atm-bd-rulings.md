@@ -155,6 +155,15 @@ that carry it in `docs/requirements/`. Shared rulings live in `core.md`
     identity (or assigner in the case of sanity/qa). reports/notices always
     come from tool_identity." Records: REQ-CORE-0001, REQ-CORE-0018.
 
+29. **Purpose: take load off the phase lead.** "This process works w/ NO
+    automation and has for weeks. The problem is at scale, there are way too
+    many messages/responsibilities for phase-lead and getting 5+ messages in
+    10 seconds overwhelms his context. The atm-task hook performing
+    validation and auto assignment makes this manageable. However by adding
+    code that is too strict/fails and sends errors to phase-lead directly
+    impacts the usability. i.e. it defeats that entire reason we created
+    atm-bd in the first place." Record: ADR-CORE-0008.
+
 ## Open
 
 - judge-jev: whether one Jev call may carry several records for one

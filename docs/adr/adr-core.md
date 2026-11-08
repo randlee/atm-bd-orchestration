@@ -1,6 +1,6 @@
 # adr-core - Decisions shared by every atm-bd package
 
-**ID Range:** ADR-CORE-0001 through ADR-CORE-0007  
+**ID Range:** ADR-CORE-0001 through ADR-CORE-0008  
 **Version:** 0.1.0  
 **Status:** Draft  
 **Created:** 2026-11-08  
@@ -252,3 +252,45 @@ or individual req/adr, not hybrid."
 **Negative:**
 
 - Shared rules now in orchestration files must move to core.
+
+## ADR-CORE-0008: atm-bd exists to take load off the phase lead
+
+**Status:** Draft  
+
+### Context
+
+The bead workflow has run by hand, with no automation, for weeks. At
+scale the phase lead receives too many messages and responsibilities;
+five or more messages in ten seconds overwhelm the lead's context.
+
+### Decision
+
+atm-bd's task hooks validate and auto-assign so the phase lead does not
+have to. A hook or tick sends the phase lead only what needs the lead's
+decision. Code that is too strict, fails, or sends errors to the phase
+lead defeats atm-bd's purpose; every check and every message to the lead
+must justify that cost.
+
+### Rationale
+
+Rand (2026-11-08): "basically this process works w/ NO automation and has
+for weeks. The problem is at scale, there are way too many
+messages/responsibilities for phase-lead and getting 5+ messages in 10
+seconds overwhelms his context. The atm-task hook performing validation
+and auto assignment makes this manageable. However by adding code that is
+too strict/fails and sends errors to phase-lead directly impacts the
+usability. i.e. it defeats that entire reason we created atm-bd in the
+first place."
+
+### Consequences
+
+**Positive:**
+
+- Each record that messages the lead can be judged against one test: does
+  this need the lead's decision?
+
+**Negative:**
+
+- Existing records that report errors to the lead must be reviewed against
+  this decision.
+
