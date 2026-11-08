@@ -14,7 +14,7 @@
 **Status:** Draft  
 ### Requirement Statement
 
-Every ATM message the console sends goes out as the constant address `atm-bd@tool`. The only override is one optional key, `tool_identity: <identity>@<team>`, in the repository's `.claude/project/atm-bd-orchestration.yaml`.
+Every ATM message the console sends is a REQ-CORE-0018 notification, and the console's tool identity is the constant address `atm-bd@tool`. The only override is one optional key, `tool_identity: <identity>@<team>`, in the repository's `.claude/project/atm-bd-orchestration.yaml`.
 
 
 ### Rationale
@@ -35,7 +35,7 @@ Console notifications used to go out under whichever ATM identity the caller's s
 
 ### Implementation Notes
 
-Package sources: `apps/atm-bd-console` (`atm-bd console`, `atm-bd cron`); `.claude/project/atm-bd-orchestration.yaml`; `.atm-bd/phase-<x>.toml`. Authority: atm-core ADR-065 (time), ADR-066 (tool identity), ADR-067 (one structured log); anchors ANC-041 to ANC-050 in atm-core `docs/plans/phase-bi/anchors.json`; Rand's rulings quoted verbatim on beads atm-phase-bi.7, .9, .10, .12 and .13 (2026-10-18).
+Package sources: `apps/atm-bd-console` (`atm-bd console`, `atm-bd cron`); `.claude/project/atm-bd-orchestration.yaml`; `.atm-bd/phase-<x>.toml`. Authority: atm-core ADR-065 (time), ADR-066 (tool identity), ADR-067 (one structured log); anchors ANC-041 to ANC-050 in atm-core `docs/plans/phase-bi/anchors.json`; Rand's rulings quoted verbatim on beads atm-phase-bi.7, .9, .10, .12 and .13 (2026-10-18). Shared rule: REQ-CORE-0018.
 
 ## REQ-CON-0002: Identity (ADR-066)
 

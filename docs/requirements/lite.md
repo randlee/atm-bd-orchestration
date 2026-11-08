@@ -41,7 +41,7 @@ Intent of phase bo (atm-core `docs/plans/phase-bo/intent.md`): "dev → QA, no s
 
 ### Implementation Notes
 
-Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/profile.toml:1-17`, `plugins/atm-bd-orchestration/skills/atm-bd-lite/SKILL.md:7-11`. State: implemented (plugins/atm-bd-orchestration/skills/atm-bd-lite/profile.toml:2-10; test_shipped_lite_profile_loads).
+Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/profile.toml:1-17`, `plugins/atm-bd-orchestration/skills/atm-bd-lite/SKILL.md:7-11`. State: implemented (plugins/atm-bd-orchestration/skills/atm-bd-lite/profile.toml:2-10; test_shipped_lite_profile_loads). Shared rule: REQ-CORE-0032.
 
 ## REQ-LITE-0002: Lite owns three separate hook files
 
@@ -72,7 +72,7 @@ ANC-048 (Rand, 2026-11-01): "I want all three to be independent files and indepe
 
 ### Implementation Notes
 
-Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-assign-hook.py` (51 lines), `atm-bd-task-start-hook.py` (49), `atm-bd-task-hook.py` (100). State: implemented (those files; test_plugin_files_exist).
+Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-assign-hook.py` (51 lines), `atm-bd-task-start-hook.py` (49), `atm-bd-task-hook.py` (100). State: implemented (those files; test_plugin_files_exist). Shared rule: REQ-CORE-0004.
 
 ## REQ-LITE-0003: Lite assign caller must be phase lead
 
@@ -147,7 +147,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-as
 
 **MUST statements:**
 
-- The lite task.assign hook MUST write the new assignee when the bead is open or in progress and assigned to another agent or to nobody.
+- When the bead is open or in progress and assigned to another agent or to nobody, the lite task.assign hook MUST make the assignee write that REQ-CORE-0008 requires.
 - The lite task.assign hook MUST pass through without a write when the bead is already assigned to the named agent.
 
 
@@ -167,7 +167,7 @@ Hook spec `task-assign.md` transitions T-ASSIGN-01 and T-ASSIGN-02.
 
 ### Implementation Notes
 
-Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-assign-hook.py:29-33`. State: implemented (those lines; test).
+Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-assign-hook.py:29-33`. State: implemented (those lines; test). Shared rule: REQ-CORE-0008.
 
 ## REQ-LITE-0006: Lite start transitions by bead status
 
@@ -379,7 +379,7 @@ Intent of phase bo: "pour each finding ... (blocking findings block the sprint b
 
 ### Implementation Notes
 
-Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-hook.py:57-80`. State: implemented (those lines; tests).
+Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-hook.py:57-80`. State: implemented (those lines; tests). Shared rule: REQ-CORE-0014.
 
 ## REQ-LITE-0012: Lite land close needs the merged sha
 
@@ -555,10 +555,6 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-cron.py
 
 - The lite `policy.toml` MUST name the agent that receives the land task as a value read from the phase file's `lead`.
 
-**MUST NOT statements:**
-
-- The lite `policy.toml` MUST NOT set `lead = "team-lead"`.
-
 
 ### Rationale
 
@@ -572,7 +568,7 @@ Rand (2026-11-07): "The phase lead is defined in the phase file and never defaul
 
 ### Implementation Notes
 
-Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/policy.toml:6`, `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-cron.py:32`. State: not yet implemented (`policy.toml:6` sets `lead = "team-lead"` and `atm-bd-cron.py:32` assigns the land task to that param).
+Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/policy.toml:6`, `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-cron.py:32`. State: not yet implemented (`policy.toml:6` sets `lead = "team-lead"` and `atm-bd-cron.py:32` assigns the land task to that param). Shared rule: REQ-CORE-0005.
 
 ## REQ-LITE-0018: Lite cron reports missing policy params
 
@@ -657,7 +653,7 @@ Intent of phase bo: pour each finding in a fenced block, then close with the rep
 
 ### Implementation Notes
 
-Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/templates/qa.xml.j2:14-49`. State: implemented (those lines); only the strict-render test covers it.
+Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/templates/qa.xml.j2:14-49`. State: implemented (those lines); only the strict-render test covers it. Shared rule: REQ-CORE-0014.
 
 ## REQ-LITE-0021: Lite land template merges only the assigned head
 

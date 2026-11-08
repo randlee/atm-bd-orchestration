@@ -251,7 +251,7 @@ Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fi
 **Status:** Draft  
 ### Requirement Statement
 
-Close bead and task together with the close template, `bd close` first and the task only if it succeeded; the close carries the pushed head, the top rebased onto, the PR and the verbatim `/sc-gh-stack-view` output. The task close is the report; it returns to the task assigner.
+Close bead and task together with the close template, `bd close` first and the task only if it succeeded; the close carries the pushed head, the top rebased onto, the PR and the verbatim `/sc-gh-stack-view` output. The task close is the report.
 
 
 ### Rationale
@@ -268,7 +268,7 @@ A completion must be one atomic, evidenced act: commit 32e475caf moved the dev/f
 
 ### Implementation Notes
 
-Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fix-assignment`, `dev-complete`, `fix-complete`, `task-refused`; `scripts/assignment-gates.py`; `SKILL.md`; `atm-beads/scripts/validate-plan`, `plan_contract.py`.
+Package sources: `atm-bd-orchestration` templates `dev-template`, `dev-fix`, `fix-assignment`, `dev-complete`, `fix-complete`, `task-refused`; `scripts/assignment-gates.py`; `SKILL.md`; `atm-beads/scripts/validate-plan`, `plan_contract.py`. Shared rule: REQ-CORE-0011.
 
 ## REQ-DEV-0011: Dev (`dev-template`)
 
