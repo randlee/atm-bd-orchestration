@@ -37,7 +37,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 **Status:** Draft  
 ### Requirement Statement
 
-Treat every open task assigned to you as live and run them all at once, each with its own background reviewers: one active ATM task, the others claimed, worked and closed without starting; close each when its verdict is ready, in any order. The task close is the report; it returns to the task assigner.
+Treat every open task assigned to you as live and run them all at once, each with its own background reviewers: one active ATM task, the others claimed, worked and closed without starting; close each when its verdict is ready, in any order. The task close is the report.
 
 
 ### Rationale
@@ -54,7 +54,7 @@ QA never holds dev back, so the role runs every open QA task at once, each with 
 
 ### Implementation Notes
 
-Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, templates `qa-template`, `plan-review-template`, `review-template`, `*-assignment.json.j2`, `finding-bead`, `qa-complete`, `review-complete`, `formulas/README.md`, scripts `fix-round-scope`, `check-review-completion.py`, `assignment-gates.py qa`.
+Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, templates `qa-template`, `plan-review-template`, `review-template`, `*-assignment.json.j2`, `finding-bead`, `qa-complete`, `review-complete`, `formulas/README.md`, scripts `fix-round-scope`, `check-review-completion.py`, `assignment-gates.py qa`. Shared rule: REQ-CORE-0011.
 
 ## REQ-QM-0003: All tasks
 

@@ -52,10 +52,6 @@ Sources: `apps/atm-bd-console/src/atm_bd_console/config.py:99-126` (`phase_calle
 
 - The shared executor MUST address every phase recipient as `<agent>@<phase team>` using the team resolved from the phase file.
 
-**MUST NOT statements:**
-
-- The shared executor MUST NOT read `ATM_TEAM` from the environment to address a recipient.
-
 
 ### Rationale
 
@@ -70,7 +66,7 @@ Rand (2026-11-07): "atm-bd should not get team or identity from environment. It 
 
 ### Implementation Notes
 
-Sources: `plugins/atm-bd-orchestration/core/atm_bd_core/execute.py:144-150` (`recipient`). State: lite not yet implemented (`execute.py:147` reads `os.environ.get("ATM_TEAM")` and raises when unset; `core/tests/tick/test_tick.py::test_missing_team_returns_typed_failure_without_running_command` asserts that behaviour and would have to change). orchestration: not assessed in this draft.
+Sources: `plugins/atm-bd-orchestration/core/atm_bd_core/execute.py:144-150` (`recipient`). State: lite not yet implemented (`execute.py:147` reads `os.environ.get("ATM_TEAM")` and raises when unset; `core/tests/tick/test_tick.py::test_missing_team_returns_typed_failure_without_running_command` asserts that behaviour and would have to change). orchestration: not assessed in this draft. Shared rule: REQ-CORE-0001.
 
 ## REQ-CORE-0003: Child commands inherit no caller identity
 
@@ -1108,7 +1104,7 @@ State: not yet implemented; close hooks and the console route by the phase file'
 
 **MUST NOT statements:**
 
-- An atm-bd CLI tool MUST NOT take its team, identity, phase or configuration from the caller's environment.
+- An atm-bd CLI tool MUST NOT take its phase or configuration from the caller's environment.
 
 
 ### Rationale
@@ -1123,7 +1119,7 @@ Rand (2026-11-08): "the original 'use ATM_TEAM' became a problem when orchestrat
 
 ### Implementation Notes
 
-State: partly implemented (console `phase_caller`). Environment reads remain at `assignment-gates.py:242-243`, `atm-task-close.py:149-151,160`, `sanity-stack-link:532-534,561`, `core/atm_bd_core/execute.py:147`, `tick.py:33-39`, `collect/atm.py:16-26`.
+State: partly implemented (console `phase_caller`). Environment reads remain at `assignment-gates.py:242-243`, `atm-task-close.py:149-151,160`, `sanity-stack-link:532-534,561`, `core/atm_bd_core/execute.py:147`, `tick.py:33-39`, `collect/atm.py:16-26`. Shared rule: REQ-CORE-0001 (team and identity from the environment).
 
 ## REQ-CORE-0037: Skills require updating the phase lead on a change
 
