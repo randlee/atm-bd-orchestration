@@ -4,8 +4,12 @@ One file per agent, with its subagents and scripts: what it does, when, in what 
 
 Each file is a Raptor requirements document (`.raptor/` at the repository root): one `REQ-<role>-NNNN` record per requirement, checked against the package sources, and an `Unresolved` section (package sources that contradict each other). `NNNN` is the requirement's former item number in its file, so `REQ-QM-0044` is quality-mgr requirement 44, and "requirement 5" or "(dev 5 and 16)" in the text still names `REQ-<role>-0005`. The package sources each file names are every record's Implementation Notes.
 
+Shared records live in `core.md` and `../adr/adr-core.md`; package records in package files. No statement conditions on which package runs (REQ-CORE-0040).
+
 | File | IDs | Agent |
 | --- | --- | --- |
+| [core.md](core.md) | `REQ-CORE-` | shared by every atm-bd package (ADR-CORE-0007) |
+| [lite.md](lite.md) | `REQ-LITE-` | atm-bd-lite |
 | [dev.md](dev.md) | `REQ-DEV-` | dev, dev-fix, fix; `assignment-gates.py` |
 | [dev-sanity.md](dev-sanity.md) | `REQ-DSAN-` | dev-sanity with sc-sanity-llm, sc-sanity-jev; sanity scripts |
 | [quality-mgr.md](quality-mgr.md) | `REQ-QM-` | QA, plan review, phase-end review; reviewers, ceremony screen |

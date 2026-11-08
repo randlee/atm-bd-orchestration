@@ -1,5 +1,7 @@
 # atm-bd rulings, 2026-11-07 / 2026-11-08
 
+Records cite rulings by quote, not by number.
+
 Rand's rulings from the session that converted atm-bd's requirements to Raptor
 records. Quotes are verbatim (spelling fixed). Each ruling names the records
 that carry it in `docs/requirements/`. Shared rulings live in `core.md`
@@ -30,7 +32,7 @@ that carry it in `docs/requirements/`. Shared rulings live in `core.md`
 5. **Claim actor.** "`--actor $ATM_IDENTITY` is correct." An agent's own
    session identity is its claim actor. Rendering the assignee identity into an
    assignment "is fine for quality-mgr/sanity, NOT ok for dev". Record:
-   REQ-CORE-0006.
+   REQ-CORE-0006, REQ-CORE-0038.
 6. **Bead assignee.** "In planning assignee should be fast/normal/frontier so
    exact dev is not locked in. At task assign, assignee should be set by
    phase-lead to agent-name." Records: REQ-CORE-0007, REQ-CORE-0008.
@@ -40,12 +42,12 @@ that carry it in `docs/requirements/`. Shared rulings live in `core.md`
    assign hook, AND it can also occur at the 'atm task close <dev-task>' hook
    ... doing it in both places would be prudent ... the 2nd close-hook
    assignment should do a write IF NOT correct. No need to actually write a
-   bead to db w/ redundant data." Records: REQ-CORE-0009, REQ-CORE-0010.
+   bead to db w/ redundant data." Records: REQ-CORE-0009 (the reviewing ATM task's assigner field), REQ-CORE-0010.
 8. **Messages go to the task's assigner.** "This is even more important,
    because sometimes lead transitions mid phase (i.e. out of tokens)."
    Supersedes phase-bj ANC-051/052/053 (messages to `<phase-lead>`) and the
    parallax per-wave lead ("parallax is ONLY lead for a wave, NOT lead for the
-   phase"). Record: REQ-CORE-0011.
+   phase"). Records: REQ-CORE-0011, REQ-PLX-0009.
 
 ## Gates, rounds and sanity
 
@@ -65,7 +67,7 @@ that carry it in `docs/requirements/`. Shared rulings live in `core.md`
     condition in atm-task-close-sanity-hook (which would close sanity task +
     sanity bead). phase-lead must also be able to close/bypass sanity with
     clear instructions (so he doesn't guess)." Records: REQ-DSAN-0060,
-    REQ-DSAN-0061.
+    REQ-DSAN-0061, REQ-CORE-0028 (phase-lead close where a package grants it).
 12. **Jev sanity.** "The strategy for how to prompt jev sanity needs to get
     reviewed and tightened. For now we need documentation and code in sync."
     Records: REQ-DSAN-0051..0057 describe today's `jev_client.py`.
@@ -82,7 +84,7 @@ that carry it in `docs/requirements/`. Shared rulings live in `core.md`
     align w/ beads-cache api." So atm-bd needs (bead create, write semantics)
     are filed as beads-cache requirements and consumed through its API; atm-bd
     never adds its own bead layer. Journaled create is beads-cache #104.
-    Record: REQ-CORE-0034.
+    Records: REQ-CORE-0034, REQ-CORE-0039, ADR-CORE-0006.
 
 14. **One evaluate/notify path per package.** "There is ONE evaluate notify
     path PER package (orch/lite) regardless of whether it is called by cron or
@@ -96,8 +98,10 @@ that carry it in `docs/requirements/`. Shared rulings live in `core.md`
     package-specific location. Do NOT write requirements with IF orch ELSE lite
     in them. I expect we will write dozens of packages and they should have
     shared or individual req/adr, not hybrid."
+    Records: REQ-CORE-0040, ADR-CORE-0007.
 16. **Plan.** "The goal is to get atm-bd-lite locked down w/ requirements,
     then rewrite atm-bd-orch and remove 90% of needless code."
+    Record: ADR-CORE-0002.
 17. **Raptor import is schema compliance.** "Importing is part of complying to
     the schema. The raptor cli must return helpful error messages (compiler
     grade or better)." "Missing text should warn/error on import so the team
@@ -107,7 +111,20 @@ that carry it in `docs/requirements/`. Shared rulings live in `core.md`
     for each location it is satisfied. We may be able to fan out a single jev
     call w/ <location> - <question-1-req-1> | <question-2-req-1> |
     <question-3-req-2> | ... depending on how we can fit items in context."
-    Pending a judge-jev record.
+    Record: judge-jev REQ-JEV-0206 (randlee/judge-jev #4); the batching
+    option conflicts with REQ-JEV-0202 and is open.
+
+19. **Rulebook location.** "All of the REQ/ADR are to be on
+    atm-bd-orchestration repo, not on atm-core." Record: ADR-CORE-0001.
+20. **Simple, isolated entry points.** "The complexity of atm-bd is FAR too
+    large for us to make these changes reliably. This is why I keep pushing
+    for a simple implementation that isolates every hook/command against
+    requirements. Trying to apply 100's of requirements against 10000+ lines
+    of code is not going to be easy." Record: ADR-CORE-0003.
+21. **Order of work.** "First priority is making sure our rulebook is
+    written." "Mis-recording these rulings is the biggest risk." Rulings are
+    written first, then duplication is removed, all on one gh stack against
+    atm-bd-orchestration.
 
 ## Open
 
