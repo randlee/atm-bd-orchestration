@@ -1569,3 +1569,55 @@ Not yet implemented (phase bl): these items state the ruled target. Today `jev_c
 
 1. Clean tree: all three ignore `.beads.gate.lock`/`.sc-compose/`; `assignment-gates.py` also ignores untracked files, while `sanity-split` and `sanity-merge` fail `COMMIT_MISMATCH` on any other `git status --porcelain` output.
 2. Jev child: requirements 20, 22, 24, 33 and 45 still describe an `sc-sanity-jev` child and a Jev reply screened by `sanity-merge --reviewer sanity-jev` (a reply whose choice contradicts its findings, a receipt check), where a request now yields one JSONL line (53) instead of one reply per child. Requirements 19, 40 and 51 to 53 now have dev-sanity send the request array to `jev_client.py` and copy its JSON unchanged with no agent interpreting it. What a Jev failure does is settled by 57 (the LLM reply is used); how a Jev evaluation becomes a verdict, and whether the `sc-sanity-jev` child and the receipt screening in 45 remain, awaits a ruling and the phase-bl design.
+
+## REQ-DSAN-0060: Sanity pass closes the sanity task and bead
+
+**Status:** Draft  
+### Requirement Statement
+
+**MUST statements:**
+
+- On a sanity PASS, the sanity task.close hook MUST close the sanity bead.
+- On a sanity PASS, the sanity task.close hook MUST leave the sanity ATM task closed as completed.
+
+
+### Rationale
+
+Rand (2026-11-08): "typical sanity close path is 'sanity pass' condition in atm-task-close-sanity-hook (which would close sanity task + sanity bead)."
+
+### Success Criteria
+
+**Acceptance Criteria:**
+
+- [ ] After a sanity PASS close, the sanity bead is closed and the sanity task is completed, with no further command.
+
+### Implementation Notes
+
+Sources: `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/sanity_task_close_hook.py`, `SANITY-CLOSE-HOOK.md`. State: implemented for phases that register the hook; `atm-task-close.py --role sanity` remains as a second path (aa45ccc31, #557, 2026-10-23: local rollout).
+
+## REQ-DSAN-0061: Phase lead has written sanity close and bypass steps
+
+**Status:** Draft  
+### Requirement Statement
+
+**MUST statements:**
+
+- The skill MUST give the phase lead the exact commands to close a sanity check as PASS.
+- The skill MUST give the phase lead the exact commands to bypass sanity for a bead.
+- Each set of commands MUST name the evidence the lead records with it.
+
+
+### Rationale
+
+Rand (2026-11-08): "phase-lead must also be able to close/bypass sanity with clear instructions (so he doesn't guess)."
+
+### Success Criteria
+
+**Acceptance Criteria:**
+
+- [ ] Following only the skill's steps, a lead closes a sanity check as PASS and the QA bead becomes ready.
+- [ ] Following only the skill's steps, a lead bypasses sanity and the QA bead becomes ready.
+
+### Implementation Notes
+
+State: not yet implemented; `skills/atm-bd-orchestration/SKILL.md` has no lead close or bypass steps (only `SANITY.ROUND_CAP`, line 372).
