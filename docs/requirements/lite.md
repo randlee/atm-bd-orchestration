@@ -555,6 +555,10 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-cron.py
 
 - The lite `policy.toml` MUST name the agent that receives the land task as a value read from the phase file's `lead`.
 
+**MUST NOT statements:**
+
+- The lite `policy.toml` MUST NOT set `lead = "team-lead"` or any other default lead.
+
 
 ### Rationale
 
