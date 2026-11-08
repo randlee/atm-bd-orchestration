@@ -1,6 +1,6 @@
 # dev-sanity
 
-**ID Range:** REQ-DSAN-0001 through REQ-DSAN-0059  
+**ID Range:** REQ-DSAN-0001 through REQ-DSAN-0061  
 **Version:** 1.0.0  
 **Status:** Draft  
 **Created:** 2026-10-03  
@@ -1605,6 +1605,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-orchestration/scripts/sanit
 - The skill MUST give the phase lead the exact commands to close a sanity check as PASS.
 - The skill MUST give the phase lead the exact commands to bypass sanity for a bead.
 - Each set of commands MUST name the evidence the lead records with it.
+- The sanity task.close hook MUST accept a close or bypass of a sanity task by the phase lead.
 
 
 ### Rationale

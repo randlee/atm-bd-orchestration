@@ -1,6 +1,6 @@
 # parallax
 
-**ID Range:** REQ-PLX-0001 through REQ-PLX-0008  
+**ID Range:** REQ-PLX-0001 through REQ-PLX-0009  
 **Version:** 1.0.0  
 **Status:** Draft  
 **Created:** 2026-10-04  
@@ -198,3 +198,29 @@ Sources: `plugins/atm-bd-orchestration/`: `agents/parallax.md`, `skills/atm-bd-o
 ## Unresolved
 
 None. The Jev startup probe failure, which runs outside any task, goes to the ATM escalation recipients (`SKILL.md` Lead Role), else the lead.
+
+## REQ-PLX-0009: Parallax leads one wave
+
+**Status:** Draft  
+### Requirement Statement
+
+**MUST statements:**
+
+- A parallax MUST lead only the wave it is given, not the phase.
+- A phase MUST allow more than one parallax.
+- Reports and escalations about a wave's tasks MUST go to that task's assigner (REQ-CORE-0011).
+
+
+### Rationale
+
+Rand (2026-11-07): "parallel is ONLY lead for a wave, NOT lead for the phase. Multiple parallax would exist for a single phase." Later: messages go to the task assigner, "even more important, because sometimes lead transitions mid phase".
+
+### Success Criteria
+
+**Acceptance Criteria:**
+
+- [ ] Two parallax agents run waves of one phase and each receives only its own wave's reports.
+
+### Implementation Notes
+
+State: not yet implemented; `agents/parallax.md` treats parallax as the phase's orchestrator.

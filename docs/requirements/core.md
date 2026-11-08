@@ -1,6 +1,6 @@
 # core
 
-**ID Range:** REQ-CORE-0001 through REQ-CORE-0033  
+**ID Range:** REQ-CORE-0001 through REQ-CORE-0040  
 **Version:** 1.0.0  
 **Status:** Draft  
 **Created:** 2026-11-07  
@@ -153,7 +153,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-as
 
 ### Rationale
 
-Rand (2026-11-07): the phase lead is defined in the phase file and never defaults to team-lead (ruling 1, given with: "atm-bd should not get team or identity from environment. It should come from folder where phase config is loaded.").
+Rand (2026-11-07): "phase-lead is defined in the phase-file (it should NOT default to team-lead)."
 
 ### Success Criteria
 
@@ -182,7 +182,7 @@ Sources: `plugins/atm-bd-orchestration/core/atm_bd_core/store/phase.py:21-24` (m
 
 ### Rationale
 
-Rand (2026-11-07), ruling 2: agents claim with `--actor "$ATM_IDENTITY"` (their own session identity); "this is correct".
+Rand (2026-11-07): agents claim with `--actor "$ATM_IDENTITY"` (their own session identity); "this is correct".
 
 ### Success Criteria
 
@@ -210,7 +210,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/templates/dev.xml.j2:3
 
 ### Rationale
 
-Rand (2026-11-07), ruling 3: "in planning asignee should be fast/normal/frontier so exact dev is not locked in."
+Rand (2026-11-07): "in planning asignee should be fast/normal/frontier so exact dev is not locked in."
 
 ### Success Criteria
 
@@ -235,7 +235,7 @@ Sources: none found. State: lite not yet implemented (`plugins/atm-bd-orchestrat
 
 ### Rationale
 
-Rand (2026-11-07), ruling 3: "At task assign, asignee should be set by phase-lead to agent-name."
+Rand (2026-11-07): "At task assign, asignee should be set by phase-lead to agent-name."
 
 ### Success Criteria
 
@@ -260,13 +260,14 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-as
 
 **MUST statements:**
 
-- The assigner of a follow-on review task (sanity or QA) MUST equal the assigner read from the dev task it follows.
-- The assigner MUST be read from the ATM task record.
+- The assigner of every ATM task that reviews a dev task MUST equal the assigner of that dev task.
+- The dev task's assigner MUST be read from the dev task's ATM task record.
+- The reviewing task's assigner MUST be stored as the assigner of the reviewing ATM task.
 
 
 ### Rationale
 
-Rand (2026-11-07), ruling 4: "for sanity and qa task assign, the assigner must be set based from what is read from the dev task assigner."
+Rand (2026-11-07): "for sanity and qa task assign, the assigner must be set based from what is read from the dev task assigner."
 
 ### Success Criteria
 
@@ -300,7 +301,7 @@ Sources: `plugins/atm-bd-orchestration/core/atm_bd_core/execute.py:128` (`--as s
 
 ### Rationale
 
-Rand (2026-11-07), ruling 4: "This can occur at 'atm task assign <dev>' in an assign hook, AND it can also occur at the 'atm task close <dev-task>' hook ... doing it in both places would be prudent ... the 2nd close-hook assignment should do a write IF NOT correct. No need to actually write a bead to db w/ redundant data."
+Rand (2026-11-07): "This can occur at 'atm task assign <dev>' in an assign hook, AND it can also occur at the 'atm task close <dev-task>' hook ... doing it in both places would be prudent ... the 2nd close-hook assignment should do a write IF NOT correct. No need to actually write a bead to db w/ redundant data."
 
 ### Success Criteria
 
@@ -330,7 +331,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/hooks/task-assign.md:3
 
 ### Rationale
 
-Rand (2026-11-07), ruling 4: messages go to the task's assigner, read from the ATM task. Rand: "sometimes lead transitions mid phase (i.e. out of tokens)".
+Rand (2026-11-07): messages go to the task's assigner, read from the ATM task. Rand: "sometimes lead transitions mid phase (i.e. out of tokens)".
 
 ### Success Criteria
 
@@ -361,7 +362,7 @@ Sources: `plugins/atm-bd-orchestration/core/atm_bd_core/execute.py:131-134` (Rep
 
 ### Rationale
 
-Rand (2026-11-07), ruling 5: pre-claim checks belong in the task.start hook: "check bd ready -> git checks -> atm-open returns true otherwise atm-open returns false and lead is notified".
+Rand (2026-11-07): pre-claim checks belong in the task.start hook: "check bd ready -> git checks -> atm-open returns true otherwise atm-open returns false and lead is notified".
 
 ### Success Criteria
 
@@ -386,7 +387,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-st
 
 ### Rationale
 
-Rand (2026-11-07), ruling 5: "...otherwise atm-open returns false and lead is notified".
+Rand (2026-11-07): "...otherwise atm-open returns false and lead is notified".
 
 ### Success Criteria
 
@@ -415,7 +416,7 @@ Sources: none. State: lite not yet implemented (no notification path exists in `
 
 ### Rationale
 
-Rand (2026-11-07), ruling 6: findings are always created ("refusing to create findings does NOT sound like a useful thing to do").
+Rand (2026-11-07): findings are always created ("refusing to create findings does NOT sound like a useful thing to do").
 
 ### Success Criteria
 
@@ -444,7 +445,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/templates/qa.xml.j2:30
 
 ### Rationale
 
-Rand (2026-11-07), ruling 6: more than 3 QA rounds "should excelate to lead w/ a message having the lead deploy an architect to see why this isn't converging".
+Rand (2026-11-07): more than 3 QA rounds "should excelate to lead w/ a message having the lead deploy an architect to see why this isn't converging".
 
 ### Success Criteria
 
@@ -470,7 +471,7 @@ Sources: none (`grep -rn round plugins/atm-bd-orchestration/skills/atm-bd-lite/ 
 
 ### Rationale
 
-Rand (2026-11-07), ruling 6: escalation goes to the lead; no "stop everything and notify user" language.
+Rand (2026-11-07): escalation goes to the lead; no "stop everything and notify user" language.
 
 ### Success Criteria
 
@@ -495,7 +496,7 @@ Sources: `grep -rn "stop everything" plugins/atm-bd-orchestration/skills/atm-bd-
 
 ### Rationale
 
-Rand (2026-11-07), ruling 7: one evaluate/notify path per package, "regardless of whether cron or console calls it".
+Rand (2026-11-07): one evaluate/notify path per package, "regardless of whether cron or console calls it".
 
 ### Success Criteria
 
@@ -529,7 +530,7 @@ Sources: `plugins/atm-bd-orchestration/core/atm_bd_core/cron_entry.py:17-26`, `a
 
 ### Rationale
 
-Rand (2026-11-07), ruling 7: "the notification sender is the configured tool identity". The console already reads `tool_identity` (REQ-CON-0001).
+Rand (2026-11-07): "the notification sender is the configured tool identity". The console already reads `tool_identity` (REQ-CON-0001).
 
 ### Success Criteria
 
@@ -863,6 +864,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-as
 
 - The package's task.start hook MUST refuse a caller who is not the bead's assignee with TASK_NOT_ASSIGNEE.
 - The package's task.close hook MUST refuse a caller who is not the bead's assignee with TASK_NOT_ASSIGNEE.
+- The task.close hook MUST accept a close by the phase lead where a package record grants the phase lead that close.
 
 
 ### Rationale
@@ -1146,3 +1148,93 @@ Rand (2026-11-08): "There should be a note in the skills that the atm-bd config 
 ### Implementation Notes
 
 State: not yet implemented in either skill.
+
+## REQ-CORE-0038: Dev assignments do not render the assignee identity
+
+**Status:** Draft  
+### Requirement Statement
+
+**MUST statements:**
+
+- A dev agent MUST take its identity from its own session (`ATM_IDENTITY`), not from its assignment text.
+
+**MUST NOT statements:**
+
+- A dev assignment MUST NOT render the assignee's identity into its body.
+
+
+### Rationale
+
+Rand (2026-11-07): rendering the assignee identity into the assignment "is fine for quality-mgr/sanity, NOT ok for dev". Review assignments may render it.
+
+### Success Criteria
+
+**Acceptance Criteria:**
+
+- [ ] A rendered dev assignment contains no assignee identity.
+- [ ] A dev agent's claim uses `--actor "$ATM_IDENTITY"` (REQ-CORE-0006).
+
+### Implementation Notes
+
+State: to verify per dev template.
+
+## REQ-CORE-0039: bd-cache is the phase's source of truth
+
+**Status:** Draft  
+### Requirement Statement
+
+**MUST statements:**
+
+- bd-cache MUST be the source of truth for a phase's beads.
+- Every bead need atm-bd has that bd-cache does not meet MUST be filed as a beads-cache requirement and consumed through the beads-cache API.
+- atm-bd's bead reads and writes MUST use the bd JSON shapes that beads-cache returns.
+
+**MUST NOT statements:**
+
+- atm-bd MUST NOT add its own bead storage, cache or write layer.
+
+
+### Rationale
+
+Rand (2026-11-08): "I expect that the cache matches the bd api as closely as possible (json)." "I would expect changes 'from upstream' to be rare. The bd-cache should be the source of truth for the phase." "beads-cache (rust daemon using tokio is already in development based on requirements coming from atm-bd) and changes must align w/ beads-cache api."
+
+### Success Criteria
+
+**Acceptance Criteria:**
+
+- [ ] No atm-bd module stores bead state outside bd-cache.
+- [ ] Bead create used by atm-bd is a beads-cache operation (randlee/beads-cache #104).
+
+### Implementation Notes
+
+State: bead create waits on beads-cache #104. Related: REQ-CORE-0034.
+
+## REQ-CORE-0040: Requirements are shared or package-specific
+
+**Status:** Draft  
+### Requirement Statement
+
+**MUST statements:**
+
+- A requirement or ADR that applies to every atm-bd package MUST live in the shared files (`docs/requirements/core.md`, `docs/adr/adr-core.md`).
+- A requirement or ADR that applies to one package MUST live in that package's files.
+- Which packages implement a shared record MUST be stated only in its Implementation Notes.
+
+**MUST NOT statements:**
+
+- A requirement or ADR statement MUST NOT condition on which package runs.
+
+
+### Rationale
+
+Rand (2026-11-07): "I expect a lot of requirements will be the same for both atm-bd-lite and atm-bd-orch. make sure the requirements/ADR are partitioned so common requirements are in one place, specific req/adr in package-specific location. Do NOT write requirements with IF orch ELSE lite in them. I expect we will write dozens of packages and they should have shared or individual req/adr, not hybrid."
+
+### Success Criteria
+
+**Acceptance Criteria:**
+
+- [ ] No statement in `docs/requirements` or `docs/adr` names a package as a condition.
+
+### Implementation Notes
+
+State: core.md and lite.md partitioned; the older orchestration files still hold shared rules (to move).
