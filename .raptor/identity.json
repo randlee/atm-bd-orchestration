@@ -1,0 +1,33 @@
+{
+  "documents": {
+    "DOC-ABO-001": {
+      "path": "docs/requirements/console.md"
+    },
+    "DOC-ABO-002": {
+      "path": "docs/requirements/dev.md"
+    },
+    "DOC-ABO-003": {
+      "path": "docs/requirements/dev-sanity.md"
+    },
+    "DOC-ABO-004": {
+      "path": "docs/requirements/parallax.md"
+    },
+    "DOC-ABO-005": {
+      "path": "docs/requirements/planner.md"
+    },
+    "DOC-ABO-006": {
+      "path": "docs/requirements/quality-mgr.md"
+    },
+    "DOC-ABO-007": {
+      "path": "docs/requirements/sanity-stack.md"
+    },
+    "DOC-ABO-008": {
+      "path": "docs/requirements/task-close-hook.md"
+    },
+    "DOC-ABO-009": {
+      "path": "docs/requirements/team-lead.md"
+    }
+  },
+  "identity_version": "1.0.0",
+  "repository_id": "urn:raptor:repo:atm-bd-orchestration"
+}
