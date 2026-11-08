@@ -8,6 +8,7 @@ def requirement_statement(document: str, identifier: str) -> str:
     """The Requirement Statement prose of one Raptor REQ record in a role document."""
     record = document.split(f"\n## {identifier}: ", 1)[1].split("\n## ", 1)[0]
     section = record.split("\n### Requirement Statement\n", 1)[1]
+    section = section.split("\n### ", 1)[0]
     return section.split("\n**MUST statements:**", 1)[0].strip()
 
 
