@@ -1,6 +1,6 @@
 # core
 
-**ID Range:** REQ-CORE-0001 through REQ-CORE-0040  
+**ID Range:** REQ-CORE-0001 through REQ-CORE-0041  
 **Version:** 1.0.0  
 **Status:** Draft  
 **Created:** 2026-11-07  
@@ -17,7 +17,9 @@
 **MUST statements:**
 
 - Every atm-bd entry point that sends an ATM message or reads ATM tasks MUST take the ATM team from the `team` key of the phase file `.atm-bd/phase-<x>.toml`, else from `[atm] default_team` in the `.atm.toml` of the folder that holds `.atm-bd`.
-- Every such entry point MUST take the ATM identity it acts as from the `lead` key of that phase file.
+- The tool MUST make dev task assignments as the phase file's `lead`.
+- The tool MUST make sanity and QA task assignments as the assigner recorded for them (REQ-CORE-0009).
+- Every report and notice MUST be sent as `tool_identity` (REQ-CORE-0018).
 
 **MUST NOT statements:**
 
@@ -26,7 +28,7 @@
 
 ### Rationale
 
-Rand (2026-11-07): "atm-bd should not get team or identity from environment. It should come from folder where phase config is loaded." and "when omega-prime@hermes runs `atm-bd query` for atm-dev, I do not want team hermes leaking in. Every ingress into the system MUST access the risk of environment var being used." The phase lead is defined in the phase file.
+Rand (2026-11-08): "task assignment are made by tool using phase-lead identity (or assigner in the case of sanity/qa). reports/notices always come from tool_identity." Rand (2026-11-07): "atm-bd should not get team or identity from environment. It should come from folder where phase config is loaded." and "when omega-prime@hermes runs `atm-bd query` for atm-dev, I do not want team hermes leaking in. Every ingress into the system MUST access the risk of environment var being used." The phase lead is defined in the phase file.
 
 ### Success Criteria
 
@@ -249,21 +251,21 @@ Rand (2026-11-07): "At task assign, asignee should be set by phase-lead to agent
 
 Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-assign-hook.py:29-41`. State: lite implemented (those lines, those tests). orchestration: not assessed in this draft.
 
-## REQ-CORE-0009: Follow-on task assigner copies dev assigner
+## REQ-CORE-0009: Sanity and QA beads carry the dev task's assigner
 
 **Status:** Draft  
 ### Requirement Statement
 
 **MUST statements:**
 
-- The assigner of every ATM task that reviews a dev task MUST equal the assigner of that dev task.
-- The dev task's assigner MUST be read from the dev task's ATM task record.
-- The reviewing task's assigner MUST be stored as the assigner of the reviewing ATM task.
+- A dev task's assigner MUST be read from the dev task's ATM task record.
+- The assigner recorded on the sanity and QA beads that review a dev bead MUST equal that dev task's assigner.
+- The sanity and QA task assignments MUST be made as that recorded assigner.
 
 
 ### Rationale
 
-Rand (2026-11-07): "for sanity and qa task assign, the assigner must be set based from what is read from the dev task assigner."
+Rand (2026-11-08): sanity and QA beads are poured during planning and "should be around for a long time before dev task assignment", so the assigner is recorded on those beads. Rand (2026-11-07): "for sanity and qa task assign, the assigner must be set based from what is read from the dev task assigner."
 
 ### Success Criteria
 
@@ -276,23 +278,19 @@ Rand (2026-11-07): "for sanity and qa task assign, the assigner must be set base
 
 Sources: `plugins/atm-bd-orchestration/core/atm_bd_core/execute.py:128` (`--as self.lead`), `plugins/atm-bd-orchestration/core/atm_bd_core/collect/atm.py:26` (`TaskFact` built from task_id, assignee, state only). State: lite not yet implemented (QA assignments use the phase file lead; the collected task facts carry no assigner). orchestration: not assessed in this draft.
 
-## REQ-CORE-0010: Assigner is set at assign and at close
+## REQ-CORE-0010: Dev assign and close hooks record the assigner
 
 **Status:** Draft  
 ### Requirement Statement
 
 **MUST statements:**
 
-- The package's task.assign hook for a dev task MUST record the dev task's assigner as the assigner of its follow-on review task.
-- The package's task.close hook for a dev task MUST perform the same assignment again.
-
-**SHOULD statements:**
-
-- The close-hook assignment SHOULD be a write only when the recorded assigner differs from the dev task's assigner.
+- The task.assign hook for a dev task MUST record the dev task's assigner on the sanity and QA beads that review it, through bd-cache.
+- The task.close hook for a dev task MUST record it again only when the recorded assigner differs.
 
 **MUST NOT statements:**
 
-- The close-hook assignment MUST NOT write a bead when the recorded assigner already equals the dev task's assigner.
+- The task.close hook MUST NOT write when the recorded assigner already equals the dev task's assigner.
 
 
 ### Rationale
@@ -347,18 +345,14 @@ Sources: `plugins/atm-bd-orchestration/core/atm_bd_core/execute.py:131-134` (Rep
 
 **MUST statements:**
 
-- The package's task.start hook MUST check that `bd ready` lists the bead before the claim.
-- The package's task.start hook MUST run the git checks after the `bd ready` check.
-- The package's task.start hook MUST allow the start only when both checks pass.
-
-**MUST NOT statements:**
-
-- The package's task.start hook MUST NOT claim the bead when either check fails.
+- The task.start hook MUST read the bead's readiness from bd-cache.
+- The task.start hook MUST use only local `git` for its git checks.
+- The task.start hook MUST allow the start only when the bead is ready and the git checks pass.
 
 
 ### Rationale
 
-Rand (2026-11-07): pre-claim checks belong in the task.start hook: "check bd ready -> git checks -> atm-open returns true otherwise atm-open returns false and lead is notified".
+Rand (2026-11-08): "Yes, local git to be used. gh checks must be done before task.assign and passed to task-assign w/ evidence." Rand (2026-11-07): pre-claim checks belong in the task.start hook: "check bd ready -> git checks -> atm-open returns true otherwise atm-open returns false and lead is notified".
 
 ### Success Criteria
 
@@ -378,12 +372,12 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-st
 
 **MUST statements:**
 
-- When the task.start hook refuses a start, the package MUST notify the task's assigner with the failed check.
+- When the task.start hook refuses a start, it MUST return an `atm send` command, sent as `tool_identity`, that tells the task's assigner which check failed.
 
 
 ### Rationale
 
-Rand (2026-11-07): "...otherwise atm-open returns false and lead is notified".
+Rand (2026-11-08): "The atm-core hooks return an array of atm commands that atm will run post-hook. (no atm-core change necessary)". Rand (2026-11-07): "...otherwise atm-open returns false and lead is notified".
 
 ### Success Criteria
 
@@ -882,14 +876,13 @@ Hook specs `task-start.md` and `task-close.md` (atm-core commit 39f9c8c1d, 'phas
 
 Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-start-hook.py:22-23`, `atm-bd-task-hook.py:22-23`. State: lite implemented (those lines; tests). orchestration: not assessed in this draft.
 
-## REQ-CORE-0029: Hook writes are guarded and single
+## REQ-CORE-0029: Hook writes are guarded
 
 **Status:** Draft  
 ### Requirement Statement
 
 **MUST statements:**
 
-- Every package task hook MUST make at most one bead write.
 - Every package task hook MUST write with a guard that returns BEAD_RACED when the bead changed since it was read.
 
 **MUST NOT statements:**
@@ -900,7 +893,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-st
 
 ### Rationale
 
-ANC-064 and ANC-065 (2026-11-01): a hook makes at most one beads-cache write and never writes the ledger.
+The one-write limit is removed: the dev assign hook writes the assignee and the review beads' assigner (REQ-CORE-0010). Rand (2026-11-08): "You are continually trying to check everything, this is why the simple 100 line solution continuously gets 1000's of lines of code." ANC-064 and ANC-065 (2026-11-01): a hook makes at most one beads-cache write and never writes the ledger.
 
 ### Success Criteria
 
@@ -1234,3 +1227,32 @@ Rand (2026-11-07): "I expect a lot of requirements will be the same for both atm
 ### Implementation Notes
 
 State: core.md and lite.md partitioned; the older orchestration files still hold shared rules (to move).
+
+## REQ-CORE-0041: GitHub checks happen before task.assign
+
+**Status:** Draft  
+### Requirement Statement
+
+**MUST statements:**
+
+- Checks that need GitHub (`gh`) MUST run before `atm task assign`.
+- Their results MUST be passed to the assignment with their evidence.
+
+**MUST NOT statements:**
+
+- A task hook MUST NOT call `gh`.
+
+
+### Rationale
+
+Rand (2026-11-08): "gh checks must be done before task.assign and passed to task-assign w/ evidence."
+
+### Success Criteria
+
+**Acceptance Criteria:**
+
+- [ ] An assignment that depends on a PR carries the PR base, head and the command output that produced them.
+
+### Implementation Notes
+
+State: not yet implemented; the QA template runs `gh pr view` at claim time (qa-template.xml.j2 step a).

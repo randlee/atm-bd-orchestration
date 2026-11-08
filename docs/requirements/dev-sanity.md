@@ -1885,4 +1885,4 @@ Rand (2026-11-08): "phase-lead must also be able to close/bypass sanity with cle
 
 ### Implementation Notes
 
-State: not yet implemented; `skills/atm-bd-orchestration/SKILL.md` has no lead close or bypass steps (only `SANITY.ROUND_CAP`, line 372).
+Verified 2026-11-08: a sanity PASS closes the sanity bead with reason `PASS at <sha>` (`sanity_task_close_hook.py:378-380`); the QA bead is `blocked_by` the sanity bead (`qa-bead.json.j2`), so it becomes ready. QA step a (`qa-template.xml.j2:65`) reads that sha and refuses `SANITY_STALE` unless the PR head starts with it, so the lead's close instructions must use reason `PASS at <PR head sha>`; any other reason leaves QA refused. The QA bead carries branch, worktree, pr_target and checked_bead from the pour; commit and PR number come with the QA assignment. State: not yet implemented; `skills/atm-bd-orchestration/SKILL.md` has no lead close or bypass steps (only `SANITY.ROUND_CAP`, line 372).

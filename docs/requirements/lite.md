@@ -74,33 +74,25 @@ ANC-048 (Rand, 2026-11-01): "I want all three to be independent files and indepe
 
 Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-assign-hook.py` (51 lines), `atm-bd-task-start-hook.py` (49), `atm-bd-task-hook.py` (100). State: implemented (those files; test_plugin_files_exist). Shared rule: REQ-CORE-0004.
 
-## REQ-LITE-0003: Lite assign caller must be phase lead
+## REQ-LITE-0003: Retired: Lite assign caller must be phase lead
 
 **Status:** Draft  
 ### Requirement Statement
 
 **MUST statements:**
 
-- The lite task.assign hook MUST refuse with ASSIGN_NOT_LEAD a caller other than the `lead` named in the phase file.
+- This record MUST NOT be implemented; it is retired.
 
 
 ### Rationale
 
-Hook spec `task-assign.md`, Errors table row ASSIGN_NOT_LEAD: "Only the lead (<lead>) assigns. Ask the lead."
+Rand (2026-11-08): "You are getting too aggressive on checks." Retired: the lite task.assign hook does not check who the caller is.
 
 ### Success Criteria
 
 **Acceptance Criteria:**
 
-- [ ] An assign by `dev` while the phase file names `lead` is refused ASSIGN_NOT_LEAD with no write.
-
-**Test Evidence:**
-
-- `plugins/atm-bd-orchestration/tests/lite/test_task_assign.py::test_caller_not_lead`
-
-### Implementation Notes
-
-Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-assign-hook.py:24-25`, `plugins/atm-bd-orchestration/skills/atm-bd-lite/hooks/task-assign.md:14-15`. State: implemented (those lines; test_caller_not_lead). Conflict to resolve with the core records on assigner routing: after a lead change mid-phase the phase file's lead is stale, so a check against the phase file refuses the new lead; the owner may replace this gate with a check against the task's assigner.
+- [ ] No lite entry point implements the retired rule.
 
 ## REQ-LITE-0004: Lite assign refuses closed or unready beads
 
@@ -445,35 +437,25 @@ Hook spec `task-close.md` header: a completed re-close revalidates the transitio
 
 Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-task-hook.py:86-87`. State: implemented (those lines; tests).
 
-## REQ-LITE-0014: Lite cron assigns ready dev beads
+## REQ-LITE-0014: Retired: Lite cron assigns ready dev beads
 
 **Status:** Draft  
 ### Requirement Statement
 
 **MUST statements:**
 
-- The lite cron decision MUST assign each ready, open dev bead that has no ATM task to the agent named by policy param `dev_agent` using the template named by `dev_template`.
-- The lite cron decision MUST decide nothing when the ATM task list is unavailable.
+- This record MUST NOT be implemented; it is retired.
 
 
 ### Rationale
 
-ANC-074 (Rand, 2026-11-01): "wait, lite will have cron. / yes, initial cron script will assign 'bdc ready' qa tasks and run a set of checks similar to atm-bd-orchestration".
+Rand (2026-11-08): "I don't know when the decision for dev to auto assign in atm-bd-lite was made. This makes atm-bd-lite more complicated than necessary for mvp." Retired: the phase lead assigns dev tasks. Origin of the removed rule: aec7860b4 (2026-11-02, "Complete unattended lite workflow"), mirrored into the phase-bo plan by atm-core 4789ed359 (2026-11-03); no ruling was recorded for it.
 
 ### Success Criteria
 
 **Acceptance Criteria:**
 
-- [ ] A ready open dev bead without a task yields one Assign.
-- [ ] A failed task read yields no actions.
-
-**Test Evidence:**
-
-- `plugins/atm-bd-orchestration/tests/lite/test_cron.py::test_no_assignment_when_task_read_fails_or_task_already_exists`
-
-### Implementation Notes
-
-Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-cron.py:12-19,38-41`. State: implemented (those lines; test). The fixed agent names come from `policy.toml:2` and conflict with the core record that the planning assignee is a class.
+- [ ] No lite entry point implements the retired rule.
 
 ## REQ-LITE-0015: Lite cron assigns ready QA beads
 

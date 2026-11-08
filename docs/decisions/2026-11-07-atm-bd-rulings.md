@@ -126,9 +126,38 @@ that carry it in `docs/requirements/`. Shared rulings live in `core.md`
     written first, then duplication is removed, all on one gh stack against
     atm-bd-orchestration.
 
+22. **Review beads carry the assigner.** "I thought qa+sanity beads were
+    poured before planning is complete. They should be around for a long
+    time before dev task assignment." The dev assign hook records the dev
+    task's assigner on them; the close hook rewrites it only if wrong.
+    Records: REQ-CORE-0009, REQ-CORE-0010, REQ-CORE-0029 (one-write limit
+    removed).
+23. **Checks: bd-cache, local git, gh before assign.** "I already told you
+    that bd-cache should be used for all read/writes. Yes, local git to be
+    used. gh checks must be done before task.assign and passed to
+    task-assign w/ evidence." Records: REQ-CORE-0012, REQ-CORE-0041.
+24. **Hooks return ATM commands.** "The atm-core hooks return an array of
+    atm commands that atm will run post-hook. (no atm-core change
+    necessary)" Record: REQ-CORE-0013.
+25. **Fewer checks.** "You are getting too aggressive on checks." "You are
+    continually trying to check everything, this is why the simple 100 line
+    solution continuously gets 1000's of lines of code." Records:
+    REQ-LITE-0003 retired, REQ-CORE-0029.
+26. **No dev auto-assign in lite.** "I don't know when the decision for dev
+    to auto assign in atm-bd-lite was made. This makes atm-bd-lite more
+    complicated than necessary for mvp." It came from aec7860b4
+    (2026-11-02) with no recorded ruling. Record: REQ-LITE-0014 retired.
+27. **Lead sanity close confirmed.** "confirm. verify that this unlocks qa
+    and qa bead has necessary info." Verified: a close with reason
+    `PASS at <PR head sha>` unlocks QA; any other reason leaves QA refused
+    `SANITY_STALE`. Record: REQ-DSAN-0061 notes.
+28. **Who acts.** "task assignment are made by tool using phase-lead
+    identity (or assigner in the case of sanity/qa). reports/notices always
+    come from tool_identity." Records: REQ-CORE-0001, REQ-CORE-0018.
+
 ## Open
 
-- Whether phase-bo ANC-064 ("close hook does not assign") is lifted for the
-  write-if-wrong assigner fix (ruling 7).
-- How task.start git checks fit the 2.5 s hook limit (ruling 9).
-- Lite's "caller must be the phase lead" assign check after a lead change.
+- judge-jev: whether one Jev call may carry several records for one
+  location (REQ-JEV-0202 vs ruling 18).
+- atm-bd-types crate: keep or drop (no ruling yet).
+- D8 batch of small orchestration-record rulings (Rand's cut-off item 8).
