@@ -74,6 +74,16 @@ that carry it in `docs/requirements/`. Shared rulings live in `core.md`
 
 13. **bd-cache everywhere.** "Everything in atm-bd (including agent 'bd'
     instructions) need to use bd-cache." Record: REQ-CORE-0034.
+14a. **bd-cache is the phase's source of truth.** "I expect that the cache
+    matches the bd api as closely as possible (json)." "I would expect changes
+    'from upstream' to be rare. The bd-cache should be the source of truth for
+    the phase." "beads-cache (rust daemon using tokio) is already in
+    development based on requirements coming from atm-bd, and changes must
+    align w/ beads-cache api." So atm-bd needs (bead create, write semantics)
+    are filed as beads-cache requirements and consumed through its API; atm-bd
+    never adds its own bead layer. Journaled create is beads-cache #104.
+    Record: REQ-CORE-0034.
+
 14. **One evaluate/notify path per package.** "There is ONE evaluate notify
     path PER package (orch/lite) regardless of whether it is called by cron or
     console." Sender is the configured `tool_identity`. Records:

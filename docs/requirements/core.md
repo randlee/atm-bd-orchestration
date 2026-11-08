@@ -1057,7 +1057,7 @@ Sources: `plugins/atm-bd-orchestration/skills/atm-bd-lite/scripts/atm-bd-cron.py
 
 ### Rationale
 
-Rand (2026-11-08): "everything in atm-bd (including agent 'bd' instructions) need to use bd-cache".
+Rand (2026-11-08): "everything in atm-bd (including agent 'bd' instructions) need to use bd-cache". Rand (2026-11-08): "the bd-cache should be the source of truth for the phase" and "changes must align w/ beads-cache api"; its reads and writes match the bd JSON API as closely as possible.
 
 ### Success Criteria
 
@@ -1067,7 +1067,7 @@ Rand (2026-11-08): "everything in atm-bd (including agent 'bd' instructions) nee
 
 ### Implementation Notes
 
-State: not yet implemented. On 2026-11-08, 236 lines under `plugins/atm-bd-orchestration/skills` and `agents` invoke `bd show|list|ready|update|close|create` directly.
+State: not yet implemented. On 2026-11-08, 236 lines under `plugins/atm-bd-orchestration/skills` and `agents` invoke `bd show|list|ready|update|close|create` directly. Bead create (finding pour) waits on beads-cache journaled create (randlee/beads-cache #104).
 
 ## REQ-CORE-0035: Task facts come from ATM task queries first
 
