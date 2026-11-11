@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.19.16] - 2026-11-11
+
+Policy and install release. atm-bd ships a package-owned QA policy whose mandatory rules every repository gets (the ceremony screen on every QA round, `ceremony-qa` on every plan, the flaky-test rule), with the agents those rules dispatch. sc-compose 1.8.0 is the floor, not a pin. A default install fills every harness: skills into `.claude`, `.codex` and `.cursor`, agents into `.claude` only.
+
 ### Added
 - Package-owned QA policy `skills/atm-bd-orchestration/package-policy.md`, overwritten on every install and read by quality-mgr before the repository's `policy_path`, which the installer never writes. Its mandatory rules apply in every repository and win over a repository policy that says less: the ceremony screen on every QA run, `ceremony-qa` on every plan, and the flaky-test rule.
 - The package ships `ceremony-finding-screen` and `flaky-test-qa` (made language-neutral, 0.2.0) beside `ceremony-qa`, so every agent the templates dispatch is installed.
