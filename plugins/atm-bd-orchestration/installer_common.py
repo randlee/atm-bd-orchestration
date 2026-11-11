@@ -88,7 +88,7 @@ SCRIPT_HEADER = (
     "#!/usr/bin/env -S uv run --script\n"
     "# /// script\n"
     '# requires-python = ">=3.11,<3.12"\n'
-    '# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]\n'
+    '# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.8.0,<2"]\n'
     "# ///\n"
 )
 """The first lines of every executable script. `uv run --script` gives each run Python 3.11 with the

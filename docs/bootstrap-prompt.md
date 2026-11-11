@@ -21,7 +21,7 @@ Report one line per item with its version, or MISSING, against the table in "One
 - `atm-bd`. These steps need 0.19.2, the first release that adds the dev-sanity member and lists its changes when it installs. If it's missing, the fix is `uv tool install atm-bd`; if it's older, `uv tool upgrade atm-bd`.
 - `atm` must be 1.6.3 or newer, and `atm hook --help` must work. 1.6.3 is currently a GitHub prerelease from randlee/atm-core; until a stable release has `atm hook`, install that prerelease. `brew install randlee/tap/atm` gives 1.6.1, which lacks `atm hook` and `atm cron`.
 - `python3`, `bd`, `dolt`, `git`, `jq`, `gh` and the `gh stack` extension must be on PATH, at the versions in the table. `gh auth status` must show a logged-in account.
-- The `sc-compose` CLI must be 1.7.0 or newer, below 2. If it's older, run `brew update` first, because a stale tap shows an old version; the fix is then `brew upgrade randlee/tap/sc-compose`.
+- The `sc-compose` CLI must be 1.8.0 or newer, below 2. If it's older, run `brew update` first, because a stale tap shows an old version; the fix is then `brew upgrade randlee/tap/sc-compose`.
 - `python3 -c "import pydantic, yaml, sc_compose"` must succeed, and the `sc-compose` Python package must be the same version as the CLI. If the import fails, report the full error. If it is simply missing, the fix is `python3 -m pip install pydantic pyyaml 'sc-compose==<CLI version>'`. The copy of the wheel inside `atm-bd`'s uv tool environment must match the CLI too; the guide gives the reinstall command.
 - `$ATM_IDENTITY` and `$ATM_TEAM`: report their values, or note that they aren't set.
 - `$TYPESAFE_API_KEY`: report only whether it is set, never its value. The dev-sanity and quality-mgr agents need it for Jev.

@@ -7,7 +7,7 @@ The record key hashes the exact hook source, its spec, and `gate-questions.json`
 record one new Jev sample with:
 
 ```sh
-uv run --no-project --with 'pydantic>=2' --with pyyaml --with 'sc-compose>=1.7.0,<2' \
+uv run --no-project --with 'pydantic>=2' --with pyyaml --with 'sc-compose>=1.8.0,<2' \
   python plugins/atm-bd-orchestration/core/gate/record-plugin-gates.py
 ```
 

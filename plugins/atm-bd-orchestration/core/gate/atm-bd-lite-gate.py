@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.7.0,<2"]
+# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.8.0,<2"]
 # ///
 """atm-bd-lite gate: hold one hook file to its hooks/*.md spec (fenix-brief.md §B).
 

@@ -38,7 +38,7 @@ host `python3` on `PATH` can import `pydantic`, `yaml` (PyYAML), and the
 environment must have matching versions within the bundled manifest's range;
 the installer checks these requirements before writing files. The host Python
 dependencies can be installed with `python3 -m pip install pydantic pyyaml
-'sc-compose>=1.7.0,<2'`; install the matching `sc-compose` CLI separately.
+'sc-compose>=1.8.0,<2'`; install the matching `sc-compose` CLI separately.
 
 From the repository root, run `atm-bd skill` to install the bundled skills
 without fetching a release. It reports the bundled source ref, commit SHA,
