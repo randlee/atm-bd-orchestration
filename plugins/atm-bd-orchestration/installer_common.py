@@ -33,6 +33,10 @@ MANIFEST_FILE = "manifest.yaml"
 CONFIG_TEMPLATE = "config/atm-bd-orchestration.yaml.j2"
 LEGACY_OWNED = "config/legacy-owned.json"
 BACKUP_DIR = ".backup"
+# Harness directories a default install fills, in order. Claude agents install only into .claude: the
+# other harnesses get skills only, even in a repository with Codex teammates.
+AGENT_HARNESS = ".claude"
+HARNESS_DIRS = (AGENT_HARNESS, ".codex", ".cursor")
 OVERWRITE_HINT = f" (or rerun with --overwrite to move it to {BACKUP_DIR}/)"
 CONFIG_OUT = ".claude/project/atm-bd-orchestration.yaml"
 LOCK_OUT = ".claude/project/atm-bd-orchestration.lock.json"
@@ -454,11 +458,20 @@ def sha256(data: bytes) -> str:
 
 
 def repo_root_for(destination_path: Path) -> Path:
-    """The consuming repository: the parent of <repo>/.claude or <repo>/.codex."""
+    """The consuming repository: the parent of <repo>/.claude, <repo>/.codex or <repo>/.cursor."""
     dest = Path(destination_path).resolve()
-    if dest.name in (".claude", ".codex"):
+    if dest.name in HARNESS_DIRS:
         return dest.parent
-    raise InstallError(f"--dest must be a repository's .claude or .codex directory, got {dest}")
+    raise InstallError(f"--dest must be a repository's {', '.join(HARNESS_DIRS)} directory, got {dest}")
+
+
+def harness_dests(dest: Path, codex_only: bool = False) -> List[Path]:
+    """The harness directories to install: dest itself when it is one, else every harness of the repository dest
+    (.claude first, which carries the agents and the config), or .codex alone with codex_only."""
+    dest = Path(dest).resolve()
+    if dest.name in HARNESS_DIRS:
+        return [dest]
+    return [dest / ".codex"] if codex_only else [dest / name for name in HARNESS_DIRS]
 
 
 def _git_origin_slug(repo_root: Path) -> Optional[str]:
@@ -754,7 +767,7 @@ class SanityMember:
 @dataclass
 class Plan:
     repo_root: Path
-    target_prefix: str                                   # ".claude/" or ".codex/"
+    target_prefix: str                                   # ".claude/", ".codex/" or ".cursor/"
     writes: dict[str, tuple[bytes, bool]] = field(default_factory=lambda: dict[str, tuple[bytes, bool]]())   # repo-rel -> (bytes, executable)
     removals: list[str] = field(default_factory=lambda: list[str]())
     problems: list[str] = field(default_factory=lambda: list[str]())

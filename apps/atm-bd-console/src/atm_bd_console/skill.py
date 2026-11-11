@@ -6,6 +6,7 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 from . import __version__, skill_integrity, skill_source
 
@@ -33,9 +34,11 @@ def _parser() -> argparse.ArgumentParser:
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--latest", action="store_true", help="install the latest published release")
     source.add_argument("--list", action="store_true", help="list upstream release tags and available sets")
-    parser.add_argument("--dest", type=Path, metavar="REPO", help="target repository (default: current directory)")
+    parser.add_argument("--dest", type=Path, metavar="REPO",
+                        help="target repository (default: current directory): skills into .claude, .codex and .cursor, "
+                             "agents into .claude only; a .claude, .codex or .cursor directory installs that one alone")
     parser.add_argument("--orchestration", action="store_true", help="install the orchestration set (the default and only set)")
-    parser.add_argument("--codex", action="store_true", help="install skills under .codex")
+    parser.add_argument("--codex", action="store_true", help="install .codex alone (skills only)")
     parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="set an installer config value")
     parser.add_argument("--overwrite", action="store_true", help="back up files that differ from the package")
     return parser
@@ -43,6 +46,41 @@ def _parser() -> argparse.ArgumentParser:
 
 def _source_line(name: str, commit: str) -> str:
     return f"installed atm-bd-orchestration orchestration from {name} @ {commit} (atm-bd {__version__})"
+
+
+def _install_one(installer: ModuleType, source: skill_source.SkillSource, manifest: dict[str, Any],
+                 manifest_version: str, dest: Path, overrides: object, args: argparse.Namespace) -> None:
+    """Install one harness directory and write its install record; raise on any failure."""
+    try:
+        plan, config = installer.plan_install(
+            source.pkg_dir, dest, overrides, codex=dest.name != installer.AGENT_HARNESS, overwrite=args.overwrite,
+        )
+        package_version = installer.package_version(source.pkg_dir)
+    except skill_source.INSTALL_ERROR_TYPES as error:
+        raise skill_source.SkillSourceError(f"{dest.name}: {skill_source.install_failure_message(source.name, error)}") from error
+    if plan.problems:
+        raise installer.InstallError(f"{dest.name}: " + "; ".join(plan.problems))
+    changed = installer.apply_plan(plan, package_version)
+    try:
+        skill_integrity.write_install_record(
+            dest, manifest_version, source.commit, manifest,
+            {key: data for key, (data, _executable) in plan.writes.items()}, source=source.name,
+        )
+    except OSError as error:
+        source_args = " --latest" if args.latest else (
+            f" {source.name.removeprefix('v')}" if source.name != "bundled" else ""
+        )
+        raise skill_source.SkillSourceError(
+            f"files were installed but {skill_integrity.RECORD_NAME} could not be written: {error}; "
+            f"rerun `atm-bd skill{source_args} --dest {dest} --overwrite` to restore it"
+        ) from error
+    print(
+        f"atm-bd-orchestration {package_version} {dest.name}: {changed} file(s) written, "
+        f"{len(plan.writes) - changed} unchanged, {len(plan.removals)} removed, "
+        f"{len(plan.backups)} backed up; config and registry updated"
+    )
+    for line in installer.completion_report(plan, config):
+        print(line)
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -63,9 +101,7 @@ def run(argv: list[str] | None = None) -> int:
     try:
         installer = _installer()
         installer.check_tools()
-        dest = (args.dest or Path.cwd()).expanduser().resolve()
-        if dest.name not in {".claude", ".codex"}:
-            dest = dest / (".codex" if args.codex else ".claude")
+        dests = installer.harness_dests((args.dest or Path.cwd()).expanduser().resolve(), codex_only=args.codex)
         overrides = installer.parse_set(args.set)
         with skill_source.resolve_source(version=args.version, latest=args.latest) as source:
             manifest = skill_integrity.load_manifest(source)
@@ -77,38 +113,8 @@ def run(argv: list[str] | None = None) -> int:
                 print(f"atm-bd skill: {source.name} differs from its published {skill_integrity.MANIFEST_NAME} "
                       f"in {len(differing)} file(s); nothing installed", file=sys.stderr)
                 return 1
-            try:
-                plan, config = installer.plan_install(
-                    source.pkg_dir, dest, overrides, codex=args.codex or dest.name == ".codex", overwrite=args.overwrite,
-                )
-                package_version = installer.package_version(source.pkg_dir)
-            except skill_source.INSTALL_ERROR_TYPES as error:
-                print(f"atm-bd skill: {skill_source.install_failure_message(source.name, error)}", file=sys.stderr)
-                return 1
-            if plan.problems:
-                raise installer.InstallError("; ".join(plan.problems))
-            changed = installer.apply_plan(plan, package_version)
-            try:
-                skill_integrity.write_install_record(
-                    dest, manifest_version, source.commit, manifest,
-                    {key: data for key, (data, _executable) in plan.writes.items()}, source=source.name,
-                )
-            except OSError as error:
-                source_args = " --latest" if args.latest else (
-                    f" {source.name.removeprefix('v')}" if source.name != "bundled" else ""
-                )
-                codex_arg = " --codex" if dest.name == ".codex" else ""
-                raise skill_source.SkillSourceError(
-                    f"files were installed but {skill_integrity.RECORD_NAME} could not be written: {error}; "
-                    f"rerun `atm-bd skill{source_args} --dest {dest.parent}{codex_arg} --overwrite` to restore it"
-                ) from error
-            print(
-                f"atm-bd-orchestration {package_version}: {changed} file(s) written, "
-                f"{len(plan.writes) - changed} unchanged, {len(plan.removals)} removed, "
-                f"{len(plan.backups)} backed up; config and registry updated"
-            )
-            for line in installer.completion_report(plan, config):
-                print(line)
+            for dest in dests:
+                _install_one(installer, source, manifest, manifest_version, dest, overrides, args)
             print(_source_line(source.name, source.commit))
     except (skill_source.SkillSourceError, skill_integrity.IntegrityError) as error:
         print(f"atm-bd skill: {error}", file=sys.stderr)

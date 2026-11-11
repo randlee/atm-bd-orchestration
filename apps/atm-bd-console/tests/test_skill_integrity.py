@@ -168,6 +168,14 @@ class FakePlan:
 
 
 class FakeInstaller:
+    AGENT_HARNESS = ".claude"
+
+    @staticmethod
+    def harness_dests(dest, codex_only=False):
+        if dest.name in (".claude", ".codex", ".cursor"):
+            return [dest]
+        return [dest / ".codex"] if codex_only else [dest / name for name in (".claude", ".codex", ".cursor")]
+
     """install.py's API; the plan renders a team value into one file, as the real installer does."""
     InstallError = RuntimeError
 
@@ -293,7 +301,7 @@ def test_bare_install_verifies_the_packaged_manifest_with_the_network_disabled(
 
     assert run_cli([], tmp_path) == 0
 
-    assert installer.calls == ["check_tools", "plan_install", "apply_plan"]
+    assert installer.calls == ["check_tools", *["plan_install", "apply_plan"] * 3]   # .claude, .codex, .cursor
     out = capsys.readouterr().out
     assert out.endswith(f"installed atm-bd-orchestration orchestration from bundled @ unknown (atm-bd {skill.__version__})\n")
 
@@ -319,7 +327,7 @@ def test_install_parses_and_validates_the_manifest_once(
 
     assert run_cli(args, tmp_path) == 0
     assert calls == ([("v0.17.4", "0.17.4")] if args else [("bundled", None)])
-    assert installer.calls == ["check_tools", "plan_install", "apply_plan"]
+    assert installer.calls == ["check_tools", *["plan_install", "apply_plan"] * 3]   # .claude, .codex, .cursor
 
 
 @pytest.mark.parametrize("args", [["0.17.3"], ["--latest"]], ids=["version", "latest"])
@@ -464,17 +472,19 @@ def test_install_record_lists_version_commit_source_and_the_sc_sha_of_each_insta
     assert run_cli(["0.17.3"], tmp_path) == 0
 
     installed = consumer(tmp_path)
-    record = json.loads(installed.pop(".claude/atm-bd-install.json"))
     published = json.loads(manifest_bytes(tree, "0.17.3"))
-    assert record == {
-        "version": "0.17.3",
-        "commit": COMMIT,
-        "source": {"ref": "v0.17.3", "manifest_aggregate": published["aggregate"]},
-        "files": [{"path": path, "sc_sha": sha(data)} for path, data in sorted(installed.items())],
-    }
-    # The rendered file is recorded as installed, not as published.
-    rendered = next(e for e in record["files"] if e["path"] == ".claude/skills/demo/SKILL.md")
-    assert rendered["sc_sha"] != next(e["sc_sha"] for e in published["files"] if e["path"] == "skills/demo/SKILL.md")
+    for harness in (".claude", ".codex", ".cursor"):   # one record per harness directory, over its own files
+        record = json.loads(installed.pop(f"{harness}/atm-bd-install.json"))
+        assert record == {
+            "version": "0.17.3",
+            "commit": COMMIT,
+            "source": {"ref": "v0.17.3", "manifest_aggregate": published["aggregate"]},
+            "files": [{"path": path, "sc_sha": sha(data)} for path, data in sorted(installed.items())
+                      if path.startswith(f"{harness}/")],
+        }
+        # The rendered file is recorded as installed, not as published.
+        rendered = next(e for e in record["files"] if e["path"] == f"{harness}/skills/demo/SKILL.md")
+        assert rendered["sc_sha"] != next(e["sc_sha"] for e in published["files"] if e["path"] == "skills/demo/SKILL.md")
 
 
 # --- the built artifacts --------------------------------------------------------------------------------------------

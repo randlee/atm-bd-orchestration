@@ -19,8 +19,8 @@ For a plain-language walkthrough, see
 
 The skills run repository-relative scripts (`.claude/skills/<skill>/scripts/...`)
 and dispatch templates that ATM agents execute inside the consuming repository,
-so the package is installed **into a repository's `.claude/` (and optionally
-`.codex/`) directory**, not used from the plugin cache. Marketplace and plugin
+so the package is installed **into a repository's `.claude/`, `.codex/` and
+`.cursor/` directories**, not used from the plugin cache. Marketplace and plugin
 manifests exist so Claude Code can discover it; `install.py` puts it to work.
 
 ## Install
@@ -54,15 +54,20 @@ and cannot announce its result.
 Standalone, from a checkout of this repository:
 
 ```bash
-plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude
-plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.codex   # skills only, no agents
-plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude --set test_command="make test"
+plugins/atm-bd-orchestration/install.py --dest /path/to/repo           # .claude, .codex and .cursor
+plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.codex    # that directory alone
+plugins/atm-bd-orchestration/install.py --dest /path/to/repo --set test_command="make test"
 ```
+
+The default fills every harness: skills into `.claude`, `.codex` and `.cursor`;
+agents and the configuration into `.claude` only. Claude agents never install
+into another harness, even when the team has Codex teammates. `--codex` with a
+repository `--dest` installs `.codex` alone.
 
 Through `atm-bd skill`: the `atm-bd` console package's entry point wraps
 `install.py` and adds manifest verification and an install record. Its `--dest`
-is the repository (default: the current directory), while `install.py --dest`
-takes the `.claude` or `.codex` directory itself. A direct `install.py` install
+is the repository (default: the current directory) and installs the same three
+harnesses; either entry point also takes one harness directory as `--dest`. A direct `install.py` install
 writes no install record, so `atm-hook-doctor.py` reports it as
 `install_record_missing`.
 

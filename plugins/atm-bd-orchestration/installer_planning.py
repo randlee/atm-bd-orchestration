@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 import installer_common as common
 from installer_ownership import ownership_state
 from installer_common import (
+    AGENT_HARNESS,
     CONFIG_OUT,
     CONFIG_TEMPLATE,
     CONSUMER_REGISTRY,
@@ -85,6 +86,7 @@ def plan_install(pkg_dir: Path, dest: Path, overrides: Config, *, codex: bool,
     pkg_dir = Path(pkg_dir).resolve()
     repo_root = repo_root_for(dest)
     target_prefix = Path(dest).resolve().name + "/"
+    codex = codex or target_prefix != AGENT_HARNESS + "/"   # agents install only into .claude
     config = resolve_config(repo_root, overrides, pkg_dir)
     config_bytes = render_config(config, pkg_dir)
     check_beads_server_mode(repo_root)
