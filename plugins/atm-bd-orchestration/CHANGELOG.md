@@ -2,8 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- Package-owned QA policy `skills/atm-bd-orchestration/package-policy.md`, overwritten on every install and read by quality-mgr before the repository's `policy_path`, which the installer never writes. Its mandatory rules apply in every repository and win over a repository policy that says less: the ceremony screen on every QA run, `ceremony-qa` on every plan, and the flaky-test rule.
+- The package ships `ceremony-finding-screen` and `flaky-test-qa` (made language-neutral, 0.2.0) beside `ceremony-qa`, so every agent the templates dispatch is installed.
+- Flaky-test rule: `flaky-test-qa` runs in every round, sprint or fix, whose layer changes test code; its findings are blocking whatever their severity, and its assignment always carries the rule. `fix-round-scope check --tests-changed` requires it in a fix round.
+
 ### Changed
 - The sc-compose floor is 1.8.0 (`>= 1.8.0, < 2`) for the CLI, the Python wheel every `uv run --script` resolves, and the `atm-bd` console: a floor, never an exact pin, so 1.8.1 and later 1.x releases resolve without a package change. The CLI and the wheel must still be the same version.
+- `ceremony-finding-screen` runs in every quality-mgr round, fix verification and plan fix rounds included, over every finding the round reports; a carried finding it screens `ceremony` is noted, not poured again.
 - sc-compose pin moved to 1.8.0 (CI CLI assets and checksums, the console lockfile's `sc-compose` and `sc-sha` wheels): a `uv run --script` runtime resolves the newest release in the `>= 1.7.0, < 2` range, and the installer refuses a CLI older than that wheel, so every PR went red the hour 1.8.0 reached PyPI. The range floor is unchanged; hosts upgrade with `brew upgrade randlee/tap/sc-compose` (a `cargo install` copy on PATH must be upgraded too) and `uv cache clean sc-compose`.
 - `sc_render.render` no longer re-parses a `.json` template's output: the 1.8.0 wheel applies the CLI's checked-render contract itself (sc-compose#787); `sc_render.error_text` prefixes the wheel's `ERR_...` code to the message, the shape the CLI prints.
 
