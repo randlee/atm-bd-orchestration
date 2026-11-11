@@ -256,7 +256,7 @@ they resolve paths from the repository layout. One upstream test that reads the
 source repository's own phase-d plan is deselected. The install tests need
 `sc-compose` and are skipped, with a message, when it is not on PATH;
 `tests/test_sc_compose_version.py` fails unless the sc-compose CLI and the
-script runtime's wheel are one version in the manifest's `sc-compose >= 1.7.0, < 2`
+script runtime's wheel are one version in the manifest's `sc-compose >= 1.8.0, < 2`
 range (CI installs the floor);
 `test_real_upgrade_from_a_0_2_3_install` needs the package history (a full
 clone). CI (`.github/workflows/tests.yml`) runs all of them on ubuntu and macos.

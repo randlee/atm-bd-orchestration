@@ -689,7 +689,7 @@ STEPS = {"sanity": SANITY, "sprint_qa": SPRINT_QA, "fix_qa": FIX_QA}
 
 def render(template: str, values: dict, tmp_path: Path) -> subprocess.CompletedProcess[str]:
     binary = shutil.which("sc-compose")
-    assert binary, "sc-compose is required for the D5 render check: install sc-compose >= 1.7.0"
+    assert binary, "sc-compose is required for the D5 render check: install sc-compose >= 1.8.0"
     var_file = tmp_path / "vars.json"
     var_file.write_text(json.dumps(values))
     return run_process(

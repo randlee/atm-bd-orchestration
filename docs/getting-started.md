@@ -49,7 +49,7 @@ You need these command-line tools and three Python packages. Check them once per
 | `dolt` | The database server behind beads (server mode) | not checked | Homebrew | `which dolt` |
 | `git` | Branches and worktrees | 2.27 or newer | `brew install git` | `git --version` |
 | `jq` | Used by the installed scripts | 1.6 or newer | ships with macOS 15 and later; otherwise `brew install jq` | `jq --version` |
-| `sc-compose` | Renders templates during install | 1.7.0 or newer, below 2 | `brew update`, then `brew install randlee/tap/sc-compose` | `sc-compose --version` |
+| `sc-compose` | Renders templates during install | 1.8.0 or newer, below 2 | `brew update`, then `brew install randlee/tap/sc-compose` | `sc-compose --version` |
 | `gh` | Reads pull requests from GitHub | not checked | Homebrew, then `gh auth login` | `gh auth status` |
 | `gh-stack` | The `gh stack` extension the lead uses to land the stack | not checked | `gh extension install github/gh-stack` | `gh stack --version` |
 

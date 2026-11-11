@@ -452,13 +452,14 @@ def shim_sc_compose(bin_dir: Path, cli: str, wheel: str, python_version: str = "
 
 
 @pytest.mark.parametrize("cli, wheel, refusal", [
-    ("1.7.0", "1.7.0", None),
-    ("1.7.1", "1.7.1", None),
+    ("1.8.0", "1.8.0", None),
+    ("1.8.1", "1.8.1", None),
     ("1.12.0", "1.12.0", None),
-    ("1.6.1", "1.6.1", "sc-compose CLI is sc-compose 1.6.1, the package needs >= 1.7.0, < 2"),
-    ("2.0.0", "2.0.0", "sc-compose CLI is sc-compose 2.0.0, the package needs >= 1.7.0, < 2"),
-    ("1.7.0", "1.6.1", "the script runtime has the sc-compose wheel 1.6.1, the package needs >= 1.7.0, < 2"),
-    ("1.7.1", "1.7.0", "the sc-compose CLI is 1.7.1 and the script runtime's wheel is 1.7.0; they must be the same version"),
+    ("1.6.1", "1.6.1", "sc-compose CLI is sc-compose 1.6.1, the package needs >= 1.8.0, < 2"),
+    ("1.7.0", "1.7.0", "sc-compose CLI is sc-compose 1.7.0, the package needs >= 1.8.0, < 2"),
+    ("2.0.0", "2.0.0", "sc-compose CLI is sc-compose 2.0.0, the package needs >= 1.8.0, < 2"),
+    ("1.8.0", "1.6.1", "the script runtime has the sc-compose wheel 1.6.1, the package needs >= 1.8.0, < 2"),
+    ("1.8.1", "1.8.0", "the sc-compose CLI is 1.8.1 and the script runtime's wheel is 1.8.0; they must be the same version"),
 ])
 def test_check_tools_accepts_one_sc_compose_version_in_the_range(tmp_path, monkeypatch, cli, wheel, refusal):
     import importlib.metadata
@@ -477,13 +478,13 @@ def test_check_tools_accepts_one_sc_compose_version_in_the_range(tmp_path, monke
 def test_install_refuses_installer_interpreter_mismatch_before_writes(tmp_path, monkeypatch):
     import importlib.metadata
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    shim_sc_compose(bin_dir, "1.8.0", "1.8.0")
     monkeypatch.setenv("PATH", str(bin_dir))
-    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.7.1")
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.8.1")
     destination = tmp_path / "repo" / ".claude"
     result = install.prepare(str(PKG), str(destination), {})
     assert not destination.exists()
-    assert "installer interpreter wheel is 1.7.1" in str(result)
+    assert "installer interpreter wheel is 1.8.1" in str(result)
     assert "upgrade the app or host" in str(result)
 
 
@@ -493,7 +494,7 @@ def test_install_refuses_installer_interpreter_mismatch_before_writes(tmp_path, 
 ])
 def test_check_tools_requires_current_console(tmp_path, monkeypatch, tool, reported, expected):
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    shim_sc_compose(bin_dir, "1.8.0", "1.8.0")
     path = bin_dir / tool
     if reported is None:
         path.unlink()
@@ -513,7 +514,7 @@ def test_check_tools_requires_current_console(tmp_path, monkeypatch, tool, repor
 def test_prepare_refuses_missing_declared_tool_before_writing(tmp_path, monkeypatch, tool, expected):
     repo = make_repo(tmp_path)
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    shim_sc_compose(bin_dir, "1.8.0", "1.8.0")
     (bin_dir / tool).unlink()
     monkeypatch.setenv("PATH", str(bin_dir))
 
@@ -525,7 +526,7 @@ def test_prepare_refuses_missing_declared_tool_before_writing(tmp_path, monkeypa
 
 def test_check_tools_refuses_a_declared_tool_below_its_manifest_floor(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    shim_sc_compose(bin_dir, "1.8.0", "1.8.0")
     (bin_dir / "git").write_text("#!/bin/sh\necho 'git version 2.26.0'\n")
     (bin_dir / "git").chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir))
@@ -538,7 +539,7 @@ def test_check_tools_refuses_an_atm_without_hook_and_cron(tmp_path, monkeypatch)
     # atm prerelease 1.6.3 is the first with `atm hook` and `atm cron`, which the phase setup and the sanity
     # close hook run; 1.6.2 has neither.
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    shim_sc_compose(bin_dir, "1.8.0", "1.8.0")
     (bin_dir / "atm").write_text("#!/bin/sh\necho 'atm 1.6.2'\n")
     (bin_dir / "atm").chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir))
@@ -549,9 +550,9 @@ def test_check_tools_refuses_an_atm_without_hook_and_cron(tmp_path, monkeypatch)
 
 def test_check_tools_ignores_the_python3_on_path(tmp_path, monkeypatch):
     import importlib.metadata
-    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.7.0")
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.8.0")
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.14.7")
+    shim_sc_compose(bin_dir, "1.8.0", "1.8.0", python_version="3.14.7")
     monkeypatch.setenv("PATH", str(bin_dir))
 
     install.check_tools()
@@ -562,9 +563,9 @@ def test_check_tools_accepts_python_313_when_installer_wheel_imports(tmp_path, m
     import importlib.metadata
     import types
 
-    shim_sc_compose(tmp_path / "bin", "1.7.0", "1.7.0")
+    shim_sc_compose(tmp_path / "bin", "1.8.0", "1.8.0")
     monkeypatch.setenv("PATH", str(tmp_path / "bin"))
-    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.7.0")
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.8.0")
     original_import = builtins.__import__
 
     def import_with_sc_compose(name, *args, **kwargs):
@@ -578,7 +579,7 @@ def test_check_tools_accepts_python_313_when_installer_wheel_imports(tmp_path, m
 def test_check_tools_names_reinstall_for_missing_installer_wheel(tmp_path, monkeypatch):
     import builtins
     import importlib.metadata
-    shim_sc_compose(tmp_path / "bin", "1.7.0", "1.7.0")
+    shim_sc_compose(tmp_path / "bin", "1.8.0", "1.8.0")
     monkeypatch.setenv("PATH", str(tmp_path / "bin"))
     monkeypatch.setattr(importlib.metadata, "version", lambda _: (_ for _ in ()).throw(importlib.metadata.PackageNotFoundError("sc-compose")))
     original_import = builtins.__import__
@@ -597,7 +598,7 @@ def test_check_tools_names_reinstall_for_missing_installer_wheel(tmp_path, monke
 
 def test_check_tools_requires_uv_for_the_script_runtime(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    shim_sc_compose(bin_dir, "1.8.0", "1.8.0")
     (bin_dir / "uv").unlink()
     monkeypatch.setenv("PATH", str(bin_dir))
 
@@ -607,7 +608,7 @@ def test_check_tools_requires_uv_for_the_script_runtime(tmp_path, monkeypatch):
 
 def test_check_tools_reports_a_script_runtime_that_cannot_resolve(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0")
+    shim_sc_compose(bin_dir, "1.8.0", "1.8.0")
     (bin_dir / "uv").write_text("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'uv 0.12.5'; else "
                                 "echo 'error: No interpreter found for Python >=3.11, <3.12' >&2; exit 2; fi\n")
     monkeypatch.setenv("PATH", str(bin_dir))
@@ -617,7 +618,7 @@ def test_check_tools_reports_a_script_runtime_that_cannot_resolve(tmp_path, monk
 
 
 def test_the_manifest_requires_sc_compose_from_1_7_0_below_2():
-    assert install.sc_compose_range() == ("1.7.0", 2)
+    assert install.sc_compose_range() == ("1.8.0", 2)
 
 
 def test_manifest_declares_every_installer_verified_cli():
@@ -1356,9 +1357,9 @@ def test_python_boundary_accepts_supported_interpreters(version):
 
 def test_prepare_does_not_refuse_on_the_host_python3(tmp_path, monkeypatch):
     import importlib.metadata
-    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.7.0")
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.8.0")
     bin_dir = tmp_path / "bin"
-    shim_sc_compose(bin_dir, "1.7.0", "1.7.0", python_version="3.14.0")
+    shim_sc_compose(bin_dir, "1.8.0", "1.8.0", python_version="3.14.0")
     monkeypatch.setenv("PATH", str(bin_dir))
     destination = tmp_path / ".claude"
     result = install.prepare(str(PKG), str(destination), {})

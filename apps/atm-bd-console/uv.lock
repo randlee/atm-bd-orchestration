@@ -48,7 +48,7 @@ requires-dist = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich", specifier = ">=15.0.0,<16" },
-    { name = "sc-compose", specifier = ">=1.7.0,<2" },
+    { name = "sc-compose", specifier = ">=1.8.0,<2" },
     { name = "sc-observability", specifier = ">=1.5.0,<2" },
     { name = "sc-sha", specifier = ">=1.7.0,<2" },
     { name = "textual", specifier = ">=8.2.8,<9" },
