@@ -907,9 +907,17 @@ def test_write_roles_updates_in_place_and_keeps_comments(tmp_path):
     assert yaml.safe_load(fresh.read_text()) == {"bead_prefix": "x", "roles": {"lead": "l"}}
 
 
-def test_dest_must_be_a_claude_or_codex_dir(tmp_path):
+def test_dest_must_be_a_harness_dir(tmp_path):
     with pytest.raises(install.InstallError, match="--dest must be"):
         install.repo_root_for(tmp_path / "somewhere")
+    for name in (".claude", ".codex", ".cursor"):
+        assert install.repo_root_for(tmp_path / name) == tmp_path.resolve()
+
+
+def test_harness_dests_default_to_every_harness_with_claude_first(tmp_path):
+    assert install.harness_dests(tmp_path) == [tmp_path.resolve() / n for n in (".claude", ".codex", ".cursor")]
+    assert install.harness_dests(tmp_path, codex_only=True) == [tmp_path.resolve() / ".codex"]
+    assert install.harness_dests(tmp_path / ".cursor") == [(tmp_path / ".cursor").resolve()]
 
 
 # ---------------------------------------------------------------- fresh install
@@ -1315,6 +1323,27 @@ def test_codex_target_installs_skills_only_and_keeps_the_claude_record(tmp_path,
     assert not (repo / ".codex/agents").exists() and (repo / ".codex/skills/atm-beads/SKILL.md").is_file()
     files = lock(repo)["files"]
     assert claude_keys <= set(files) and ".codex/skills/atm-beads/SKILL.md" in files
+
+
+@needs_sc_compose
+def test_a_repository_dest_installs_skills_in_every_harness_and_agents_in_claude_only(tmp_path, capsys):
+    repo = make_repo(tmp_path)
+    rc, err = run(repo, *QA, target="", capsys=capsys)
+    assert rc == 0, err
+    for name in (".claude", ".codex", ".cursor"):
+        assert (repo / name / "skills/atm-beads/SKILL.md").is_file()
+    assert (repo / ".claude/agents/ceremony-finding-screen.md").is_file()
+    assert not (repo / ".codex/agents").exists() and not (repo / ".cursor/agents").exists()
+    files = lock(repo)["files"]
+    assert {k.split("/")[0] for k in files if "/skills/" in k} == {".claude", ".codex", ".cursor"}
+
+
+@needs_sc_compose
+def test_a_non_claude_harness_never_gets_agents_even_when_asked(tmp_path):
+    repo = make_repo(tmp_path)
+    assert run(repo, *QA)[0] == 0
+    plan, _ = install.plan_install(PKG, repo / ".cursor", {}, codex=False)
+    assert plan.writes and not [k for k in plan.writes if "/agents/" in k]
 
 
 @needs_sc_compose

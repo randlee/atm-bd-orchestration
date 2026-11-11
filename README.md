@@ -2,7 +2,7 @@
 
 ATM + Beads orchestration skill pack, published as a Claude Code plugin
 marketplace and as a synaptic-canvas style package for `sc-install`
-(`.claude` and `.codex` targets).
+(`.claude`, `.codex` and `.cursor` targets).
 
 ```
 .claude-plugin/marketplace.json          the marketplace manifest
@@ -34,9 +34,12 @@ Then install the package into the repository where the agents run, because the
 skills execute repository-relative scripts and dispatch templates:
 
 ```bash
-python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.claude
-python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo/.codex
+python3 plugins/atm-bd-orchestration/install.py --dest /path/to/repo
 ```
+
+By default it installs the skills into `.claude`, `.codex` and `.cursor`, and
+the agents into `.claude` only, even when the team has Codex teammates. A
+`--dest` naming one of those directories installs that one alone.
 
 `install.py` reads the configuration from the repository's
 `.claude/agents/registry.yaml` (no defaults: a missing variable fails the install

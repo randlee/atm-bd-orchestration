@@ -52,7 +52,7 @@ STOP and wait for my approval.
 
 Step 4: install (only after I approve)
 1. Create or fix `.atm.toml` (including the approved startup blocks), `.claude/agents/registry.yaml` and the beads server mode, as approved.
-2. Run `atm-bd skill` from the repo root. Add `--set name=value` for anything approved but missing from the registry. Use `--codex` only if I asked for a Codex install.
+2. Run `atm-bd skill` from the repo root. Add `--set name=value` for anything approved but missing from the registry. It installs the skills into `.claude`, `.codex` and `.cursor`, and the agents into `.claude` only; use no harness flag.
 3. If it fails, report the exact error and stop. Don't retry with different flags unless I say so.
 4. Show me the list of changes it prints, every `NOT DONE:` line, and the recommended `.atm.toml` block. Confirm that `.claude/project/atm-bd-orchestration.yaml` was written, that `atm-bd` is a member of the `tool` team (`atm members --team tool`), and that the dev-sanity member is on our team. If `tool_identity` is set in that file, confirm that identity exists instead of `atm-bd`. For a `NOT DONE:` line, run the command it gives only after I approve.
 5. Add the remaining team members (lead, quality-mgr, each dev) as approved, with the `atm teams add-member` command in "Setting up the team".

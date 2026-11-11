@@ -19,6 +19,8 @@ if _package_dir not in sys.path:
 
 import installer_common as common
 from installer_common import (
+    AGENT_HARNESS as AGENT_HARNESS,
+    harness_dests as harness_dests,
     AGENT_VARIABLES as AGENT_VARIABLES,
     ATM_CONFIG as ATM_CONFIG,
     AtmTable as AtmTable,
@@ -130,7 +132,7 @@ def _fail(message: str) -> dict[str, str]:
 
 
 def _codex(destination_path: str, options: InstallerHookOptions) -> bool:
-    return bool(options.get("codex")) or Path(destination_path).name == ".codex"
+    return bool(options.get("codex")) or Path(destination_path).name != AGENT_HARNESS
 
 
 def _plan_or_fail(source_path: str, destination_path: str, options: InstallerHookInput) -> Tuple[Optional[Plan], Config, Optional[dict[str, str]]]:
@@ -193,9 +195,11 @@ def cleanup(source_path: str, destination_path: str, options: InstallerHookInput
 
 
 def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
-    parser = argparse.ArgumentParser(description="Install atm-bd-orchestration into a repository's .claude (or .codex) directory.")
-    parser.add_argument("--dest", required=True, help="<repo>/.claude or <repo>/.codex")
-    parser.add_argument("--codex", action="store_true", help="the destination is a .codex directory (skills only, no agents)")
+    parser = argparse.ArgumentParser(description=(
+        "Install atm-bd-orchestration into a repository: skills into .claude, .codex and .cursor, agents into .claude "
+        "only. A --dest naming one of those directories installs that one alone."))
+    parser.add_argument("--dest", required=True, help="<repo> (every harness) or <repo>/.claude, .codex or .cursor (that one)")
+    parser.add_argument("--codex", action="store_true", help="with a <repo> --dest, install .codex alone (skills only)")
     parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
                         help="set a config variable (wins over registry.yaml); lists take a JSON array or a,b,c")
     parser.add_argument("--overwrite", action="store_true",
@@ -208,15 +212,15 @@ def main(argv: Optional[List[str]] = None, pkg_dir: Path = PKG_DIR) -> int:
     except InstallError as exc:
         print(f"install.py: {exc}", file=sys.stderr)
         return 1
-    dest = Path(args.dest).expanduser().resolve()
-    options: InstallerHookInput = {"global": False, "local": True, "user": False, "project": False,
-               "codex": args.codex or dest.name == ".codex", "force": False, "overwrite": args.overwrite, "expand": True,
-               "args": overrides}
-    for step in (prepare, complete):
-        result = step(str(pkg_dir), str(dest), options)
-        if result["result"] != "success":
-            print(f"install.py: {result.get('message', 'installer failed')}", file=sys.stderr)
-            return 1
+    for dest in harness_dests(Path(args.dest).expanduser(), codex_only=args.codex):
+        options: InstallerHookInput = {"global": False, "local": True, "user": False, "project": False,
+                   "codex": dest.name != AGENT_HARNESS, "force": False, "overwrite": args.overwrite,
+                   "expand": True, "args": overrides}
+        for step in (prepare, complete):
+            result = step(str(pkg_dir), str(dest), options)
+            if result["result"] != "success":
+                print(f"install.py: {result.get('message', 'installer failed')} ({dest.name})", file=sys.stderr)
+                return 1
     return 0
 
 

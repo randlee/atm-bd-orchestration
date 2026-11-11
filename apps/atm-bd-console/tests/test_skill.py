@@ -35,6 +35,13 @@ class FakePlan:
 
 class FakeInstaller:
     InstallError = RuntimeError
+    AGENT_HARNESS = ".claude"
+
+    @staticmethod
+    def harness_dests(dest, codex_only=False):
+        if dest.name in (".claude", ".codex", ".cursor"):
+            return [dest]
+        return [dest / ".codex"] if codex_only else [dest / name for name in (".claude", ".codex", ".cursor")]
 
     def __init__(self):
         self.calls = []
@@ -250,14 +257,18 @@ def test_bundled_default_calls_installer_functions_in_the_app_interpreter(instal
 
     assert skill.run(["--dest", str(target)]) == 0
 
-    assert [call[0] for call in fake.calls] == [
-        "check_tools", "parse_set", "plan_install", "package_version", "apply_plan", "completion_report",
+    one = ["plan_install", "package_version", "apply_plan", "completion_report"]
+    assert [call[0] for call in fake.calls] == ["check_tools", "parse_set", *one, *one, *one]
+    plans = [call for call in fake.calls if call[0] == "plan_install"]
+    assert all(call[1] == source.pkg_dir for call in plans)
+    # Never Claude-only by default: skills go to every harness, agents (codex=False) to .claude alone.
+    assert [(call[2], call[4]) for call in plans] == [
+        (target / ".claude", False), (target / ".codex", True), (target / ".cursor", True),
     ]
-    plan_call = next(call for call in fake.calls if call[0] == "plan_install")
-    assert plan_call[1] == source.pkg_dir
-    assert plan_call[2] == target / ".claude"
-    assert plan_call[3:] == ({}, False, False)
+    assert plans[0][3:] == ({}, False, False)
     output = capsys.readouterr().out
+    for name in (".claude", ".codex", ".cursor"):
+        assert f"atm-bd-orchestration 0.16.0 {name}: 1 file(s) written" in output
     assert "\nChanges:\n  written: .claude/one\natm-bd-orchestration: NOT DONE: fake notice\n" in output
     assert output.endswith(f"installed atm-bd-orchestration orchestration from bundled @ {COMMIT} (atm-bd {__version__})\n")
 
@@ -268,8 +279,19 @@ def test_bundled_default_uses_current_directory(installer, tmp_path: Path, monke
 
     assert skill.run([]) == 0
 
-    plan_call = next(call for call in fake.calls if call[0] == "plan_install")
-    assert plan_call[2] == tmp_path / ".claude"
+    assert [call[2] for call in fake.calls if call[0] == "plan_install"] == [
+        tmp_path / ".claude", tmp_path / ".codex", tmp_path / ".cursor",
+    ]
+
+
+def test_a_harness_directory_dest_installs_that_one_alone(installer, tmp_path: Path) -> None:
+    fake, _ = installer
+    target = tmp_path / "consumer" / ".cursor"
+    target.mkdir(parents=True)
+
+    assert skill.run(["--dest", str(target)]) == 0
+
+    assert [(call[2], call[4]) for call in fake.calls if call[0] == "plan_install"] == [(target, True)]
 
 
 @pytest.mark.parametrize("commit", [COMMIT, "unknown"])
@@ -404,13 +426,16 @@ def test_fetched_installer_file_is_never_loaded_or_executed(installer, tmp_path:
     assert any(call[0] == "plan_install" and call[1] == remote for call in fake.calls)
 
 
-@pytest.mark.parametrize(("flags", "subdir", "conflict"), [
-    ((), ".claude", False),
-    (("--codex",), ".codex", False),
-    (("--overwrite",), ".claude", True),
+ALL_HARNESSES = (".claude", ".codex", ".cursor")
+
+
+@pytest.mark.parametrize(("flags", "subdirs", "conflict"), [
+    ((), ALL_HARNESSES, False),
+    (("--codex",), (".codex",), False),
+    (("--overwrite",), ALL_HARNESSES, True),
 ], ids=["default", "codex", "overwrite"])
 def test_bundled_skill_matches_install_py_file_for_file_offline_with_legacy_owned_file(
-    tmp_path: Path, monkeypatch, host_tools, flags: tuple[str, ...], subdir: str, conflict: bool,
+    tmp_path: Path, monkeypatch, host_tools, flags: tuple[str, ...], subdirs: tuple[str, ...], conflict: bool,
 ) -> None:
     module = load_bundled_installer()
     pkg_dir = tmp_path / "plugin"
@@ -431,19 +456,25 @@ def test_bundled_skill_matches_install_py_file_for_file_offline_with_legacy_owne
     monkeypatch.setattr(skill.skill_source, "_run_git", lambda *_: (_ for _ in ()).throw(AssertionError("network")))
     monkeypatch.setattr(skill.skill_source, "_http_get", lambda *_: (_ for _ in ()).throw(AssertionError("network")))
 
-    assert module.main(["--dest", str(direct / subdir), *flags], pkg_dir=pkg_dir) == 0
+    assert module.main(["--dest", str(direct), *flags], pkg_dir=pkg_dir) == 0
     assert skill.run(["--dest", str(through_skill), *flags]) == 0
 
-    # atm-bd skill writes everything install.py writes, plus its install record.
+    # atm-bd skill writes everything install.py writes, plus one install record per harness directory.
     installed = consumer_files(through_skill)
-    assert installed.pop(f"{subdir}/{skill_integrity.RECORD_NAME}")
+    for subdir in subdirs:
+        assert installed.pop(f"{subdir}/{skill_integrity.RECORD_NAME}")
     assert installed == consumer_files(direct)
+    assert {path.split("/")[0] for path in installed if "/skills/" in path} == set(subdirs)
+    # Claude agents install only into .claude, never into another harness.
+    assert not [path for path in installed if path.startswith((".codex/agents/", ".cursor/agents/"))]
 
 
 def _report(output: str) -> list[str]:
     """The install output from the change list on: the Changes lines, the .atm.toml recommendation, NOT DONE lines."""
     lines = output.splitlines()
-    return lines[lines.index("Changes:"):] if "Changes:" in lines else []
+    lines = lines[lines.index("Changes:"):] if "Changes:" in lines else []
+    # Each installer prints its own per-harness summary line; the change lists and notices are shared.
+    return [line for line in lines if not line.startswith("atm-bd-orchestration 0.")]
 
 
 def test_skill_prints_the_installer_change_list_and_not_done_notices(
@@ -457,7 +488,7 @@ def test_skill_prints_the_installer_change_list_and_not_done_notices(
     monkeypatch.setattr(skill.skill_source, "bundled_manifest", lambda: published(PLUGIN))
     monkeypatch.setattr(skill.skill_source, "bundled_directory", lambda: PLUGIN)
 
-    assert module.main(["--dest", str(direct / ".claude")], pkg_dir=PLUGIN) == 0
+    assert module.main(["--dest", str(direct)], pkg_dir=PLUGIN) == 0
     expected = _report(capsys.readouterr().out.replace(str(direct), "<repo>"))
     assert skill.run(["--dest", str(through_skill)]) == 0
     printed = capsys.readouterr().out.replace(str(through_skill), "<repo>")

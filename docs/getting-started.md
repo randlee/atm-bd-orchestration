@@ -125,7 +125,7 @@ Upgrading a repo from 0.18.x to 0.19.x: rerun `atm-bd skill`, add the `.gitignor
 
 The installer does these things:
 
-1. It copies the orchestration skills and templates into `.claude/` (or `.codex/` with `--codex`).
+1. It copies the orchestration skills and templates into `.claude/`, `.codex/` and `.cursor/`, and the agents into `.claude/` only, even when the team has Codex teammates. `--codex` installs `.codex/` alone.
 2. It writes the team's settings to `.claude/project/atm-bd-orchestration.yaml`, writes the role members back into `roles:` in `registry.yaml`, and records every file it wrote in `.claude/project/atm-bd-orchestration.lock.json`. `atm-bd skill` also writes an install record, `.claude/atm-bd-install.json`.
 3. It adds the `atm-bd` member to the separate ATM team `tool` (not your team), which the console and the bd-cache cron send notices from as `atm-bd@tool`. If it can't, the install stops with the command to run.
 4. For a `.claude` install, it adds the dev-sanity member (`roles.dev-sanity` in `registry.yaml`) to your team as a Claude Code agent on sonnet, if the team doesn't have it yet. If it can't, the install still finishes and prints `NOT DONE:` with what to do, usually the exact `atm teams add-member` command to run.
