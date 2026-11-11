@@ -83,6 +83,7 @@ artifacts:
     - skills/atm-bd-orchestration/formulas/finding-group.relations.json
     - skills/atm-bd-orchestration/formulas/sprint-group.formula.toml.j2
     - skills/atm-bd-orchestration/formulas/sprint-group.relations.json
+    - skills/atm-bd-orchestration/package-policy.md
     - skills/atm-bd-orchestration/references/bv.md
     - skills/atm-bd-orchestration/references/post-mortem-context-preparation.md
     - skills/atm-bd-orchestration/references/post-mortem-jev.md
@@ -313,9 +314,11 @@ artifacts:
     - skills/sprint-review/SKILL.md
     - skills/sprint-review/scripts/sprint-review
   agents:
+    - agents/ceremony-finding-screen.md
     - agents/ceremony-qa.md
     - agents/critical-plan-reviewer.md
     - agents/dev-sanity.md
+    - agents/flaky-test-qa.md
     - agents/parallax.md
     - agents/plan-scope-reviewer.md
     - agents/sanity-stack.md

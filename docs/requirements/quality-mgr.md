@@ -13,18 +13,18 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 ### QA round (`qa-template`)
 
 4. Before claim: `bd ready` lists the QA bead, else do not claim or start; close the task `refused` (`bead_state` open) naming the blocker and the dependency to add (`bd dep add <bead> --blocked-by <blocker>`); never wait. A blocker met mid-round: return the bead open and close the task `refused` the same way. PR base = `metadata.pr_target` or a descendant of it, PR head starts with the checked bead's sanity PASS sha (skipped for a quick-fix QA bead, which has no sanity check), worktree HEAD = PR head; else refuse `SANITY_STALE`. Then claim and `atm task start`.
-5. Reject an assignment not rendered from the template; read `policy_path`.
+5. Reject an assignment not rendered from the template; read the package policy `package-policy.md`, then `policy_path`; the package policy's mandatory rules win.
 6. Review against the checked bead (and `sprint_bead` if set) with its governing requirements and ADRs as `sprint_doc`; extract every deliverable, criterion, deletion, validation item and artifact; completion `X/Y (Z%)`.
 7. The change is `git diff origin/<base>...<commit>`, or with `layer_prs` each layer PR's own base...head range (never a diff against a moving base); read content at `<commit>`.
 8. Round 1: run `reviewers_round1` plus conditional reviewers `policy_path` requires. Fix round: only each carried finding's filing reviewer (`fix-round-scope owned`, confirmed by `check`), each locked to its own `finding_ref` ids, its result reduced with `filter`.
 9. Spawn every reviewer in the background; never run tests, linters or broad analysis in the foreground.
 10. Re-verify every cited file:line at `<commit>`; stale or missing evidence is a finding (fix round: fails that carried finding).
 11. Round 1: sweep the whole commit for every repeatable pattern.
-12. Round 1: screen every finding with `ceremony-finding-screen` (background); normalize severity (`critical`/`Blocking`/`BLOCKING` → blocking, `Important` → important, `Minor`/`low` → minor).
+12. Every round, sprint or fix: screen every finding with `ceremony-finding-screen` (background); normalize severity (`critical`/`Blocking`/`BLOCKING` → blocking, `Important` → important, `Minor`/`low` → minor).
 13. Round 1: pour each blocking finding the screen keeps as a fix ← sanity ← qa group under the sprint (quick-fix QA: pour nothing; list the blocking findings in the close's `findings_md` for the lead to file); file every other finding as one finding bead under the phase or feature bead, copying `requirements`, `adrs`, `sprint_bead` and `difficulty` from the checked bead, never defaulting `difficulty`; `blocked_by` only to another finding of this round. Never skip a finding whose render fails: fix its vars.
 14. Apply the screen: `keep`/`not_applicable` open; `concern_valid_remedy_ceremony` open with remedy rewritten to the named mechanism; `ceremony` filed then closed with `ceremony: <reason>`.
 15. Verify the import added only poured fix groups, finding beads and inter-finding edges; never add a finding edge to a planned sprint.
-16. Fix round: file nothing; note each confirmed fix; for each regressed or open carried fix bead pour round n+1; never reopen.
+16. Fix round: file nothing but the unlocked `flaky-test-qa` findings (as in round 1); a carried finding screened `ceremony` is noted, not poured again; note each confirmed fix; for each regressed or open carried fix bead pour round n+1; never reopen.
 17. Never assign findings.
 18. Verdict: only-minor is PASS; blocking or important is FAIL with one fix round; a second FAIL is `ROUND_CAP`, stop dispatch, record root cause.
 19. With a PR: post `qa-complete.md.j2` as a PR comment and check stack and CI state (never `--watch`). No PR: say so in notes.
@@ -38,7 +38,7 @@ Sources: `skills/atm-bd-orchestration/`: `roles/quality-mgr.md`, `SKILL.md`, tem
 24. Pin reviewers to `integration_branch` at `origin/<integration_branch>`.
 25. Round 1: missing/empty/mixed, unknown (outside New Ids), non-governing or unlisted touched requirement/ADR ids are blocking; never downgraded or screened out.
 26. Round 1: run `req-qa` and `arch-qa` per sprint container, `plan-scope-reviewer` in full over all of them (report its `parallelism`), plus the other plan reviewers; screen findings except validate-plan and REQ/ADR ones, list each drop with reason.
-27. Fix round: only filing reviewers, locked; `validate-plan` still runs; no screen, no new findings.
+27. Fix round: only filing reviewers, locked; `validate-plan` still runs; the screen still runs over the carried findings still open; no new findings.
 28. Report findings one line each: `<bead> <severity> <reviewer> <field>: ...`; file no finding beads.
 29. PASS (no blocking/important open): no findings → close bead; minor → assign bead to the task assigner with notes, leave open. FAIL → bead open, unassigned, notes. Fix-round PASS: every carried finding fixed and validate-plan clean. Either way close the task with `plan-review-complete.md.j2`.
 
