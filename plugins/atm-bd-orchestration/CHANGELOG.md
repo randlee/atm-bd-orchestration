@@ -2,8 +2,10 @@
 
 ## [Unreleased]
 
+## [0.19.18] - 2026-11-11
+
 ### Fixed
-- `assignment-gates.py stack-top` with an empty stack ledger no longer claims a hosted stack whose PRs have all merged or closed. GitHub keeps listing such stacks, so the gate refused with `stack top mismatch: ledger None; hosted <pr>` on any base that had landed a stack before.
+- `assignment-gates.py stack-top` with an empty stack ledger no longer claims a hosted stack whose PRs have all merged or closed. GitHub keeps listing such stacks, so the gate refused with `stack top mismatch: ledger None; hosted <pr>` (one landed stack on the base) or `ambiguous hosted stacks overlap the ledger` (several) for the first dev after a stack landed.
 
 ## [0.19.17] - 2026-11-11
 
