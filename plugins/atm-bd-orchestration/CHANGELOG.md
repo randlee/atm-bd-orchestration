@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- `validate-plan` accepts plan-hardening's own step beads (`stage:plan-hardening`) and finding beads (`stage:plan-finding`); it reported each as `no model`, so validation failed during every plan-hardening run.
+
 ## [0.19.16] - 2026-11-11
 
 Policy and install release. atm-bd ships a package-owned QA policy whose mandatory rules every repository gets (the ceremony screen on every QA round, `ceremony-qa` on every plan, the flaky-test rule), with the agents those rules dispatch. sc-compose 1.8.0 is the floor, not a pin. A default install fills every harness: skills into `.claude`, `.codex` and `.cursor`, agents into `.claude` only.
