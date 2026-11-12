@@ -13,7 +13,7 @@ wheels = [
 
 [[package]]
 name = "atm-bd"
-version = "0.19.16"
+version = "0.19.17"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },

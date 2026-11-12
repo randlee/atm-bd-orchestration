@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.17] - 2026-11-11
+
 ### Fixed
 - `validate-plan` accepts plan-hardening's own step beads (`stage:plan-hardening`) and finding beads (`stage:plan-finding`); it reported each as `no model`, so validation failed during every plan-hardening run.
 
