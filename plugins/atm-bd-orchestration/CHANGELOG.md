@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Optional repository key `rebase_check_command` (registry, `--set`, `.claude/project/atm-bd-orchestration.yaml`; default `""`) for `dev-template` 3.18.0 and `fix-assignment` 3.19.0: the check a dev or fixer re-runs after the stack-top rebase. Empty, the step still names `cargo fmt --all --check` and per-crate `cargo clippy`, so Rust repositories see no change. Sanity-FAIL re-assignments (`close_fields.reassignment`) carry it too.
+
 ## [0.19.18] - 2026-11-11
 
 ### Fixed

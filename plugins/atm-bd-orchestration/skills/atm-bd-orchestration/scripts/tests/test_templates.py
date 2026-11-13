@@ -1008,3 +1008,26 @@ def test_shipped_dev_and_fix_assignments_carry_no_host_build_policy():
         assert result.returncode == 0, result.stderr
         assert "CARGO_BUILD_JOBS" not in result.stdout, template
         assert "devs share this host" not in result.stdout, template
+
+
+def test_rebase_revalidation_defaults_to_cargo_and_honours_rebase_check_command():
+    # Without rebase_check_command the post-rebase checks stay exactly the Rust ones; with it, the configured
+    # command replaces them and no cargo command is rendered.
+    for template, example in (("dev-template.xml.j2", "dev-template-vars.json"),
+                              ("fix-assignment.xml.j2", "fix-assignment-vars.json")):
+        default = _render(template, _example(example))
+        assert default.returncode == 0, default.stderr
+        assert "`cargo fmt --all --check` and `cargo clippy -p <each crate you changed> --all-targets -- -D warnings`, " \
+               "plus that crate's tests only if the rebase reported conflicts in it;" in default.stdout, template
+        neutral = _render(template, {**_example(example), "rebase_check_command": "just lint-changed"})
+        assert neutral.returncode == 0, neutral.stderr
+        assert "re-validate only what the rebase can break: `just lint-changed`" in neutral.stdout, template
+        assert "cargo" not in neutral.stdout, template
+
+
+def test_rebase_check_command_whitespace_only_keeps_cargo_text():
+    for template, example in (("dev-template.xml.j2", "dev-template-vars.json"),
+                              ("fix-assignment.xml.j2", "fix-assignment-vars.json")):
+        result = _render(template, {**_example(example), "rebase_check_command": "   "})
+        assert result.returncode == 0, result.stderr
+        assert "`cargo fmt --all --check`" in result.stdout and "``" not in result.stdout, template
