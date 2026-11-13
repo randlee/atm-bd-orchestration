@@ -119,6 +119,7 @@ Only the legacy `templates.dev_fix` key is tolerated in addition to those six.
 | `worktree_base` | sprint bead `worktree` = `<worktree_base>/<branch>` |
 | `test_command` | `dev-template`, `fix-assignment` |
 | `lint_command` | `dev-template`, `fix-assignment`, `dev-sanity-template` |
+| `rebase_check_command` (optional, default `""`) | `dev-template`, `fix-assignment`: the cheap check re-run after the stack-top rebase (not a full lint); empty keeps `cargo fmt --all --check` and per-crate `cargo clippy` |
 | `integration_branch_pattern` | the root's `integration_branch` (`plan-root.json.j2`), then `review-template` and `plan-review-template` (`integration_branch`) |
 | `plans_dir` | `sprint_index_common.py` (`phase_path`), `sprint-report`, `sprint-review`, `plan-review-template` |
 | `code_checkout` (optional) | console Git and GitHub reads; relative to the beads repository root |

@@ -201,3 +201,17 @@ def test_plan_hardening_step_and_finding_beads_validate():
         "step_bead": step["id"], "reviewer": "plan-scope-reviewer", "finding_ref": "PLAN-SCOPE-001",
         "severity": "Blocking", "category": "SERIAL-RISK", "issue": "serial edge", "correction": "drop it"}))
     assert bead_schema.validate_phase([step, finding]) == []
+
+
+@pytest.mark.parametrize("config_extra, expected", [({}, ""), ({"rebase_check_command": "just lint-changed"}, "just lint-changed")])
+def test_reassignment_carries_optional_rebase_check_command(tmp_path, config_extra, expected):
+    close_fields = importlib.import_module("close_fields")
+    (tmp_path / ".atm-bd").mkdir()
+    (tmp_path / ".atm-bd" / "phase-x.toml").write_text(
+        'root = "p-phase-x"\n[templates]\ndev = "dev.xml.j2"\nfix = "fix.xml.j2"\n')
+    bead = {"id": "p-x-1", "metadata": {"sprint": "x-1", "stack": "phase-x", "pr_target": "integrate/phase-x",
+                                         "branch": "sprint/x-1", "worktree": "/w/x-1"}}
+    config = {"test_command": "t", "lint_command": "l", "policy_path": "p.md", "requirements_globs": [],
+              "adr_globs": [], **config_extra}
+    _, values = close_fields.reassignment(tmp_path, "x", bead, config)
+    assert values["rebase_check_command"] == expected

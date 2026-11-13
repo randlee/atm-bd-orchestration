@@ -38,6 +38,7 @@ def reassignment(root: Path, phase: str, bead: dict, config: dict) -> tuple[Path
                   primary_checkout=str(root))
     values.update({name: config[name] for name in ("test_command", "lint_command", "policy_path",
                                                     "requirements_globs", "adr_globs")})
+    values["rebase_check_command"] = config.get("rebase_check_command") or ""  # optional; older configs lack it
     return template, values
 
 

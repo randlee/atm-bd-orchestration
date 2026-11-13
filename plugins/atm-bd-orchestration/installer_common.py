@@ -169,6 +169,7 @@ class ConsumerRegistry(TypedDict, total=False):
     reviewers_round1: str | list[str] | None
     max_sanity_rounds: int | str | None
     gate_timeout_s: int | str | None
+    rebase_check_command: str | None
     roles: dict[str, str | None]
 
 
@@ -526,7 +527,7 @@ def _coerce_set_value(name: str, raw: ConfigInputValue) -> ConfigInputValue:
 def resolve_config(repo_root: Path, overrides: Mapping[str, ConfigInputValue], pkg_dir: Path = PKG_DIR) -> Config:
     """Read the declared variables from registry.yaml and --set. Missing ones are left
     out (the strict render names them); unknown --set keys and wrong types are errors."""
-    names = [*config_variables(pkg_dir), "max_sanity_rounds", "gate_timeout_s"]
+    names = [*config_variables(pkg_dir), "max_sanity_rounds", "gate_timeout_s", "rebase_check_command"]
     unknown = sorted(k for k in overrides if k not in names)
     if unknown:
         raise InstallError(
@@ -571,8 +572,14 @@ def resolve_config(repo_root: Path, overrides: Mapping[str, ConfigInputValue], p
     if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 1:
         raise InstallError("gate_timeout_s must be a positive integer number of seconds")
     values["gate_timeout_s"] = timeout
+    rebase_check = overrides.get("rebase_check_command", reg.get("rebase_check_command"))
+    if rebase_check is None:
+        rebase_check = ""
+    if not isinstance(rebase_check, str):
+        raise InstallError(f"rebase_check_command must be a string ({_registry_location('rebase_check_command')})")
+    values["rebase_check_command"] = rebase_check.strip()  # optional: "" keeps the cargo post-rebase checks
     for name in names:
-        if name in ("max_sanity_rounds", "gate_timeout_s"):
+        if name in ("max_sanity_rounds", "gate_timeout_s", "rebase_check_command"):
             continue
         if name in overrides:
             value = _coerce_set_value(name, overrides[name])

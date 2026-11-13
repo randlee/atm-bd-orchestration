@@ -421,7 +421,7 @@ def test_workflow_issue_bead_declares_parent():
 def test_config_template_declares_exactly_the_spec_variables_and_sanity_default():
     assert install.config_variables(PKG) == SPEC_VARIABLES
     front = yaml.safe_load((PKG / install.CONFIG_TEMPLATE).read_text().split("---\n")[1])
-    assert front["defaults"] == {"max_sanity_rounds": 5, "gate_timeout_s": 180}
+    assert front["defaults"] == {"max_sanity_rounds": 5, "gate_timeout_s": 180, "rebase_check_command": ""}
     assert set(install.ROLE_KEYS) | install.LIST_VARIABLES <= set(SPEC_VARIABLES)
 
 
@@ -765,6 +765,15 @@ def test_max_sanity_rounds_installer_defaults_and_registry_override(tmp_path):
     assert install.resolve_config(repo, {"max_sanity_rounds": "3"})["max_sanity_rounds"] == 3
 
 
+def test_rebase_check_command_is_optional_and_defaults_empty(tmp_path):
+    repo = make_repo(tmp_path)
+    assert install.resolve_config(repo, {})["rebase_check_command"] == ""
+    registry = repo / install.CONSUMER_REGISTRY
+    registry.write_text(registry.read_text() + "rebase_check_command: just lint-changed\n")
+    assert install.resolve_config(repo, {})["rebase_check_command"] == "just lint-changed"
+    assert install.resolve_config(repo, {"rebase_check_command": "make check"})["rebase_check_command"] == "make check"
+
+
 @pytest.mark.parametrize("value, expected", [(1, 1), (7, 7), ("2", 2), ("005", 5)])
 def test_max_sanity_rounds_installer_accepts_positive_integer_overrides(tmp_path, value, expected):
     resolved = install.resolve_config(make_repo(tmp_path), {"max_sanity_rounds": value})
@@ -935,7 +944,8 @@ def test_fresh_install(tmp_path, capsys):
         assert not install.PLACEHOLDER_RE.search((dest / rel).read_text(errors="ignore")), rel
     # the config file: every declared variable, from registry.yaml and --set
     config = yaml.safe_load((repo / install.CONFIG_OUT).read_text())
-    assert list(config) == [*SPEC_VARIABLES, "max_sanity_rounds", "gate_timeout_s"]
+    assert list(config) == [*SPEC_VARIABLES, "max_sanity_rounds", "gate_timeout_s", "rebase_check_command"]
+    assert config["rebase_check_command"] == ""
     assert config["gate_timeout_s"] == 180
     assert config["max_sanity_rounds"] == 5
     assert config["qa_member"] == "quality-mgr" and config["team_lead_member"] == "my-lead" and "lead" not in config
