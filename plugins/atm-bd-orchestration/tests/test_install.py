@@ -970,6 +970,10 @@ def test_fresh_install(tmp_path, capsys):
     assert (dest / "skills/atm-beads/scripts/validate-plan").stat().st_mode & 0o111
     assert (dest / "skills/atm-bd-orchestration/templates/qa-template.xml.j2").read_bytes() == \
         (PKG / "skills/atm-bd-orchestration/templates/qa-template.xml.j2").read_bytes()
+    for name in ("01-plan-scope-review.xml.j2", "02-sprint-scope-hardening.xml.j2",
+                 "03-consistency-hardening.xml.j2", "plan-critical-review.xml.j2"):
+        relative = Path("skills/plan-hardening") / name
+        assert (dest / relative).read_bytes() == (PKG / relative).read_bytes()
 
 
 @needs_sc_compose
