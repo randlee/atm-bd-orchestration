@@ -91,7 +91,7 @@ TOOL_INSTALLS = {
 SCRIPT_HEADER = (
     "#!/usr/bin/env -S uv run --script\n"
     "# /// script\n"
-    '# requires-python = ">=3.11,<3.12"\n'
+    '# requires-python = ">=3.11"\n'
     '# dependencies = ["pydantic>=2", "pyyaml", "sc-compose>=1.8.0,<2"]\n'
     "# ///\n"
 )
@@ -242,7 +242,7 @@ def _check_python_version(version: tuple[int, ...], interpreter: str) -> None:
     if version < (3, 11):
         raise UnsupportedPythonError(
             f"UNSUPPORTED_PYTHON: {interpreter} is {'.'.join(map(str, version))}; "
-            "Python 3.11 or newer is required; install with `uv tool install atm-bd --python 3.11`"
+            "Python 3.11 or newer is required; install with `uv tool install --upgrade atm-bd`"
         )
 
 
@@ -254,7 +254,7 @@ def load_validation_dependencies() -> None:
     except (ImportError, AttributeError) as error:
         raise InstallError(
             f"installer interpreter {sys.executable} cannot import a compatible Pydantic v2; "
-            "reinstall with `uv tool install atm-bd --python 3.11`"
+            "reinstall with `uv tool install --upgrade atm-bd`"
         ) from error
     _json_object_schema_type = dict[str, JsonValue]
 
@@ -275,7 +275,7 @@ def _yaml() -> YamlAPI:
         module = import_module("yaml")
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise InstallError(f"installer interpreter {sys.executable} cannot import PyYAML; "
-                           "reinstall with `uv tool install atm-bd --python 3.11`") from exc
+                           "reinstall with `uv tool install --upgrade atm-bd`") from exc
     try:
         safe_load = TypeAdapter(Callable[[str], object]).validate_python(getattr(module, "safe_load"), strict=True)
         error_type = TypeAdapter(type[Exception]).validate_python(getattr(module, "YAMLError"), strict=True)
@@ -362,9 +362,9 @@ def script_runtime_sc_compose_version() -> str:
                              text=True, cwd=tmp)
     if run.returncode != 0:
         lines = (run.stderr or run.stdout).strip().splitlines()
-        raise InstallError(f"SCRIPT_RUNTIME: interpreter {sys.executable} could not provide Python 3.11 with pydantic, "
+        raise InstallError(f"SCRIPT_RUNTIME: interpreter {sys.executable} could not provide Python 3.11 or newer with pydantic, "
                            "PyYAML and the sc-compose wheel, which the scripts need: "
-                           f"{lines[-1] if lines else 'no output'}; reinstall with `uv tool install atm-bd --python 3.11`")
+                           f"{lines[-1] if lines else 'no output'}; reinstall with `uv tool install --upgrade atm-bd`")
     return run.stdout.strip()
 
 
@@ -710,10 +710,10 @@ def check_tools() -> None:
         interpreter_version = version("sc-compose")
     except (ImportError, PackageNotFoundError) as exc:
         raise InstallError(f"the installer interpreter {sys.executable} cannot load sc-compose; "
-                           f"reinstall with `uv tool install atm-bd --python 3.11 --with sc-compose=={cli_version}`") from exc
+                           f"reinstall with `uv tool install --upgrade atm-bd --with 'sc-compose>={cli_version}'`") from exc
     if interpreter_version != cli_version:
         raise InstallError(f"the sc-compose CLI is {cli_version} but the installer interpreter wheel is "
-                           f"{interpreter_version}; upgrade the app or host to sc-compose=={cli_version} and rerun")
+                           f"{interpreter_version}; upgrade the app or host to sc-compose>={cli_version} and rerun")
 
 
 def check_beads_server_mode(repo_root: Path) -> None:

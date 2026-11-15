@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11"]   # the host python the installer requires (sc-compose 1.8.0 ships cp39-abi3 wheels)
+        python-version: ["3.11", "3.14"]   # the 3.11 floor and the 3.14 teams run (sc-compose 1.8.0 ships cp39-abi3 wheels)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,9 +93,11 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             sha256: a12a16259c1cab58c4c611320653e442fe3440c2a15cce0ba617ad77d145809a
+            python: "3.11"   # the floor
           - os: macos-latest
             target: aarch64-apple-darwin
             sha256: c7b03453d357f36997b27467b02cfe6124713ca1ee9344175c31f8e0dc5f5408
+            python: "3.14"   # what teams run
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
@@ -107,7 +109,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"   # the host python the installer requires
+          python-version: ${{ matrix.python }}
 
       - uses: astral-sh/setup-uv@v5
 

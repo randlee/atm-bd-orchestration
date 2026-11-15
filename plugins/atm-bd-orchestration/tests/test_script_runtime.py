@@ -68,7 +68,7 @@ def test_the_header_is_pep_723_metadata_pinning_the_manifest_sc_compose_range():
     assert lines[0] == "#!/usr/bin/env -S uv run --script"
     assert lines[1] == "# /// script" and lines[-1] == "# ///"
     metadata = tomllib.loads("\n".join(line[2:] for line in lines[2:-1]))
-    assert metadata["requires-python"] == ">=3.11,<3.12"
+    assert metadata["requires-python"] == ">=3.11"
     floor, ceiling = install.sc_compose_range()
     assert f"sc-compose>={floor},<{ceiling}" in metadata["dependencies"]
     assert {dep.split(">")[0].split("=")[0] for dep in metadata["dependencies"]} == {"pydantic", "pyyaml", "sc-compose"}

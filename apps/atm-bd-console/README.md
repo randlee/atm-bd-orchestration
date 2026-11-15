@@ -25,7 +25,7 @@ uv run --frozen pyright src
 
 ## Installation and prerequisites
 
-Install the package with `uv tool install atm-bd` (Python 3.11).
+Install the package with `uv tool install atm-bd` (Python 3.11 or newer).
 To install from source instead, use `uv tool install
 "git+https://github.com/randlee/atm-bd-orchestration.git#subdirectory=apps/atm-bd-console"`.
 The console and cron commands operate on a configured repository and require

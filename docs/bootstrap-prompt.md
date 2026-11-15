@@ -79,4 +79,4 @@ Finish with a short report:
 - the first three prompts I should send to the lead session, taken from the "Day to day" table in getting-started.md.
 ````
 
-The installer and host `python3` require Python 3.11: sc-compose 1.7.0 ships cp311 wheels only. [CPython 3.14 wheel request](https://github.com/randlee/sc-compose/issues/819).
+The installer and host `python3` require Python 3.11 or newer (sc-compose 1.8.0 ships cp39-abi3 wheels).

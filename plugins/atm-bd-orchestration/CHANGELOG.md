@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- `atm-bd` and every packaged script declare `requires-python = ">=3.11"`, a floor with no ceiling. The `<3.12` ceiling dated from sc-compose 1.7.0 being cp311-only; sc-compose 1.8.0 ships cp39-abi3 wheels. With the ceiling, pip and uv on Python 3.14 silently resolved atm-bd 0.19.8. The installer's remedies no longer pin exact versions (`uv tool install --upgrade atm-bd`, `sc-compose>=<cli>`). CI now tests Python 3.11 and 3.14.
+
 ## [0.19.19] - 2026-11-15
 
 ### Fixed
