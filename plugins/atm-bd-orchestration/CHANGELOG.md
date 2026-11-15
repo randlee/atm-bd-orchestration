@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.19.19] - 2026-11-15
+
+### Fixed
+- Plan-hardening templates escape their CDATA payloads again (`reviewer_findings_json`, `previous_step_json`). Finding text containing `]]>` closed the CDATA block early, producing malformed XML or a truncated payload, and installing 0.19.16 had overwritten consumers' hand-escaped copies. Every CDATA interpolation in the package now uses `cdata_escape`, and a test fails on any that does not (#975).
+- `sprint-report` / `sprint-review` no longer counts a closed historical re-sanity bead (for example `group-sanity-r1`) as a second current gate. It failed with `expected one live sanity gate, found 2`; a second open gate is still reported (#974).
+
 ## [0.19.18] - 2026-11-11
 
 ### Fixed
