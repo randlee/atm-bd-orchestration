@@ -62,7 +62,7 @@ The installer checks that its own `uv tool` interpreter can import pydantic, PyY
 `atm-bd` carries its own copy of the sc-compose wheel, inside its uv tool environment, and the installer checks that one against the CLI too ("the installer interpreter wheel"). When they differ, reinstall `atm-bd` with the CLI's version:
 
 ```bash
-uv tool install --force atm-bd --with "sc-compose==$(sc-compose --version | awk '{print $NF}')"
+uv tool install --force atm-bd --with "sc-compose>=$(sc-compose --version | awk '{print $NF}')"
 ```
 
 Keep `atm-bd` current with `uv tool upgrade atm-bd`, and run the reinstall above again after you upgrade `sc-compose`.
@@ -289,4 +289,4 @@ Every error names the setting or tool at fault, so paste it to Claude and ask fo
 
 The console only reads files in the folder you start it from; it does not look in parent folders.
 
-The installer accepts Python 3.11 or newer when its interpreter can import pydantic, PyYAML and the same sc-compose wheel version as the CLI; if that probe fails, reinstall with `uv tool install atm-bd --python 3.11`. Installed scripts still use Python 3.11 from their inline metadata. Internal `atm` and `bd` calls use the phase team, lead and code checkout plus repository `tool_identity` configuration; the caller's environment identifies the caller and never selects those settings.
+The installer accepts Python 3.11 or newer when its interpreter can import pydantic, PyYAML and the same sc-compose wheel version as the CLI; if that probe fails, reinstall with `uv tool install --upgrade atm-bd`. Installed scripts still use Python 3.11 from their inline metadata. Internal `atm` and `bd` calls use the phase team, lead and code checkout plus repository `tool_identity` configuration; the caller's environment identifies the caller and never selects those settings.

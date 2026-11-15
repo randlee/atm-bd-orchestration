@@ -48,7 +48,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"   # sc-compose 1.7.0 ships cp311 wheels only
+          python-version: "3.11"   # the floor; the package supports 3.11 or newer
 
       - name: Normalize version input
         id: meta

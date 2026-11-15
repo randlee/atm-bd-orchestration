@@ -593,7 +593,7 @@ def test_check_tools_names_reinstall_for_missing_installer_wheel(tmp_path, monke
     with pytest.raises(install.InstallError) as error:
         install.check_tools()
     assert "installer interpreter" in str(error.value)
-    assert "uv tool install atm-bd --python 3.11" in str(error.value)
+    assert "uv tool install --upgrade atm-bd" in str(error.value)
 
 
 def test_check_tools_requires_uv_for_the_script_runtime(tmp_path, monkeypatch):
@@ -610,10 +610,10 @@ def test_check_tools_reports_a_script_runtime_that_cannot_resolve(tmp_path, monk
     bin_dir = tmp_path / "bin"
     shim_sc_compose(bin_dir, "1.8.0", "1.8.0")
     (bin_dir / "uv").write_text("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'uv 0.12.5'; else "
-                                "echo 'error: No interpreter found for Python >=3.11, <3.12' >&2; exit 2; fi\n")
+                                "echo 'error: No interpreter found for Python >=3.11' >&2; exit 2; fi\n")
     monkeypatch.setenv("PATH", str(bin_dir))
 
-    with pytest.raises(install.InstallError, match=r"SCRIPT_RUNTIME: .*No interpreter found for Python >=3\.11.*uv tool install atm-bd --python 3\.11"):
+    with pytest.raises(install.InstallError, match=r"SCRIPT_RUNTIME: .*No interpreter found for Python >=3\.11.*uv tool install --upgrade atm-bd"):
         install.check_tools()
 
 
@@ -1404,5 +1404,5 @@ def test_prepare_refuses_installer_below_python_floor(tmp_path, monkeypatch):
     destination = tmp_path / ".claude"
     result = install.prepare(str(PKG), str(destination), {})
     assert "UNSUPPORTED_PYTHON: installer interpreter" in result["message"]
-    assert "uv tool install atm-bd --python 3.11" in result["message"]
+    assert "uv tool install --upgrade atm-bd" in result["message"]
     assert not destination.exists()

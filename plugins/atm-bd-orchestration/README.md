@@ -312,4 +312,4 @@ until upstream carries it, then drops it from this list.
   - `skills/atm-bd-orchestration/examples/ruthless-boundary-qa-assignment-vars.json`:
     `"qa_round": 2`.
 
-The installer accepts Python 3.11 or newer when its interpreter can import pydantic, PyYAML and the same sc-compose wheel version as the CLI; if that probe fails, reinstall with `uv tool install atm-bd --python 3.11`. Installed scripts still use Python 3.11 from their inline metadata. Internal `atm` and `bd` calls use the phase team, lead and code checkout plus repository `tool_identity` configuration; the caller's environment identifies the caller and never selects those settings.
+The installer accepts Python 3.11 or newer when its interpreter can import pydantic, PyYAML and the same sc-compose wheel version as the CLI; if that probe fails, reinstall with `uv tool install --upgrade atm-bd`. Installed scripts still use Python 3.11 from their inline metadata. Internal `atm` and `bd` calls use the phase team, lead and code checkout plus repository `tool_identity` configuration; the caller's environment identifies the caller and never selects those settings.
