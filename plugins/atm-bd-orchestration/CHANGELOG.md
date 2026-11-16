@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-11-15
+
+### Fixed
+- `sanity-stack-link` no longer fails "hosted stack pull chain is missing or ambiguous" after a partial land (#983). GitHub keeps a merged bottom PR in the hosted stack. A leading PR that is not open now counts as landed when it merged into the trunk and its head is in `origin/<trunk>`: it is dropped from the bottom of the ledger, and the walk starts at the first open PR. A closed-unmerged PR, or a merged one whose head is not in the trunk, still fails with its own evidence.
+
 ## [0.20.0] - 2026-11-15
 
 ### Changed
