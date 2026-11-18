@@ -669,9 +669,10 @@ class BlockingFindingsHandoffTests(unittest.TestCase):
             path.write_text(json.dumps({**values, "task_id": qa}))
             sent = json.loads(blocking_shape(render("qa-template.xml.j2", path)))
         self.assertEqual(sent["filed_by"], qa)
-        filled = {"ref": "qa1-f1", "reviewer": "arch-qa", "title": "retry unbounded", "remedy": "bound the retry"}
+        filled = {"ref": "qa1-f1", "reviewer": "arch-qa", "title": "retry unbounded", "remedy": "bound the retry",
+                  "owned_paths": ["crates/types/src/retry.rs"]}
         sent["sprint"], row = sprint, sent["findings"][0]
-        self.assertEqual(set(row), {"ref", "severity", "reviewer", "title", "remedy", "priority", "difficulty"})
+        self.assertEqual(set(row), {"ref", "severity", "reviewer", "title", "remedy", "owned_paths", "priority", "difficulty"})
         row.update(filled)
         del row["difficulty"]  # optional: omitted, the sprint's applies
         row.update(finding)

@@ -12,6 +12,7 @@ required_variables:
   - reviewer
   - finding_title
   - remedy
+  - owned_paths
   - filed_by
   - found_at_commit
   - requirements
@@ -105,6 +106,7 @@ finding_ref = "{{{ finding_ref }}}"
 severity = "{{{ severity }}}"
 reviewer = "{{{ reviewer }}}"
 remedy = "{{{ remedy }}}"
+owned_paths = [{% for path in owned_paths %}"{{{ path }}}"{% if not loop.last %}, {% endif %}{% endfor %}]
 filed_by = "{{{ filed_by }}}"
 found_at_commit = "{{{ found_at_commit }}}"
 {% if has_found_on_layer %}found_on_layer = {{{ found_on_layer | tojson }}}
