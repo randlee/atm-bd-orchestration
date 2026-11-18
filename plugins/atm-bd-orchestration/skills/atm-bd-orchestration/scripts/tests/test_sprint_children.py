@@ -128,16 +128,17 @@ def _git(repo: Path, *args: str) -> str:
     return done.stdout.strip()
 
 
-def _commit(repo: Path, name: str) -> str:
+def _commit(repo: Path, name: str, bead: str | None = None) -> str:
     (repo / "src").mkdir(exist_ok=True)
     (repo / "src" / name).write_text(name)
     _git(repo, "add", "-A")
-    _git(repo, "commit", "-q", "-m", name)
+    _git(repo, "commit", "-q", "-m", name + (f"\n\nBead: {bead}" if bead else ""))
     return _git(repo, "rev-parse", "HEAD")
 
 
-def test_child_commit_recorded_before_a_rebase_is_refused_with_its_fix_and_the_rebased_one_is_checked(tmp_path):
-    """qa1-f1: rebasing onto an advanced stack top rewrites the child's commit; only the rewritten one is on the branch."""
+def test_each_merged_childs_commit_is_derived_and_verified_through_a_rebase(tmp_path):
+    """qa1-f1: two children, each merged separately, then a rebase onto an advanced stack top. The rebase rewrites
+    every commit and drops the merges; each child's `Bead:` trailer still identifies its commit on the branch."""
     loader = importlib.machinery.SourceFileLoader("sanity_split_children", str(SPLIT))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     assert spec is not None
@@ -146,29 +147,52 @@ def test_child_commit_recorded_before_a_rebase_is_refused_with_its_fix_and_the_r
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "top")
-    base = _commit(repo, "base.txt")
+    _commit(repo, "base.txt")
     _git(repo, "checkout", "-q", "-b", "sprint")
-    before = _commit(repo, "child.txt")
+    before: dict[str, str] = {}
+    for child, files in (("t-x-1.sub-1", ("one-a.txt", "one-b.txt")), ("t-x-1.sub-2", ("two-a.txt",))):
+        _git(repo, "checkout", "-q", "-b", child, "top")        # each child works on its own branch
+        for name in files:
+            before[child] = _commit(repo, name, child)
+        _git(repo, "checkout", "-q", "sprint")
+        _git(repo, "merge", "-q", "--no-ff", "-m", f"merge {child}", child)
+    _commit(repo, "glue.txt")                                    # the dev's own commit carries no child trailer
     _git(repo, "checkout", "-q", "top")
-    top = _commit(repo, "top.txt")                      # the stack top advances after the child was committed
+    top = _commit(repo, "top.txt")                               # the stack top advances
     _git(repo, "checkout", "-q", "sprint")
     _git(repo, "rebase", "-q", "top")
     head = _git(repo, "rev-parse", "HEAD")
-    assert head != before and _git(repo, "merge-base", "sprint", "top") == top != base
+    assert _git(repo, "rev-list", "--merges", f"{top}..{head}") == ""
     beads = tmp_path / "beads.json"
-    beads.write_text(json.dumps([bead("t-x-1", "1. Parent.\n"), bead("t-x-1.sub-1", "1. One.\n")]))
+    beads.write_text(json.dumps([bead("t-x-1", "1. Parent.\n"), bead("t-x-1.sub-1", "1. One.\n"),
+                                 bead("t-x-1.sub-2", "1. Two.\n")]))
 
-    def load(commit: str):
-        args = argparse.Namespace(child=[f"t-x-1.sub-1={commit}"], worktree=str(repo), split_only=False,
-                                  bead_json=str(beads), bead="t-x-1")
+    def load(**commits: str):
+        args = argparse.Namespace(child=[f"{child}={commit}" for child, commit in commits.items()], worktree=str(repo),
+                                  split_only=False, bead_json=str(beads), bead="t-x-1")
         return split.load_children(args, head, top, ["src/**"])
 
-    with pytest.raises(split.Fail) as refused:
-        load(before)
-    assert refused.value.code == 4
-    assert "bd update t-x-1.sub-1 --set-metadata commit=<sha>" in str(refused.value)
-    [plan] = load(head)
-    assert (plan.commit, plan.files, plan.outside) == (head, ["src/child.txt"], [])
+    after = {child: split.child_commit_on_branch(str(repo), top, head, child) for child in before}
+    assert all(after.values()) and len({*after.values(), head, *before.values()}) == 5
+    for child, commit in after.items():                          # the derived commit is that child's last rewritten one
+        assert _git(repo, "show", "-s", "--format=%(trailers:key=Bead,valueonly)", commit) == child
+        assert _git(repo, "show", "-s", "--format=%s", commit) == _git(repo, "show", "-s", "--format=%s", before[child])
+    one, two = load(**{"t-x-1.sub-1": after["t-x-1.sub-1"], "t-x-1.sub-2": after["t-x-1.sub-2"]})
+    assert (one.commit, one.files) == (after["t-x-1.sub-1"], ["src/one-a.txt", "src/one-b.txt"])
+    assert (two.commit, sorted(two.files)) == (after["t-x-1.sub-2"], ["src/one-a.txt", "src/one-b.txt", "src/two-a.txt"])
+    planted = {"a commit recorded before the rebase": (before["t-x-1.sub-1"], "is not in the history"),
+               "another child's commit": (after["t-x-1.sub-2"], "does not carry the trailer `Bead: t-x-1.sub-1`"),
+               "the dev's own head": (head, "does not carry the trailer `Bead: t-x-1.sub-1`")}
+    for label, (commit, why) in planted.items():
+        with pytest.raises(split.Fail) as refused:
+            load(**{"t-x-1.sub-1": commit})
+        assert refused.value.code == 4, label
+        assert why in str(refused.value), label
+        assert f"bd update t-x-1.sub-1 --set-metadata commit={after['t-x-1.sub-1']}" in str(refused.value), label
+    assert split.child_commit_on_branch(str(repo), top, head, "t-x-1.sub-9") is None
+    with pytest.raises(split.Fail) as untagged:
+        load(**{"t-x-1.sub-9": head})
+    assert "each commit of a child ends with that trailer" in str(untagged.value)
 
 
 SPRINT = "t-d-1"
@@ -253,9 +277,9 @@ class MergeTests(unittest.TestCase):
 
     def manifest(self):
         repo = self.repo
-        repo.commit("crates/types/src/a.rs", "pub fn a() {}\n", "child one")
+        repo.commit("crates/types/src/a.rs", "pub fn a() {}\n", "child one\n\nBead: x-1.sub-1")
         first = split_tests.git(repo.wt, "rev-parse", "HEAD")
-        repo.commit("crates/types/src/b.rs", "pub fn b() {}\n", "child two")
+        repo.commit("crates/types/src/b.rs", "pub fn b() {}\n", "child two\n\nBead: x-1.sub-2")
         split_tests.git(repo.wt, "push", "-q", "origin", "sprint/x")
         head = split_tests.git(repo.wt, "rev-parse", "HEAD")
         beads = [*split_tests.bead(), *({"id": f"x-1.sub-{n}", "title": f"sub {n}", "description": f"## Deliverables\n1. Child {n}.\n",
