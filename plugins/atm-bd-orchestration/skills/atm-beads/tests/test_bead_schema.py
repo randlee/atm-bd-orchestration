@@ -214,3 +214,25 @@ def test_subtask_child_declares_difficulty_and_unknown_is_rejected():
         assert any(p.startswith("atm-bt-2.sub-1: difficulty") for p in bead_schema.validate_phase([child]))
     del child["metadata"]["difficulty"]
     assert any(p.startswith("atm-bt-2.sub-1: difficulty") for p in bead_schema.validate_phase([child]))
+
+
+def test_reference_bead_has_own_model_and_requires_sprint_or_subtask_link():
+    owner = {"id": "atm-bt-2", "labels": ["stage:sprint"], "description": "## Deliverables\n1. Work\n",
+             "acceptance_criteria": "done", "metadata": {"requirements": ["NONE"], "adrs": ["NONE"],
+             "worktree": "wt", "branch": "b", "pr_target": "main", "difficulty": "normal"}}
+    ref = {"id": "atm-bt-2.ref-1", "labels": ["stage:reference"], "parent": owner["id"], "description": "Sample code"}
+    assert bead_schema.validate_phase([owner, ref]) == []
+    ref.pop("parent")
+    assert any("reference must be linked" in p for p in bead_schema.validate_phase([owner, ref]))
+    ref["parent"] = owner["id"]
+    ref["description"] = ""
+    assert any("description" in p for p in bead_schema.validate_phase([owner, ref]))
+
+
+def test_planning_documents_single_request_and_references():
+    root = Path(__file__).resolve().parents[1]
+    planning = (root / "resources/planning.md").read_text()
+    paragraph = planning.split("recommended split for a concentrated pocket", 1)[1].split("\n\n", 1)[0]
+    assert "deliverable text must fit within one Jev request" in paragraph
+    assert "reference beads" in paragraph and "Jev does not receive" in paragraph
+    assert "plan-anchoring" not in paragraph

@@ -51,6 +51,8 @@ from operation_models import JsonValue, is_object_mapping, matches_typeddict
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parents[1] / "atm-bd-orchestration" / "scripts"))
+import jev_client  # noqa: E402
 import sprint_index_common as plan_io  # noqa: E402
 from plan_contract import SPRINT_LABEL  # noqa: E402
 
@@ -242,6 +244,28 @@ def check_qa_reviewers(beads: list[Bead], repo: Path, problems: list[str]) -> No
             problems.append(f"{bead.id}: reviewers_round1: unregistered reviewer(s): {', '.join(unknown)}")
 
 
+def deliverable_text(description: str, *, subtask: bool) -> str:
+    """Collect the deliverable section without mistaking headings inside fenced examples for its end."""
+    lines = description.splitlines(keepends=True)
+    start = next((index + 1 for index, line in enumerate(lines) if re.fullmatch(r"## Deliverables[ \t]*\r?\n?", line)), None)
+    if start is None:
+        return description if subtask else ""
+    section: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in lines[start:]:
+        match = re.match(r"^\s*(`{3,}|~{3,})(.*)$", line)
+        if match:
+            marker, suffix = match.groups()
+            if fence is None:
+                fence = (marker[0], len(marker))
+            elif marker[0] == fence[0] and len(marker) >= fence[1] and not suffix.strip():
+                fence = None
+        elif fence is None and re.match(r"^#{1,2}\s", line):
+            break
+        section.append(line)
+    return "".join(section)
+
+
 def check(beads: Beads, config: plan_io.PhaseConfig, rows: list[plan_io.PlanRow], problems: list[str], before_import: bool, repo: Path) -> None:
     import bead_schema  # pydantic; --ci never loads it
     root_id = config["root"]
@@ -290,7 +314,17 @@ def check(beads: Beads, config: plan_io.PhaseConfig, rows: list[plan_io.PlanRow]
     phase_label = f"phase-{beads.phase}"
     active = [bead for bead in beads.everything() if bead.get("status") != "closed"
               and (bead.get("id") == root_id or phase_label in (bead.get("labels") or []))]
-    problems += bead_schema.validate_phase(bead_schema.json_objects(active, context="phase beads"))
+    for item in beads.everything():
+        labels = item.get("labels") or []
+        if phase_label not in labels or not any(stage in labels for stage in ("stage:sprint", "stage:subtask")):
+            continue
+        description = item.get("description") or ""
+        text = deliverable_text(description, subtask="stage:subtask" in labels)
+        if len(text.encode("utf-8")) > jev_client.MAX_REQUEST_BYTES:
+            problems.append(f"{item['id']}: {jev_client.OVERSIZE_CODE}: deliverable text exceeds "
+                            f"{jev_client.MAX_REQUEST_BYTES} bytes; split into subtasks or move samples to reference beads")
+    problems += bead_schema.validate_phase(bead_schema.json_objects(active, context="phase beads"),
+                                           bead_schema.json_objects(beads.everything(), context="phase links"))
     check_qa_reviewers(active, repo, problems)
 
 

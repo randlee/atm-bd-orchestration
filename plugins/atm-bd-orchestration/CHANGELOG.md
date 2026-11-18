@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Plans bound sprint and subtask deliverables to one Jev request and support linked reference beads; oversized Jev requests are refused without diff slicing (#937, #982, #497).
+
 ### Added
 - Child beads (#937). A large sprint of closely related work is split at planning into `stage:subtask` child beads, one per background subagent, under one dev; `planning.md` states the split rule. A child declares its subagent's model with `metadata.difficulty` (`fast`, `normal` or `hard`); `validate-plan` rejects any other value or a child without one.
 - The dev assignment for a sprint with children (`child_beads`, written by `close-vars.py`) tells the dev to run each child with a background subagent on its own worktree, merge the work, close each child with its commit, and hand the full lint and test run to a background `fast` agent. A sprint without children renders unchanged.

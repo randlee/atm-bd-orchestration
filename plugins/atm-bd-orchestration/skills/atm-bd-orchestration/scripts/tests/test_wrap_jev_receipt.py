@@ -43,10 +43,14 @@ def single_stdout(choice):
 
 
 def split_stdout(choices):
-    requests = [client.written_request("Add the 503 test.", f"part {i}", part=(f"{i} of {len(choices)}", ["a.py"]))
-                for i in range(1, len(choices) + 1)]
+    requests = [client.written_request("Add the 503 test.", f"part {i}") for i in range(1, len(choices) + 1)]
+    for i, request in enumerate(requests, 1):
+        request["state"].update(part=f"{i} of {len(choices)}", changed_files=["a.py"])
     responses = [answer(choice, f"r{i}") for i, choice in enumerate(choices, 1)]
-    return json.dumps({"success": True, "data": client.parts(requests, responses, KEY), "error": None, "elapsed_s": 7.5})
+    parts = [{"part": request["state"]["part"], "changed_files": request["state"]["changed_files"],
+              "response": response, "receipt": client.receipt(request, response, KEY)}
+             for request, response in zip(requests, responses)]
+    return json.dumps({"success": True, "data": {"model": client.MODEL, "parts": parts}, "error": None, "elapsed_s": 7.5})
 
 
 class WrapJevReceipt(unittest.TestCase):

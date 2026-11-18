@@ -123,6 +123,11 @@ class SubtaskBead(Bead):
     metadata: SubtaskMetadata
 
 
+class ReferenceBead(Bead):
+    """A reference child, linked to a sprint or subtask; its content is not sent to Jev."""
+    description: NonEmpty
+
+
 class FamilyMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
     branch: NonEmpty
@@ -284,7 +289,7 @@ MODELS_BY_STAGE: dict[str, type[Bead]] = {
     "stage:sprint": SprintBead, "stage:dev": DevBead, "stage:dev-sanity": SanityBead,
     "stage:qa": QaBead, "stage:fix": FixBead, "stage:finding": FindingBead,
     "stage:stack": StackBead, "stage:plan": Bead, "stage:plan-review": Bead, "stage:review": Bead,
-    "stage:subtask": SubtaskBead, "stage:plan-hardening": Bead, "stage:plan-finding": Bead,
+    "stage:subtask": SubtaskBead, "stage:reference": ReferenceBead, "stage:plan-hardening": Bead, "stage:plan-finding": Bead,
 }
 MODELS: dict[str, type[Bead]] = {
     "sprint-bead": SprintBead, "dev-bead": DevBead, "sanity-bead": SanityBead,
@@ -306,7 +311,7 @@ def problems(bead: JsonObject, model: type[Bead]) -> list[str]:
     return []
 
 
-def validate_phase(beads: list[JsonObject]) -> list[str]:
+def validate_phase(beads: list[JsonObject], link_beads: list[JsonObject] | None = None) -> list[str]:
     found: list[str] = []
     for bead in beads:
         raw_labels = bead.get("labels")
@@ -328,6 +333,25 @@ def validate_phase(beads: list[JsonObject]) -> list[str]:
         else:
             found.extend(problem.replace(f"{bead_id}: metadata.", f"{bead_id}: ", 1)
                          for problem in problems(bead, model))
+    def has_stage(bead: JsonObject, stage: str) -> bool:
+        labels = bead.get("labels")
+        return isinstance(labels, list) and stage in labels
+
+    def links(bead: JsonObject) -> list[JsonValue]:
+        deps = bead.get("dependencies")
+        return [(dep.get("id") or dep.get("depends_on_id")) for dep in deps if is_json_object(dep)] if isinstance(deps, list) else []
+
+    sources = link_beads if link_beads is not None else beads
+    owners = {str(b.get("id")) for b in sources if has_stage(b, "stage:sprint") or has_stage(b, "stage:subtask")}
+    for bead in beads:
+        if not has_stage(bead, "stage:reference"):
+            continue
+        parent = bead.get("parent")
+        linked = isinstance(parent, str) and parent in owners
+        linked = linked or any(isinstance(ref, str) and ref in owners for ref in links(bead))
+        linked = linked or any(bead.get("id") in links(owner) for owner in sources if owner.get("id") in owners)
+        if not linked:
+            found.append(f"{bead.get('id', '?')}: reference must be linked to a sprint or subtask")
     return found
 
 
