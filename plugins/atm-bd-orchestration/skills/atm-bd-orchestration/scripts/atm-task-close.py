@@ -891,7 +891,8 @@ class Hook:
         if not assign and sha_changed:
             raise CloseError("REPLAY.CONFLICT", "sanity is closed at a different sha", "Request a new sanity assignment before changing the checked sha.")
         # The assignment is built and checked against ATM's limit before the bead closes: after it, a refused send strands the close.
-        dispatch = self.sanity_dispatch(assignment_values) if assign else None
+        dispatch = self.sanity_dispatch({**assignment_values, "round": 1 + sum(
+            event.get("event") in ASSIGNMENT_EVENTS for event in sanity_events)}) if assign else None
         self.metadata(values["checked_bead"], {"commit": assignment_values["commit"], "close_assignment_id": str(self.assignment_id), "branch": assignment_values["branch"], "pr_number": values.get("pr_number", ""),
                                              "pr_url": values["pr_url"], **({"pr_base": self.pr_base} if self.pr_base else {})})
         reason = f"not reproducible: {values['evidence']}" if values["outcome"] == "not_reproducible" else f"{'fixed' if self.role == 'fix' else 'dev complete'} at {values['commit']}"

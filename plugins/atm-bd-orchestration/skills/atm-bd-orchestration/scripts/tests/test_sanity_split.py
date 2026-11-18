@@ -475,6 +475,25 @@ class SanitySplit(unittest.TestCase):
         self.assertEqual(texts[1], "Document it: ```rust 1. not a deliverable ```")
         self.assertEqual(texts[2], "Tests.")
 
+    def test_fix_scope_never_falls_back_to_sprint(self):
+        fix = bead("## Deliverables\n1. Fix the defect.\n", ("fix.py",))
+        fix[0]["metadata"].update(role="fix", sprint_bead="sprint")
+        out = self.run_split(fix, None, None, "sprint/x", "develop", "--split-only")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        assignment = json.loads(out.stdout)["assignments"][0]["assignment"]
+        self.assertEqual(assignment["deliverable"]["text"], "Fix the defect.")
+        self.assertEqual(assignment["owned_paths"], ["fix.py"])
+        for field in ("owned_paths", "deliverables"):
+            broken = json.loads(json.dumps(fix))
+            if field == "owned_paths":
+                broken[0]["metadata"].pop("owned_paths")
+            else:
+                broken[0]["description"] = "Fix the defect."
+            out = self.run_split(broken, None, None, "sprint/x", "develop", "--split-only")
+            self.assertEqual(out.returncode, 2)
+            self.assertIn("SANITY.PLAN_INVALID", out.stderr)
+            self.assertIn("metadata.owned_paths" if field == "owned_paths" else "## Deliverables", out.stderr)
+
     def test_external_evidence_is_appended_to_every_assignment(self):
         comment = {"kind": "pr_comment", "repo": "o/r", "comment_id": 7}
         later = self.root / "later.json"

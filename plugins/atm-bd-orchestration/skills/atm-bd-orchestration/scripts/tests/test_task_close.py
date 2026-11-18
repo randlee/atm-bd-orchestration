@@ -1637,7 +1637,8 @@ def test_close_from_documented_dispatch_and_result_files_derives_handoff(world, 
                "pr_url": f"https://github.com/example/repo/pull/{world.pr_number}",
                "rebased_onto": "b" * 40}
     assert set(assignment["values"]) == set(dispatch) | set(result) | set(DERIVED) | {"close_context", "beads_dir",
-                                                                                         "sanity_close_mode", "layer_prs", "base_verified"}
+                                                                                         "sanity_close_mode", "layer_prs", "base_verified", "round"}
+    assert assignment["values"]["round"] == 1
     assert assignment["values"]["layer_prs"] == [str(world.pr_number)]  # the checked PR, derived (#636)
     assert {name: assignment["values"][name] for name in derived} == derived
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", assignment["values"]["generated_at"])
@@ -1858,6 +1859,24 @@ def sanity_close_vars():
     return module
 
 
+def test_dev_dispatch_supplies_round_when_close_vars_omit_it(world):
+    world.values.pop("round", None)
+    assert "ok" in world.run("dev")
+    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert assignment["close_context"]["round"] == 1
+    assert assignment["close_context"]["reviewers_round1"] == world.beads[world.values["qa_bead"]]["metadata"]["reviewers_round1"]
+    manifest = {"run_id": "run", "sha": assignment["commit"], "sanity_bead": assignment["sanity_bead"],
+                "dev_bead": assignment["checked_bead"], "branch": assignment["branch"],
+                "worktree_path": assignment["worktree_path"], "deliverables_total": 1,
+                "close_context": assignment["close_context"], "checked_bead_data": {"labels": []},
+                "assignments": [{"number": 1}]}
+    selected = {"run_id": "run", "reviewer": "sanity-selected", "commit": assignment["commit"],
+                "task_id": assignment["sanity_bead"], "checked_bead": assignment["checked_bead"],
+                "sprint": assignment["sprint"], "completed_at": "2026-10-24T00:00:00Z", "verdict": "PASS"}
+    values = sanity_close_vars().build(manifest, selected, events=world.tasks[assignment["sanity_bead"]])
+    assert "ok" in world.run("sanity", **values)
+
+
 def test_reopened_sanity_pass_uses_fresh_iteration(world):
     assert "ok" in world.run("dev")
     assert "ok" in world.run("sanity", verdict="FAIL", round=1, undone=[{"number": 1, "reason": "missing"}])
@@ -1885,6 +1904,7 @@ def test_sanity_close_context_carries_only_the_fields_the_sanity_close_reads(wor
     assert "ok" in world.run(role, outcome=outcome)
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
     context = assignment["close_context"]
+    assert context["round"] == 1
     assert set(context) == (SANITY_READ & set(assignment)) | {"phase_lead", "budget"}
     assert context == {**{name: assignment[name] for name in SANITY_READ & set(assignment)},
                        **({"carry_forward": world.values["checked_bead"]} if outcome == "not_reproducible" else {}),
