@@ -12,6 +12,7 @@
 - atm-bd-lite `dev.xml.j2` and `qa.xml.j2` carry the same child-bead instructions.
 - A child's commit is recorded after the dev's rebase, not before it: a rebase rewrites commits, and `sanity-split` refuses a child commit that is not on the branch, now naming the `bd update <child> --set-metadata commit=<sha>` that fixes it. Both dev templates (full and lite) order the child closes after the rebase.
 - A child's commit is verifiable: each commit of a child ends with the trailer `Bead: <child>`, which survives the merge and the rebase. `sanity-split --child` refuses a recorded commit that does not carry its child's trailer and names the commit on the branch that does; the dev templates derive it with `git log --grep`.
+- `sanity-split --child` accepts only a child's latest commit on the branch: an earlier commit of the same child, or one recorded before a later rebase, is refused with the commit to record.
 - The sanity assignment checks each child's deliverables at its commit in daemon close mode too, where no `sanity-split` runs: the assignment tells the reviewer to read each child's numbered deliverables and verify them at that child's commit.
 
 ### Fixed

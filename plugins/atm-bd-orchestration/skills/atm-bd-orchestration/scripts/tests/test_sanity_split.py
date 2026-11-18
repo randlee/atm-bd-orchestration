@@ -546,7 +546,8 @@ class SanitySplit(unittest.TestCase):
         fixture = [*bead(), child]
         stale = self.run_split(fixture, None, latest, "sprint/x", "develop", "--child", f"child-a={first}")
         self.assertEqual(stale.returncode, 4)
-        self.assertIn("latest Bead-trailered commit", stale.stderr)
+        self.assertIn("is not its latest commit on this branch", stale.stderr)
+        self.assertIn(f"bd update child-a --set-metadata commit={latest}", stale.stderr)
         self.repo.commit("other.txt", "other\n", "unassigned\n\nBead: child-other")
         head = self.repo.push_head()
         unknown = self.run_split(fixture, None, head, "sprint/x", "develop", "--child", f"child-a={latest}")
