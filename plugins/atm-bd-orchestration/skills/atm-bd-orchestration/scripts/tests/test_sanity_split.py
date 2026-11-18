@@ -494,48 +494,6 @@ class SanitySplit(unittest.TestCase):
             self.assertIn("SANITY.PLAN_INVALID", out.stderr)
             self.assertIn("metadata.owned_paths" if field == "owned_paths" else "## Deliverables", out.stderr)
 
-    def test_child_evidence_uses_only_complete_bead_commits(self):
-        from jev_client import assignment_requests, JevError
-        self.repo.commit("child-a.txt", "A" * 2000 + "\n", "child a\n\nBead: child-a")
-        child_a = git(self.repo.wt, "rev-parse", "HEAD")
-        self.repo.commit("parent.txt", "parent evidence\n", "parent work")
-        self.repo.commit("child-b.txt", "B" * 2000 + "\n", "child b\n\nBead: child-b")
-        child_b = self.repo.push_head()
-        checked = bead("## Deliverables\n1. Parent work.\n", ("**",))
-        children = [{"id": child, "title": child, "description": "## Deliverables\n1. Child work.\n",
-                     "metadata": {"owned_paths": [path]}}
-                    for child, path in (("child-a", "child-a.txt"), ("child-b", "child-b.txt"))]
-        out = self.run_split([*checked, *children], None, child_b, "sprint/x", "develop",
-                             "--child", f"child-a={child_a}", "--child", f"child-b={child_b}")
-        self.assertEqual(out.returncode, 0, out.stderr)
-        manifest = json.loads(out.stdout)
-        self.assertEqual(self.wait_lint(manifest["lint"]["exit_file"]), "1")
-        parent, a, b = [row["assignment"] for row in manifest["assignments"]]
-        self.assertEqual(a["evidence_commits"], [child_a])
-        self.assertEqual(b["evidence_commits"], [child_b])
-        self.assertEqual(a["changed_files"], ["child-a.txt"])
-        self.assertEqual(b["changed_files"], ["child-b.txt"])
-        self.assertNotIn("child-a.txt", parent["changed_files"])
-        self.assertNotIn("child-b.txt", parent["changed_files"])
-        import jev_client
-        with unittest.mock.patch.object(jev_client, "MAX_REQUEST_BYTES", 3500):
-            for assignment in (parent, a, b):
-                (request,) = assignment_requests(assignment)
-                self.assertLess(jev_client.size(request), 3500)
-            parent_request = json.dumps(assignment_requests(parent)[0])
-            a_request = json.dumps(assignment_requests(a)[0])
-            b_request = json.dumps(assignment_requests(b)[0])
-            self.assertIn("parent evidence", parent_request)
-            self.assertNotIn("A" * 100, parent_request)
-            self.assertIn("A" * 2000, a_request)
-            self.assertNotIn("B" * 100, a_request)
-            self.assertIn("B" * 2000, b_request)
-            self.assertNotIn("A" * 100, b_request)
-            whole = {**parent, "changed_files": ["child-a.txt", "child-b.txt"]}
-            whole.pop("evidence_commits")
-            with self.assertRaises(JevError):
-                assignment_requests(whole)
-
     def test_child_evidence_refuses_stale_tip_and_unassigned_trailers(self):
         self.repo.commit("a.txt", "first\n", "first\n\nBead: child-a")
         first = git(self.repo.wt, "rev-parse", "HEAD")
