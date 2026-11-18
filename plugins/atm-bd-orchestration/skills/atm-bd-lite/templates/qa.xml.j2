@@ -1,9 +1,11 @@
 ---
 name: lite-qa-assignment
-version: 1.0.0
+version: 1.1.0
 description: QA assignment for the atm-bd-lite profile.
 format: xml
 required_variables: [task_id, phase, profile, repo, pr_number, branch, commit]
+defaults:
+  children: []
 metadata:
   type: qa-assignment
   tags: [stage:qa, profile:lite]
@@ -11,8 +13,13 @@ metadata:
 <qa-task id="{{ task_id | string }}">
   <phase>{{ phase | string }}</phase>
   <profile>{{ profile | string }}</profile>
-  <instructions><![CDATA[
+{% if children %}  <children>
+{% for child in children %}    <child id="{{ child.id | string | cdata_escape }}" commit="{{ child.commit | string | cdata_escape }}"/>
+{% endfor %}  </children>
+{% endif %}  <instructions><![CDATA[
     Review repository {{ repo | string | cdata_escape }}, PR {{ pr_number | string | cdata_escape }}, branch {{ branch | string | cdata_escape }}, commit {{ commit | string | cdata_escape }}.
+{% if children %}    The sprint's child beads are in `<children>`; this one run reviews their merged result, and they get no QA of their own.
+{% endif %}
     Read the task's acceptance criteria and
     verify each against the exact layer contents. Run the validation required by the task and inspect the
     stack using the installed sc-gh-stack-view skill. Always pass `--repo {{ repo | string | cdata_escape }}` to GitHub PR commands;

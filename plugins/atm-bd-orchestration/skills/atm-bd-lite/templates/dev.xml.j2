@@ -1,9 +1,11 @@
 ---
 name: lite-dev-assignment
-version: 1.0.0
+version: 1.1.0
 description: Lite development and stack task.
 format: xml
 required_variables: [provider, provider.create, task_id, phase, profile]
+defaults:
+  child_beads: []
 metadata:
   type: dev-assignment
 ---
@@ -37,7 +39,7 @@ git -C "$ROOT" fetch origin "$TOP"
 git -C "$ROOT" worktree add -b "$BRANCH" "$WORKTREE" "origin/$TOP"
 ```
 
-Do the bead's work in the worktree and commit it. Then run this stack block from the primary checkout:
+Do the bead's work in the worktree and commit it.{% if child_beads %} Run each child bead ({{ child_beads | join(", ") | cdata_escape }}) with a background subagent on its own worktree, no PR; each subagent runs focused lint and tests there. Merge every child's work into this worktree.{% endif %} Then run this stack block from the primary checkout:
 
 ```bash
 set -euo pipefail
@@ -66,6 +68,8 @@ UPDATED=$(printf '%s' "$META" | jq --arg branch "$BRANCH" --arg head "$HEAD" --a
 bd update "$STACK" --if-assignee "$ATM_IDENTITY" --metadata "$UPDATED"
 ```
 
-Close only with `atm task close {{ task_id | string | cdata_escape }} completed --stdin` and an inline report. If close fails, read the error, fix its named cause, and rerun the close; do not end your turn while your ATM task is open. Do not write the task bead.
+{% if child_beads %}Close each child with its commit before this bead (`bd close` refuses a parent with open children): `bd update <child> --set-metadata commit=<sha>`, then `bd close <child>`. Hand the full lint and test run to a background `fast` agent; rebase only after it is green.
+
+{% endif %}Close only with `atm task close {{ task_id | string | cdata_escape }} completed --stdin` and an inline report. If close fails, read the error, fix its named cause, and rerun the close; do not end your turn while your ATM task is open. Do not write the task bead.
   ]]></instructions>
 </dev-task>
