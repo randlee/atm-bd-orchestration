@@ -737,6 +737,23 @@ class PlanFixRoundTests(unittest.TestCase):
         self.assertNotIn("fix-round-scope", out.stdout)
         self.assertIn("`<bead> <severity> <reviewer> <field>: <what is wrong>`", out.stdout)
 
+    def test_screen_failure_uses_common_refusal_cleanup(self):
+        for example in ("plan-review-template-vars.json", "plan-review-template-fix-round-vars.json"):
+            with self.subTest(example=example):
+                values = _example(example)
+                out = _render(self.PLAN, values)
+                self.assertEqual(out.returncode, 0, out.stderr)
+                screening = out.stdout.split('<step id="d">', 1)[1].split('</step>', 1)[0]
+                refusal = out.stdout.split('<step id="f">', 1)[1].split('</step>', 1)[0]
+                self.assertIn("go to step f", screening)
+                self.assertIn("SCREEN.UNAVAILABLE", screening)
+                self.assertIn("agent error", screening)
+                self.assertIn("announce a serious infrastructure failure", refusal)
+                self.assertIn(f'bd update {values["task_id"]} --status open --assignee ""', refusal)
+                self.assertIn("atm task close", refusal)
+                self.assertIn("task-refused.md.j2", refusal)
+                self.assertIn("reason_md", refusal)
+
     def test_fix_round_dispatches_only_filing_reviewers(self):
         out = _render(self.PLAN, _example("plan-review-template-fix-round-vars.json"))
         self.assertEqual(out.returncode, 0, out.stderr)
