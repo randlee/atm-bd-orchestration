@@ -60,7 +60,7 @@ defaults:
     "phase": {{ phase | tojson }},
     "sprint": {{ sprint | tojson }},
     "stack": {{ stack | tojson }},
-{% if layer %}    "layer": {{ layer | tojson }},
+{% if layer is not none and layer != "" %}    "layer": {{ layer | tojson }},
 {% endif %}
     "branch": {{ branch | tojson }},
     "worktree": {{ worktree | tojson }},

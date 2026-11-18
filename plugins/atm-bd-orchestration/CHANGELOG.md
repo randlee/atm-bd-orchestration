@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- QA bead pours omit unknown stack layers, including explicit null inputs, so a QA FAIL pour with an unlinked fix remains schema-valid (#922).
+- Bead-group pour suppression uses typed schema problem codes instead of matching diagnostic text (#907).
+- Sanity close event lookup uses the configured phase team, tool identity and command timeout, with typed cause-specific errors (#906).
+
 ## [0.20.1] - 2026-11-15
 
 ### Fixed

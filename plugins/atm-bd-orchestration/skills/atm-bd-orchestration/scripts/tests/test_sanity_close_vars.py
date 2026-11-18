@@ -4,6 +4,7 @@ import importlib.machinery
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -14,11 +15,13 @@ assert SPEC is not None
 CLOSE = importlib.util.module_from_spec(SPEC)
 LOADER.exec_module(CLOSE)
 READ_TASK_EVENTS = CLOSE.task_events
+EVENT_SETTINGS = CLOSE.event_settings
 
 
 @pytest.fixture(autouse=True)
 def task_events(monkeypatch):
-    monkeypatch.setattr(CLOSE, "task_events", lambda task: [{"event": "assigned"}])
+    monkeypatch.setattr(CLOSE, "task_events", lambda task, **kwargs: [{"event": "assigned"}])
+    monkeypatch.setattr(CLOSE, "event_settings", lambda manifest: ("test-team", "test-bot@tool", 30))
 
 
 @pytest.fixture
@@ -61,9 +64,74 @@ def test_event_reader_requests_complete_history(monkeypatch):
     def run(command, **kwargs):
         calls.append(command)
         return type("Result", (), {"stdout": '{"events": [{"event": "assigned"}]}'})()
-    monkeypatch.setattr(CLOSE.subprocess, "run", run)
-    assert READ_TASK_EVENTS("task") == [{"event": "assigned"}]
+    monkeypatch.setattr(CLOSE.shutil, "which", lambda _: "/usr/bin/atm")
+    assert READ_TASK_EVENTS("task", team="phase-team", identity="bot@tool", timeout=47, runner=run) == [{"event": "assigned"}]
     assert calls == [["atm", "task", "events", "task", "--all", "--json"]]
+
+
+def test_event_reader_overrides_hostile_caller_identity_and_team(monkeypatch):
+    seen = {}
+    monkeypatch.setenv("ATM_TEAM", "foreign-team")
+    monkeypatch.setenv("ATM_IDENTITY", "foreign-identity")
+    monkeypatch.setattr(CLOSE.shutil, "which", lambda _: "/usr/bin/atm")
+    def run(command, **kwargs):
+        seen.update(kwargs)
+        return type("Result", (), {"stdout": '{"events": []}'})()
+
+    assert READ_TASK_EVENTS("task", team="phase-team", identity="configured@tool", timeout=81, runner=run) == []
+    assert seen["env"]["ATM_TEAM"] == "phase-team"
+    assert seen["env"]["ATM_IDENTITY"] == "configured@tool"
+    assert seen["timeout"] == 81
+
+
+def test_missing_atm_has_typed_cause_and_fix(monkeypatch):
+    monkeypatch.setattr(CLOSE.shutil, "which", lambda _: None)
+    with pytest.raises(CLOSE.SanityCloseVarsError) as caught:
+        READ_TASK_EVENTS("task", team="team", identity="bot", timeout=30)
+    assert caught.value.code == "SANITY_CLOSE_VARS.ATM_MISSING"
+    assert "install atm" in caught.value.fix
+
+
+def test_task_not_found_has_typed_cause_and_fix(monkeypatch):
+    monkeypatch.setattr(CLOSE.shutil, "which", lambda _: "/usr/bin/atm")
+    def run(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, args[0], stderr="task not found: sanity")
+    with pytest.raises(CLOSE.SanityCloseVarsError) as caught:
+        READ_TASK_EVENTS("sanity", team="team", identity="bot", timeout=30, runner=run)
+    assert caught.value.code == "SANITY_CLOSE_VARS.TASK_NOT_FOUND"
+    assert "verify that sanity task" in caught.value.fix
+
+
+def test_timeout_has_typed_cause_and_fix(monkeypatch):
+    monkeypatch.setattr(CLOSE.shutil, "which", lambda _: "/usr/bin/atm")
+    def run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+    with pytest.raises(CLOSE.SanityCloseVarsError) as caught:
+        READ_TASK_EVENTS("sanity", team="team", identity="bot", timeout=73, runner=run)
+    assert caught.value.code == "SANITY_CLOSE_VARS.TIMEOUT"
+    assert "ATM service" in caught.value.fix
+
+
+def test_unset_team_has_typed_cause_and_configuration_fix(tmp_path):
+    (tmp_path / ".atm-bd").mkdir()
+    (tmp_path / ".atm-bd/phase-x.toml").write_text('lead = "phase-lead"\n')
+    manifest = {"close_context": {"primary_checkout": str(tmp_path), "phase": "x"}}
+    with pytest.raises(CLOSE.SanityCloseVarsError) as caught:
+        EVENT_SETTINGS(manifest)
+    assert caught.value.code == "SANITY_CLOSE_VARS.TEAM_UNSET"
+    assert "set the phase team" in caught.value.fix
+
+
+def test_event_settings_use_repository_phase_team_identity_and_timeout(tmp_path, monkeypatch):
+    (tmp_path / ".atm-bd").mkdir()
+    (tmp_path / ".atm-bd/phase-x.toml").write_text('lead = "phase-lead"\nteam = "phase-team"\n')
+    config = tmp_path / ".claude/project/atm-bd-orchestration.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("tool_identity: configured-bot@tool\ngate_timeout_s: 83\n")
+    monkeypatch.delenv("ATM_BD_GATE_TIMEOUT_S", raising=False)
+    assert EVENT_SETTINGS({"close_context": {"primary_checkout": str(tmp_path), "phase": "x"}}) == (
+        "phase-team", "configured-bot@tool", 83
+    )
 
 
 def test_fail_retains_verbatim_deliverable_reason_and_stack_result(inputs):
