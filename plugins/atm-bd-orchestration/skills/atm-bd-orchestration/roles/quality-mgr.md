@@ -85,8 +85,8 @@ why they are strict:
 - A plan fix round (`carry_forward` set) follows "Fix verification takes
   precedence" below: only the filing reviewer of each carried finding runs
   (`scripts/fix-round-scope --plan`), locked to it; `req-qa` and `arch-qa` are
-  not re-run, `plan-scope-reviewer` does not run in full, there is no ceremony
-  screen and no new finding. `validate-plan` still runs, like required CI.
+  not re-run, `plan-scope-reviewer` does not run in full, and no new finding
+  is raised. Screen all findings the round reports. `validate-plan` still runs, like required CI.
 
 ## Phase-ending post-mortem
 
@@ -188,7 +188,7 @@ sc-compose render --strict --file .claude/skills/atm-bd-orchestration/templates/
 
 ## Findings
 
-Screen every round that files findings: QA round 1 and every plan-review round with findings. A fix verification that files no findings has nothing to screen; see Reviewers.
+Screen the findings reported by every QA and plan-review round, including fix verification. A round with no findings has nothing to screen.
 
 After the reviewers return, screen every finding with
 `ceremony-finding-screen`, which also runs as a background agent. Pass every finding, including validation and REQ/ADR findings; retain the returned verdict and reason by finding id. If the screen fails, is unavailable, or omits a finding, close the QA or plan-review task refused with `task-refused.md.j2` and `reason_md` containing `SCREEN.UNAVAILABLE` and the agent error; never infer a verdict. Save its complete result to `<scratch>/<task>-screen.json` for metrics. In the completion report `findings_md`, include `screen=<verdict>` and the reason for every finding, including quick-fix and REVIEW_PENDING_JEV findings, so the lead copies the recorded verdict into `finding-bead.json.j2` without a default. Then file

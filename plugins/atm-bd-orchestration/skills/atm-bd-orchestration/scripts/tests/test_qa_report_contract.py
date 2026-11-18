@@ -175,6 +175,18 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
         self.assertIn("findings_screened_out/findings_filed", self.skill)
         self.assertIn("missing screening fields display `n/a`", self.skill)
 
+    def test_historical_row_without_screening_data_keeps_cumulative_rate_unknown(self):
+        workdir = Path(self.tmp.name) / "historical"
+        workdir.mkdir()
+        _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir,
+                 screened=[{"id": "q1", "verdict": "keep"}])
+        log = workdir / ".sc/qa-log/phase-d.jsonl"
+        with log.open("a") as out:
+            out.write(json.dumps({"task": "old-round"}) + "\n")
+        _, stats = _produce_plan(workdir, [{"id": "p1", "verdict": "ceremony"}])
+        self.assertIsNone(stats["findings_filed"])
+        self.assertIsNone(stats["findings_screened_out"])
+
     def test_invalid_screen_verdict_cannot_be_logged_as_zero(self):
         workdir = Path(self.tmp.name) / "invalid"
         workdir.mkdir()

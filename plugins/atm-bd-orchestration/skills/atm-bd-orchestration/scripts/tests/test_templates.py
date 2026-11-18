@@ -747,7 +747,8 @@ class PlanFixRoundTests(unittest.TestCase):
         self.assertNotIn("Run `req-qa` and `arch-qa` as background agents", text)
         self.assertNotIn("over the whole set", text)
         self.assertIn("Every round, run `ceremony-finding-screen`", text)  # Rand, 2026-11-11
-        self.assertIn("(each carried finding still open or regressed), except the step b findings", text)
+        self.assertIn("including step b and REQ/ADR findings", text)
+        self.assertIn("step b and REQ/ADR findings, which remain blocking", text)
         self.assertIn("files no new findings", text)
         self.assertIn("validate-plan", text)  # step b still runs
 
