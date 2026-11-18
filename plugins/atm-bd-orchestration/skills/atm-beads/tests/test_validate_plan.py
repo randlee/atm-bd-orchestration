@@ -1,13 +1,18 @@
 """validate-plan on a two-sprint plan (t-2 depends on t-1), the phase file, and the published bead schemas."""
 from __future__ import annotations
 
+import contextlib
 import copy
+import importlib.machinery
+import importlib.util
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from phase_fixtures import phase_data, phase_toml, run_subprocess, write_phase
@@ -242,32 +247,6 @@ class ValidatePlan(Repo):
         out = self.run_beads(VALID + [child])
         self.assertEqual(out.returncode, 5, out.stdout + out.stderr)
         self.assertIn("x-t-1.sub-1: difficulty", out.stdout)
-
-    def test_oversize_deliverables_can_move_to_linked_reference(self):
-        beads = copy.deepcopy(VALID)
-        sprint = next(item for item in beads if item["id"] == "x-t-1")
-        sprint["description"] = "## Deliverables\n1. " + "x" * 96001
-        out = self.run_beads(beads)
-        self.assertEqual(out.returncode, 5, out.stdout + out.stderr)
-        self.assertIn("SANITY.JEV_REQUEST_TOO_LARGE", out.stdout)
-        self.assertIn("subtasks", out.stdout)
-        self.assertIn("reference beads", out.stdout)
-        sprint["description"] = "## Deliverables\n1. Document:\n```md\n## Sample\n" + "x" * 96001 + "\n```\n"
-        out = self.run_beads(beads)
-        self.assertEqual(out.returncode, 5, out.stdout + out.stderr)
-        self.assertIn("SANITY.JEV_REQUEST_TOO_LARGE", out.stdout)
-        samples = sprint["description"]
-        sprint["description"] = "## Deliverables\n1. Implement the feature.\n"
-        beads.append({"id": "x-t-1.ref-1", "parent": "x-t-1", "status": "open", "issue_type": "task",
-                      "labels": ["phase-t", "stage:reference"], "description": samples})
-        out = self.run_beads(beads)
-        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        beads.append({"id": "x-t-1.sub-1", "parent": "x-t-1", "status": "open", "issue_type": "task",
-                      "labels": ["phase-t", "stage:subtask"], "description": "x" * 96001,
-                      "metadata": {"difficulty": "normal"}})
-        out = self.run_beads(beads)
-        self.assertEqual(out.returncode, 5, out.stdout + out.stderr)
-        self.assertIn("x-t-1.sub-1: SANITY.JEV_REQUEST_TOO_LARGE", out.stdout)
 
     def test_open_phase_bead_without_a_stage_has_no_model(self):
         unknown = {"id": "x-t-1.unknown", "parent": "x-t-1", "status": "open", "labels": ["phase-t"]}
@@ -608,6 +587,68 @@ class FilePlan(LivePlan):
         fixed = {**invalid, "metadata": {**invalid["metadata"], "found_at_commit": "abc"}}
         out = self.run_file([container("x-t-2"), fixed], VALID + [invalid])
         self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
+
+
+
+class ValidatePlanOversize(unittest.TestCase):
+    """Drive the real validator without a subprocess deadline or host git state."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.repo = self.base / "repo"
+        self.repo.mkdir()
+        write_phase(self.repo)
+        loader = importlib.machinery.SourceFileLoader("validate_plan_oversize", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        assert spec is not None
+        self.validator = importlib.util.module_from_spec(spec)
+        modules = patch.dict(sys.modules, {loader.name: self.validator})
+        modules.start()
+        self.addCleanup(modules.stop)
+        with patch.object(sys, "path", [str(SCRIPT.parent), *sys.path]):
+            loader.exec_module(self.validator)
+
+    def run_beads(self, beads):
+        plan = self.base / "plan.jsonl"
+        bead_file = self.base / "beads.json"
+        plan.write_text(lines(PLAN))
+        bead_file.write_text(json.dumps(beads))
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (patch.object(sys, "path", [str(SCRIPT.parent), *sys.path]),
+              patch.object(self.validator, "git", return_value=str(self.repo)),
+              patch.object(self.validator.subprocess, "run", side_effect=AssertionError("unexpected subprocess")),
+              contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr)):
+            code = self.validator.main(["--root", "x-phase-t", "--index", str(plan),
+                                        "--beads", str(bead_file), "--no-doctor"])
+        return subprocess.CompletedProcess([], code, stdout.getvalue(), stderr.getvalue())
+
+    def test_oversize_deliverables_can_move_to_linked_reference(self):
+        beads = copy.deepcopy(VALID)
+        sprint = next(item for item in beads if item["id"] == "x-t-1")
+        sprint["description"] = "## Deliverables\n1. " + "x" * 96001
+        out = self.run_beads(beads)
+        self.assertEqual(out.returncode, 5, out.stdout + out.stderr)
+        self.assertIn("SANITY.JEV_REQUEST_TOO_LARGE", out.stdout)
+        self.assertIn("subtasks", out.stdout)
+        self.assertIn("reference beads", out.stdout)
+        sprint["description"] = "## Deliverables\n1. Document:\n```md\n## Sample\n" + "x" * 96001 + "\n```\n"
+        out = self.run_beads(beads)
+        self.assertEqual(out.returncode, 5, out.stdout + out.stderr)
+        self.assertIn("SANITY.JEV_REQUEST_TOO_LARGE", out.stdout)
+        samples = sprint["description"]
+        sprint["description"] = "## Deliverables\n1. Implement the feature.\n"
+        beads.append({"id": "x-t-1.ref-1", "parent": "x-t-1", "status": "open", "issue_type": "task",
+                      "labels": ["phase-t", "stage:reference"], "description": samples})
+        out = self.run_beads(beads)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        beads.append({"id": "x-t-1.sub-1", "parent": "x-t-1", "status": "open", "issue_type": "task",
+                      "labels": ["phase-t", "stage:subtask"], "description": "x" * 96001,
+                      "metadata": {"difficulty": "normal"}})
+        out = self.run_beads(beads)
+        self.assertEqual(out.returncode, 5, out.stdout + out.stderr)
+        self.assertIn("x-t-1.sub-1: SANITY.JEV_REQUEST_TOO_LARGE", out.stdout)
 
 
 if __name__ == "__main__":
