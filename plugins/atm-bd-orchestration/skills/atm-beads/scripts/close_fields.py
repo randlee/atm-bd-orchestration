@@ -25,6 +25,25 @@ POURED = ("role", "phase", "sprint", "sprint_bead", "stack", "stack_bead", "bran
 HOST = ("primary_checkout", "worktree_path")
 
 
+def subtask_list_argv(sprint_bead: str) -> list[str]:
+    """The bd command listing a sprint's `stage:subtask` children, closed ones included."""
+    return ["bd", "list", "--parent", sprint_bead, "-l", "stage:subtask", "--status", "all", "-n", "0", "--json"]
+
+
+def subtask_children(rows: list[dict]) -> list[dict]:
+    """`[{id, commit}]` of the `stage:subtask` rows, by id; commit is "" until the child's close records one."""
+    return [{"id": row["id"], "commit": str((row.get("metadata") or {}).get("commit") or "")}
+            for row in sorted(rows, key=lambda row: row["id"]) if "stage:subtask" in (row.get("labels") or [])]
+
+
+def require_child_commits(children: list[dict]) -> list[dict]:
+    for child in children:
+        if not child["commit"]:
+            raise CloseFieldsError("ASSIGN_VARS.CHILD_COMMIT_MISSING", f"child {child['id']} has no recorded commit",
+                                   f"Run `bd update {child['id']} --set-metadata commit=<sha>` with the commit that holds its work, then retry.")
+    return children
+
+
 def is_fix_bead(bead: dict) -> bool:
     return (bead.get("metadata") or {}).get("role") == "fix" or "stage:fix" in (bead.get("labels") or [])
 
@@ -102,7 +121,8 @@ def close_vars(row: dict, repo: Path) -> tuple[str, dict, list[str]]:
 RECORDED = ("branch", "pr_number")
 
 
-def qa_assignment_vars(qa_row: dict, checked_row: dict, repo: Path, current_pr: dict | None = None) -> dict:
+def qa_assignment_vars(qa_row: dict, checked_row: dict, repo: Path, current_pr: dict | None = None,
+                       children: list[dict] | None = None) -> dict:
     """The `templates.qa` vars of one QA bead, using its currently observed PR head and base.
 
     The checked bead identifies the PR number and expected branch. The current PR supplies its head SHA and base ref;
@@ -154,7 +174,8 @@ def qa_assignment_vars(qa_row: dict, checked_row: dict, repo: Path, current_pr: 
             f"Resolve the current PR for {checked_row['id']} and correct its recorded pr_number/branch before assigning QA.",
         )
     is_fix = is_fix_bead(checked_row)
-    return {"task_id": qa_row["id"], "qa_task_id": qa_row["id"], "checked_bead": values["checked_bead"],
+    children = require_child_commits(subtask_children(children or []))
+    return {"children": children, "task_id": qa_row["id"], "qa_task_id": qa_row["id"], "checked_bead": values["checked_bead"],
             "dev_task_id": values["checked_bead"], "sanity_task_id": metadata.get("sanity_bead") or "",
             "phase": metadata["phase"], "phase_feature": metadata["phase_feature"], "sprint": metadata["sprint"],
             "sprint_bead": metadata["sprint_bead"], "stack": metadata["stack"], "layer": metadata["layer"],

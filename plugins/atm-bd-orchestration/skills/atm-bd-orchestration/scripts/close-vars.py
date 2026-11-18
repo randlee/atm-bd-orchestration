@@ -98,6 +98,23 @@ def show(repo: Path, bead: str) -> dict:
                                             "Check the bead id and the bd version.") from error
 
 
+def subtasks(repo: Path, sprint_bead: str) -> list[dict]:
+    """The `stage:subtask` children of a sprint bead as `bd list` rows."""
+    if not sprint_bead:
+        return []
+    argv = close_fields.subtask_list_argv(sprint_bead)
+    try:
+        listed = subprocess.run(argv, cwd=repo, capture_output=True, text=True, timeout=BD_SHOW_TIMEOUT_S, check=False)
+        rows = json.loads(listed.stdout) if listed.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError) as error:
+        raise close_fields.CloseFieldsError("CLOSE_VARS.READ_FAILED", f"{' '.join(argv)} failed: {error}",
+                                            "Check that bd and its dolt server answer here (`bd version`), then rerun.") from error
+    if not isinstance(rows, list):
+        raise close_fields.CloseFieldsError("CLOSE_VARS.READ_FAILED", f"{' '.join(argv)} exited {listed.returncode}",
+                                            "Check the sprint bead id and that bd works here.")
+    return rows
+
+
 def task_events(task: str) -> list[dict]:
     try:
         events = subprocess.run(["atm", "task", "events", task, "--all", "--json"], capture_output=True, text=True,
@@ -128,11 +145,11 @@ def sanity_round_from_events(task: str, events: list[dict]) -> int:
     return round_number
 
 
-def build(repo: Path, bead: str, *, events_for_task=task_events) -> dict:
-    return cached_then_fresh(lambda fresh, fallback: _build(repo, bead, events_for_task, fresh, fallback))
+def build(repo: Path, bead: str, *, events_for_task=task_events, subtasks_of=subtasks) -> dict:
+    return cached_then_fresh(lambda fresh, fallback: _build(repo, bead, events_for_task, fresh, fallback, subtasks_of))
 
 
-def _build(repo, bead, events_for_task, fresh, fallback):
+def _build(repo, bead, events_for_task, fresh, fallback, subtasks_of=subtasks):
     row = read(repo, bead, fallback, fresh=fresh)
     role, values, remaining = close_fields.close_vars(row, repo)
     metadata = row.get("metadata") or {}
@@ -142,6 +159,8 @@ def _build(repo, bead, events_for_task, fresh, fallback):
     if role == "sanity":
         derived["round"] = sanity_round_from_events(bead, events_for_task(bead))
         derived["reviewers_round1"] = (read(repo, metadata["qa_bead"], fallback, fresh=fresh).get("metadata") or {}).get("reviewers_round1")
+    if role == "dev":
+        values["child_beads"] = [child["id"] for child in close_fields.subtask_children(subtasks_of(repo, metadata["sprint_bead"]))]
     for name, value in derived.items():
         if name in remaining and value not in (None, "", []):
             values[name] = value
@@ -182,12 +201,12 @@ def read_current_pr(repo: Path, number: str) -> dict:
             "head": row.get("headRefName"), "head_sha": row.get("headRefOid")}
 
 
-def build_qa_assignment(repo: Path, bead: str, *, pr_reader=None) -> dict:
+def build_qa_assignment(repo: Path, bead: str, *, pr_reader=None, subtasks_of=subtasks) -> dict:
     reader = pr_reader or read_current_pr
-    return cached_then_fresh(lambda fresh, fallback: _build_qa_assignment(repo, bead, fresh, fallback, reader))
+    return cached_then_fresh(lambda fresh, fallback: _build_qa_assignment(repo, bead, fresh, fallback, reader, subtasks_of))
 
 
-def _build_qa_assignment(repo, bead, fresh, fallback, pr_reader):
+def _build_qa_assignment(repo, bead, fresh, fallback, pr_reader, subtasks_of=subtasks):
     row = read(repo, bead, fallback, fresh=fresh)
     checked = (row.get("metadata") or {}).get("checked_bead")
     if not checked:
@@ -197,7 +216,8 @@ def _build_qa_assignment(repo, bead, fresh, fallback, pr_reader):
     checked_meta = checked_row.get("metadata") or {}
     recorded_number = checked_meta.get("pr_number")
     current_pr = pr_reader(repo, str(recorded_number)) if recorded_number not in (None, "") else None
-    values = close_fields.qa_assignment_vars(row, checked_row, repo, current_pr)
+    values = close_fields.qa_assignment_vars(row, checked_row, repo, current_pr,
+                                             subtasks_of(repo, (row.get("metadata") or {}).get("sprint_bead") or ""))
     return {"bead": bead, "role": "qa-assignment", "vars": values, "remaining": [], "read_fallback": fallback}
 
 

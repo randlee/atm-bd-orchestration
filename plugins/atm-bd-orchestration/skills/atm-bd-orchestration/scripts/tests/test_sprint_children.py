@@ -5,9 +5,15 @@ import json
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
+import pytest
+
 from rendering import render
+from task_close_world import World, bd_row
+import test_close_vars as vars_tests
+import test_sanity_split as split_tests
 
 SKILL = Path(__file__).parents[2]
 SANITY = SKILL / "templates" / "dev-sanity-template.xml.j2"
@@ -68,17 +74,19 @@ class SprintChildrenTests(unittest.TestCase):
                  "--commit", "a" * 40, "--base", "b" * 40, "--lint-command", "true", "--scratch", root,
                  "--bead-json", str(beads), "--split-only", *extra], capture_output=True, text=True)
 
-    def test_split_manifest_carries_each_child_deliverables_at_its_commit(self):
+    def test_split_numbers_each_child_deliverable_after_the_checked_beads_at_its_commit(self):
         done = self.split("--child", f"t-x-1.sub-1={'1' * 40}", "--child", f"t-x-1.sub-2={'2' * 40}")
         self.assertEqual(done.returncode, 0, done.stderr)
         manifest = json.loads(done.stdout)
+        self.assertEqual(manifest["deliverables_total"], 4)
         self.assertEqual([(c["id"], c["commit"], c["deliverables_total"]) for c in manifest["children"]],
                          [("t-x-1.sub-1", "1" * 40, 2), ("t-x-1.sub-2", "2" * 40, 1)])
-        first = manifest["children"][0]["assignments"][1]["assignment"]
-        self.assertEqual((first["dev_bead"]["id"], first["commit"], first["deliverable"]["number"]),
-                         ("t-x-1.sub-1", "1" * 40, 2))
-        self.assertEqual([a["number"] for a in manifest["assignments"]], [1])
-        self.assertEqual(manifest["assignments"][0]["assignment"]["commit"], "a" * 40)
+        rows = [(a["number"], a.get("bead"), a.get("commit"), a["assignment"]["dev_bead"]["id"], a["assignment"]["commit"],
+                 a["assignment"]["deliverables_total"]) for a in manifest["assignments"]]
+        self.assertEqual(rows, [(1, None, None, "t-x-1", "a" * 40, 4),
+                                (2, "t-x-1.sub-1", "1" * 40, "t-x-1.sub-1", "1" * 40, 4),
+                                (3, "t-x-1.sub-1", "1" * 40, "t-x-1.sub-1", "1" * 40, 4),
+                                (4, "t-x-1.sub-2", "2" * 40, "t-x-1.sub-2", "2" * 40, 4)])
 
     def test_split_without_child_has_no_children_key(self):
         done = self.split()
@@ -89,6 +97,124 @@ class SprintChildrenTests(unittest.TestCase):
         done = self.split("--child", "t-x-1.sub-1")
         self.assertEqual(done.returncode, 1)
         self.assertIn("<bead>=<commit>", done.stderr)
+
+
+SPRINT = "t-d-1"
+KIDS = [{"id": "t-d-1.sub-2", "labels": ["stage:subtask"], "metadata": {"commit": "2" * 40, "parent": SPRINT}},
+        {"id": "t-d-1.sub-1", "labels": ["stage:subtask"], "metadata": {"commit": "1" * 40, "parent": SPRINT}},
+        {"id": "t-d-1.dev", "labels": ["stage:dev"], "metadata": {"parent": SPRINT}}]
+TWO = [{"id": "t-d-1.sub-1", "commit": "1" * 40}, {"id": "t-d-1.sub-2", "commit": "2" * 40}]
+
+
+class VarsTests(unittest.TestCase):
+    def dev_vars(self, kids):
+        dev = vars_tests.row("t-d-1.f1-fix", "stage:dev", "dev")
+        with unittest.mock.patch.object(vars_tests.close_vars_cli, "read", lambda repo, bead, fallback, **_: dev):
+            return vars_tests.close_vars_cli.build(vars_tests.REPO, dev["id"], subtasks_of=lambda repo, sprint: kids)["vars"]
+
+    def qa_vars(self, kids):
+        rows = {vars_tests.QA["id"]: vars_tests.QA, vars_tests.FIX["id"]: vars_tests.FIX}
+        with unittest.mock.patch.object(vars_tests.close_vars_cli, "read", lambda repo, bead, fallback, **_: rows[bead]):
+            return vars_tests.close_vars_cli.build_qa_assignment(
+                vars_tests.REPO, vars_tests.QA["id"], pr_reader=lambda repo, number: vars_tests.CURRENT_PR,
+                subtasks_of=lambda repo, sprint: kids)["vars"]
+
+    def test_dev_vars_list_the_sprints_subtask_children(self):
+        self.assertEqual(self.dev_vars(KIDS)["child_beads"], ["t-d-1.sub-1", "t-d-1.sub-2"])
+        self.assertEqual(self.dev_vars([])["child_beads"], [])
+
+    def test_qa_vars_carry_the_children_with_commits(self):
+        self.assertEqual(self.qa_vars(KIDS)["children"], TWO)
+        self.assertEqual(self.qa_vars([])["children"], [])
+
+    def test_qa_vars_refuse_a_child_without_a_commit(self):
+        bare = [{**KIDS[0], "metadata": {}}]
+        with self.assertRaises(vars_tests.close_fields.CloseFieldsError) as caught:
+            self.qa_vars(bare)
+        self.assertIn("bd update t-d-1.sub-2 --set-metadata commit=<sha>", caught.exception.fix)
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    return World(tmp_path, monkeypatch)
+
+
+def with_children(world, kids):
+    world.values["sprint_bead"] = SPRINT
+    world.children = [bd_row(kid["id"], labels=kid["labels"], metadata=kid["metadata"]) for kid in kids]
+    world.beads[world.values["checked_bead"]]["metadata"]["commit"] = world.head
+
+
+def test_sanity_dispatch_passes_each_child_with_its_commit(world):
+    with_children(world, KIDS)
+    assert "ok" in world.run("dev")
+    dispatch = next(m for m in world.messages if m["type"] == "dev-sanity-task")
+    assert dispatch["values"]["children"] == TWO
+    for child in TWO:
+        assert f'<child id="{child["id"]}" commit="{child["commit"]}"/>' in dispatch["body"]
+
+
+def test_sanity_dispatch_without_children_adds_none(world):
+    with_children(world, [])
+    assert "ok" in world.run("dev")
+    dispatch = next(m for m in world.messages if m["type"] == "dev-sanity-task")
+    assert "children" not in dispatch["values"] and "<children>" not in dispatch["body"]
+
+
+def test_sanity_dispatch_refuses_a_child_without_a_commit_before_any_write(world):
+    with_children(world, [{**KIDS[0], "metadata": {"parent": SPRINT}}])
+    result = world.run("dev")
+    assert result["err"]["code"] == "ASSIGN_VARS.CHILD_COMMIT_MISSING"
+    assert "t-d-1.sub-2" in result["err"]["message"]
+    assert "bd update t-d-1.sub-2 --set-metadata commit=<sha>" in result["err"]["fix"]
+    assert world.writes == []
+
+
+class MergeTests(unittest.TestCase):
+    """A split sprint's merge: the child deliverables are checked at each child's commit."""
+    setUp = split_tests.SanitySplit.setUp
+    run_split = split_tests.SanitySplit.run_split
+    merge = split_tests.SanitySplit.merge
+    wait_lint = split_tests.SanitySplit.wait_lint
+    close_event_writer = split_tests.SanitySplit.close_event_writer
+
+    def manifest(self):
+        repo = self.repo
+        repo.commit("crates/types/src/a.rs", "pub fn a() {}\n", "child one")
+        first = split_tests.git(repo.wt, "rev-parse", "HEAD")
+        repo.commit("crates/types/src/b.rs", "pub fn b() {}\n", "child two")
+        split_tests.git(repo.wt, "push", "-q", "origin", "sprint/x")
+        head = split_tests.git(repo.wt, "rev-parse", "HEAD")
+        beads = [*split_tests.bead(), *({"id": f"x-1.sub-{n}", "title": f"sub {n}", "description": f"## Deliverables\n1. Child {n}.\n",
+                                         "metadata": {"owned_paths": ["crates/**"]}} for n in (1, 2))]
+        out = self.run_split(beads, None, head, "sprint/x", "develop", "--child", f"x-1.sub-1={first}",
+                             "--child", f"x-1.sub-2={head}", lint="true")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        manifest = json.loads(out.stdout)
+        self.assertEqual(self.wait_lint(manifest["lint"]["exit_file"]), "0")
+        return manifest, head, first
+
+    def results(self, head, first, undone=()):
+        issue = [{"kind": "skipped", "file": "crates/types/src/a.rs", "line": 1, "issue": "not done"}]
+        wanted = [(1, "{{ bead_prefix }}-x-1", head), (2, "{{ bead_prefix }}-x-1", head), (3, "x-1.sub-1", first), (4, "x-1.sub-2", head)]
+        out = []
+        for number, bead, commit in wanted:
+            reply = split_tests.result(number, commit, issue if number in undone else ())
+            reply["data"]["dev_bead"] = bead
+            out.append(reply)
+        return out
+
+    def test_all_child_deliverables_done_passes(self):
+        manifest, head, first = self.manifest()
+        merged = self.merge(manifest, self.results(head, first))
+        self.assertEqual(merged.returncode, 0, merged.stderr)
+        self.assertEqual(json.loads(merged.stdout)["verdict"], "PASS")
+
+    def test_an_undone_child_deliverable_fails(self):
+        manifest, head, first = self.manifest()
+        merged = self.merge(manifest, self.results(head, first, undone=(3,)))
+        self.assertEqual(merged.returncode, 0, merged.stderr)
+        self.assertEqual(json.loads(merged.stdout)["verdict"], "FAIL")
 
 
 if __name__ == "__main__":

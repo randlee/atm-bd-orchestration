@@ -107,6 +107,8 @@ class MergeArguments(argparse.Namespace):
 class AssignmentText(TypedDict):
     number: int | float | None
     text: str | None
+    bead: str | None      # a child bead's deliverable: its bead and commit, else the checked bead's
+    commit: str | None
 
 
 class LintDescriptor(TypedDict):
@@ -270,10 +272,13 @@ def validate(result: JsonObject, index: int, manifest: Manifest, sanity_bead: st
         raise Reject(f"{where}: a success envelope must have error null")
     if data.get("sanity_bead") != sanity_bead:
         raise Reject(f"{where}: sanity_bead {data.get('sanity_bead')!r} is not {sanity_bead}")
-    if data.get("dev_bead") != dev_bead:
-        raise Reject(f"{where}: dev_bead {data.get('dev_bead')!r} is not {dev_bead}")
-    if data.get("commit_checked") != manifest["sha"]:
-        raise Reject(f"{where}: commit_checked {data.get('commit_checked')!r} is not {manifest['sha']}")
+    owner = next((a for a in manifest.get("assignments", []) if a["number"] == number and a["bead"]), None)
+    expected_bead = owner["bead"] if owner and owner["bead"] else dev_bead
+    expected_commit = owner["commit"] if owner and owner["commit"] else manifest["sha"]
+    if data.get("dev_bead") != expected_bead:
+        raise Reject(f"{where}: dev_bead {data.get('dev_bead')!r} is not {expected_bead}")
+    if data.get("commit_checked") != expected_commit:
+        raise Reject(f"{where}: commit_checked {data.get('commit_checked')!r} is not {expected_commit}")
     findings = data.get("findings")
     if not isinstance(findings, list):
         raise Reject(f"{where}: findings must be a list")
@@ -733,8 +738,11 @@ def parse_assignment_text(value: JsonValue) -> AssignmentText | None:
     deliverable = body.get("deliverable") if isinstance(body, dict) else None
     text = deliverable.get("text") if isinstance(deliverable, dict) else None
     number = value.get("number")
+    bead, commit = value.get("bead"), value.get("commit")
     return {"number": number if isinstance(number, (int, float)) else None,
-            "text": text if isinstance(text, str) and text else None}
+            "text": text if isinstance(text, str) and text else None,
+            "bead": bead if isinstance(bead, str) and bead else None,
+            "commit": commit if isinstance(commit, str) and commit else None}
 
 
 def deliverable_text(manifest: JsonObject, number: int) -> str:

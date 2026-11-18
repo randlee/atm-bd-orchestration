@@ -93,6 +93,7 @@ class World:
         self.concurrent_metadata = None
         self.reassign_after_write = None
         self.overrides = {}
+        self.children = []   # `stage:subtask` rows `bd list --parent <sprint bead>` returns, each with metadata.parent
         self.hooks = []   # `atm hook list --phase <x> --json` rows
         monkeypatch.setenv("ATM_IDENTITY", "caller")
         monkeypatch.delenv("BEADS_DIR", raising=False)
@@ -144,6 +145,8 @@ class World:
             output = "bd version 1.3.1 (dev: fake)\n"
         elif argv[:2] == ["bd", "schema"]:
             output = BD_SCHEMA
+        elif argv[:2] == ["bd", "list"] and "--parent" in argv:
+            output = [row for row in self.children if row["metadata"].get("parent") == argv[argv.index("--parent") + 1]]
         elif argv[:2] == ["bd", "list"] and "--id" in argv:
             output = [self.beads[bead] for bead in argv[argv.index("--id") + 1].split(",") if bead in self.beads]
         elif argv[:2] == ["bd", "show"]:

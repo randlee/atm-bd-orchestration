@@ -725,6 +725,17 @@ class Hook:
         return {"number": row.get("number"), "base": row.get("baseRefName"),
                 "head": row.get("headRefName"), "head_sha": row.get("headRefOid")}
 
+    def children(self, sprint_bead, *, rows=None):
+        """`[{id, commit}]` of the sprint's `stage:subtask` children; one without a recorded commit is refused."""
+        if not sprint_bead:
+            return []
+        if rows is None:
+            rows = self.json(close_fields.subtask_list_argv(sprint_bead))
+        try:
+            return close_fields.require_child_commits(close_fields.subtask_children(rows))
+        except close_fields.CloseFieldsError as error:
+            raise CloseError(error.code, str(error), error.fix) from error
+
     def sanity_dispatch(self, context):
         """The sanity assignment vars, rendered and size-checked; built before anything is closed (#557)."""
         context = {**context, "base": context.get("rebased_onto") or context.get("base")}
@@ -743,6 +754,9 @@ class Hook:
         # The QA reviewer list is planned on the QA bead (qa-bead.json.j2); the sanity close renders qa-template with it (#821).
         close_context["reviewers_round1"] = self.qa_reviewers(context["qa_bead"])
         close_context.update(phase_lead=self.lead, budget=context.get("budget", "full"))
+        children = self.children(context.get("sprint_bead"))
+        if children:
+            context = {**context, "children": children}
         dispatch = {**context, "close_context": close_context, "beads_dir": self.beads_dir or self.beads_directory()}
         phase = str(context.get("phase") or "")
         rows = self.json(["atm", "hook", "list", "--phase", phase, "--json"], lead=True) if phase else []
@@ -964,7 +978,9 @@ class Hook:
         if verdict == "PASS":
             checked = self.bead(values["checked_bead"])
             current_pr = self.current_pr_for_qa(checked)
-            qa_values = close_fields.qa_assignment_vars(self.bead(values["qa_bead"]), checked, self.root, current_pr)
+            qa_sprint = (self.bead(values["qa_bead"]).get("metadata") or {}).get("sprint_bead")
+            subtasks = self.json(close_fields.subtask_list_argv(qa_sprint)) if qa_sprint else []
+            qa_values = close_fields.qa_assignment_vars(self.bead(values["qa_bead"]), checked, self.root, current_pr, subtasks)
             if qa_values["checked_bead"] != checked["id"]:
                 raise CloseError("ASSIGN_VARS.CONFLICT", f"{values['qa_bead']} points to {qa_values['checked_bead']}, but sanity checked {checked['id']}",
                                  f"Correct metadata.checked_bead on {values['qa_bead']} to {checked['id']} and retry.")
@@ -1049,6 +1065,7 @@ def main(argv=None, runner=subprocess.run, clock=time.monotonic, sleep=time.slee
         except ValueError as error:
             raise CloseError("CONFIG.INVALID", str(error), f"Unset {TIMEOUT_ENV} or set it to a positive integer number of seconds, e.g. {TIMEOUT_ENV}=180.") from error
         values = read_vars(args.vars)
+        values.pop("child_beads", None)  # close-vars.py writes it for the dev template; no close reads it
         if args.role in ("dev", "fix"):
             if args.result is None:
                 raise CloseError("ARGS.INVALID", "--result is required for dev and fix",
