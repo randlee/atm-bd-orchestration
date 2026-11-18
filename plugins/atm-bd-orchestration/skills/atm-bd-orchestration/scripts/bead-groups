@@ -128,7 +128,7 @@ class Metadata(TypedDict, total=False):
     phase: str
     sprint: str
     stack: str
-    layer: int
+    layer: int | None
     difficulty: str
     branch: str
     worktree: str
@@ -543,8 +543,10 @@ class Run:
         priority = container.get("priority", 2)
         if not isinstance(priority, int) or isinstance(priority, bool):
             priority = 2
+        layer_value = meta.get("layer")
+        layer = layer_value if isinstance(layer_value, int) and not isinstance(layer_value, bool) else 0
         compose: Compose = {"parent": bead, "phase": phase, "sprint": sprint, "stack": stack_name,
-                   "layer": meta.get("layer", 0), "difficulty": difficulty, "priority": priority,
+                   "layer": layer, "difficulty": difficulty, "priority": priority,
                    "branch": branch, "worktree": worktree, "pr_target": pr_target,
                    "edge_option": option, "reviewers_round1": list(self.config["reviewers_round1"]),
                    **self.close_compose(phase, str(container.get("title") or ""))}
