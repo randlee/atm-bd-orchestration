@@ -15,7 +15,7 @@
                              {"sprint": "<sprint container id>", "round": N, "filed_by": "<QA bead id>",
                               "found_at_commit": "<reviewed commit>",
                               "findings": [{"ref": "qa1-f1", "severity": "blocking", "reviewer": "...",
-                                            "title": "...", "remedy": "...", "priority": 1}]}
+                                            "title": "...", "remedy": "...", "owned_paths": ["path/to/file"], "priority": 1}]}
                            a finding may also carry requirements, adrs and difficulty; they default to the
                            sprint container's metadata
 
@@ -170,6 +170,7 @@ class Finding(TypedDict):
     found_on_layer: NotRequired[int | str | bool | None]
     priority: NotRequired[int]
     difficulty: NotRequired[str]
+    owned_paths: NotRequired[list[str]]
 
 
 class FindingsDocument(TypedDict):
@@ -243,6 +244,7 @@ class Compose(TypedDict, total=False):
     adrs: list[str]
     found_on_layer: int | str
     has_found_on_layer: bool
+    owned_paths: list[str]
 
 
 PlanEntry = tuple[str, str, list[str]]
@@ -637,6 +639,11 @@ class Run:
                 remedy = finding.get("remedy")
                 if not isinstance(remedy, str):
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} lacks remedy")
+                owned_paths = finding.get("owned_paths")
+                if not isinstance(owned_paths, list) or not owned_paths or any(
+                        not isinstance(path, str) or not path.strip() or path.strip() in (".", "**", "**/*", "*")
+                        or path.startswith("/") or ".." in Path(path).parts for path in owned_paths):
+                    raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} needs nonempty, repository-relative finding-specific owned_paths")
                 # Deleted when a released sc-compose pours a string layer (preview-attach passes).
                 layer = finding.get("found_on_layer")
                 if layer not in (None, "") and (not isinstance(layer, int) or isinstance(layer, bool)):
@@ -674,7 +681,7 @@ class Run:
                 compose: Compose = {"parent": sprint, "finding_ref": ref, "round": round_, "severity": finding["severity"],
                            "reviewer": finding["reviewer"], "finding_title": finding["title"], "remedy": remedy,
                            "filed_by": filed_by, "found_at_commit": found_at,
-                           "requirements": ids["requirements"], "adrs": ids["adrs"],
+                           "requirements": ids["requirements"], "adrs": ids["adrs"], "owned_paths": owned_paths,
                            "phase": phase, "sprint": sprint_name, "stack": stack_name,
                            **cut,
                            "found_on_layer": found_on_layer_value,

@@ -43,7 +43,7 @@ class FindingGroupTests(unittest.TestCase):
             findings = root / "findings.json"
             shutil.copyfile(formula, root / "formula.toml.j2")
             for provenance in (15, None):
-                row: dict[str, object] = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix"}
+                row: dict[str, object] = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix", "owned_paths": ["crates/types/src/retry.rs"]}
                 if provenance is not None:
                     row["found_on_layer"] = provenance
                 findings.write_text(json.dumps({"sprint": "d-1", "round": 1, "filed_by": "qa",
@@ -64,6 +64,7 @@ class FindingGroupTests(unittest.TestCase):
                 assert "code-worktrees/fix/d-1-qa1-f1" in target["compose"]["worktree"]
                 assert all(step["metadata"]["worktree"] == target["compose"]["worktree"] for step in steps)
                 metadata = steps[0]["metadata"]
+                self.assertEqual(metadata["owned_paths"], ["crates/types/src/retry.rs"])
                 if provenance is None:
                     self.assertNotIn("found_on_layer", metadata)
                 else:
@@ -86,7 +87,7 @@ class FoundOnLayerGuardTests(unittest.TestCase):
                                                      "requirements": ["REQ-1"], "adrs": ["NONE"]}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else container
         runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
-        row = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix"}
+        row = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix", "owned_paths": ["crates/types/src/retry.rs"]}
         if layer is not None:
             row["found_on_layer"] = layer
         with tempfile.TemporaryDirectory() as directory:
@@ -134,7 +135,7 @@ class PhaseEndFindingTests(unittest.TestCase):
         epic = {"status": "open", "title": "phase-d: feature", "metadata": {"integration_branch": "integrate/phase-d", "phase": "d", "plan_scope": "epic"}}
         runner.show = lambda bead: stack if bead == "t-phase-d.stack" else epic
         runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
-        row = {"ref": "pe-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix",
+        row = {"ref": "pe-f1", "severity": "blocking", "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix", "owned_paths": ["crates/types/src/retry.rs"],
                "requirements": ["REQ-1"], "adrs": ["NONE"], **extra}
         with tempfile.TemporaryDirectory() as directory:
             runner.repo = Path(directory)
@@ -143,6 +144,15 @@ class PhaseEndFindingTests(unittest.TestCase):
                                             "found_at_commit": "a" * 40, "findings": [row]}))
             with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d", **({"code_checkout": code_checkout} if code_checkout else {})}):
                 return groups, runner.finding_targets(findings)
+
+    def test_invalid_owned_paths_identify_the_finding(self):
+        for paths in ([], [""], ["*"], ["../outside"], ["/absolute"]):
+            with self.subTest(paths=paths):
+                groups, result = self.targets(difficulty="hard", owned_paths=paths)
+                self.assertIsInstance(result[0], groups.TargetError)
+                self.assertEqual(result[0].code, "BEAD_GROUPS_FINDINGS_INVALID")
+                self.assertIn("pe-f1", str(result[0]))
+                self.assertIn("owned_paths", str(result[0]))
 
     def test_held_last_layer_is_not_the_fix_target(self):
         layers = [{"pr": 1, "branch": "linked", "head": "a" * 40, "base": "integrate/phase-d", "linked": True},
@@ -206,7 +216,7 @@ class PhaseEndFindingTests(unittest.TestCase):
             findings = root / "findings.json"
             findings.write_text(json.dumps({"sprint": "t-phase-d", "round": 1, "filed_by": "t-phase-d-review",
                 "found_at_commit": "a" * 40, "findings": [{"ref": "pe-f1", "severity": "blocking",
-                "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix", "difficulty": "hard",
+                "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix", "owned_paths": ["crates/types/src/retry.rs"], "difficulty": "hard",
                 "requirements": ["REQ-1"], "adrs": ["NONE"]}]}))
             runner = object.__new__(groups.Run)
             runner.repo, runner.option, runner.sidecars = root, None, {}
@@ -230,6 +240,20 @@ class PhaseEndFindingTests(unittest.TestCase):
                 record = json.loads(result.stdout)[0]
                 self.assertEqual(record["metadata"]["worktree"], str(expected), role)
                 self.assertEqual(record["metadata"]["branch"], "fix/t-phase-d-pe-f1", role)
+                if role == "fix":
+                    self.assertEqual(record["metadata"]["owned_paths"], ["crates/types/src/retry.rs"])
+                    bead_file = root / "poured-fix.json"
+                    bead_file.write_text(result.stdout)
+                    split = subprocess.run([sys.executable, str(SCRIPTS / "sanity-split"),
+                        "--task", receipt["ids"]["sanity"], "--bead", bead, "--worktree", str(checkout),
+                        "--branch", "fix/t-phase-d-pe-f1", "--commit", "abc1234", "--base", "trunk",
+                        "--lint-command", "true", "--scratch", str(root / "scratch"),
+                        "--bead-json", str(bead_file), "--split-only"], cwd=root, env=env,
+                        capture_output=True, text=True, timeout=60)
+                    self.assertEqual(split.returncode, 0, split.stdout + split.stderr)
+                    manifest = json.loads(split.stdout)
+                    self.assertEqual(manifest["deliverables_total"], 1)
+                    self.assertEqual(manifest["assignments"][0]["assignment"]["owned_paths"], ["crates/types/src/retry.rs"])
 
     def test_non_qa_reviewers_are_refused_before_pour(self):
         for reviewer in ("team-lead", "rust-developer", "dev-sanity", "plan-scope-reviewer"):
@@ -332,7 +356,7 @@ class ClosedQaRecoveryTests(unittest.TestCase):
             fixture = PlanFixture(Path(directory))
             sprint = fixture.sprint()
             qa = f"{sprint}.group-qa"
-            finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "req-qa", "title": "issue", "remedy": "fix"}
+            finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "req-qa", "title": "issue", "remedy": "fix", "owned_paths": ["crates/types/src/retry.rs"]}
             fixture.rows["t-d-1.qa1-f1-r1-fix"] = {"id": "t-d-1.qa1-f1-r1-fix", "status": "closed", "labels": ["stage:fix"],
                                                      "metadata": {"finding_ref": "qa1-f1", "sprint_bead": sprint}}
             fixture.rows[qa].update(status="closed", close_reason="FAIL at abc1234",
@@ -519,7 +543,7 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
             (root / "initial.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
             run(str(bd), "import", "initial.jsonl")
             findings = {"sprint": "t-d-1", "round": 2, "filed_by": "t-d-1.f1-r1-qa", "found_at_commit": "abc1234",
-                        "findings": [{"ref": "qa1-f1", "severity": "blocking", "reviewer": "req-qa", "title": "issue", "remedy": "fix"}]}
+                        "findings": [{"ref": "qa1-f1", "severity": "blocking", "reviewer": "req-qa", "title": "issue", "remedy": "fix", "owned_paths": ["crates/types/src/retry.rs"]}]}
             (root / "findings.json").write_text(json.dumps(findings))
             proc = run(sys.executable, str(SCRIPTS / "bead-groups"), "--findings", "findings.json", "--json")
             report = json.loads(proc.stdout)

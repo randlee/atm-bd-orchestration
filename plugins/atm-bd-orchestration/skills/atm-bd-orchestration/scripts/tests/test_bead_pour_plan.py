@@ -151,7 +151,7 @@ class PourPlanTests(unittest.TestCase):
     def test_flat_finding_formula_and_layer_cut(self):
         self.fixture.rows["t-phase-x.stack"]["metadata"]["layers"] = [
             {"branch": "fix/x-previous", "pr": 1, "head": "a" * 40, "base": "b" * 40, "linked": True}]
-        finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "arch-qa", "title": "issue", "remedy": "fix it"}
+        finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "arch-qa", "title": "issue", "remedy": "fix it", "owned_paths": ["crates/types/src/retry.rs"]}
         for option in "ABC":
             with self.subTest(option=option):
                 self.runner.option = option
@@ -329,7 +329,7 @@ class PourPlanTests(unittest.TestCase):
     def test_closed_qa_refusal_is_checked_once_before_preview_with_noop_and_validate_exceptions(self):
         import bead_schema
         qa = f"{self.sprint}.group-qa"
-        finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "arch-qa", "title": "issue", "remedy": "fix"}
+        finding = {"ref": "qa1-f1", "severity": "blocking", "reviewer": "arch-qa", "title": "issue", "remedy": "fix", "owned_paths": ["crates/types/src/retry.rs"]}
         for option in ("A", "C"):
             for closed in (False, True):
                 for presence in ("missing", "partial", "existing"):
