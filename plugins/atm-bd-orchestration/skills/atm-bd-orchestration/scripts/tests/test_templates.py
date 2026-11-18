@@ -1029,3 +1029,35 @@ def test_shipped_dev_and_fix_assignments_carry_no_host_build_policy():
         assert result.returncode == 0, result.stderr
         assert "CARGO_BUILD_JOBS" not in result.stdout, template
         assert "devs share this host" not in result.stdout, template
+
+
+# Dev assignment child-bead instructions (atm-bt-2.sub-2): rendered only when `child_beads` is non-empty.
+_CHILD_SENTENCES = (
+    "Run each child bead (x-1, x-2) with a background subagent on its own worktree, no PR; "
+    "each subagent runs focused lint and tests there. Merge every child's work into this worktree.",
+    "Close each child with its commit before this bead (`bd close` refuses a parent with open children): "
+    "`bd update <child> --set-metadata commit=<sha>`, then `bd close <child>`. "
+    "Hand the full lint and test run to a background `fast` agent; rebase only after it is green.",
+    "unless it resolved conflicts in code this sprint wrote",
+)
+
+
+def _dev_render(**extra):
+    return _render("dev-template.xml.j2", {**_example("dev-template-vars.json"), "primary_checkout": "/repo/primary", **extra})
+
+
+def test_dev_assignment_with_child_beads_carries_the_child_instructions():
+    result = _dev_render(child_beads=["x-1", "x-2"])
+    assert result.returncode == 0, result.stderr
+    for sentence in _CHILD_SENTENCES:
+        assert sentence in result.stdout, sentence
+
+
+def test_dev_assignment_without_child_beads_has_no_child_instructions():
+    for extra in ({}, {"child_beads": []}):
+        result = _dev_render(**extra)
+        assert result.returncode == 0, result.stderr
+        for fragment in ("Run each child bead", "Close each child", "`fast` agent", "code this sprint wrote"):
+            assert fragment not in result.stdout, (extra, fragment)
+        assert result.stdout == _dev_render().stdout
+        assert "{%" not in result.stdout
