@@ -91,10 +91,28 @@ def select_confirmed_stack_top(
     return ledger_top or StackTop(None, None, None)
 
 
+def fully_landed(layers: list[JsonValue], trunk: str, is_landed: Callable[[int, str, str], bool]) -> bool:
+    """Only archive a nonempty ledger when every exact recorded PR/head is verified landed."""
+    if not layers or any(not is_json_object(layer) or layer.get("held_on") for layer in layers):
+        return False
+    for layer in layers:
+        if not is_json_object(layer) or type(layer.get("pr")) is not int:
+            return False
+        head = layer.get("head")
+        if not isinstance(head, str) or not head.strip():
+            return False
+        pr = layer["pr"]
+        assert isinstance(pr, int)
+        if not is_landed(pr, head, trunk):
+            return False
+    return True
+
+
 def select_stack_top(
     bead: JsonObject,
     pr_target: object,
     resolve_head: Callable[[str], object],
+    is_landed: Callable[[int, str, str], bool] | None = None,
 ) -> tuple[str, str]:
     """Compatibility wrapper for callers without hosted membership."""
     metadata = bead.get("metadata")
@@ -103,6 +121,12 @@ def select_stack_top(
     layers = metadata.get("layers", []) if metadata is not None else []
     if not isinstance(layers, list):
         raise ValueError("stack bead metadata.layers must be an array")
+    trunk = metadata.get("trunk", pr_target) if metadata is not None else pr_target
+    if is_landed is not None and isinstance(trunk, str) and trunk.strip() and fully_landed(layers, trunk, is_landed):
+        head = resolve_head(trunk)
+        if not isinstance(head, str) or not head.strip():
+            raise ValueError(f"origin/{trunk} has no resolvable head")
+        return trunk, head
     if layers:
         last = layers[-1]
         if not is_json_object(last):

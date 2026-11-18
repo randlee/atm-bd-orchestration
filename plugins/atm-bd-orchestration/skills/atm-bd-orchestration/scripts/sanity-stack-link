@@ -65,6 +65,7 @@ class Linker:
         self.mode = None
         self.lean_reason = None
         self.landed = []
+        self.landed_heads = {}
 
     def command(self, argv, *, check=True, allow_transport_failure=False):
         if self.held and argv[:2] != ['bd', 'heartbeat'] and self.clock() - self.heartbeat_at >= HEARTBEAT_INTERVAL:
@@ -156,6 +157,7 @@ class Linker:
         when it merged into the trunk and its head is in origin/<trunk>; a closed-unmerged PR stays an error."""
         open_numbers = {pull['number'] for pull in pulls}
         landed = []
+        landed_bases = {}
         for number in stack['prs']:
             if number in open_numbers:
                 break
@@ -167,14 +169,20 @@ class Linker:
                 raise StackError(f'hosted stack PR #{number} has invalid fields')
             if not found[0]['merged']:
                 raise StackError(f'hosted stack PR #{number} is closed without merging')
-            if found[0].get('base') != trunk:
-                raise StackError(f'hosted stack PR #{number} merged into {found[0].get("base")}, not the trunk')
+            landed_bases[number] = found[0].get('base')
             contained = self.command(['git', 'merge-base', '--is-ancestor', found[0]['sha'], 'origin/' + trunk], check=False)
             if contained.returncode:
                 raise StackError(f'hosted stack PR #{number} merged but its head is not in origin/{trunk}')
+            self.landed_heads[number] = found[0]["sha"]
             landed.append(number)
-        # A stack with no open PR left is a fully landed stack (#928), not a partial land.
-        return landed if len(landed) < len(stack['prs']) else []
+        # Partial land still requires the merged prefix to target the trunk.
+        # A fully landed stack may contain PRs merged through prior layers;
+        # exact head ancestry above proves each is in the trunk.
+        if len(landed) < len(stack['prs']):
+            for number in landed:
+                if landed_bases[number] != trunk:
+                    raise StackError(f'hosted stack PR #{number} merged into {landed_bases[number]}, not the trunk')
+        return landed
 
     @staticmethod
     def drop_landed(metadata, landed):
@@ -357,8 +365,19 @@ class Linker:
                         (stack['base'] == metadata['trunk'] and known.intersection(stack['prs']))]
             if len(matching) > 1:
                 raise StackError('ambiguous hosted stacks overlap the ledger')
-            landed = self.landed = self.landed_bottom(matching[0], pulls, metadata['trunk']) if matching else []
+            candidate_stack = matching[0] if matching else {'prs': [layer['pr'] for layer in layers]}
+            landed = self.landed = self.landed_bottom(candidate_stack, pulls, metadata['trunk'])
+            fully_merged = bool(landed and len(landed) == len(candidate_stack['prs'])
+                                and [layer['pr'] for layer in layers[:len(landed)]] == landed
+                                and all(layer['head'] == self.landed_heads[layer['pr']]
+                                        for layer in layers[:len(landed)])
+                                and all(not layer['linked'] for layer in layers[len(landed):]))
+            if landed and len(landed) == len(candidate_stack['prs']) and not fully_merged:
+                raise StackError('fully landed hosted stack does not match the recorded ledger')
             self.drop_landed(metadata, landed)
+            if fully_merged:
+                metadata['stack_number'] = None
+                self.landed = []
             hosted_prs = [number for number in matching[0]['prs'] if number not in landed] if matching else []
             for layer in layers:
                 if layer['linked'] and layer['pr'] not in hosted_prs:
