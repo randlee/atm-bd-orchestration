@@ -121,7 +121,9 @@ def _commit(repo: Path, name: str) -> str:
 def test_child_commit_recorded_before_a_rebase_is_refused_with_its_fix_and_the_rebased_one_is_checked(tmp_path):
     """qa1-f1: rebasing onto an advanced stack top rewrites the child's commit; only the rewritten one is on the branch."""
     loader = importlib.machinery.SourceFileLoader("sanity_split_children", str(SPLIT))
-    split = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    split = importlib.util.module_from_spec(spec)
     loader.exec_module(split)
     repo = tmp_path / "repo"
     repo.mkdir()
