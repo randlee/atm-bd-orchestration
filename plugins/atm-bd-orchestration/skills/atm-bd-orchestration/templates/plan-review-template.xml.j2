@@ -75,6 +75,7 @@ ROW=$(jq -nc --arg completed_at "$NOW" --arg completed_local "$LOCAL" --arg phas
   --argjson round {{ round | string | cdata_escape }} --argjson findings_filed "$FILED" --argjson findings_screened_out "$OUT" --argjson screened_ids "$IDS" \
   '{completed_at:$completed_at, completed_local:$completed_local, phase:$phase, task:$task, kind:"plan-review", round:$round, iteration:$round, verdict:$verdict, tested:$tested, findings_filed:$findings_filed, findings_screened_out:$findings_screened_out, screened_ids:$screened_ids}')
 printf '%s\n' "$ROW" >> .sc/qa-log/phase-{{ phase | string | cdata_escape }}.jsonl
+rm -f "$REMOVEDFILE"
 
 TOTAL_FILED=$(jq -s 'if all(.[]; (.findings_filed | type) == "number" and (.findings_screened_out | type) == "number") then ([.[].findings_filed] | add // 0) else null end' .sc/qa-log/phase-{{ phase | string | cdata_escape }}.jsonl)
 TOTAL_OUT=$(jq -s 'if all(.[]; (.findings_filed | type) == "number" and (.findings_screened_out | type) == "number") then ([.[].findings_screened_out] | add // 0) else null end' .sc/qa-log/phase-{{ phase | string | cdata_escape }}.jsonl)
