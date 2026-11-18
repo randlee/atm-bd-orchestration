@@ -754,6 +754,22 @@ class PlanFixRoundTests(unittest.TestCase):
                 self.assertIn("task-refused.md.j2", refusal)
                 self.assertIn("reason_md", refusal)
 
+    def test_fix_round_never_screens_out_unresolved_boundary_relaxation(self):
+        result = _render(self.PLAN, _example("plan-review-template-fix-round-vars.json"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        qa = _render("qa-template.xml.j2", _example("qa-template-fix-round-vars.json"))
+        self.assertEqual(qa.returncode, 0, qa.stderr)
+        role = (ROOT / "roles/quality-mgr.md").read_text()
+        for text in (qa.stdout, role):
+            self.assertIn("RULE-012", text)
+            self.assertIn("open or regressed", text)
+            self.assertIn("lead ruling", text)
+            self.assertIn("ADR or documented decision", text)
+            self.assertIn("boundary record update", text)
+            self.assertIn("lint verification", text)
+            self.assertIn("filing verifier confirms", text)
+            self.assertIn("regardless of the screen verdict", text)
+
     def test_fix_round_dispatches_only_filing_reviewers(self):
         out = _render(self.PLAN, _example("plan-review-template-fix-round-vars.json"))
         self.assertEqual(out.returncode, 0, out.stderr)

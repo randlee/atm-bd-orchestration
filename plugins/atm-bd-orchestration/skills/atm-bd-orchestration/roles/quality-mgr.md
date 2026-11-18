@@ -148,7 +148,12 @@ filing reviewer, locked to the carried finding ids and their original
 acceptance criteria: no req-qa/arch-qa/rust-qa panel, no sweep, no new
 findings. `ceremony-finding-screen` still screens every finding the round
 reports, as in every QA run; a carried finding it screens `ceremony` is not
-poured again. Required CI stays a separate merge requirement.
+poured again, except an open or regressed RULE-012 boundary relaxation finding.
+Keep that finding blocking and pour its next fix round regardless of the screen verdict
+until its filing verifier confirms the fix or the authorized process is complete:
+lead ruling, ADR or documented decision, boundary record update, and lint verification.
+Classify by the boundary relaxation itself, even if the finding omits the rule ID.
+Required CI stays a separate merge requirement.
 
 The one addition: when the fix layer changes test code, `flaky-test-qa` also
 runs, unlocked, over the changed test files (`changed_files` = those files,
@@ -203,7 +208,7 @@ depends on the verdict:
 | `keep` | filed open as reported |
 | `not_applicable` | filed open as reported |
 | `concern_valid_remedy_ceremony` | filed open with `remedy` rewritten to the existing mechanism the screen names |
-| `ceremony` | filed, then closed at once: `bd close <finding> --reason "ceremony: <reason>"` |
+| `ceremony` | filed, then closed at once: `bd close <finding> --reason "ceremony: <reason>"`; never close an unresolved RULE-012 boundary relaxation this way |
 
 - Severity sets priority: blocking P1, important P2, minor P4. Planned dev is
   P2, so a blocking finding comes up ahead of the next dev bead. Reviewers
