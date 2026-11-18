@@ -284,6 +284,8 @@ CLIENT_MESSAGES = re.compile("|".join([
     r"Startup probe returned the wrong literal choice", r"Request file unavailable or invalid JSON",
     r"Assignment lacks deliverable text, worktree, commits or file lists",
     r"Committed evidence unreadable at the pinned commits",
+    r"Assignment evidence_commits must contain unique full commit IDs",
+    r"Evidence commit is outside the pinned base and commit history",
     r"Assignment external_evidence entry is not a bead_notes, pr_body or pr_comment reference",
     r"External evidence reference is invalid",
     r"External evidence unreadable: \S+ \S+",
@@ -514,6 +516,7 @@ class EvidenceAssignment(TypedDict):
     changed: list[str]
     context: list[str]
     refs: list[EvidenceReference]
+    commits: list[str] | None
 
 
 def parse_evidence_assignment(assignment: JsonValue) -> EvidenceAssignment:
@@ -527,6 +530,10 @@ def parse_evidence_assignment(assignment: JsonValue) -> EvidenceAssignment:
             or not isinstance(commit, str) or not commit or not isinstance(base, str) or not base
             or not string_list(changed) or not all(changed) or not string_list(context) or not all(context)):
         raise JevError("VALIDATION.INPUT", "Assignment lacks deliverable text, worktree, commits or file lists") from None
+    commits = assignment.get("evidence_commits")
+    if commits is not None and (not string_list(commits) or any(not re.fullmatch(r"[0-9a-f]{40}", c) for c in commits)
+                                or len(set(commits)) != len(commits)):
+        raise JevError("VALIDATION.INPUT", "Assignment evidence_commits must contain unique full commit IDs")
     refs = assignment.get("external_evidence", [])
     if not isinstance(refs, list):
         raise JevError("VALIDATION.INPUT", "Assignment external_evidence entry is not a bead_notes, pr_body or pr_comment reference")
@@ -537,7 +544,7 @@ def parse_evidence_assignment(assignment: JsonValue) -> EvidenceAssignment:
             raise JevError("VALIDATION.INPUT", "Assignment external_evidence entry is not a bead_notes, pr_body or pr_comment reference")
         parsed_refs.append(parsed)
     return {"text": text, "worktree": worktree, "commit": commit, "base": base,
-            "changed": changed, "context": context, "refs": parsed_refs}
+            "changed": changed, "context": context, "refs": parsed_refs, "commits": commits}
 
 
 def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
@@ -568,8 +575,17 @@ def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
             raise JevError("VALIDATION.INPUT", f"Context entry {entry} names lines outside its file at the pinned commit")
         return "".join(kept[start - 1:end])
 
+    commits = parsed["commits"]
+    if commits is None:
+        patch = diff(*changed)
+    else:
+        history = set(git("rev-list", f"{base}..{commit}").splitlines())
+        if any(sha not in history for sha in commits):
+            raise JevError("VALIDATION.INPUT", "Evidence commit is outside the pinned base and commit history")
+        patch = "".join(git("show", "--format=commit %H%n", "--no-color", "--no-ext-diff", "--no-renames", sha, "--")
+                        for sha in commits)
     external = [external_evidence_from_ref(ref, worktree) for ref in refs]
-    request = written_request(text, diff(*changed), {entry: excerpt(entry) for entry in context}, external=external)
+    request = written_request(text, patch, {entry: excerpt(entry) for entry in context}, external=external)
     if size(request) > MAX_REQUEST_BYTES:
         raise oversize(request)
     return [request]

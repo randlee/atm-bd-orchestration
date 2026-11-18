@@ -468,6 +468,7 @@ class ChildPlan:
     files: list[str]
     owned: list[str]
     outside: list[str]
+    commits: list[str] | None = None
 
 
 def reject_reference(bead: ParsedBead) -> None:
@@ -513,6 +514,41 @@ def load_children(args: SplitArguments, sha: str, base_sha: str, owned: list[str
         plans.append(ChildPlan(child, child_sha, parse_deliverables(child.description), files,
                                child_owned, outside_fence(files, child_owned)))
     return plans
+
+
+def partition_commits(worktree: str, base: str, head: str, plans: list[ChildPlan]) -> tuple[list[str], list[ChildPlan]]:
+    """Partition complete linear commit patches by their verified Bead trailer."""
+    ancestor = subprocess.run(["git", "-C", worktree, "merge-base", "--is-ancestor", base, head])
+    if ancestor.returncode != 0:
+        raise Fail(4, "sprint base is not an ancestor of the pinned head")
+    child_ids = [plan.bead.id for plan in plans]
+    if len(set(child_ids)) != len(child_ids):
+        raise Fail(4, "duplicate child bead in sanity assignment")
+    assigned: dict[str, list[str]] = {child: [] for child in child_ids}
+    parent: list[str] = []
+    rows = git(worktree, "rev-list", "--reverse", "--topo-order", "--parents", f"{base}..{head}").splitlines()
+    for row in rows:
+        fields = row.split()
+        if len(fields) != 2:
+            raise Fail(4, "cannot partition a merge commit into child evidence; use a linear sprint history")
+        commit = fields[0]
+        trailers = git(worktree, "show", "-s", "--format=%(trailers:key=Bead,valueonly)", commit).split()
+        if len(trailers) > 1 or (trailers and trailers[0] not in assigned):
+            raise Fail(4, f"commit {commit} has ambiguous or unassigned Bead trailers: {trailers}")
+        (assigned[trailers[0]] if trailers else parent).append(commit)
+    result: list[ChildPlan] = []
+    for plan in plans:
+        commits = assigned[plan.bead.id]
+        if not commits or commits[-1] != plan.commit:
+            raise Fail(4, f"child {plan.bead.id} must record its latest Bead-trailered commit on the sprint history")
+        files = commit_files(worktree, commits)
+        result.append(ChildPlan(plan.bead, plan.commit, plan.deliverables, files, plan.owned,
+                                outside_fence(files, plan.owned), commits))
+    return parent, result
+
+
+def commit_files(worktree: str, commits: list[str]) -> list[str]:
+    return sorted({path for commit in commits for path in changed_files(worktree, f"{commit}^", commit)})
 
 
 def start_lint(args: SplitArguments) -> LintRun:
@@ -666,6 +702,11 @@ def main() -> int:
                 reject_reference(evidence_bead)
         external += extra
         child_plans = load_children(args, sha, base_sha, owned) if args.child else []
+        parent_commits: list[str] | None = None
+        if child_plans and not args.split_only:
+            parent_commits, child_plans = partition_commits(args.worktree, base_sha, sha, child_plans)
+            files = commit_files(args.worktree, parent_commits)
+            outside = outside_fence(files, owned)
         total = len(deliverables) + sum(len(plan.deliverables) for plan in child_plans)
         assignments: list[JsonObject] = []
         for item in deliverables:
@@ -674,7 +715,7 @@ def main() -> int:
                 "deliverable_number": item["number"], "deliverable_text": item["text"],
                 "deliverables_total": total,
                 "owned_paths": [*owned], "changed_files": [*files], "files_outside_owned_paths": [*outside],
-                "context": [], "external_evidence": [*external],
+                "context": [], "external_evidence": [*external], "evidence_commits": [*parent_commits] if parent_commits is not None else None,
                 "worktree_path": args.worktree, "branch": args.branch, "commit": sha, "base_sha": base_sha,
             }
             assignments.append({"number": item["number"], "assignment": render(args.template, variables)})
@@ -686,7 +727,7 @@ def main() -> int:
                     "sanity_bead": args.task, "dev_bead_id": plan.bead.id, "dev_bead_title": plan.bead.title,
                     "deliverable_number": number, "deliverable_text": item["text"], "deliverables_total": total,
                     "owned_paths": [*plan.owned], "changed_files": [*plan.files],
-                    "files_outside_owned_paths": [*plan.outside], "context": [], "external_evidence": [],
+                    "files_outside_owned_paths": [*plan.outside], "context": [], "external_evidence": [], "evidence_commits": [*plan.commits] if plan.commits is not None else None,
                     "worktree_path": args.worktree, "branch": args.branch, "commit": plan.commit, "base_sha": base_sha,
                 }
                 assignments.append({"number": number, "bead": plan.bead.id, "commit": plan.commit,
