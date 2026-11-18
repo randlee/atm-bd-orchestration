@@ -478,7 +478,7 @@ def _pr_rows(
         membership = stack_prs.value
         if (isinstance(stack_ledger, Ok) and stack_ledger.value and membership
                 and stack_ledger.value[-1] == membership[-1]):
-            top = next((pr for pr in relevant if active_pr(pr) and pr.number == membership[-1]), None)
+            top = next((pr for pr in prs if active_pr(pr) and pr.number == membership[-1]), None)
         else:
             top = None
     elif isinstance(stack_prs, Err) or stack_ledger is not None:
@@ -488,9 +488,10 @@ def _pr_rows(
         known = [(layer, pr) for layer, pr in layered if layer is not None]
         top = max(known, key=lambda pair: (pair[0], pair[1].number))[1] if known else None
     merge_by_branch = {merge.branch: merge for merge in merges}
+    displayed = relevant + ((top,) if top is not None and top not in relevant else ())
     rows = tuple(PrRow(
         pr=pr,
-        layer=owner.layer if (owner := by_branch[pr.head]) else next(
+        layer=owner.layer if (owner := by_branch.get(pr.head)) else next(
             (sprint.layer for sprint in phase.sprints if sprint.branch == pr.head), None
         ),
         bead_id=owner.bead_id if owner else next(
@@ -499,8 +500,9 @@ def _pr_rows(
         top=pr == top,
         merge=merge_by_branch.get(pr.head),
         assignee=owner.assignee if owner else None,
-    ) for pr in relevant)
-    return tuple(sorted(rows, key=lambda row: (row.layer if row.layer is not None else -1, row.pr.number))), top
+    ) for pr in displayed)
+    return tuple(sorted(rows, key=lambda row: (row.top and row.layer is None,
+                                                row.layer if row.layer is not None else -1, row.pr.number))), top
 
 
 def _branch_owners(phase: Phase) -> dict[str, Step]:

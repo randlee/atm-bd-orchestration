@@ -347,13 +347,17 @@ def _open_prs(mode, code_root, branch_groups, budget, github_repo, heads=(), num
         # A body that is not JSON, or JSON of the wrong shape, is one typed failure; GitHub failing never stops work.
         error = ParseFailed("parse_failed", f"github {mode} response", f"{type(exc).__name__}: {exc}", "retry the GitHub request")
         return Err(error), _status(mode, False, error)
-    if mode == "rest" and branch_groups:
+    if mode == "rest" and (branch_groups or numbers):
         selected: dict[int, PullRequest] = {}
         for branches in branch_groups:
             matching = (pr for pr in rows if pr.head in branches)
             pr = select_pr(matching)
             if pr is not None:
                 selected[pr.number] = pr
+        if numbers:
+            top = next((pr for pr in rows if pr.number == numbers[-1] and pr.state in (PrState.OPEN, PrState.DRAFT)), None)
+            if top is not None:
+                selected[top.number] = top
         updates: dict[int, PullRequest] = {}
         for pr in selected.values():
             checks_argv = ("gh", "api", f"repos/{github_repo}/commits/{pr.head_sha}/check-runs?per_page=100")
