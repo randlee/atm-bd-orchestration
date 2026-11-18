@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -125,7 +126,7 @@ class VarsTests(unittest.TestCase):
 
     def test_qa_vars_carry_the_children_with_commits(self):
         self.assertEqual(self.qa_vars(KIDS)["children"], TWO)
-        self.assertEqual(self.qa_vars([])["children"], [])
+        self.assertNotIn("children", self.qa_vars([]))
 
     def test_qa_vars_refuse_a_child_without_a_commit(self):
         bare = [{**KIDS[0], "metadata": {}}]
@@ -172,6 +173,7 @@ def test_sanity_dispatch_refuses_a_child_without_a_commit_before_any_write(world
 
 class MergeTests(unittest.TestCase):
     """A split sprint's merge: the child deliverables are checked at each child's commit."""
+    repo: Any
     setUp = split_tests.SanitySplit.setUp
     run_split = split_tests.SanitySplit.run_split
     merge = split_tests.SanitySplit.merge

@@ -175,7 +175,7 @@ def qa_assignment_vars(qa_row: dict, checked_row: dict, repo: Path, current_pr: 
         )
     is_fix = is_fix_bead(checked_row)
     children = require_child_commits(subtask_children(children or []))
-    return {"children": children, "task_id": qa_row["id"], "qa_task_id": qa_row["id"], "checked_bead": values["checked_bead"],
+    assignment = {"task_id": qa_row["id"], "qa_task_id": qa_row["id"], "checked_bead": values["checked_bead"],
             "dev_task_id": values["checked_bead"], "sanity_task_id": metadata.get("sanity_bead") or "",
             "phase": metadata["phase"], "phase_feature": metadata["phase_feature"], "sprint": metadata["sprint"],
             "sprint_bead": metadata["sprint_bead"], "stack": metadata["stack"], "layer": metadata["layer"],
@@ -184,3 +184,5 @@ def qa_assignment_vars(qa_row: dict, checked_row: dict, repo: Path, current_pr: 
             "commit": str(live_fields["headRefOid"]), "branch": str(live_fields["headRefName"]),
             "pr_number": str(live_fields["number"]),
             "carry_forward": checked_row["id"] if is_fix else ""}
+    # Present only for a split sprint, so a sprint without children gets the vars it always had.
+    return {**assignment, "children": children} if children else assignment
