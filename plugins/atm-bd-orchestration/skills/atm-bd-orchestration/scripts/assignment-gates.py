@@ -25,7 +25,7 @@ from typing import Any, Callable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads/scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from command_timeout import DEFAULT_COMMAND_TIMEOUT, RAISE_FIX, TIMEOUT_ENV, command_timeout, import_timeout, repo_timeout
-from stack_top import StackTop, StackTopMismatch, select_confirmed_stack_top, select_passed_unlinked_top, stack_bead_id
+from stack_top import StackTop, StackTopMismatch, select_confirmed_stack_top, select_passed_unlinked_top, stack_bead_id, fully_landed
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 IGNORED_STATUS_PATHS = (".beads.gate.lock", ".sc-compose/")
@@ -160,6 +160,28 @@ def stack_top(runner: Runner, args: argparse.Namespace) -> str:
                  not layers and meta.get("stack_number") is None and bool(stack["open"])))]
     if len(matches) > 1:
         raise ValueError("ambiguous hosted stacks overlap the ledger")
+    if layers and all(isinstance(layer, dict) and not layer.get("held_on") for layer in layers) and (not matches or not matches[0]["open"]):
+        trunk = meta.get("trunk", args.pr_target)
+        if not isinstance(trunk, str) or not trunk:
+            raise ValueError("stack trunk must be a non-empty string")
+        def landed(pr: int, head: str, target: str) -> bool:
+            pull = run_json(runner, "gh", "api", f"repos/{{owner}}/{{repo}}/pulls/{pr}", cwd=args.worktree or None)
+            if not isinstance(pull, dict) or not isinstance(pull.get("merged"), bool):
+                raise ValueError(f"PR #{pr} has invalid merge evidence")
+            pull_head = pull.get("head")
+            if not isinstance(pull_head, dict) or not isinstance(pull_head.get("sha"), str):
+                raise ValueError(f"PR #{pr} has invalid head evidence")
+            if not pull["merged"] or pull_head["sha"] != head:
+                return False
+            result = invoke(runner, ["git", *git_dir(args), "merge-base", "--is-ancestor", head, f"origin/{target}"], capture_output=True, text=True)
+            if result.returncode > 1:
+                raise RuntimeError(result.stderr.strip() or "git merge-base failed")
+            return result.returncode == 0
+        if ((not matches or (len(layers) == len(matches[0]["prs"])
+                             and [layer.get("pr") if isinstance(layer, dict) else None for layer in layers] == matches[0]["prs"]))
+                and fully_landed(layers, trunk, landed)):
+            run(runner, "git", *git_dir(args), "rev-parse", f"origin/{trunk}")
+            return trunk
     hosted_prs = matches[0]["prs"] if matches else []
     selected = select_confirmed_stack_top(layers, hosted_prs)
     if isinstance(selected, StackTopMismatch):

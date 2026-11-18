@@ -465,9 +465,31 @@ class Hook:
                 raise CloseError("STACK.TOP", branch, f"Fetch and verify origin/{branch} before retrying.")
             return branch, head
         self.last_json_argv = ["bd", "show", self.values["stack_bead"], "--json"]
+
+        def landed(pr, head, trunk):
+            # Missing hosted evidence is not evidence of a land. Preserve the
+            # live ledger on offline/invalid reads and let existing base checks decide.
+            try:
+                result = self.run(["gh", "api", f"repos/{{owner}}/{{repo}}/pulls/{pr}"], git=True, check=False)
+                if result.returncode:
+                    return False
+                pull = json.loads(result.stdout)
+            except (CloseError, ValueError):
+                return False
+            if not isinstance(pull, dict) or pull.get("merged") is not True:
+                return False
+            pull_head = pull.get("head")
+            if not isinstance(pull_head, dict) or pull_head.get("sha") != head:
+                return False
+            ancestry = self.run(["git", "merge-base", "--is-ancestor", head, f"origin/{trunk}"], git=True, check=False)
+            if ancestry.returncode > 1:
+                raise ValueError(ancestry.stderr.strip() or "git merge-base failed")
+            return ancestry.returncode == 0
+
         return select_stack_top(
             self.bead(self.values["stack_bead"]), self.values["pr_target"],
             lambda branch: self.run(["git", "rev-parse", f"origin/{branch}"], git=True).stdout.strip(),
+            landed,
         )
 
     def checks(self):

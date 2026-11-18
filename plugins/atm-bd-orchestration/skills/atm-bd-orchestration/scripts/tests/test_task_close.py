@@ -2274,3 +2274,21 @@ def test_lead_closing_its_own_qa_task_skips_the_self_addressed_status(world, mon
     assert "ok" in world.run("qa", verdict="PASS")
     assert [argv[:2] for argv, _sender in world.writes] == [["bd", "close"], ["atm", "task"]]
     assert world.messages == []
+
+
+def test_close_stack_top_uses_trunk_only_after_verified_full_land(world):
+    layers = [
+        {"branch": "first", "pr": 1, "head": "a" * 40, "base": "integrate/phase-bj", "linked": True},
+        {"branch": "second", "pr": 2, "head": "b" * 40, "base": "first", "linked": True},
+    ]
+    world.beads["atm-phase-bj.stack"]["metadata"].update(trunk="integrate/phase-bj", layers=layers)
+    for layer in layers:
+        world.overrides[("gh", "api", f"repos/{{owner}}/{{repo}}/pulls/{layer['pr']}")] = (
+            0, json.dumps({"merged": True, "head": {"sha": layer["head"]}}))
+        world.overrides[("git", "merge-base", "--is-ancestor", layer["head"], "origin/integrate/phase-bj")] = (0, "")
+    world.overrides[("git", "rev-parse", "origin/integrate/phase-bj")] = (0, "c" * 40)
+    instance = hook.Hook("dev", world.values, world.path, world, lambda: 42)
+    instance.records["atm-phase-bj.stack"] = world.beads["atm-phase-bj.stack"]
+    assert instance.stack_top() == ("integrate/phase-bj", "c" * 40)
+    world.overrides[("gh", "api", "repos/{owner}/{repo}/pulls/2")] = (0, json.dumps({"merged": False, "head": {"sha": "b" * 40}}))
+    assert instance.stack_top() == ("second", "b" * 40)

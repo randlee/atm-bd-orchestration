@@ -12,6 +12,7 @@
 - The installer strict-type regression now checks the current `uv tool install --upgrade atm-bd` recovery guidance (#904).
 - The existing `just test` recipe and CI package-tests step collect every skill `scripts/tests` suite alongside package tests. Pytest importlib mode avoids helper-module name collisions across suites, including the sanity prompt tests (#904, #932).
 - The console displays the canonical hosted stack top even when its branch is outside the phase projection, avoiding alerts on frozen lower PRs (#935).
+- After every recorded stack PR merges and its exact head is in the trunk, select the trunk and start a fresh stack rather than reusing the landed stack (#928). Partial lands retain their existing checks.
 
 ## [0.20.1] - 2026-11-15
 

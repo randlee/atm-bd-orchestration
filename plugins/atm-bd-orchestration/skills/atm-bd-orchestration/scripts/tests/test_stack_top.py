@@ -36,3 +36,17 @@ def test_passed_first_layer_wins_over_trunk_but_held_layers_do_not():
             "held_on": {"pr": 1, "branch": "first"}}
     assert select_stack_top({"metadata": {"layers": [first, held]}}, "trunk", lambda _: "ccc") == ("first", "aaa")
     assert select_stack_top({"metadata": {"layers": [held]}}, "trunk", lambda _: "ccc") == ("trunk", "ccc")
+
+
+def test_fully_landed_ledger_selects_trunk_with_verified_evidence():
+    layers: list[JsonValue] = [
+        {"pr": 1, "branch": "one", "head": "aaa", "linked": True},
+        {"pr": 2, "branch": "two", "head": "bbb", "linked": True},
+    ]
+    checked = []
+    def landed(pr, head, trunk):
+        checked.append((pr, head, trunk))
+        return True
+    assert select_stack_top({"metadata": {"trunk": "trunk", "layers": layers}}, "trunk", lambda _: "ccc", landed) == ("trunk", "ccc")
+    assert checked == [(1, "aaa", "trunk"), (2, "bbb", "trunk")]
+    assert select_stack_top({"metadata": {"trunk": "trunk", "layers": layers}}, "trunk", lambda _: "ccc", lambda pr, head, trunk: pr == 1) == ("two", "bbb")

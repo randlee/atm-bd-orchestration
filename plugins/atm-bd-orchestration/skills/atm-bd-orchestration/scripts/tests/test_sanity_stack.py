@@ -1151,3 +1151,53 @@ def test_unlanded_closed_bottom_still_fails_without_writes(world, merged, merge_
     assert evidence in result["evidence"]
     assert world.bead["metadata"] == before
     assert not any(call[:3] == ["gh", "stack", "link"] or "--metadata" in call for call in world.calls)
+
+
+def test_fully_landed_stack_starts_a_fresh_stack(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    assert [world.link(item)["result"] for item in (first, second)] == ["stacked", "stacked"]
+    world.git("checkout", "trunk")
+    world.git("merge", "--no-ff", "--no-edit", "second")
+    world.git("push", "origin", "trunk")
+    for pull in list(world.pulls):
+        world.closed[pull["number"]] = {"merged": True, "base": "trunk", "sha": pull["sha"]}
+        world.pulls.remove(pull)
+    new = world.branch("fresh", "trunk", 3)
+    result = world.link(new)
+    assert result["result"] == "stacked", result
+    assert world.bead["metadata"]["stack_number"] is None
+    assert [(layer["pr"], layer["base"], layer["linked"]) for layer in world.bead["metadata"]["layers"]] == [(3, "trunk", False)]
+    assert world.stacks[0]["prs"] == [1, 2]
+
+
+def test_closed_unmerged_full_stack_is_not_archived(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    assert [world.link(item)["result"] for item in (first, second)] == ["stacked", "stacked"]
+    for pull in list(world.pulls):
+        world.closed[pull["number"]] = {"merged": False, "base": "trunk", "sha": pull["sha"]}
+        world.pulls.remove(pull)
+    original = copy.deepcopy(world.bead["metadata"])
+    new = world.branch("fresh", "trunk", 3)
+    result = world.link(new)
+    assert result["result"] == "stack_failed"
+    assert "closed without merging" in result["evidence"]
+    assert world.bead["metadata"] == original
+
+
+def test_fully_landed_stack_with_missing_hosted_record_starts_fresh(world):
+    first = world.branch("first", "trunk", 1)
+    second = world.branch("second", "first", 2)
+    assert [world.link(item)["result"] for item in (first, second)] == ["stacked", "stacked"]
+    world.git("checkout", "trunk")
+    world.git("merge", "--no-ff", "--no-edit", "second")
+    world.git("push", "origin", "trunk")
+    for pull in list(world.pulls):
+        world.closed[pull["number"]] = {"merged": True, "base": "trunk", "sha": pull["sha"]}
+        world.pulls.remove(pull)
+    world.stacks.clear()
+    result = world.link(world.branch("fresh", "trunk", 3))
+    assert result["result"] == "stacked", result
+    assert world.bead["metadata"]["stack_number"] is None
+    assert [layer["pr"] for layer in world.bead["metadata"]["layers"]] == [3]

@@ -460,6 +460,25 @@ class AssignmentGateTests(unittest.TestCase):
         bad = {**responses, api: (0, dumped([{"number": 7, "base": "integrate", "prs": [1]}]))}
         self.assertEqual(self.stack_top(bad), ("GATE_CANNOT_RUN", 2))
 
+    def test_full_land_uses_trunk_only_with_matching_merge_and_ancestry(self):
+        bead = ("bd", "show", "atm-phase-bj.stack", "--json")
+        api = ("gh", "api", "repos/{owner}/{repo}/stacks", "--paginate", "--jq", ".[] | {number, base: .base.ref, prs: [.pull_requests[].number], open: [.pull_requests[] | select(.state == \"open\") | .number]}")
+        layers = [{"pr": 1, "branch": "one", "head": "aaa", "linked": True},
+                  {"pr": 2, "branch": "two", "head": "bbb", "linked": True}]
+        responses = {bead: (0, dumped([{"metadata": {"trunk": "integrate", "stack_number": 7, "layers": layers}}])),
+                     api: (0, dumped([{"number": 7, "base": "integrate", "prs": [1, 2], "open": []}])),
+                     ("gh", "api", "repos/{owner}/{repo}/pulls/1"): (0, dumped({"merged": True, "head": {"sha": "aaa"}})),
+                     ("gh", "api", "repos/{owner}/{repo}/pulls/2"): (0, dumped({"merged": True, "head": {"sha": "bbb"}})),
+                     ("git", "-C", "/wt", "merge-base", "--is-ancestor", "aaa", "origin/integrate"): (0, ""),
+                     ("git", "-C", "/wt", "merge-base", "--is-ancestor", "bbb", "origin/integrate"): (0, ""),
+                     ("git", "-C", "/wt", "rev-parse", "origin/integrate"): (0, "ccc")}
+        self.assertEqual(self.stack_top(responses), ("integrate", 0))
+        responses[("gh", "api", "repos/{owner}/{repo}/pulls/2")] = (0, dumped({"merged": False, "head": {"sha": "bbb"}}))
+        self.assertEqual(self.stack_top(responses), ("two", 0))
+        responses[("gh", "api", "repos/{owner}/{repo}/pulls/2")] = (0, dumped({"merged": True, "head": {"sha": "bbb"}}))
+        responses[("git", "-C", "/wt", "merge-base", "--is-ancestor", "bbb", "origin/integrate")] = (1, "")
+        self.assertEqual(self.stack_top(responses), ("two", 0))
+
     def test_stack_top_requires_root(self):
         with self.assertRaises(SystemExit):
             gates.main(["stack-top", "--pr-target", "target"], FakeRunner({}))
