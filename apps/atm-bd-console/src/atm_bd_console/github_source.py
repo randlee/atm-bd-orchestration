@@ -277,6 +277,12 @@ def open_prs(mode: Literal["graphql", "rest", "off"], code_root: str | Path | No
     return result, status
 
 
+def _from_rest(row: dict) -> PullRequest:
+    return PullRequest(row["number"], row["html_url"], row["head"]["ref"], row["base"]["ref"], row["head"]["sha"],
+                       CiState.NONE, (), pr_state_of("MERGED" if row.get("merged_at") else row["state"],
+                                                     bool(row.get("draft"))), "", row["state"])
+
+
 def _open_prs(mode, code_root, branch_groups, budget, github_repo, heads=(), numbers=()):
     if mode == "off":
         return Ok(()), _status("off", None)
@@ -341,8 +347,17 @@ def _open_prs(mode, code_root, branch_groups, budget, github_repo, heads=(), num
                     seen.add(node["number"])
                     rows += (_from_graphql(node),)
         else:
-            rows = tuple(PullRequest(row["number"], row["html_url"], row["head"]["ref"], row["base"]["ref"], row["head"]["sha"], CiState.NONE, (), pr_state_of("MERGED" if row.get("merged_at") else row["state"], bool(row.get("draft"))), "", row["state"]) for row in body)
+            rows = tuple(_from_rest(row) for row in body)
             truncated = len(rows) >= 100
+            if numbers and numbers[-1] not in {pr.number for pr in rows}:
+                top_argv = ("gh", "api", f"repos/{github_repo}/pulls/{numbers[-1]}")
+                response = run(top_argv, "check GitHub connectivity and retry", cwd=code_root, timeout_s=REQUEST_TIMEOUT_S)
+                if isinstance(response, Err):
+                    return response, _status(mode, False, response.error)
+                top = _from_rest(json.loads(response.value.stdout))
+                if top.number != numbers[-1]:
+                    raise ValueError(f"requested PR {numbers[-1]}, received {top.number}")
+                rows += (top,)
     except (json.JSONDecodeError, KeyError, TypeError, AttributeError, IndexError, ValueError) as exc:
         # A body that is not JSON, or JSON of the wrong shape, is one typed failure; GitHub failing never stops work.
         error = ParseFailed("parse_failed", f"github {mode} response", f"{type(exc).__name__}: {exc}", "retry the GitHub request")

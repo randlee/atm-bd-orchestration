@@ -168,6 +168,62 @@ def test_rest_reads_checks_for_stack_top_outside_phase_branches(monkeypatch):
     assert next(pr for pr in result.value if pr.number == top["number"]).ci == CiState.PASS
 
 
+def test_rest_fetches_canonical_top_beyond_first_page_and_displays_it(monkeypatch):
+    from test_alert_gating import NOW, STATE, inputs, make_phase, render, sprint, step
+
+    from atm_bd_console.model import tick
+
+    rows = []
+    for number in range(100, 200):
+        row = copy.deepcopy(RECORDED_REST[0])
+        row.update(number=number, html_url=f"https://example.test/{number}")
+        row["head"].update(ref=f"unrelated/{number}", sha=f"sha{number}")
+        rows.append(row)
+    lower = rows[0]
+    lower["head"]["ref"] = "sprint/bk-1"
+    top = copy.deepcopy(RECORDED_REST[0])
+    top.update(number=42, html_url="https://example.test/42")
+    top["head"].update(ref="fix/outside-projection", sha="sha42")
+    top["base"]["ref"] = "sprint/bk-1"
+    calls = []
+
+    def run(argv, *_args, **_kwargs):
+        calls.append(argv)
+        if argv == REST_ARGV:
+            return Ok(Output(0, json.dumps(rows)))
+        if argv[-1] == f"repos/{TEST_REPO}/pulls/42":
+            return Ok(Output(0, json.dumps(top)))
+        conclusion = "failure" if "sha100" in argv[-1] else "success"
+        return Ok(Output(0, json.dumps({"total_count": 1, "check_runs": [
+            {"name": "windows", "conclusion": conclusion, "status": "completed"},
+        ]})))
+
+    monkeypatch.setattr(github_source.command, "run", run)
+    result, status = github_source.open_prs("rest", "/repo", (("sprint/bk-1",),), None,
+                                            TEST_REPO, (), (100, 42))
+    assert isinstance(result, Ok) and status.ok and status.truncated
+    assert sum(argv[-1] == f"repos/{TEST_REPO}/pulls/42" for argv in calls) == 1
+    value = make_phase(step("atm-bk-1", "atm-bk-1", layer=1, branch="sprint/bk-1", target="main"),
+                       sprints=(sprint(1),))
+    snapshot, actions, _ = tick(inputs(value, prs=result, stack_prs=Ok((100, 42)), stack_ledger=Ok((100, 42))),
+                                STATE, NOW, render)
+    assert snapshot.top_pr == 42 and snapshot.top_ci == CiState.PASS
+    assert any(row.pr.number == 42 and row.top for row in snapshot.prs)
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    assert not any("fix them on sprint/bk-1" in action.text for action in actions)
+
+
+def test_rest_missing_stack_top_read_error_is_propagated(monkeypatch):
+    failure = Err(CommandFailed("command_failed", ("gh",), 1, "unavailable", "retry"))
+
+    def run(argv, *_args, **_kwargs):
+        return Ok(Output(0, json.dumps(RECORDED_REST))) if argv == REST_ARGV else failure
+
+    monkeypatch.setattr(github_source.command, "run", run)
+    result, status = github_source.open_prs("rest", "/repo", (), None, TEST_REPO, (), (42,))
+    assert result == failure and status.ok is False
+
+
 def test_rest_unknown_check_status_is_preserved(monkeypatch):
     pull_rows = copy.deepcopy(RECORDED_REST[:1])
 
