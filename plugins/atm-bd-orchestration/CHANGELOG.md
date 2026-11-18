@@ -9,6 +9,8 @@
 - Ship ceremony-finding-screen and record screening rates for every review round (#938).
 - Sanity dispatch carries the assignment round and QA reviewers through the close chain (#979).
 - Sanity checks use fix beads' own deliverables and owned paths, refusing missing fields (#986).
+- The installer strict-type regression now checks the current `uv tool install --upgrade atm-bd` recovery guidance (#904).
+- The existing `just test` recipe and CI package-tests step collect every skill `scripts/tests` suite alongside package tests. Pytest importlib mode avoids helper-module name collisions across suites, including the sanity prompt tests (#904, #932).
 
 ## [0.20.1] - 2026-11-15
 
