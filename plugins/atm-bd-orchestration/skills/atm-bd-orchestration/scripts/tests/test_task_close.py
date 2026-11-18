@@ -1858,6 +1858,14 @@ def sanity_close_vars():
     return module
 
 
+def test_dev_dispatch_supplies_round_when_close_vars_omit_it(world):
+    world.values.pop("round", None)
+    assert "ok" in world.run("dev")
+    assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
+    assert assignment["close_context"]["round"] == 1
+    assert assignment["close_context"]["reviewers_round1"] == world.beads[world.values["qa_bead"]]["metadata"]["reviewers_round1"]
+
+
 def test_reopened_sanity_pass_uses_fresh_iteration(world):
     assert "ok" in world.run("dev")
     assert "ok" in world.run("sanity", verdict="FAIL", round=1, undone=[{"number": 1, "reason": "missing"}])
