@@ -5,6 +5,7 @@ import argparse
 import importlib.machinery
 import importlib.util
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -122,8 +123,11 @@ class SprintChildrenTests(unittest.TestCase):
 
 
 def _git(repo: Path, *args: str) -> str:
+    """Fixture git, isolated from the host: no system or global configuration and no hooks."""
+    env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_GLOBAL": os.devnull}
     done = subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
-                           "-c", "commit.gpgsign=false", *args], capture_output=True, text=True)
+                           "-c", "commit.gpgsign=false", "-c", f"core.hooksPath={os.devnull}", *args],
+                          capture_output=True, text=True, env=env)
     assert done.returncode == 0, done.stderr
     return done.stdout.strip()
 
@@ -134,6 +138,24 @@ def _commit(repo: Path, name: str, bead: str | None = None) -> str:
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", name + (f"\n\nBead: {bead}" if bead else ""))
     return _git(repo, "rev-parse", "HEAD")
+
+
+def test_fixture_git_ignores_a_failing_host_hook(tmp_path, monkeypatch):
+    """A host pre-commit hook that always fails, set in the global configuration, cannot fail a fixture commit."""
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    (hooks / "pre-commit").write_text("#!/bin/sh\nexit 42\n")
+    (hooks / "pre-commit").chmod(0o755)
+    host = tmp_path / "gitconfig"
+    host.write_text(f"[core]\n\thooksPath = {hooks}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(host))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "top")
+    planted = subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                              "commit", "-q", "--allow-empty", "-m", "host"], capture_output=True, text=True)
+    assert planted.returncode != 0                               # the planted hook really does fail a host commit
+    assert _commit(repo, "base.txt") == _git(repo, "rev-parse", "HEAD")
 
 
 def test_each_merged_childs_commit_is_derived_and_verified_through_a_rebase(tmp_path):
