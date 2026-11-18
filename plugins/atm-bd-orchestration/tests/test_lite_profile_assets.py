@@ -229,3 +229,72 @@ def test_registered_profile_modules_declare_one_timeout_within_registrar_cap() -
             values.append(int(value))
         assert len(values) == 1, f"expected exactly one TIMEOUT_MS in {module}, found {values}"
         assert 0 < values[0] <= 2500, f"TIMEOUT_MS exceeds registrar cap in {module}: {values[0]}"
+
+
+DEV_CHILD_SENTENCES = (
+    "Run each child bead (atm-bt-2.sub-2, atm-bt-2.sub-3) with a background subagent on its own worktree, no PR; "
+    "each subagent runs focused lint and tests there. Merge every child's work into this worktree.",
+    "Close each child with its commit before this bead (`bd close` refuses a parent with open children): "
+    "`bd update <child> --set-metadata commit=<sha>`, then `bd close <child>`. Hand the full lint and test run "
+    "to a background `fast` agent; run the stack block only after it is green, and rerun the full suite after its "
+    "rebase only when the rebase resolved conflicts in code this bead wrote.",
+)
+QA_CHILD_SENTENCE = (
+    "The sprint's child beads are in `<children>`; this one run reviews their merged result, "
+    "and they get no QA of their own."
+)
+LITE_DEV_VARS: dict[str, object] = {
+    "task_id": "atm-bt-2.sub-4",
+    "phase": "bt",
+    "profile": "lite",
+    "provider": {"create": "gh pr create --base '{base}' --head '{head}' --title '{title}' --body-file '{body_file}'"},
+}
+LITE_QA_VARS: dict[str, object] = {
+    "task_id": "qa-atm-bt-2.sub-4",
+    "phase": "bt",
+    "profile": "lite",
+    "repo": "owner/repo",
+    "pr_number": 42,
+    "branch": "sprint/bt-2-sub-4",
+    "commit": "abc1234",
+}
+
+
+def _render_lite(template: str, variables: dict[str, object], var_file: Path) -> str:
+    var_file.write_text(json.dumps(variables))
+    return _run_with_timeout(
+        ["sc-compose", "render", "--strict", "--file", str(TEMPLATES / template), "--var-file", str(var_file)],
+        timeout=10,
+        check=True,
+        cwd=SKILL.parents[1],
+    ).stdout
+
+
+def test_lite_dev_template_carries_child_bead_instructions_when_children_given(tmp_path: Path) -> None:
+    rendered = _render_lite(
+        "dev.xml.j2",
+        {**LITE_DEV_VARS, "child_beads": ["atm-bt-2.sub-2", "atm-bt-2.sub-3"]},
+        tmp_path / "dev-vars.json",
+    )
+    for sentence in DEV_CHILD_SENTENCES:
+        assert sentence in rendered
+    # The full run is ordered before the stack block, whose rebase must follow a green run.
+    assert rendered.index(DEV_CHILD_SENTENCES[1]) < rendered.index('git -C "$WORKTREE" rebase')
+    assert "{{" not in rendered
+
+
+def test_lite_qa_template_carries_children_when_given(tmp_path: Path) -> None:
+    children = [{"id": "atm-bt-2.sub-2", "commit": "1111111"}, {"id": "atm-bt-2.sub-3", "commit": "2222222"}]
+    rendered = _render_lite("qa.xml.j2", {**LITE_QA_VARS, "children": children}, tmp_path / "qa-vars.json")
+    assert "<children>" in rendered and "</children>" in rendered
+    assert '<child id="atm-bt-2.sub-2" commit="1111111"/>' in rendered
+    assert '<child id="atm-bt-2.sub-3" commit="2222222"/>' in rendered
+    assert QA_CHILD_SENTENCE in rendered
+    assert "{{" not in rendered
+
+
+def test_lite_templates_without_children_carry_no_child_instructions(tmp_path: Path) -> None:
+    dev = _render_lite("dev.xml.j2", LITE_DEV_VARS, tmp_path / "dev-vars.json")
+    qa = _render_lite("qa.xml.j2", LITE_QA_VARS, tmp_path / "qa-vars.json")
+    assert "Run each child bead (" not in dev and "Close each child with its commit" not in dev
+    assert "The sprint's child beads" not in qa and "<children>" not in qa and "<child " not in qa

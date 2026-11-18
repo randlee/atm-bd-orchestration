@@ -1,6 +1,6 @@
 ---
 name: qa-task
-version: 4.18.0
+version: 4.19.0
 description: lead QA assignment for quality-mgr in atm-bd-orchestration. task_id is the QA bead. Reviews one layer at a pinned commit and closes the QA bead whatever the verdict; nothing waits on it.
 format: xml
 required_variables:
@@ -26,6 +26,7 @@ defaults:
   carry_forward: ""
   sprint_bead: ""
   layer_prs: []
+  children: []
 metadata:
   type: qa-task
   tags:
@@ -44,7 +45,7 @@ metadata:
 {%- set fix_round = carry_forward -%}
 {%- set qa_round = round | int if round | int > 1 else (2 if fix_round else 1) -%}
 <repo-qa-task id="{{ task_id }}" sprint="{{ sprint }}" round="{{ round }}">
-  <description><![CDATA[QA round {{ round | string | cdata_escape }} of `{{ checked_bead | string | cdata_escape }}` (sprint {{ sprint | string | cdata_escape }}), layer {{ layer | string | cdata_escape }} of stack `{{ stack | string | cdata_escape }}`. Operate under `.claude/skills/atm-bd-orchestration/roles/quality-mgr.md`.]]></description>
+  <description><![CDATA[QA round {{ round | string | cdata_escape }} of `{{ checked_bead | string | cdata_escape }}` (sprint {{ sprint | string | cdata_escape }}), layer {{ layer | string | cdata_escape }} of stack `{{ stack | string | cdata_escape }}`. Operate under `.claude/skills/atm-bd-orchestration/roles/quality-mgr.md`.{% if children %} The sprint's child beads are in `<children>`; this one run reviews their merged result, and they get no QA of their own.{% endif %}]]></description>
 
   <checked-bead><![CDATA[{{ checked_bead | string | cdata_escape }}]]></checked-bead>
   <phase><![CDATA[{{ phase | string | cdata_escape }}]]></phase>
@@ -55,6 +56,10 @@ metadata:
   <branch><![CDATA[{{ branch | string | cdata_escape }}]]></branch>
   <commit><![CDATA[{{ commit | string | cdata_escape }}]]></commit>
   <base><![CDATA[{{ base | string | cdata_escape }}]]></base>
+{% if children %}  <children>
+{% for child in children %}    <child id="{{ child.id | string | cdata_escape }}" commit="{{ child.commit | string | cdata_escape }}"/>
+{% endfor %}  </children>
+{% endif %}
   <worktree><![CDATA[{{ worktree_path | string | cdata_escape }}]]></worktree>
   <carry-forward><![CDATA[{{ carry_forward | string | cdata_escape }}]]></carry-forward>
   <stack-discipline><![CDATA[`{{ branch | string | cdata_escape }}` is frozen at `{{ commit | string | cdata_escape }}` for this review. Every reviewer gets the same branch, commit, and worktree and must reject a mismatched or moving checkout. Review exact content with `git show {{ commit | string | cdata_escape }}:<path>`. The change under review is {% if layer_prs %}the sprint's own layer ranges, `git diff <baseRefOid>...<headRefOid>` of each PR {{ layer_prs | join(", ") | string | cdata_escape }} (`gh pr view <n> --json baseRefOid,headRefOid`){% else %}`git diff origin/{{ base | string | cdata_escape }}...{{ commit | string | cdata_escape }}`{% endif %}, never a diff against a moving base. Every round-1 finding, at every severity, is filed in that round (blocking as a poured fix group, others as finding beads); none is deferred. Each is fixed later on a new layer at the top of stack `{{ stack | string | cdata_escape }}`. A fix-verification round checks only its carried findings against their original acceptance criteria and files no new findings.]]></stack-discipline>

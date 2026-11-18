@@ -167,12 +167,14 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_qa_report_contract.py
     - skills/atm-bd-orchestration/scripts/tests/test_qa_reviewers.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_close_vars.py
+    - skills/atm-bd-orchestration/scripts/tests/test_sanity_close_vars_children.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_merge.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_run_history.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_split.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_stack.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_task_close_hook.py
     - skills/atm-bd-orchestration/scripts/tests/test_scripts_help.py
+    - skills/atm-bd-orchestration/scripts/tests/test_sprint_children.py
     - skills/atm-bd-orchestration/scripts/tests/test_stack_top.py
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_jev.py
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_report.py

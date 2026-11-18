@@ -229,6 +229,20 @@ class ValidatePlan(Repo):
         out = self.run_beads(VALID + [finding])
         self.assertEqual((out.returncode, out.stdout), (0, "plan valid: 2 sprints\n"), out.stderr)
 
+    def test_subtask_children_need_a_known_difficulty(self):
+        child = {"id": "x-t-1.sub-1", "parent": "x-t-1", "issue_type": "task", "status": "open",
+                 "labels": ["phase-t", "stage:subtask"], "created_at": "2026-09-26T00:00:00Z",
+                 "metadata": {"difficulty": "hard"}}
+        for tier in ("fast", "normal", "hard"):
+            with self.subTest(tier=tier):
+                child["metadata"]["difficulty"] = tier
+                out = self.run_beads(VALID + [child])
+                self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        child["metadata"]["difficulty"] = "frontier"
+        out = self.run_beads(VALID + [child])
+        self.assertEqual(out.returncode, 5, out.stdout + out.stderr)
+        self.assertIn("x-t-1.sub-1: difficulty", out.stdout)
+
     def test_open_phase_bead_without_a_stage_has_no_model(self):
         unknown = {"id": "x-t-1.unknown", "parent": "x-t-1", "status": "open", "labels": ["phase-t"]}
         out = self.run_beads(VALID + [unknown])

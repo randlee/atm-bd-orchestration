@@ -113,6 +113,16 @@ class SprintBead(Bead):
     metadata: SprintMetadata
 
 
+class SubtaskMetadata(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    difficulty: Literal["hard", "normal", "fast"]
+
+
+class SubtaskBead(Bead):
+    """A stage:subtask child of a sprint container: one background subagent's work, its model named by difficulty."""
+    metadata: SubtaskMetadata
+
+
 class FamilyMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
     branch: NonEmpty
@@ -274,7 +284,7 @@ MODELS_BY_STAGE: dict[str, type[Bead]] = {
     "stage:sprint": SprintBead, "stage:dev": DevBead, "stage:dev-sanity": SanityBead,
     "stage:qa": QaBead, "stage:fix": FixBead, "stage:finding": FindingBead,
     "stage:stack": StackBead, "stage:plan": Bead, "stage:plan-review": Bead, "stage:review": Bead,
-    "stage:subtask": Bead, "stage:plan-hardening": Bead, "stage:plan-finding": Bead,
+    "stage:subtask": SubtaskBead, "stage:plan-hardening": Bead, "stage:plan-finding": Bead,
 }
 MODELS: dict[str, type[Bead]] = {
     "sprint-bead": SprintBead, "dev-bead": DevBead, "sanity-bead": SanityBead,

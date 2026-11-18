@@ -286,7 +286,7 @@ that sprint bead's design; layer sprints reference them and do not restate them.
 
 Each sprint bead names its `difficulty`, never an agent, by the tier the work needs: `fast` for
 bounded or documentation work; `normal` for typical work; `hard`
-for algorithmic, architectural, or performance work. Which agents run, and how many, is decided
+for algorithmic, architectural, or performance work. A `stage:subtask` child bead names the `difficulty` of its one subagent the same way. Which agents run, and how many, is decided
 at dispatch, not in the plan. Layer sprints are bounded by construction
 and suit one developer and one QA pass each, running concurrently.
 

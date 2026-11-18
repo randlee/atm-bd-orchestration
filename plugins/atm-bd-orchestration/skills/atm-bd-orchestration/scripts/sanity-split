@@ -10,7 +10,7 @@ Usage:
   sanity-split --task <sanity bead> --bead <dev bead> --worktree <path>
                --branch <branch> --commit <commit> --base <base>
                --lint-command '<cmd>' --scratch <dir> [--layer-pr <n> ...]
-               [--bead-json <file>] [--split-only] [--template <path>]
+               [--child <bead>=<commit> ...] [--bead-json <file>] [--split-only] [--template <path>]
                [--lint-timeout-seconds <n>]
   sanity-split lint-supervisor --worktree <path> --command '<cmd>' --log <file>
                --exit-file <file> [--timeout-seconds <n>]
@@ -29,6 +29,12 @@ worktree, and prints one JSON manifest to stdout:
    deliverables_total, changed_files, files_outside_owned_paths,
    lint: {command, log, exit_file, pid, timeout_seconds} | null,
    assignments: [{number, assignment: <rendered object>}]}
+
+`--child <bead>=<commit>` (repeatable) names a child bead of a split sprint and the commit its dev recorded. Each
+child's own `## Deliverables` is rendered at the child's commit and numbered after the checked bead's, so `assignments`
+and `deliverables_total` cover the whole sprint; a child's entries also carry `bead` and `commit`, which sanity-merge
+checks each result against. The manifest gains `children`: `[{id, title, commit, deliverables_total}]`; without
+`--child` it has no `children` key.
 
 `--split-only` parses and renders only: no git pinning and no lint.
 
@@ -107,6 +113,7 @@ class SplitArguments(argparse.Namespace):
     close_context: Path | None
     layer_pr: list[str]
     external_evidence: list[str]
+    child: list[str]
     split_only: bool
     template: Path
     lint_timeout_seconds: int
@@ -453,6 +460,38 @@ def render(template: Path, variables: JsonObject) -> JsonObject:
         raise Fail(5, f"rendered assignment {variables['deliverable_number']} is not JSON")
 
 
+@dataclass(frozen=True)
+class ChildPlan:
+    bead: ParsedBead
+    commit: str
+    deliverables: list[Deliverable]
+    files: list[str]
+    owned: list[str]
+    outside: list[str]
+
+
+def load_children(args: SplitArguments, sha: str, base_sha: str, owned: list[str]) -> list[ChildPlan]:
+    """One plan per `--child <bead>=<commit>`: the child bead, its commit and its own deliverables."""
+    plans: list[ChildPlan] = []
+    for spec in args.child:
+        child_id, _, commit = spec.partition("=")
+        if not child_id or not commit:
+            raise Fail(1, f"--child {spec!r} must be <bead>=<commit>")
+        child_sha = commit
+        if not args.split_only:
+            child_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}",
+                            what=f"child {child_id} commit {commit} is not in {args.worktree}").strip()
+            ancestor = subprocess.run(["git", "-C", args.worktree, "merge-base", "--is-ancestor", child_sha, sha])
+            if ancestor.returncode != 0:
+                raise Fail(4, f"child {child_id} commit {child_sha} is not in the history of {sha}")
+        child = load_bead(args, child_id)
+        child_owned = child.owned_paths or owned
+        files = [] if args.split_only else changed_files(args.worktree, base_sha, child_sha)
+        plans.append(ChildPlan(child, child_sha, parse_deliverables(child.description), files,
+                               child_owned, outside_fence(files, child_owned)))
+    return plans
+
+
 def start_lint(args: SplitArguments) -> LintRun:
     scratch = Path(args.scratch)
     scratch.mkdir(parents=True, exist_ok=True)
@@ -562,6 +601,7 @@ def main() -> int:
     parser.add_argument("--close-context", type=Path)
     parser.add_argument("--layer-pr", action="append", default=[])
     parser.add_argument("--external-evidence", action="append", default=[])
+    parser.add_argument("--child", action="append", default=[])
     parser.add_argument("--split-only", action="store_true")
     parser.add_argument("--template", type=Path, default=TEMPLATE)
     parser.add_argument("--lint-timeout-seconds", type=int, default=1800)
@@ -594,17 +634,34 @@ def main() -> int:
         if args.layer_pr and args.layer_pr[-1].isdigit():
             external.append({"kind": "pr_body", "repo": repository_slug(args.worktree), "pr": int(args.layer_pr[-1])})
         external += extra_evidence(args.external_evidence)
+        child_plans = load_children(args, sha, base_sha, owned) if args.child else []
+        total = len(deliverables) + sum(len(plan.deliverables) for plan in child_plans)
         assignments: list[JsonObject] = []
         for item in deliverables:
             variables: JsonObject = {
                 "sanity_bead": args.task, "dev_bead_id": bead.id, "dev_bead_title": bead.title,
                 "deliverable_number": item["number"], "deliverable_text": item["text"],
-                "deliverables_total": len(deliverables),
+                "deliverables_total": total,
                 "owned_paths": [*owned], "changed_files": [*files], "files_outside_owned_paths": [*outside],
                 "context": [], "external_evidence": [*external],
                 "worktree_path": args.worktree, "branch": args.branch, "commit": sha, "base_sha": base_sha,
             }
             assignments.append({"number": item["number"], "assignment": render(args.template, variables)})
+        number = len(deliverables)
+        for plan in child_plans:
+            for item in plan.deliverables:
+                number += 1
+                variables = {
+                    "sanity_bead": args.task, "dev_bead_id": plan.bead.id, "dev_bead_title": plan.bead.title,
+                    "deliverable_number": number, "deliverable_text": item["text"], "deliverables_total": total,
+                    "owned_paths": [*plan.owned], "changed_files": [*plan.files],
+                    "files_outside_owned_paths": [*plan.outside], "context": [], "external_evidence": [],
+                    "worktree_path": args.worktree, "branch": args.branch, "commit": plan.commit, "base_sha": base_sha,
+                }
+                assignments.append({"number": number, "bead": plan.bead.id, "commit": plan.commit,
+                                    "assignment": render(args.template, variables)})
+        children = ([{"id": plan.bead.id, "title": plan.bead.title, "commit": plan.commit,
+                      "deliverables_total": len(plan.deliverables)} for plan in child_plans] if args.child else None)
         if not args.split_only:
             lint = start_lint(args)
     except Fail as exc:
@@ -613,10 +670,11 @@ def main() -> int:
                "reviewers": ["sanity-llm", "sanity-jev", "sanity-selected"],
                "operational_reviewer": "sanity-selected",
                "sha": sha, "base_sha": base_sha, "sanity_bead": args.task, "dev_bead": bead.id,
-               "branch": args.branch, "worktree_path": args.worktree, "deliverables_total": len(deliverables),
+               "branch": args.branch, "worktree_path": args.worktree, "deliverables_total": total,
                "changed_files": files, "files_outside_owned_paths": outside, "lint": lint,
                "close_context": close_context, "bead_notes": bead.notes,
                "checked_bead_data": bead.raw,
+               **({"children": children} if children is not None else {}),
                "assignments": assignments}, sys.stdout, indent=2)
     print()
     return 0

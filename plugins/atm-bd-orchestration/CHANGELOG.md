@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- Child beads (#937). A large sprint of closely related work is split at planning into `stage:subtask` child beads, one per background subagent, under one dev; `planning.md` states the split rule. A child declares its subagent's model with `metadata.difficulty` (`fast`, `normal` or `hard`); `validate-plan` rejects any other value or a child without one.
+- The dev assignment for a sprint with children (`child_beads`, written by `close-vars.py`) tells the dev to run each child with a background subagent on its own worktree, merge the work, close each child with its commit, and hand the full lint and test run to a background `fast` agent. A sprint without children renders unchanged.
+- One sanity bead and one QA bead still cover the sprint. The sanity assignment lists each child with its commit, `sanity-split --child <id>=<commit>` checks each child's deliverables at that commit and `sanity-merge` fails on an undone one; the QA assignment names the children. A child with no recorded commit is refused with `ASSIGN_VARS.CHILD_COMMIT_MISSING` before anything is closed.
+- atm-bd-lite `dev.xml.j2` and `qa.xml.j2` carry the same child-bead instructions.
+
 ### Fixed
 - QA bead pours omit unknown stack layers, including explicit null inputs, so a QA FAIL pour with an unlinked fix remains schema-valid (#922).
 - Bead-group pour suppression uses typed schema problem codes instead of matching diagnostic text (#907).

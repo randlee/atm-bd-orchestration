@@ -201,3 +201,16 @@ def test_plan_hardening_step_and_finding_beads_validate():
         "step_bead": step["id"], "reviewer": "plan-scope-reviewer", "finding_ref": "PLAN-SCOPE-001",
         "severity": "Blocking", "category": "SERIAL-RISK", "issue": "serial edge", "correction": "drop it"}))
     assert bead_schema.validate_phase([step, finding]) == []
+
+
+def test_subtask_child_declares_difficulty_and_unknown_is_rejected():
+    child = {"id": "atm-bt-2.sub-1", "issue_type": "task", "labels": ["phase-bt", "stage:subtask"],
+             "parent": "atm-bt-2", "metadata": {"difficulty": "normal", "commit": "abc1234"}}
+    for tier in ("fast", "normal", "hard"):
+        child["metadata"]["difficulty"] = tier
+        assert bead_schema.validate_phase([child]) == []
+    for bad in ("frontier", "easy", ""):
+        child["metadata"]["difficulty"] = bad
+        assert any(p.startswith("atm-bt-2.sub-1: difficulty") for p in bead_schema.validate_phase([child]))
+    del child["metadata"]["difficulty"]
+    assert any(p.startswith("atm-bt-2.sub-1: difficulty") for p in bead_schema.validate_phase([child]))
