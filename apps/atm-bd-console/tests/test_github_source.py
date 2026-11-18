@@ -147,6 +147,27 @@ def test_rest_fetches_only_selected_pr_checks_and_failure_outranks_running(monke
     assert selected_result.failed_checks == ("windows",)
 
 
+def test_rest_reads_checks_for_stack_top_outside_phase_branches(monkeypatch):
+    pull_rows = copy.deepcopy(RECORDED_REST[:2])
+    lower, top = pull_rows
+    calls = []
+
+    def run(argv, *_args, **_kwargs):
+        calls.append(argv)
+        if argv == REST_ARGV:
+            return Ok(Output(0, json.dumps(pull_rows)))
+        return Ok(Output(0, json.dumps({"total_count": 1, "check_runs": [
+            {"name": "tests", "conclusion": "success", "status": "completed"},
+        ]})))
+
+    monkeypatch.setattr(github_source.command, "run", run)
+    result, status = github_source.open_prs("rest", "/repo", ((lower["head"]["ref"],),), None,
+                                            TEST_REPO, (), (lower["number"], top["number"]))
+    assert isinstance(result, Ok) and status.ok
+    assert top["head"]["sha"] in calls[-1][-1]
+    assert next(pr for pr in result.value if pr.number == top["number"]).ci == CiState.PASS
+
+
 def test_rest_unknown_check_status_is_preserved(monkeypatch):
     pull_rows = copy.deepcopy(RECORDED_REST[:1])
 

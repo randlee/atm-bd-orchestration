@@ -93,6 +93,31 @@ def test_top_pr_is_canonical_stack_top_not_open_lower_layer() -> None:
     assert snapshot.top_pr == 2203, f"expected canonical top 2203, got {snapshot.top_pr}"
 
 
+def test_hosted_top_outside_phase_projection_is_visible_and_gates_alerts() -> None:
+    value = make_phase(
+        step("atm-bk-1", "atm-bk-1", layer=1, branch="sprint/bk-1", target="main"),
+        sprints=(sprint(1),),
+    )
+    lower = pr(2202, "sprint/bk-1", "main", ci=CiState.FAIL_WINDOWS)
+    top = pr(2203, "fix/outside-projection", "sprint/bk-1")
+    snapshot, actions, _ = tick(
+        inputs(value, prs=Ok((lower, top)), stack_prs=Ok((2202, 2203)), stack_ledger=Ok((2202, 2203))),
+        STATE, NOW, render,
+    )
+    assert snapshot.top_pr == 2203
+    assert snapshot.top_ci == CiState.PASS
+    assert [(row.pr.number, row.top) for row in snapshot.prs] == [(2202, False), (2203, True)]
+    assert not any(problem.key.startswith("top_ci:") for problem in snapshot.problems)
+    assert not any("fix them on sprint/bk-1" in action.text for action in actions)
+
+    failing_top = pr(2203, "fix/outside-projection", "sprint/bk-1", ci=CiState.FAIL_WINDOWS)
+    snapshot, _, _ = tick(
+        inputs(value, prs=Ok((lower, failing_top)), stack_prs=Ok((2202, 2203)), stack_ledger=Ok((2202, 2203))),
+        STATE, NOW, render,
+    )
+    assert [problem.key for problem in snapshot.problems if problem.key.startswith("top_ci:")] == ["top_ci:sha2203"]
+
+
 def test_unknown_layer_metadata_never_authorizes_a_frozen_branch_edit() -> None:
     """With no layer metadata, refuse to name a top instead of guessing by PR number.
 
