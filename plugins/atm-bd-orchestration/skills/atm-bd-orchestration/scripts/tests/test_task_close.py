@@ -2309,6 +2309,8 @@ def test_close_stack_top_uses_trunk_only_after_verified_full_land(world):
     instance = hook.Hook("dev", world.values, world.path, world, lambda: 42)
     instance.records["atm-phase-bj.stack"] = world.beads["atm-phase-bj.stack"]
     assert instance.stack_top() == ("integrate/phase-bj", "c" * 40)
+    world.overrides[argv] = (0, "[]")
+    assert instance.stack_top() == ("integrate/phase-bj", "c" * 40)
     world.overrides[argv] = (1, "")
     with pytest.raises(hook.CloseError, match="hosted stack evidence unavailable"):
         instance.stack_top()
