@@ -68,7 +68,7 @@ import string
 import subprocess
 import sys
 from types import ModuleType
-from typing import Mapping, NotRequired, Protocol, Sequence, TypedDict
+from typing import Mapping, NotRequired, Protocol, Sequence, TypedDict, cast
 from pathlib import Path
 from pydantic import TypeAdapter
 
@@ -642,7 +642,7 @@ class Run:
                 owned_paths = finding.get("owned_paths")
                 if not isinstance(owned_paths, list) or not owned_paths or any(
                         not isinstance(path, str) or not path.strip() or path.strip() in (".", "**", "**/*", "*")
-                        or path.startswith("/") or ".." in Path(path).parts for path in owned_paths):
+                        or path.startswith("/") or ".." in Path(path).parts for path in cast(list[object], owned_paths)):
                     raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref} needs nonempty, repository-relative finding-specific owned_paths")
                 # Deleted when a released sc-compose pours a string layer (preview-attach passes).
                 layer = finding.get("found_on_layer")
