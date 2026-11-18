@@ -1885,6 +1885,7 @@ def test_sanity_close_context_carries_only_the_fields_the_sanity_close_reads(wor
     assert "ok" in world.run(role, outcome=outcome)
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
     context = assignment["close_context"]
+    assert context["round"] == 1
     assert set(context) == (SANITY_READ & set(assignment)) | {"phase_lead", "budget"}
     assert context == {**{name: assignment[name] for name in SANITY_READ & set(assignment)},
                        **({"carry_forward": world.values["checked_bead"]} if outcome == "not_reproducible" else {}),

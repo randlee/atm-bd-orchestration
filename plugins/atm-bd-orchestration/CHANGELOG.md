@@ -7,6 +7,8 @@
 - Bead-group pour suppression uses typed schema problem codes instead of matching diagnostic text (#907).
 - Sanity close event lookup uses the configured phase team, tool identity and command timeout, with typed cause-specific errors (#906).
 - Ship ceremony-finding-screen and record screening rates for every review round (#938).
+- Sanity dispatch carries the assignment round and QA reviewers through the close chain (#979).
+- Sanity checks use fix beads' own deliverables and owned paths, refusing missing fields (#986).
 
 ## [0.20.1] - 2026-11-15
 
