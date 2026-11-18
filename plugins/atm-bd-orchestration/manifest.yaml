@@ -169,6 +169,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_close_vars.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_close_vars_children.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_merge.py
+    - skills/atm-bd-orchestration/scripts/tests/test_sanity_parent_evidence.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_run_history.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_split.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_stack.py

@@ -86,7 +86,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / "atm-beads" / "scripts"))
 sys.path.insert(0, str(HERE))
 import sc_render  # noqa: E402
-from jev_client import evidence_ref  # noqa: E402
+from jev_client import JevError, assignment_requests, evidence_ref  # noqa: E402
 from operation_models import matches_typeddict  # noqa: E402
 from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_value  # noqa: E402
 
@@ -536,7 +536,9 @@ def partition_commits(worktree: str, base: str, head: str, plans: list[ChildPlan
         trailers = git(worktree, "show", "-s", "--format=%(trailers:key=Bead,valueonly)", commit).split()
         if len(trailers) > 1 or (trailers and trailers[0] not in assigned):
             raise Fail(4, f"commit {commit} has ambiguous or unassigned Bead trailers: {trailers}")
-        (assigned[trailers[0]] if trailers else parent).append(commit)
+        parent.append(commit)
+        if trailers:
+            assigned[trailers[0]].append(commit)
     result: list[ChildPlan] = []
     for plan in plans:
         commits = assigned[plan.bead.id]
@@ -735,8 +737,14 @@ def main() -> int:
                                     "assignment": render(args.template, variables)})
         children = ([{"id": plan.bead.id, "title": plan.bead.title, "commit": plan.commit,
                       "deliverables_total": len(plan.deliverables)} for plan in child_plans] if args.child else None)
+        if child_plans and not args.split_only:
+            for entry in assignments:
+                assignment_requests(entry["assignment"])
         if not args.split_only:
             lint = start_lint(args)
+    except JevError as exc:
+        print(f"{exc.code}: {exc.message}", file=sys.stderr)
+        return 2
     except Fail as exc:
         return die(exc.code, str(exc))
     json.dump({"run_id": str(uuid.uuid4()),
