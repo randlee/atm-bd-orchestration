@@ -205,6 +205,9 @@ def test_each_merged_childs_commit_is_derived_and_verified_through_a_rebase(tmp_
     planted = {"a commit recorded before the rebase": (before["t-x-1.sub-1"], "is not in the history"),
                "another child's commit": (after["t-x-1.sub-2"], "does not carry the trailer `Bead: t-x-1.sub-1`"),
                "the dev's own head": (head, "does not carry the trailer `Bead: t-x-1.sub-1`")}
+    earlier = _git(repo, "rev-parse", f"{after['t-x-1.sub-1']}^")  # sub-1's first commit: tagged, on the branch, stale
+    assert _git(repo, "show", "-s", "--format=%(trailers:key=Bead,valueonly)", earlier) == "t-x-1.sub-1"
+    planted["an earlier commit of the same child"] = (earlier, "is not its latest commit on this branch")
     for label, (commit, why) in planted.items():
         with pytest.raises(split.Fail) as refused:
             load(**{"t-x-1.sub-1": commit})
@@ -212,6 +215,17 @@ def test_each_merged_childs_commit_is_derived_and_verified_through_a_rebase(tmp_
         assert why in str(refused.value), label
         assert f"bd update t-x-1.sub-1 --set-metadata commit={after['t-x-1.sub-1']}" in str(refused.value), label
     assert split.child_commit_on_branch(str(repo), top, head, "t-x-1.sub-9") is None
+    _git(repo, "checkout", "-q", "top")                          # a later round: the top advances and the dev rebases again
+    top = _commit(repo, "top-2.txt")
+    _git(repo, "checkout", "-q", "sprint")
+    _git(repo, "rebase", "-q", "top")
+    head = _git(repo, "rev-parse", "HEAD")
+    again = {child: split.child_commit_on_branch(str(repo), top, head, child) for child in before}
+    assert all(again.values()) and not set(again.values()) & set(after.values())
+    with pytest.raises(split.Fail) as stale:                     # the commit recorded at the first close is refused
+        load(**{"t-x-1.sub-1": after["t-x-1.sub-1"]})
+    assert f"bd update t-x-1.sub-1 --set-metadata commit={again['t-x-1.sub-1']}" in str(stale.value)
+    assert [plan.commit for plan in load(**again)] == [again["t-x-1.sub-1"], again["t-x-1.sub-2"]]
     with pytest.raises(split.Fail) as untagged:
         load(**{"t-x-1.sub-9": head})
     assert "each commit of a child ends with that trailer" in str(untagged.value)

@@ -498,12 +498,13 @@ def load_children(args: SplitArguments, sha: str, base_sha: str, owned: list[str
         if not args.split_only:
             child_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}",
                             what=f"child {child_id} commit {commit} is not in {args.worktree}").strip()
-            ancestor = subprocess.run(["git", "-C", args.worktree, "merge-base", "--is-ancestor", child_sha, sha])
-            trailers = git(args.worktree, "show", "-s", "--format=%(trailers:key=Bead,valueonly)", child_sha).split()
-            if ancestor.returncode != 0 or child_id not in trailers:
-                found = child_commit_on_branch(args.worktree, base_sha, sha, child_id)
+            found = child_commit_on_branch(args.worktree, base_sha, sha, child_id)
+            if found != child_sha:                                     # the recorded commit must be the child's latest
+                ancestor = subprocess.run(["git", "-C", args.worktree, "merge-base", "--is-ancestor", child_sha, sha])
+                trailers = git(args.worktree, "show", "-s", "--format=%(trailers:key=Bead,valueonly)", child_sha).split()
                 why = (f"is not in the history of {sha} (a rebase rewrites commits)" if ancestor.returncode != 0
-                       else f"does not carry the trailer `Bead: {child_id}`")
+                       else f"does not carry the trailer `Bead: {child_id}`" if child_id not in trailers
+                       else "is not its latest commit on this branch")
                 fix = (f"its commit on this branch is {found}: bd update {child_id} --set-metadata commit={found}" if found
                        else f"no commit in {base_sha}..{sha} carries `Bead: {child_id}`; each commit of a child ends with that trailer")
                 raise Fail(4, f"child {child_id} commit {child_sha} {why}; {fix}")
