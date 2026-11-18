@@ -476,6 +476,16 @@ def reject_reference(bead: ParsedBead) -> None:
         raise Fail(2, f"reference bead {bead.id} is never sent to Jev")
 
 
+def child_commit_on_branch(worktree: str, base_sha: str, sha: str, child_id: str) -> str | None:
+    """The newest commit in base..head whose `Bead:` trailer names the child: trailers survive a merge and a rebase."""
+    log = git(worktree, "log", "--format=%H%x00%(trailers:key=Bead,valueonly,separator=%x2C)", f"{base_sha}..{sha}")
+    for line in log.splitlines():
+        commit, _, beads = line.partition("\0")
+        if child_id in beads.split(","):
+            return commit
+    return None
+
+
 def load_children(args: SplitArguments, sha: str, base_sha: str, owned: list[str]) -> list[ChildPlan]:
     """One plan per `--child <bead>=<commit>`: the child bead, its commit and its own deliverables."""
     plans: list[ChildPlan] = []
@@ -488,10 +498,14 @@ def load_children(args: SplitArguments, sha: str, base_sha: str, owned: list[str
             child_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}",
                             what=f"child {child_id} commit {commit} is not in {args.worktree}").strip()
             ancestor = subprocess.run(["git", "-C", args.worktree, "merge-base", "--is-ancestor", child_sha, sha])
-            if ancestor.returncode != 0:
-                raise Fail(4, f"child {child_id} commit {child_sha} is not in the history of {sha} (a rebase rewrites "
-                              f"commits); record the commit as it is on the branch: "
-                              f"bd update {child_id} --set-metadata commit=<sha>")
+            trailers = git(args.worktree, "show", "-s", "--format=%(trailers:key=Bead,valueonly)", child_sha).split()
+            if ancestor.returncode != 0 or child_id not in trailers:
+                found = child_commit_on_branch(args.worktree, base_sha, sha, child_id)
+                why = (f"is not in the history of {sha} (a rebase rewrites commits)" if ancestor.returncode != 0
+                       else f"does not carry the trailer `Bead: {child_id}`")
+                fix = (f"its commit on this branch is {found}: bd update {child_id} --set-metadata commit={found}" if found
+                       else f"no commit in {base_sha}..{sha} carries `Bead: {child_id}`; each commit of a child ends with that trailer")
+                raise Fail(4, f"child {child_id} commit {child_sha} {why}; {fix}")
         child = load_bead(args, child_id)
         reject_reference(child)
         child_owned = child.owned_paths or owned

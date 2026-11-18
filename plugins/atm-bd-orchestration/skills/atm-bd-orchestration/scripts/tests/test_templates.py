@@ -1067,11 +1067,13 @@ def test_shipped_dev_and_fix_assignments_carry_no_host_build_policy():
 # Dev assignment child-bead instructions (atm-bt-2.sub-2): rendered only when `child_beads` is non-empty.
 _CHILD_SENTENCES = (
     "Run each child bead (x-1, x-2) with a background subagent on its own worktree, no PR; "
-    "each subagent runs focused lint and tests there. Merge every child's work into this worktree.",
+    "each subagent runs focused lint and tests there and ends each commit message with the trailer `Bead: <child>`. "
+    "Merge every child's work into this worktree.",
     "Hand the full lint and test run to a background `fast` agent; rebase only after it is green.",
-    "The rebase rewrote every commit: close each child now, with its commit as it is on this branch, before this bead "
-    "(`bd close` refuses a parent with open children): `bd update <child> --set-metadata commit=<sha>`, "
-    "then `bd close <child>`.",
+    "The rebase rewrote every commit: close each child now, before this bead (`bd close` refuses a parent with open "
+    "children), with its commit on this branch, the newest one carrying its trailer: "
+    "`git log -1 --format=%H --grep='^Bead: <child>$' origin/<top>..HEAD`, "
+    "`bd update <child> --set-metadata commit=<sha>`, then `bd close <child>`.",
     "unless it resolved conflicts in code this sprint wrote",
 )
 
