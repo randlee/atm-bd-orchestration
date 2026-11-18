@@ -30,7 +30,7 @@ def _step_j(values: dict) -> str:
 
 def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
              bd_rows: list[dict] | None = None, blocking: dict | None = None,
-             screened: list[dict] | None = None, removed: list[str] | None = None) -> tuple[dict, dict]:
+             screened: list[dict] | None = None, removed: list[str] | None = None, fenced: bool = False, raw_response: str | None = None) -> tuple[dict, dict]:
     """Run step j's count lines and two row writers on real finding rows (bd replaced by `bd_rows`)."""
     counts = step[step.index("FNDFILE="):step.index("TESTED=")].replace("<scratch>", str(workdir))
     round_cmd = step[step.index("ROW=$(jq -nc"):step.index("\n\nTOTAL_FILED=")]
@@ -45,7 +45,8 @@ def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
         (workdir / f"{task}-blocking.json").write_text(json.dumps(blocking))
     if screened is not None:
         task = step[step.index("SCREENFILE=<scratch>/") + len("SCREENFILE=<scratch>/"):step.index("-screen.json")]
-        (workdir / f"{task}-screen.json").write_text(json.dumps({"success": True, "data": {"screened": screened}}))
+        payload = json.dumps({"success": True, "data": {"screened": screened}, "error": None})
+        (workdir / f"{task}-screen.json").write_text(raw_response if raw_response is not None else f"```json\n{payload}\n```\n" if fenced else payload)
     if removed is not None:
         task = step[step.index("SCREENFILE=<scratch>/") + len("SCREENFILE=<scratch>/"):step.index("-screen.json")]
         (workdir / f"{task}-removed-ids.json").write_text(json.dumps(removed))
@@ -60,14 +61,15 @@ def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
     return json.loads(round_rows[0]), json.loads(stats_rows[0])
 
 
-def _produce_plan(workdir: Path, screened: list[dict], removed: list[str] | None = None) -> tuple[dict, dict]:
+def _produce_plan(workdir: Path, screened: list[dict], removed: list[str] | None = None, fenced: bool = False, raw_response: str | None = None) -> tuple[dict, dict]:
     values = _concrete(_example("plan-review-template-vars.json"))
     result = _render("plan-review-template.xml.j2", values)
     assert result.returncode == 0, result.stderr
     step = result.stdout[result.stdout.index('<step id="g">'):]
     commands = step[step.index("SCREENFILE="):step.index("\n```", step.index("SCREENFILE="))]
     commands = commands.replace("<scratch>", str(workdir)).replace("bd list --all --json 2>/dev/null", "cat bd-list.json", 1)
-    (workdir / f"{values['task_id']}-screen.json").write_text(json.dumps({"success": True, "data": {"screened": screened}}))
+    payload = json.dumps({"success": True, "data": {"screened": screened}, "error": None})
+    (workdir / f"{values['task_id']}-screen.json").write_text(raw_response if raw_response is not None else f"```json\n{payload}\n```\n" if fenced else payload)
     if removed is not None:
         (workdir / f"{values['task_id']}-removed-ids.json").write_text(json.dumps(removed))
     env = {**os.environ, "NOW": "2026-10-02T12:01:00Z", "LOCAL": "05:01", "VERDICT": "FAIL"}
@@ -179,6 +181,36 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
         self.assertEqual((stats["findings_filed"], stats["findings_screened_out"]), (5, 2))
         self.assertIn("findings_screened_out/findings_filed", self.skill)
         self.assertIn("missing screening fields display `n/a`", self.skill)
+
+    def test_fenced_screen_response_is_parsed_by_both_log_writers(self):
+        workdir = Path(self.tmp.name) / "fenced"
+        workdir.mkdir()
+        screened = [{"id": "f1", "verdict": "ceremony", "missing": ["consumer"],
+                     "existing_coverage": "none", "reason": "No consumer."}]
+        qa, _ = _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir,
+                         screened=screened, removed=["f1"], fenced=True)
+        plan, stats = _produce_plan(workdir, screened, removed=["f1"], fenced=True)
+        for row in (qa, plan):
+            self.assertEqual((row["findings_filed"], row["findings_screened_out"], row["screened_ids"]),
+                             (1, 1, ["f1"]))
+        self.assertEqual((stats["findings_filed"], stats["findings_screened_out"]), (2, 2))
+
+    def test_invalid_or_extra_fenced_response_never_logs(self):
+        screened = [{"id": "f1", "verdict": "ceremony"}]
+        payload = json.dumps({"success": True, "data": {"screened": screened}})
+        for raw in (f"```json\n{payload}\n", f"```json\n{payload}\n```\nextra", "```json\n{broken}\n```\n"):
+            for kind in ("qa", "plan"):
+                with self.subTest(raw=raw, kind=kind):
+                    workdir = Path(self.tmp.name) / f"{kind}-{len(list(Path(self.tmp.name).iterdir()))}"
+                    workdir.mkdir()
+                    with self.assertRaises(subprocess.CalledProcessError) as error:
+                        if kind == "qa":
+                            _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir,
+                                     screened=screened, removed=["f1"], raw_response=raw)
+                        else:
+                            _produce_plan(workdir, screened, removed=["f1"], raw_response=raw)
+                    self.assertIn("SCREEN.UNAVAILABLE", error.exception.stderr)
+                    self.assertFalse((workdir / ".sc/qa-log/phase-d.jsonl").exists())
 
     def test_only_actually_removed_findings_are_counted_in_both_logs(self):
         workdir = Path(self.tmp.name) / "protected"
