@@ -188,7 +188,7 @@ for one background subagent, declare that subagent's model with `metadata.diffic
 `normal` or `hard`, the frontier tier); `validate-plan` rejects any other value. The split sprint's own dev is a frontier-class agent (its `model_class`
 says so) that runs each child with a background subagent, merges every
 result into its own worktree, and closes every child before closing its own bead;
-the lead never dispatches them.
+the lead never dispatches them. A sprint or subtask's deliverable text must fit within one Jev request; split oversized work into subtasks. Link reference beads to a sprint or subtask for samples and reference material that Jev does not receive.
 
 `requirements` and `adrs` are never left empty. The dev reads each listed id
 before coding, QA checks the change against each one, and plan review

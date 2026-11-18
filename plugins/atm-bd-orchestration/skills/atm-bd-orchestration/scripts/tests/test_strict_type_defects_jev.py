@@ -209,26 +209,8 @@ class MalformedBeadTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["error"]["code"], "SANITY.JEV_RESPONSE_INVALID")
 
-    def test_jev_split_retry_rejects_non_object_state(self):
-        module = self.jev_module()
-        request = {"state": "not-an-object"}
-        oversized = module.JevError("SANITY.JEV_REQUEST_TOO_LARGE", "too large", True)
-        with patch.object(module, "validate_request"), patch.object(module, "evaluate", side_effect=oversized):
-            with self.assertRaises(module.JevError) as failure:
-                module.evaluate_parts([request], "test")
-        self.assertEqual(failure.exception.code, "SANITY.JEV_REQUEST_TOO_LARGE")
 
-    def test_jev_parts_rejects_non_object_state(self):
-        module = self.jev_module()
-        with self.assertRaises(module.JevError) as failure:
-            module.parts([{"state": []}], [{}], "test")
-        self.assertEqual(failure.exception.code, "VALIDATION.INPUT")
 
-    def test_jev_parts_rejects_missing_part_fields(self):
-        module = self.jev_module()
-        with self.assertRaises(module.JevError) as failure:
-            module.parts([{"state": {}}], [{}], "test")
-        self.assertEqual(failure.exception.code, "VALIDATION.INPUT")
 
     def test_jev_external_evidence_rejects_unhashable_kind(self):
         module = self.jev_module()

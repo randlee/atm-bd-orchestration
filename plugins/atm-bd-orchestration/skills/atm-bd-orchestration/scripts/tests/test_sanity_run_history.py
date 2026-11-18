@@ -513,15 +513,15 @@ class ShippedFlow(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         client = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(client)
-        request = client.written_request("delivery", "x" * 50000, part=("1 of 1", ["x"]))
+        request = client.written_request("delivery", "x" * 50000)
         connection = MagicMock()
         connection.getresponse.return_value.status = 413
         connection.getresponse.return_value.read.return_value = b"{}"
         with patch.dict(client.os.environ, {"TYPESAFE_API_KEY": "test-only-key"}), \
              patch.object(client.http.client, "HTTPSConnection", return_value=connection), \
              self.assertRaises(client.JevError) as raised:
-            client.evaluate_parts([request], "test-only-key")
-        self.assertEqual(connection.request.call_count, 4)
+            client.evaluate(request)
+        self.assertEqual(connection.request.call_count, 1)
         failure = client.failure(raised.exception)
         failure["error"]["deliverable"] = 2
 

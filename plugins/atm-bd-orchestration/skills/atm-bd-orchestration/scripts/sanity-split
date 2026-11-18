@@ -470,6 +470,12 @@ class ChildPlan:
     outside: list[str]
 
 
+def reject_reference(bead: ParsedBead) -> None:
+    labels = bead.raw.get("labels")
+    if isinstance(labels, list) and "stage:reference" in labels:
+        raise Fail(2, f"reference bead {bead.id} is never sent to Jev")
+
+
 def load_children(args: SplitArguments, sha: str, base_sha: str, owned: list[str]) -> list[ChildPlan]:
     """One plan per `--child <bead>=<commit>`: the child bead, its commit and its own deliverables."""
     plans: list[ChildPlan] = []
@@ -487,6 +493,7 @@ def load_children(args: SplitArguments, sha: str, base_sha: str, owned: list[str
                               f"commits); record the commit as it is on the branch: "
                               f"bd update {child_id} --set-metadata commit=<sha>")
         child = load_bead(args, child_id)
+        reject_reference(child)
         child_owned = child.owned_paths or owned
         files = [] if args.split_only else changed_files(args.worktree, base_sha, child_sha)
         plans.append(ChildPlan(child, child_sha, parse_deliverables(child.description), files,
@@ -613,6 +620,7 @@ def main() -> int:
         return 0 if error.code == 0 else 1
     try:
         bead = load_bead(args)
+        reject_reference(bead)
         source = plan_source(args, bead)
         own = bead.description
         deliverables = parse_deliverables(own if DELIVERABLES.search(own) else source.description)
@@ -635,7 +643,14 @@ def main() -> int:
             external.append({"kind": "bead_notes", "bead": bead.id, "text": bead.notes})
         if args.layer_pr and args.layer_pr[-1].isdigit():
             external.append({"kind": "pr_body", "repo": repository_slug(args.worktree), "pr": int(args.layer_pr[-1])})
-        external += extra_evidence(args.external_evidence)
+        extra = extra_evidence(args.external_evidence)
+        for ref in extra:
+            if ref.get("kind") == "bead_notes":
+                bead_id = ref.get("bead")
+                assert isinstance(bead_id, str)
+                evidence_bead = bead if bead_id == bead.id else load_bead(args, bead_id)
+                reject_reference(evidence_bead)
+        external += extra
         child_plans = load_children(args, sha, base_sha, owned) if args.child else []
         total = len(deliverables) + sum(len(plan.deliverables) for plan in child_plans)
         assignments: list[JsonObject] = []

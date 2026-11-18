@@ -494,6 +494,28 @@ class SanitySplit(unittest.TestCase):
             self.assertIn("SANITY.PLAN_INVALID", out.stderr)
             self.assertIn("metadata.owned_paths" if field == "owned_paths" else "## Deliverables", out.stderr)
 
+    def test_linked_reference_is_not_sent_and_cannot_be_added_as_evidence(self):
+        from jev_client import assignment_requests
+        checked = bead("## Deliverables\n1. Implement feature.\n")
+        checked[0]["dependencies"] = [{"type": "blocks", "id": "ref-1"}]
+        reference = {"id": "ref-1", "title": "Reference", "description": "SECRET REFERENCE SAMPLE",
+                     "notes": "SECRET REFERENCE NOTES", "labels": ["stage:reference"], "metadata": {}}
+        fixture = [*checked, reference]
+        out = self.run_split(fixture, None, None, "sprint/x", "develop", "--split-only")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        assignment = json.loads(out.stdout)["assignments"][0]["assignment"]
+        request = assignment_requests(assignment)[0]
+        self.assertNotIn("SECRET REFERENCE", json.dumps(request))
+        evidence = {"kind": "bead_notes", "bead": "ref-1", "text": "SECRET REFERENCE NOTES"}
+        out = self.run_split(fixture, None, None, "sprint/x", "develop", "--split-only",
+                             "--external-evidence", json.dumps(evidence))
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("SANITY.PLAN_INVALID", out.stderr)
+        self.assertIn("reference bead ref-1 is never sent to Jev", out.stderr)
+        out = self.run_split(fixture, None, None, "sprint/x", "develop", "--split-only", "--child", "ref-1=abc")
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("reference bead ref-1 is never sent to Jev", out.stderr)
+
     def test_external_evidence_is_appended_to_every_assignment(self):
         comment = {"kind": "pr_comment", "repo": "o/r", "comment_id": 7}
         later = self.root / "later.json"

@@ -7,7 +7,6 @@
 """Bounded Jev transport and startup probe for the proposed sanity agent."""
 import argparse
 from collections.abc import Callable
-import copy
 from email.utils import parsedate_to_datetime
 import hashlib
 import hmac
@@ -34,13 +33,8 @@ MODEL = "jev-1.13.0"
 HOST = "api.typesafe.ai"
 MAX_REQUEST_BYTES = 96000  # Jev documents 32k state tokens of a 64k request budget; ~3 bytes per token of code.
 MAX_RESPONSE_BYTES = 1048576
-# Lead ruling 2026-10-19: four attempts per part; retries and 413 shortenings share that part's budget.
+# A request gets at most four transient-error attempts.
 MAX_JEV_ATTEMPTS = 4
-
-
-class AttemptBudget:
-    def __init__(self, remaining: int = MAX_JEV_ATTEMPTS) -> None:
-        self.remaining = min(remaining, MAX_JEV_ATTEMPTS)
 
 
 class JevError(Exception):
@@ -53,8 +47,7 @@ class JevError(Exception):
 
 REPORT = "Report this error unchanged; the coordinator records the slot unavailable."
 RETRY = "The client retry budget is exhausted. " + REPORT
-REBUILD = ("The client owns lossless splitting of evidence, context and inline notes. "
-           "Its bounded split/retry budget is exhausted; do not hand-trim the assignment. " + REPORT)
+REBUILD = "Split the sprint into subtask beads or move samples into reference beads, then retry; report the refusal to the coordinator."
 CONTEXT_RANGE = re.compile(r"(?P<path>.+):(?P<start>[0-9]+)-(?P<end>[0-9]+)")  # a `context` entry naming lines
 FENCED = re.compile(r"\s*```(?:json)?[ \t]*\n(.*?)\n```\s*", re.S)  # an assignment as received: fenced JSON
 FIXES = (  # message prefix -> what the calling agent does next
@@ -227,14 +220,14 @@ def retry_delay(retry_after: str | None) -> float:
 
 
 def evaluate(request: JsonObject, *, sleep: Callable[[float], None] | None = None,
-             max_attempts: int = MAX_JEV_ATTEMPTS, _budget: AttemptBudget | None = None) -> JsonObject:
-    key = api_key()
+             max_attempts: int = MAX_JEV_ATTEMPTS) -> JsonObject:
     parsed_request = parse_request(request)
     body = encode_request(parsed_request)
+    key = api_key()
     sleeper = sleep or time.sleep
-    budget = _budget if _budget is not None else AttemptBudget(max_attempts)
-    while budget.remaining > 0:
-        budget.remaining -= 1
+    remaining = min(max_attempts, MAX_JEV_ATTEMPTS)
+    while remaining > 0:
+        remaining -= 1
         conn = None
         try:
             conn = http.client.HTTPSConnection(HOST, timeout=20)
@@ -246,7 +239,7 @@ def evaluate(request: JsonObject, *, sleep: Callable[[float], None] | None = Non
             raw = response.read(MAX_RESPONSE_BYTES + 1)
             retry_after = response.getheader("Retry-After")
         except (OSError, socket.timeout, http.client.HTTPException):
-            if budget.remaining > 0:
+            if remaining > 0:
                 continue
             raise JevError("SANITY.JEV_UNAVAILABLE", "Jev connection failed or timed out", True) from None
         finally:
@@ -257,7 +250,7 @@ def evaluate(request: JsonObject, *, sleep: Callable[[float], None] | None = Non
             raise oversize(request)
         if error_type == "max_tokens_exceeded":
             raise oversize(request, limit="over Jev's token limit")
-        if status in (429, 502, 529) and budget.remaining > 0:
+        if status in (429, 502, 529) and remaining > 0:
             delay = retry_delay(retry_after)
             if delay:
                 sleeper(delay)
@@ -284,7 +277,7 @@ CLIENT_MESSAGES = re.compile("|".join([
     r"Unexpected Jev response model or shape", r"Missing or unexpected answer IDs", r"Answer must be an object",
     r"Invalid Choice answer", r"Expected pinned model, state and nonempty questions",
     r"Pilot supports well-formed Choice questions only", r"Request must contain finite JSON values",
-    r"Jev request oversized \(\d+ bytes (> \d+|over Jev's token limit)\); no further split fits the remaining attempt budget",
+    r"Jev request oversized \(\d+ bytes (> \d+|over Jev's token limit)\); split into subtask beads or move samples to reference beads",
     r"Jev connection failed or timed out", r"Jev HTTP \d{3}( error_type=[a-z0-9_.-]+)?; response body withheld",
     r"Jev response exceeded size limit", r"Jev response was not JSON", r"Jev retry budget exhausted",
     r"Startup probe returned the wrong literal choice", r"Request file unavailable or invalid JSON",
@@ -389,7 +382,6 @@ def startup_request() -> JsonObject:
 
 
 def written_request(text: str, evidence: str, context: dict[str, str] | None = None,
-                    part: tuple[str, list[str]] | None = None,
                     external: list[JsonObject] | None = None) -> JsonObject:
     state: JsonObject = {"deliverable": text, "evidence": evidence}
     if context:
@@ -397,11 +389,6 @@ def written_request(text: str, evidence: str, context: dict[str, str] | None = N
     if external:
         state["external_evidence"] = [*external]
     instructions = "Does the committed evidence deliver the deliverable?"
-    if part:
-        state["part"], changed_files = part
-        state["changed_files"] = [*changed_files]
-        instructions = ("The evidence is one part of the committed diff of `changed_files`, split to fit the request "
-                        "budget. Does this part deliver its share of the deliverable?")
     return {"model": MODEL, "state": state, "questions": {"written": {
         "type": "choice", "instructions": instructions, "criteria": {"yes": "delivered", "no": "not delivered"}}}}
 
@@ -425,220 +412,10 @@ def size(request: JsonValue) -> int:
 def oversize(request: JsonValue, fix: str | None = None, limit: str | None = None) -> JevError:
     request_size = size(request)
     bound = limit or f"> {MAX_REQUEST_BYTES}"
-    exc = JevError("SANITY.JEV_REQUEST_TOO_LARGE", f"Jev request oversized ({request_size} bytes {bound}); no further split fits the remaining attempt budget", True)
+    exc = JevError("SANITY.JEV_REQUEST_TOO_LARGE", f"Jev request oversized ({request_size} bytes {bound}); split into subtask beads or move samples to reference beads", True)
     exc.size = request_size
-    exc.fix = fix and fix.format(size=exc.size)
+    exc.fix = fix.format(size=exc.size) if fix else REBUILD
     return exc
-
-
-def diff_pieces(diff: str, budget: int) -> list[str]:
-    """`diff` (one file's) as pieces each under `budget` encoded bytes: the file header with one hunk, a hunk too large
-    for that cut by lines under its header and @@ line, and a line too large for that cut by characters."""
-    def cost(text: str) -> int:
-        return len(json.dumps(text).encode("utf-8")) - 2
-    head, _, rest = diff.partition("\n@@")
-    if not rest:
-        head, rest = "", diff
-    else:
-        head, rest = head + "\n", "@@" + rest
-    hunks = [h if i == 0 else "@@" + h for i, h in enumerate(rest.split("\n@@"))] if head else [rest]
-    hunks = [h if h.endswith("\n") or i == len(hunks) - 1 else h + "\n" for i, h in enumerate(hunks)]
-    pieces: list[str] = []
-    for hunk in hunks:
-        if cost(head + hunk) <= budget:
-            pieces.append(head + hunk)
-            continue
-        at, _, body = hunk.partition("\n")
-        prefix = head + at + "\n"
-        room = budget - cost(prefix)
-        lines: list[str] = []
-        for line in body.splitlines(keepends=True):
-            step = max(1, room // 6)  # a character encodes to at most 6 JSON bytes
-            lines += [line] if cost(line) <= room else [line[i:i + step] for i in range(0, len(line), step)]
-        chunk = ""
-        for line in lines:
-            if chunk and cost(chunk + line) > room:
-                pieces.append(prefix + chunk)
-                chunk = ""
-            chunk += line
-        if chunk:
-            pieces.append(prefix + chunk)
-    return pieces
-
-
-class SplitEvidence(TypedDict):
-    text: str
-    raw: JsonObject
-
-
-class SplitState(TypedDict):
-    evidence: str
-    context: dict[str, str]
-    external: list[SplitEvidence]
-    raw: JsonObject
-
-
-def parse_split_state(request: JsonObject) -> SplitState:
-    state = request.get("state")
-    if not isinstance(state, dict) or not isinstance(state.get("deliverable"), str):
-        raise oversize(request)
-    evidence = state.get("evidence", "")
-    context = state.get("context", {})
-    external = state.get("external_evidence", [])
-    if (not isinstance(evidence, str) or not isinstance(context, dict)
-            or not all(isinstance(value, str) for value in context.values())
-            or not isinstance(external, list)
-            or not all(isinstance(entry, dict) and isinstance(entry.get("text", ""), str) for entry in external)):
-        raise oversize(request)
-    parsed_context: dict[str, str] = {}
-    for name, value in context.items():
-        assert isinstance(value, str)
-        parsed_context[name] = value
-    parsed_external: list[SplitEvidence] = []
-    for entry in external:
-        assert isinstance(entry, dict)
-        text = entry.get("text", "")
-        assert isinstance(text, str)
-        parsed_external.append({"text": text, "raw": entry})
-    return {"evidence": evidence, "context": parsed_context, "external": parsed_external, "raw": state}
-
-
-def split_request(request: JsonObject, target: int, changed_files: list[str]) -> list[JsonObject]:
-    """Split evidence, context and external text into labelled requests without dropping content."""
-    parsed = parse_split_state(request)
-    state, evidence, context, external = parsed["raw"], parsed["evidence"], parsed["context"], parsed["external"]
-    base = copy.deepcopy(request)
-    base["state"] = {k: v for k, v in state.items() if k not in ("evidence", "context", "external_evidence", "part", "changed_files")}
-    base_state = base["state"]
-    assert isinstance(base_state, dict)
-    base_state.update(evidence="", part="999999 of 999999", changed_files=[*changed_files])
-    if size(base) >= target:
-        raise oversize(request)
-    pieces: list[JsonObject] = []
-
-    def chunks(value: str, budget: int, is_diff: bool = False) -> list[str]:
-        if budget < 8:
-            raise oversize(request)
-        if not value:
-            return [""]
-        if is_diff:
-            proposed = diff_pieces(value, budget)
-            if proposed and all(len(json.dumps(p).encode()) - 2 <= budget for p in proposed):
-                return proposed
-        # JSON escaping can expand a character; binary search each maximal cut.
-        result: list[str] = []
-        while value:
-            low, high = 1, len(value)
-            while low <= high:
-                middle = (low + high) // 2
-                if len(json.dumps(value[:middle]).encode()) - 2 <= budget:
-                    low = middle + 1
-                else:
-                    high = middle - 1
-            if not high:
-                raise oversize(request)
-            result.append(value[:high])
-            value = value[high:]
-        return result
-
-    def add_text(field: str, value: str, key: str | None = None, entry: JsonObject | None = None) -> None:
-        sample = copy.deepcopy(base)
-        sample_state = sample["state"]
-        assert isinstance(sample_state, dict)
-        if field == "context":
-            assert key is not None
-            sample_state[field] = {key: ""}
-        elif field == "external_evidence":
-            if entry is None:
-                raise ValueError("external evidence entry is required")
-            sample_state[field] = [{**entry, "text": ""}]
-        budget = target - size(sample) - 16
-        for piece in chunks(value, budget, is_diff=field == "evidence"):
-            part = copy.deepcopy(sample)
-            part_state = part["state"]
-            assert isinstance(part_state, dict)
-            if field == "context":
-                part_context = part_state[field]
-                assert isinstance(part_context, dict) and key is not None
-                part_context[key] = piece
-            elif field == "external_evidence":
-                part_external = part_state[field]
-                assert isinstance(part_external, list) and isinstance(part_external[0], dict)
-                part_external[0]["text"] = piece
-            else:
-                part_state[field] = piece
-            if size(part) > target:
-                raise oversize(request)
-            pieces.append(part)
-
-    if evidence:
-        add_text("evidence", evidence)
-    for key, value in context.items():
-        add_text("context", value, key=key)
-    for entry in external:
-        add_text("external_evidence", entry["text"], entry=entry["raw"])
-    if not pieces:
-        raise oversize(request)
-    for index, part in enumerate(pieces, 1):
-        part_state = part["state"]
-        assert isinstance(part_state, dict)
-        part_state["part"] = f"{index} of {len(pieces)}"
-    return pieces
-
-
-class SplitFiles(TypedDict):
-    files: list[str]
-
-
-def parse_split_files(request: JsonObject, fallback: list[str] | None) -> SplitFiles:
-    state = request.get("state")
-    files = state.get("changed_files", fallback or []) if isinstance(state, dict) else fallback or []
-    if not string_list(files):
-        raise oversize(request)
-    return {"files": files}
-
-
-def evaluate_parts(requests: list[JsonObject], key: str, changed_files: list[str] | None = None,
-                   *, sleep: Callable[[float], None] | None = None) -> JsonObject:
-    """Initial parts have independent budgets; a 413's smaller children share their parent's remainder."""
-    queue: list[tuple[JsonObject, AttemptBudget]] = []
-    for request in requests:
-        try:
-            validate_request(request)
-            initial = [request]
-        except JevError as exc:
-            if exc.code != "SANITY.JEV_REQUEST_TOO_LARGE":
-                raise
-            files = parse_split_files(request, changed_files)
-            initial = split_request(request, MAX_REQUEST_BYTES, files["files"])
-        queue.extend((part, AttemptBudget(MAX_JEV_ATTEMPTS)) for part in initial)
-    done: list[tuple[JsonObject, JsonObject]] = []
-    while queue:
-        request, budget = queue.pop(0)
-        try:
-            response = evaluate(request, sleep=sleep, _budget=budget)
-        except JevError as exc:
-            if exc.code != "SANITY.JEV_REQUEST_TOO_LARGE" or budget.remaining <= 0:
-                raise
-            files = parse_split_files(request, changed_files)
-            smaller = split_request(request, size(request) // 2, files["files"])
-            if len(smaller) < 2:
-                raise exc
-            queue[0:0] = [(part, budget) for part in smaller]
-            continue
-        done.append((request, response))
-    first_state = done[0][0].get("state", {}) if done else {}
-    if len(done) == 1 and isinstance(first_state, dict) and "part" not in first_state:
-        request, response = done[0]
-        return {**response, "receipt": receipt(request, response, key)}
-    parts: list[JsonValue] = []
-    for index, (request, response) in enumerate(done, 1):
-        state = request.get("state")
-        if not isinstance(state, dict) or "changed_files" not in state:
-            raise JevError("VALIDATION.INPUT", "Expected pinned model, state and nonempty questions")
-        parts.append({"part": f"{index} of {len(done)}", "changed_files": state["changed_files"],
-                      "response": response, "receipt": receipt(request, response, key)})
-    return {"model": MODEL, "parts": parts}
 
 
 class BeadNotesReference(TypedDict):
@@ -765,10 +542,7 @@ def parse_evidence_assignment(assignment: JsonValue) -> EvidenceAssignment:
 def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
     """The sanity requests, built from the assignment so no agent writes them: the deliverable text verbatim, the
     committed diff of the changed files and the context entries at the pinned commit (a `path:start-end` entry only
-    those lines, labelled with the entry). One request when it fits under
-    MAX_REQUEST_BYTES; each `external_evidence` reference (bead notes, PR body, PR comment) fetched with its source.
-    With `context` and `external_evidence` empty and the diff over the cap, `changed_files` split into groups (a file whose
-    diff alone is over the cap split by hunks) whose requests each fit, one Jev call per part."""
+    those lines, labelled with the entry). An oversized full request is refused without splitting."""
     parsed = parse_evidence_assignment(assignment)
     text, worktree, commit, base = parsed["text"], parsed["worktree"], parsed["commit"], parsed["base"]
     changed, context, refs = parsed["changed"], parsed["context"], parsed["refs"]
@@ -795,48 +569,9 @@ def assignment_requests(assignment: JsonValue) -> list[JsonObject]:
 
     external = [external_evidence_from_ref(ref, worktree) for ref in refs]
     request = written_request(text, diff(*changed), {entry: excerpt(entry) for entry in context}, external=external)
-    if size(request) <= MAX_REQUEST_BYTES:
-        return [request]
-    if context or external:
-        return split_request(request, MAX_REQUEST_BYTES, changed)
-    label = (f"{len(changed) * 1000} of {len(changed) * 1000}", changed)  # the widest part label, so every part fits
-    budget = MAX_REQUEST_BYTES - size(written_request(text, "", part=label))
-    if budget <= 0:
-        raise oversize(request, "The deliverable text alone makes the request {size} bytes, over the 96000-byte Jev "
-                       "budget, so no split of `changed_files` fits. Tell the task assigner this deliverable's text "
-                       "must be split into smaller numbered deliverables in the plan.")
-    groups: list[str] = []
-    evidence = ""
-    for piece in (p for path in changed for p in diff_pieces(diff(path), budget)):
-        if evidence and size(written_request(text, evidence + piece, part=label)) > MAX_REQUEST_BYTES:
-            groups.append(evidence)
-            evidence = ""
-        evidence += piece
-    groups.append(evidence)
-    return [written_request(text, part, part=(f"{i} of {len(groups)}", changed)) for i, part in enumerate(groups, 1)]
-
-
-class PartMetadata(TypedDict):
-    label: JsonValue
-    changed_files: JsonValue
-
-
-def part_metadata(request: JsonObject) -> PartMetadata:
-    state = request.get("state")
-    if not isinstance(state, dict) or "part" not in state or "changed_files" not in state:
-        raise JevError("VALIDATION.INPUT", "Expected pinned model, state and nonempty questions")
-    return {"label": state["part"], "changed_files": state["changed_files"]}
-
-
-def parts(requests: list[JsonObject], responses: list[JsonObject], key: str) -> JsonObject:
-    """Every part's full result, in order, with its own receipt: no part is reduced into another. Reconciling parts
-    that disagree is the sanity teammate's triage, never this client's."""
-    values: list[JsonValue] = []
-    for request, response in zip(requests, responses):
-        metadata = part_metadata(request)
-        values.append({"part": metadata["label"], "changed_files": metadata["changed_files"],
-                       "response": response, "receipt": receipt(request, response, key)})
-    return {"model": MODEL, "parts": values}
+    if size(request) > MAX_REQUEST_BYTES:
+        raise oversize(request)
+    return [request]
 
 
 class EscalationList(TypedDict):
@@ -910,9 +645,7 @@ def parse_startup_probe(value: JsonObject) -> StartupProbe:
 def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.monotonic,
                       sleep: Callable[[float], None] | None = None) -> JsonObject:
     elapsed_s: float | None = None
-    requests: list[JsonObject] = []
     assignment: JsonValue = None
-    changed_files: list[str] = []
     try:
         if args.startup:
             request = startup_request()
@@ -922,9 +655,7 @@ def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.m
             assignment = json.loads(fenced.group(1) if fenced else text)
             if not is_json_value(assignment):
                 raise JevError("VALIDATION.INPUT", "Assignment lacks deliverable text, worktree, commits or file lists")
-            changed_files = parse_evidence_assignment(assignment)["changed"]
-            requests = assignment_requests(assignment)
-            request = requests[0]
+            request = assignment_requests(assignment)[0]
         else:
             assert args.request is not None
             raw_request: JsonValue = json.loads(args.request.read_text())
@@ -935,16 +666,11 @@ def evaluation_result(args: JevArguments, *, clock: Callable[[], float] = time.m
         started = clock()
         try:
             data: JsonObject
-            if args.assignment:
-                data = evaluate_parts(requests, api_key(), changed_files, sleep=sleep)
-            elif args.startup:
-                data = evaluate(request, sleep=sleep)
-            else:
-                data = evaluate_parts([request], api_key(), sleep=sleep)
+            data = evaluate(request, sleep=sleep)
         finally:
             elapsed_s = max(0.0, clock() - started)
         questions = parse_request(request)["questions"]
-        if not args.startup and len(questions) == 1 and "parts" not in data and "receipt" not in data:
+        if not args.startup and len(questions) == 1 and "receipt" not in data:
             data = {**data, "receipt": receipt(request, data, api_key())}
         if args.startup:
             probe = parse_startup_probe(data)
@@ -991,7 +717,7 @@ def main(argv: list[str] | None = None, *, clock: Callable[[], float] = time.mon
         assert recipients and tool_identity is not None
         if args.error.startswith("SANITY.JEV_REQUEST_TOO_LARGE"):
             # An oversized request is the caller's to rebuild; it never hands the slot to an LLM or haiku check (#365).
-            announce(f"dev-sanity Jev request oversized after the lossless split: {args.error}. The deliverable's Jev slot "
+            announce(f"dev-sanity Jev request oversized: {args.error}. The deliverable's Jev slot "
                      "keeps this error; no LLM or haiku check replaces Jev for it.", recipients, tool_identity,
                      no_recipient_fallback=no_recipient_fallback)
         else:
