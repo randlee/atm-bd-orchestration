@@ -1068,9 +1068,10 @@ def test_shipped_dev_and_fix_assignments_carry_no_host_build_policy():
 _CHILD_SENTENCES = (
     "Run each child bead (x-1, x-2) with a background subagent on its own worktree, no PR; "
     "each subagent runs focused lint and tests there. Merge every child's work into this worktree.",
-    "Close each child with its commit before this bead (`bd close` refuses a parent with open children): "
-    "`bd update <child> --set-metadata commit=<sha>`, then `bd close <child>`. "
     "Hand the full lint and test run to a background `fast` agent; rebase only after it is green.",
+    "The rebase rewrote every commit: close each child now, with its commit as it is on this branch, before this bead "
+    "(`bd close` refuses a parent with open children): `bd update <child> --set-metadata commit=<sha>`, "
+    "then `bd close <child>`.",
     "unless it resolved conflicts in code this sprint wrote",
 )
 
@@ -1084,13 +1085,16 @@ def test_dev_assignment_with_child_beads_carries_the_child_instructions():
     assert result.returncode == 0, result.stderr
     for sentence in _CHILD_SENTENCES:
         assert sentence in result.stdout, sentence
+    # A rebase rewrites commits: the full run precedes it, and each child's commit is recorded after its push.
+    out, push = result.stdout, "`git push --force-with-lease origin "
+    assert out.index(_CHILD_SENTENCES[1]) < out.index("`git rebase origin/<top>`") < out.index(push, out.index("`git rebase origin/<top>`")) < out.index(_CHILD_SENTENCES[2])
 
 
 def test_dev_assignment_without_child_beads_has_no_child_instructions():
     for extra in ({}, {"child_beads": []}):
         result = _dev_render(**extra)
         assert result.returncode == 0, result.stderr
-        for fragment in ("Run each child bead", "Close each child", "`fast` agent", "code this sprint wrote"):
+        for fragment in ("Run each child bead", "close each child now", "`fast` agent", "code this sprint wrote"):
             assert fragment not in result.stdout, (extra, fragment)
         assert result.stdout == _dev_render().stdout
         assert "{%" not in result.stdout

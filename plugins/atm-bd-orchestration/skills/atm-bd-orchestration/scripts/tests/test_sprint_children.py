@@ -1,6 +1,9 @@
 """A split sprint: one sanity and one QA assignment name every child bead and its commit."""
 from __future__ import annotations
 
+import argparse
+import importlib.machinery
+import importlib.util
 import json
 import subprocess
 import tempfile
@@ -98,6 +101,56 @@ class SprintChildrenTests(unittest.TestCase):
         done = self.split("--child", "t-x-1.sub-1")
         self.assertEqual(done.returncode, 1)
         self.assertIn("<bead>=<commit>", done.stderr)
+
+
+def _git(repo: Path, *args: str) -> str:
+    done = subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                           "-c", "commit.gpgsign=false", *args], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
+
+
+def _commit(repo: Path, name: str) -> str:
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src" / name).write_text(name)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", name)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def test_child_commit_recorded_before_a_rebase_is_refused_with_its_fix_and_the_rebased_one_is_checked(tmp_path):
+    """qa1-f1: rebasing onto an advanced stack top rewrites the child's commit; only the rewritten one is on the branch."""
+    loader = importlib.machinery.SourceFileLoader("sanity_split_children", str(SPLIT))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    split = importlib.util.module_from_spec(spec)
+    loader.exec_module(split)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "top")
+    base = _commit(repo, "base.txt")
+    _git(repo, "checkout", "-q", "-b", "sprint")
+    before = _commit(repo, "child.txt")
+    _git(repo, "checkout", "-q", "top")
+    top = _commit(repo, "top.txt")                      # the stack top advances after the child was committed
+    _git(repo, "checkout", "-q", "sprint")
+    _git(repo, "rebase", "-q", "top")
+    head = _git(repo, "rev-parse", "HEAD")
+    assert head != before and _git(repo, "merge-base", "sprint", "top") == top != base
+    beads = tmp_path / "beads.json"
+    beads.write_text(json.dumps([bead("t-x-1", "1. Parent.\n"), bead("t-x-1.sub-1", "1. One.\n")]))
+
+    def load(commit: str):
+        args = argparse.Namespace(child=[f"t-x-1.sub-1={commit}"], worktree=str(repo), split_only=False,
+                                  bead_json=str(beads), bead="t-x-1")
+        return split.load_children(args, head, top, ["src/**"])
+
+    with pytest.raises(split.Fail) as refused:
+        load(before)
+    assert refused.value.code == 4
+    assert "bd update t-x-1.sub-1 --set-metadata commit=<sha>" in str(refused.value)
+    [plan] = load(head)
+    assert (plan.commit, plan.files, plan.outside) == (head, ["src/child.txt"], [])
 
 
 SPRINT = "t-d-1"

@@ -483,7 +483,9 @@ def load_children(args: SplitArguments, sha: str, base_sha: str, owned: list[str
                             what=f"child {child_id} commit {commit} is not in {args.worktree}").strip()
             ancestor = subprocess.run(["git", "-C", args.worktree, "merge-base", "--is-ancestor", child_sha, sha])
             if ancestor.returncode != 0:
-                raise Fail(4, f"child {child_id} commit {child_sha} is not in the history of {sha}")
+                raise Fail(4, f"child {child_id} commit {child_sha} is not in the history of {sha} (a rebase rewrites "
+                              f"commits); record the commit as it is on the branch: "
+                              f"bd update {child_id} --set-metadata commit=<sha>")
         child = load_bead(args, child_id)
         child_owned = child.owned_paths or owned
         files = [] if args.split_only else changed_files(args.worktree, base_sha, child_sha)

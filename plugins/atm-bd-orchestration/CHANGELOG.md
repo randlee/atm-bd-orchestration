@@ -7,6 +7,7 @@
 - The dev assignment for a sprint with children (`child_beads`, written by `close-vars.py`) tells the dev to run each child with a background subagent on its own worktree, merge the work, close each child with its commit, and hand the full lint and test run to a background `fast` agent. A sprint without children renders unchanged.
 - One sanity bead and one QA bead still cover the sprint. The sanity assignment lists each child with its commit, `sanity-split --child <id>=<commit>` checks each child's deliverables at that commit and `sanity-merge` fails on an undone one; the QA assignment names the children. A child with no recorded commit is refused with `ASSIGN_VARS.CHILD_COMMIT_MISSING` before anything is closed.
 - atm-bd-lite `dev.xml.j2` and `qa.xml.j2` carry the same child-bead instructions.
+- A child's commit is recorded after the dev's rebase, not before it: a rebase rewrites commits, and `sanity-split` refuses a child commit that is not on the branch, now naming the `bd update <child> --set-metadata commit=<sha>` that fixes it. Both dev templates (full and lite) order the child closes after the rebase.
 
 ### Fixed
 - QA bead pours omit unknown stack layers, including explicit null inputs, so a QA FAIL pour with an unlinked fix remains schema-valid (#922).

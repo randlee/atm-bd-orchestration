@@ -234,10 +234,12 @@ def test_registered_profile_modules_declare_one_timeout_within_registrar_cap() -
 DEV_CHILD_SENTENCES = (
     "Run each child bead (atm-bt-2.sub-2, atm-bt-2.sub-3) with a background subagent on its own worktree, no PR; "
     "each subagent runs focused lint and tests there. Merge every child's work into this worktree.",
-    "Close each child with its commit before this bead (`bd close` refuses a parent with open children): "
-    "`bd update <child> --set-metadata commit=<sha>`, then `bd close <child>`. Hand the full lint and test run "
+    "Hand the full lint and test run "
     "to a background `fast` agent; run the stack block only after it is green, and rerun the full suite after its "
     "rebase only when the rebase resolved conflicts in code this bead wrote.",
+    "The rebase rewrote every commit: close each child now, with its commit as it is on this branch, before this bead "
+    "(`bd close` refuses a parent with open children): `bd update <child> --set-metadata commit=<sha>`, "
+    "then `bd close <child>`.",
 )
 QA_CHILD_SENTENCE = (
     "The sprint's child beads are in `<children>`; this one run reviews their merged result, "
@@ -278,8 +280,9 @@ def test_lite_dev_template_carries_child_bead_instructions_when_children_given(t
     )
     for sentence in DEV_CHILD_SENTENCES:
         assert sentence in rendered
-    # The full run is ordered before the stack block, whose rebase must follow a green run.
-    assert rendered.index(DEV_CHILD_SENTENCES[1]) < rendered.index('git -C "$WORKTREE" rebase')
+    # The full run precedes the stack block's rebase; each child's commit is recorded after it rewrites them.
+    rebase = rendered.index('git -C "$WORKTREE" rebase')
+    assert rendered.index(DEV_CHILD_SENTENCES[1]) < rebase < rendered.index(DEV_CHILD_SENTENCES[2])
     assert "{{" not in rendered
 
 
@@ -296,5 +299,5 @@ def test_lite_qa_template_carries_children_when_given(tmp_path: Path) -> None:
 def test_lite_templates_without_children_carry_no_child_instructions(tmp_path: Path) -> None:
     dev = _render_lite("dev.xml.j2", LITE_DEV_VARS, tmp_path / "dev-vars.json")
     qa = _render_lite("qa.xml.j2", LITE_QA_VARS, tmp_path / "qa-vars.json")
-    assert "Run each child bead (" not in dev and "Close each child with its commit" not in dev
+    assert "Run each child bead (" not in dev and "close each child now" not in dev
     assert "The sprint's child beads" not in qa and "<children>" not in qa and "<child " not in qa
