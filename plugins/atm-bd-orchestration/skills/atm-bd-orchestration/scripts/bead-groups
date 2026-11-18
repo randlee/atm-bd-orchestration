@@ -345,10 +345,19 @@ class ReportError(TypedDict):
     message: str
 
 
+SCHEMA_PROBLEM_CODE = "BEAD_GROUPS_SCHEMA_INVALID"
+
+
+def should_skip_pour(entry: ReportEntry) -> bool:
+    """Skip only a target with a typed schema problem or a target-level error."""
+    return "error" in entry or SCHEMA_PROBLEM_CODE in entry.get("problem_codes", [])
+
+
 class ReportEntry(TypedDict):
     id: str
     kind: str
     problems: list[str]
+    problem_codes: NotRequired[list[str]]
     error: NotRequired[ReportError]
     formula: NotRequired[str]
     option: NotRequired[str]
@@ -925,13 +934,14 @@ def main(argv: list[str]) -> int:
                             owner = ReportEntry(id=bead, kind="bead", problems=[])
                             entries.append(owner)
                     owner["problems"].append(issue + f"; Fix: inspect `bd show {bead} --json` and repair the named field with `bd update {bead} --metadata <full JSON>`")
+                    owner.setdefault("problem_codes", []).append(SCHEMA_PROBLEM_CODE)
                     result["schema_problems"] = True
         except (OSError, ValueError, KeyError) as exc:
             result.update({"targets": entries, "outcome": "failed", "error": {"code": "BEAD_GROUPS_CANNOT_RUN", "message": str(exc)}})
             return report(result, args.json, FAILED)
     if not args.validate and not graph_conflict:
         for entry, target, _ in previews:
-            if entry.get("error") or (result.get("schema_problems") and any("Fix: inspect `bd show " in p for p in entry["problems"])):
+            if should_skip_pour(entry):
                 continue
             try:
                 attachment = run.pour(target, preview=False)

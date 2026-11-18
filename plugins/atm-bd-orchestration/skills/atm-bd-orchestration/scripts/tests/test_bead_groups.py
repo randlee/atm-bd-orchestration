@@ -276,6 +276,17 @@ def load_groups(name: str):
 
 
 class SchemaIssuesTests(unittest.TestCase):
+    def test_pour_skip_uses_typed_problem_code_not_problem_text(self):
+        groups = load_groups("bead_groups_typed_skip")
+        with_text_only = groups.ReportEntry(id="t-d-1", kind="finding", problems=[
+            "wording changed; Fix: inspect `bd show t-d-1 --json` and repair metadata"
+        ])
+        self.assertFalse(groups.should_skip_pour(with_text_only))
+        with_typed_code = groups.ReportEntry(id="t-d-1", kind="finding", problems=[
+            "schema diagnostic wording is arbitrary"
+        ], problem_codes=[groups.SCHEMA_PROBLEM_CODE])
+        self.assertTrue(groups.should_skip_pour(with_typed_code))
+
     def test_closed_beads_are_not_schema_checked(self):
         """#578: a closed history bead that predates the models does not refuse the pour; open beads still are checked."""
         groups = load_groups("bead_groups_schema_issues")
@@ -461,7 +472,7 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
             for suffix in ("formula.toml.j2", "relations.json"):
                 shutil.copy2(SCRIPTS.parent / "formulas" / f"finding-group.{suffix}", formula_dir / f"finding-group.{suffix}")
             values = {**_example("qa-bead-vars.json"), "id": "t-d-1.manual-qa", "parent": "t-d-1",
-                      "checked_bead": "t-d-1", "sprint_bead": "t-d-1", "layer": "", "commit": ""}
+                      "checked_bead": "t-d-1", "sprint_bead": "t-d-1", "layer": None, "commit": ""}
             rendered = _render("qa-bead.json.j2", values)
             self.assertEqual(rendered.returncode, 0, rendered.stderr)
             qa = json.loads(rendered.stdout)

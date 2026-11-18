@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 import sys
@@ -16,18 +18,76 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "atm-beads" / "scripts"))
 import close_fields  # noqa: E402
+import repo_config  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import command_timeout  # noqa: E402
+import phase_settings  # noqa: E402
 
 
-def task_events(task):
+class SanityCloseVarsError(ValueError):
+    def __init__(self, code: str, message: str, fix: str):
+        super().__init__(f"{code}: {message}; Fix: {fix}")
+        self.code = code
+        self.fix = fix
+
+
+def task_events(task, *, team, identity, timeout, runner=None):
     command = ["atm", "task", "events", task, "--all", "--json"]
+    if shutil.which(command[0]) is None:
+        raise SanityCloseVarsError("SANITY_CLOSE_VARS.ATM_MISSING", "atm executable is not on PATH",
+                                   "install atm or add its executable directory to PATH")
+    env = {**os.environ, "ATM_TEAM": team, "ATM_IDENTITY": identity}
+    runner = runner or subprocess.run
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=True)
+        result = runner(command, capture_output=True, text=True, timeout=timeout, check=True, env=env)
         events = json.loads(result.stdout)["events"]
         if not isinstance(events, list):
             raise ValueError("events must be an array")
         return events
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
-        raise ValueError(f"cannot read `atm task events {task} --json`: {error}; repair the task history and retry") from error
+    except subprocess.TimeoutExpired as error:
+        raise SanityCloseVarsError("SANITY_CLOSE_VARS.TIMEOUT", f"atm task events {task} exceeded {timeout}s",
+                                   "retry after the ATM service responds or raise the configured gate timeout") from error
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or error.stdout or str(error)).strip()
+        if "not found" in detail.lower() and "task" in detail.lower():
+            raise SanityCloseVarsError("SANITY_CLOSE_VARS.TASK_NOT_FOUND", detail,
+                                       f"verify that sanity task {task} exists and use its assigned task id") from error
+        raise SanityCloseVarsError("SANITY_CLOSE_VARS.TASK_EVENTS_FAILED", detail,
+                                   f"repair ATM task history for {task} and retry") from error
+    except FileNotFoundError as error:
+        raise SanityCloseVarsError("SANITY_CLOSE_VARS.ATM_MISSING", "atm executable disappeared from PATH",
+                                   "install atm or add its executable directory to PATH") from error
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SanityCloseVarsError("SANITY_CLOSE_VARS.TASK_EVENTS_FAILED",
+                                   f"cannot read `atm task events {task} --json`: {error}",
+                                   f"repair ATM task history for {task} and retry") from error
+
+
+def event_settings(manifest):
+    context = manifest.get("close_context")
+    if not isinstance(context, dict):
+        raise SanityCloseVarsError("SANITY_CLOSE_VARS.INPUTS_INVALID", "manifest lacks close_context",
+                                   "rerun sanity-split with the dev assignment close context")
+    root_value, phase = context.get("primary_checkout"), context.get("phase")
+    if not isinstance(root_value, str) or not root_value.strip() or not isinstance(phase, str) or not phase.strip():
+        raise SanityCloseVarsError("SANITY_CLOSE_VARS.INPUTS_INVALID",
+                                   "close_context lacks primary_checkout or phase",
+                                   "include primary_checkout and phase from the assigned dev close vars")
+    root = Path(root_value).resolve()
+    try:
+        settings = phase_settings.phase_settings(root, phase)
+    except phase_settings.PhaseSettingsError as error:
+        if "team is unset" in str(error):
+            raise SanityCloseVarsError("SANITY_CLOSE_VARS.TEAM_UNSET", str(error),
+                                       "set the phase team or repository atm.default_team") from error
+        raise SanityCloseVarsError("SANITY_CLOSE_VARS.CONFIG_INVALID", str(error),
+                                   "repair the repository or phase ATM configuration named above") from error
+    try:
+        timeout = command_timeout.repo_timeout(os.environ, root)
+    except (ValueError, repo_config.ConfigError) as error:
+        raise SanityCloseVarsError("SANITY_CLOSE_VARS.CONFIG_INVALID", str(error),
+                                   "set a positive configured gate_timeout_s or ATM_BD_GATE_TIMEOUT_S") from error
+    return settings.team, settings.tool_identity, timeout
 
 
 def build(manifest, selected, stacked=None, *, events=None):
@@ -50,7 +110,11 @@ def build(manifest, selected, stacked=None, *, events=None):
     if selected["verdict"] == "FAIL" and not undone:
         undone = [{"number": item["number"], "reason": selected.get("lint_md") or selected.get("findings_md") or "Lint failed"}
                   for item in manifest["assignments"]]
-    history = task_events(manifest["sanity_bead"]) if events is None else events
+    if events is None:
+        team, identity, timeout = event_settings(manifest)
+        history = task_events(manifest["sanity_bead"], team=team, identity=identity, timeout=timeout)
+    else:
+        history = events
     iteration = sum(event.get("event") in {"assigned", "reassigned", "reopened"} for event in history)
     if not iteration:
         raise ValueError(f"no assignment in `atm task events {manifest['sanity_bead']} --json`; assign the sanity task and retry")

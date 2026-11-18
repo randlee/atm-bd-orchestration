@@ -807,17 +807,19 @@ REPO_DEFAULTS = ("team-lead", "just validate", "just lint", "quality-policy.md",
 class ConfigVariableTests(unittest.TestCase):
     """Repository values are required dispatch variables: no defaults, so a missing one fails the render."""
 
-    def test_undispatched_qa_omits_empty_layer_and_commit(self):
+    def test_undispatched_qa_omits_unknown_layer_and_commit(self):
         import sys
         sys.path.insert(0, str(ROOT.parent / "atm-beads" / "scripts"))
         import bead_schema
 
-        result = _render("qa-bead.json.j2", {**_example("qa-bead-vars.json"), "layer": "", "commit": ""})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        bead = json.loads(result.stdout)
-        self.assertNotIn("layer", bead["metadata"])
-        self.assertNotIn("commit", bead["metadata"])
-        self.assertEqual(bead_schema.validate_phase([bead]), [])
+        for layer in ("", None):
+            with self.subTest(layer=layer):
+                result = _render("qa-bead.json.j2", {**_example("qa-bead-vars.json"), "layer": layer, "commit": ""})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                bead = json.loads(result.stdout)
+                self.assertNotIn("layer", bead["metadata"])
+                self.assertNotIn("commit", bead["metadata"])
+                self.assertEqual(bead_schema.validate_phase([bead]), [])
 
     def test_undispatched_qa_imports_with_embedded_bd(self):
         import os
