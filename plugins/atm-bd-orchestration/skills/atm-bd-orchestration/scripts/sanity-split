@@ -10,7 +10,7 @@ Usage:
   sanity-split --task <sanity bead> --bead <dev bead> --worktree <path>
                --branch <branch> --commit <commit> --base <base>
                --lint-command '<cmd>' --scratch <dir> [--layer-pr <n> ...]
-               [--bead-json <file>] [--split-only] [--template <path>]
+               [--child <bead>=<commit> ...] [--bead-json <file>] [--split-only] [--template <path>]
                [--lint-timeout-seconds <n>]
   sanity-split lint-supervisor --worktree <path> --command '<cmd>' --log <file>
                --exit-file <file> [--timeout-seconds <n>]
@@ -29,6 +29,11 @@ worktree, and prints one JSON manifest to stdout:
    deliverables_total, changed_files, files_outside_owned_paths,
    lint: {command, log, exit_file, pid, timeout_seconds} | null,
    assignments: [{number, assignment: <rendered object>}]}
+
+`--child <bead>=<commit>` (repeatable) names a child bead of a split sprint and the commit its dev recorded. The
+manifest gains `children`: one `{id, title, commit, deliverables_total, assignments}` per child, the child's own
+`## Deliverables` rendered at the child's commit (not mixed into `assignments`, which stay the checked bead's). Without
+`--child` the manifest has no `children` key.
 
 `--split-only` parses and renders only: no git pinning and no lint.
 
@@ -107,6 +112,7 @@ class SplitArguments(argparse.Namespace):
     close_context: Path | None
     layer_pr: list[str]
     external_evidence: list[str]
+    child: list[str]
     split_only: bool
     template: Path
     lint_timeout_seconds: int
@@ -453,6 +459,41 @@ def render(template: Path, variables: JsonObject) -> JsonObject:
         raise Fail(5, f"rendered assignment {variables['deliverable_number']} is not JSON")
 
 
+def render_children(args: SplitArguments, sha: str, base_sha: str, owned: list[str]) -> list[JsonObject]:
+    """One entry per `--child <bead>=<commit>`: the child's own deliverables rendered at the child's commit."""
+    children: list[JsonObject] = []
+    for spec in args.child:
+        child_id, _, commit = spec.partition("=")
+        if not child_id or not commit:
+            raise Fail(1, f"--child {spec!r} must be <bead>=<commit>")
+        child_sha = commit
+        if not args.split_only:
+            child_sha = git(args.worktree, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}",
+                            what=f"child {child_id} commit {commit} is not in {args.worktree}").strip()
+            ancestor = subprocess.run(["git", "-C", args.worktree, "merge-base", "--is-ancestor", child_sha, sha])
+            if ancestor.returncode != 0:
+                raise Fail(4, f"child {child_id} commit {child_sha} is not in the history of {sha}")
+        child = load_bead(args, child_id)
+        deliverables = parse_deliverables(child.description)
+        child_owned = child.owned_paths or owned
+        child_files = [] if args.split_only else changed_files(args.worktree, base_sha, child_sha)
+        outside = outside_fence(child_files, child_owned)
+        assignments: list[JsonObject] = []
+        for item in deliverables:
+            variables: JsonObject = {
+                "sanity_bead": args.task, "dev_bead_id": child.id, "dev_bead_title": child.title,
+                "deliverable_number": item["number"], "deliverable_text": item["text"],
+                "deliverables_total": len(deliverables),
+                "owned_paths": [*child_owned], "changed_files": [*child_files], "files_outside_owned_paths": [*outside],
+                "context": [], "external_evidence": [],
+                "worktree_path": args.worktree, "branch": args.branch, "commit": child_sha, "base_sha": base_sha,
+            }
+            assignments.append({"number": item["number"], "assignment": render(args.template, variables)})
+        children.append({"id": child.id, "title": child.title, "commit": child_sha,
+                         "deliverables_total": len(deliverables), "assignments": assignments})
+    return children
+
+
 def start_lint(args: SplitArguments) -> LintRun:
     scratch = Path(args.scratch)
     scratch.mkdir(parents=True, exist_ok=True)
@@ -562,6 +603,7 @@ def main() -> int:
     parser.add_argument("--close-context", type=Path)
     parser.add_argument("--layer-pr", action="append", default=[])
     parser.add_argument("--external-evidence", action="append", default=[])
+    parser.add_argument("--child", action="append", default=[])
     parser.add_argument("--split-only", action="store_true")
     parser.add_argument("--template", type=Path, default=TEMPLATE)
     parser.add_argument("--lint-timeout-seconds", type=int, default=1800)
@@ -605,6 +647,7 @@ def main() -> int:
                 "worktree_path": args.worktree, "branch": args.branch, "commit": sha, "base_sha": base_sha,
             }
             assignments.append({"number": item["number"], "assignment": render(args.template, variables)})
+        children = render_children(args, sha, base_sha, owned) if args.child else None
         if not args.split_only:
             lint = start_lint(args)
     except Fail as exc:
@@ -617,6 +660,7 @@ def main() -> int:
                "changed_files": files, "files_outside_owned_paths": outside, "lint": lint,
                "close_context": close_context, "bead_notes": bead.notes,
                "checked_bead_data": bead.raw,
+               **({"children": children} if children is not None else {}),
                "assignments": assignments}, sys.stdout, indent=2)
     print()
     return 0
