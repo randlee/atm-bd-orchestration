@@ -30,7 +30,7 @@ def _step_j(values: dict) -> str:
 
 def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
              bd_rows: list[dict] | None = None, blocking: dict | None = None,
-             screened: list[dict] | None = None) -> tuple[dict, dict]:
+             screened: list[dict] | None = None, removed: list[str] | None = None) -> tuple[dict, dict]:
     """Run step j's count lines and two row writers on real finding rows (bd replaced by `bd_rows`)."""
     counts = step[step.index("FNDFILE="):step.index("TESTED=")].replace("<scratch>", str(workdir))
     round_cmd = step[step.index("ROW=$(jq -nc"):step.index("\n\nTOTAL_FILED=")]
@@ -46,6 +46,9 @@ def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
     if screened is not None:
         task = step[step.index("SCREENFILE=<scratch>/") + len("SCREENFILE=<scratch>/"):step.index("-screen.json")]
         (workdir / f"{task}-screen.json").write_text(json.dumps({"success": True, "data": {"screened": screened}}))
+    if removed is not None:
+        task = step[step.index("SCREENFILE=<scratch>/") + len("SCREENFILE=<scratch>/"):step.index("-screen.json")]
+        (workdir / f"{task}-removed-ids.json").write_text(json.dumps(removed))
     env = {**os.environ, "NOW": "2026-10-02T12:00:00Z", "LOCAL": "05:00", "DURATION": "3m",
            "VERDICT": "PASS", "TESTED": "x"}
     script = "set -eu\nmkdir -p .sc/qa-log\n" + counts + "\n" + round_cmd + "\n" + stats_cmd + "\n"
@@ -57,7 +60,7 @@ def _produce(step: str, workdir: Path, findings: list[dict] | None = None,
     return json.loads(round_rows[0]), json.loads(stats_rows[0])
 
 
-def _produce_plan(workdir: Path, screened: list[dict]) -> tuple[dict, dict]:
+def _produce_plan(workdir: Path, screened: list[dict], removed: list[str] | None = None) -> tuple[dict, dict]:
     values = _concrete(_example("plan-review-template-vars.json"))
     result = _render("plan-review-template.xml.j2", values)
     assert result.returncode == 0, result.stderr
@@ -65,6 +68,8 @@ def _produce_plan(workdir: Path, screened: list[dict]) -> tuple[dict, dict]:
     commands = step[step.index("SCREENFILE="):step.index("\n```", step.index("SCREENFILE="))]
     commands = commands.replace("<scratch>", str(workdir)).replace("bd list --all --json 2>/dev/null", "cat bd-list.json", 1)
     (workdir / f"{values['task_id']}-screen.json").write_text(json.dumps({"success": True, "data": {"screened": screened}}))
+    if removed is not None:
+        (workdir / f"{values['task_id']}-removed-ids.json").write_text(json.dumps(removed))
     env = {**os.environ, "NOW": "2026-10-02T12:01:00Z", "LOCAL": "05:01", "VERDICT": "FAIL"}
     run_command(["bash", "-c", "set -eu\n" + commands], timeout=HANG_GUARD_SECONDS, cwd=workdir, env=env, check=True, capture_output=True, text=True)
     logs = workdir / ".sc/qa-log"
@@ -162,10 +167,10 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
         workdir = Path(self.tmp.name) / "both"
         workdir.mkdir()
         qa, qa_stats = _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir,
-                                screened=[{"id": "q1", "verdict": "ceremony"}, {"id": "q2", "verdict": "keep"}])
+                                screened=[{"id": "q1", "verdict": "ceremony"}, {"id": "q2", "verdict": "keep"}], removed=["q1"])
         plan, stats = _produce_plan(workdir, [{"id": "p1", "verdict": "ceremony"},
                                              {"id": "p2", "verdict": "not_applicable"},
-                                             {"id": "p3", "verdict": "keep"}])
+                                             {"id": "p3", "verdict": "keep"}], removed=["p1"])
         self.assertEqual((qa["kind"], qa["round"], qa["findings_filed"], qa["findings_screened_out"], qa["screened_ids"]),
                          ("qa", 1, 2, 1, ["q1"]))
         self.assertEqual((qa_stats["findings_filed"], qa_stats["findings_screened_out"]), (2, 1))
@@ -175,15 +180,43 @@ class QaReportReadsWhatStepJWrites(unittest.TestCase):
         self.assertIn("findings_screened_out/findings_filed", self.skill)
         self.assertIn("missing screening fields display `n/a`", self.skill)
 
+    def test_only_actually_removed_findings_are_counted_in_both_logs(self):
+        workdir = Path(self.tmp.name) / "protected"
+        workdir.mkdir()
+        verdicts = [{"id": "rule-012", "verdict": "ceremony"},
+                    {"id": "ordinary", "verdict": "ceremony"}, {"id": "kept", "verdict": "keep"}]
+        qa, _ = _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir,
+                         screened=verdicts, removed=["ordinary"])
+        plan, stats = _produce_plan(workdir, verdicts, removed=["ordinary"])
+        for row in (qa, plan):
+            self.assertEqual((row["findings_filed"], row["findings_screened_out"], row["screened_ids"]),
+                             (3, 1, ["ordinary"]))
+        self.assertEqual((stats["findings_filed"], stats["findings_screened_out"]), (6, 2))
+
+    def test_removed_ids_must_exist_be_unique_and_have_ceremony_verdicts(self):
+        verdicts = [{"id": "protected", "verdict": "ceremony"}, {"id": "kept", "verdict": "keep"}]
+        for removed in (None, ["kept"], ["unknown"], ["protected", "protected"]):
+            for kind in ("qa", "plan"):
+                with self.subTest(removed=removed, kind=kind):
+                    workdir = Path(self.tmp.name) / f"{kind}-{len(list(Path(self.tmp.name).iterdir()))}"
+                    workdir.mkdir()
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        if kind == "qa":
+                            _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir,
+                                     screened=verdicts, removed=removed)
+                        else:
+                            _produce_plan(workdir, verdicts, removed=removed)
+                    self.assertFalse((workdir / ".sc/qa-log/phase-d.jsonl").exists())
+
     def test_historical_row_without_screening_data_keeps_cumulative_rate_unknown(self):
         workdir = Path(self.tmp.name) / "historical"
         workdir.mkdir()
         _produce(_step_j(_concrete(_example("qa-template-vars.json"))), workdir,
-                 screened=[{"id": "q1", "verdict": "keep"}])
+                 screened=[{"id": "q1", "verdict": "keep"}], removed=[])
         log = workdir / ".sc/qa-log/phase-d.jsonl"
         with log.open("a") as out:
             out.write(json.dumps({"task": "old-round"}) + "\n")
-        _, stats = _produce_plan(workdir, [{"id": "p1", "verdict": "ceremony"}])
+        _, stats = _produce_plan(workdir, [{"id": "p1", "verdict": "ceremony"}], removed=["p1"])
         self.assertIsNone(stats["findings_filed"])
         self.assertIsNone(stats["findings_screened_out"])
 

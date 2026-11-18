@@ -262,7 +262,7 @@ forward from a previous row.
   across rounds, and ties out against `phase-<p>.jsonl` at phase end (sum of
   its `fnd` across all rounds reconciles with this log's final `tot`).
 
-For every QA or plan-review round record `kind`, `round`, `findings_filed` (all findings returned, the denominator), `findings_screened_out` (the `ceremony` verdict count), and `screened_ids`. The stats row records the cumulative `findings_filed` and `findings_screened_out` summed across both kinds. A legacy row without `kind` is QA; missing screening fields and rates with a zero denominator display as `n/a`. Remove the screening step only when the phase screening rate is zero for three consecutive phases.
+For every QA or plan-review round record `kind`, `round`, `findings_filed` (all findings returned, the denominator), `findings_screened_out` (the number actually removed by the disposition), and `screened_ids` (their original screen IDs). Protected findings retained as blocking, including validation, REQ/ADR and RULE-012 findings, are never counted as removed, regardless of the proposed verdict. The stats row records the cumulative `findings_filed` and `findings_screened_out` summed across both kinds. A legacy row without `kind` is QA; missing screening fields and rates with a zero denominator display as `n/a`. Remove the screening step only when the phase screening rate is zero for three consecutive phases.
 
 When you display either log's timestamps to the operator, convert to 24h
 local; the logs themselves keep both the UTC and local strings.
