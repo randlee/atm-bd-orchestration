@@ -36,7 +36,7 @@ from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_t
 from stack_top import select_stack_top
 from task_close_validation import (ASSIGNMENT_EVENTS, CloseError, assignment_details, assignment_id_for_round,
                                    sanity_round, sanity_round_key, validate_command_json, header, reviewer_list, validate,
-                                   sanity_close_mode, bd_value, read_vars, merge_result, validate_outcome,
+                                   sanity_close_mode, bd_value, read_vars, merge_result, validate_outcome, confirm_hosted_archived,
                                    read_toml_setting, read_config)
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
@@ -506,24 +506,7 @@ class Hook:
             if response.returncode:
                 raise CloseError("STACK.TOP", "hosted stack evidence unavailable", fix)
             try:
-                raw = response.stdout.strip()
-                try:
-                    data = json.loads(raw) if raw else []
-                    stacks = data if isinstance(data, list) else [data]
-                except ValueError:
-                    stacks = [json.loads(line) for line in raw.splitlines() if line.strip()]
-                if any(not isinstance(stack, dict) or type(stack.get("number")) is not int
-                       or not isinstance(stack.get("base"), str) or not isinstance(stack.get("prs"), list)
-                       or not isinstance(stack.get("open"), list)
-                       or any(type(pr) is not int for pr in stack["prs"] + stack["open"]) for stack in stacks):
-                    raise ValueError("invalid hosted stack fields")
-                known = {layer.get("pr") for layer in layers if isinstance(layer, dict)}
-                matches = [stack for stack in stacks if
-                           (metadata.get("stack_number") is not None and stack["number"] == metadata["stack_number"]
-                            or stack["base"] == trunk and bool(known.intersection(stack["prs"])))]
-                expected = [layer.get("pr") if isinstance(layer, dict) else None for layer in layers]
-                if len(matches) > 1 or (matches and (matches[0]["open"] or matches[0]["prs"] != expected)):
-                    raise ValueError("hosted stack remains open or differs from the ledger")
+                confirm_hosted_archived(response.stdout, metadata, layers, trunk)
             except (ValueError, TypeError) as error:
                 raise CloseError("STACK.TOP", f"hosted stack cannot confirm a full land: {error}", fix) from error
         return candidate

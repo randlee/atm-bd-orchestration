@@ -20,6 +20,28 @@ class CloseError(RuntimeError):
         self.code, self.fix = code, fix
 
 
+def confirm_hosted_archived(raw, metadata, layers, trunk):
+    """Require complete, closed hosted membership before treating a ledger as landed."""
+    raw = raw.strip()
+    try:
+        data = json.loads(raw) if raw else []
+        stacks = data if isinstance(data, list) else [data]
+    except ValueError:
+        stacks = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    if any(not isinstance(stack, dict) or type(stack.get("number")) is not int
+           or not isinstance(stack.get("base"), str) or not isinstance(stack.get("prs"), list)
+           or not isinstance(stack.get("open"), list)
+           or any(type(pr) is not int for pr in stack["prs"] + stack["open"]) for stack in stacks):
+        raise ValueError("invalid hosted stack fields")
+    known = {layer.get("pr") for layer in layers if isinstance(layer, dict)}
+    matches = [stack for stack in stacks if
+               (metadata.get("stack_number") is not None and stack["number"] == metadata["stack_number"]
+                or stack["base"] == trunk and bool(known.intersection(stack["prs"])))]
+    expected = [layer.get("pr") if isinstance(layer, dict) else None for layer in layers]
+    if len(matches) > 1 or (matches and (matches[0]["open"] or matches[0]["prs"] != expected)):
+        raise ValueError("hosted stack remains open or differs from the ledger")
+
+
 def sanity_round(metadata, bead):
     count = metadata.get("sanity_round", 0)
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
