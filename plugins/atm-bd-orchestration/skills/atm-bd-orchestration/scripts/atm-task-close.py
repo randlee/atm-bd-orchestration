@@ -36,7 +36,7 @@ from command_timeout import TIMEOUT_ENV, command_timeout, import_timeout, repo_t
 from stack_top import select_stack_top
 from task_close_validation import (ASSIGNMENT_EVENTS, CloseError, assignment_details, assignment_id_for_round,
                                    sanity_round, sanity_round_key, validate_command_json, header, reviewer_list, validate,
-                                   sanity_close_mode, bd_value, read_vars, merge_result, validate_outcome,
+                                   sanity_close_mode, bd_value, read_vars, merge_result, validate_outcome, confirm_hosted_archived,
                                    read_toml_setting, read_config)
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
@@ -486,11 +486,30 @@ class Hook:
                 raise ValueError(ancestry.stderr.strip() or "git merge-base failed")
             return ancestry.returncode == 0
 
-        return select_stack_top(
-            self.bead(self.values["stack_bead"]), self.values["pr_target"],
+        bead = self.bead(self.values["stack_bead"])
+        metadata = bead.get("metadata") or {}
+        layers = metadata.get("layers", [])
+        trunk = metadata.get("trunk", self.values["pr_target"])
+        candidate = select_stack_top(
+            bead, self.values["pr_target"],
             lambda branch: self.run(["git", "rev-parse", f"origin/{branch}"], git=True).stdout.strip(),
             landed,
         )
+        if layers and candidate[0] == trunk:
+            # The ledger can lag a partially landed hosted stack. A landed
+            # ledger is archived only with the same hosted evidence as the gate.
+            argv = ["gh", "api", "repos/{owner}/{repo}/stacks", "--paginate", "--jq",
+                    '.[] | {number, base: .base.ref, prs: [.pull_requests[].number], '
+                    'open: [.pull_requests[] | select(.state == "open") | .number]}']
+            fix = "Reconcile hosted stack membership with the stack bead and retry."
+            response = self.run(argv, git=True, check=False)
+            if response.returncode:
+                raise CloseError("STACK.TOP", "hosted stack evidence unavailable", fix)
+            try:
+                confirm_hosted_archived(response.stdout, metadata, layers, trunk)
+            except (ValueError, TypeError) as error:
+                raise CloseError("STACK.TOP", f"hosted stack cannot confirm a full land: {error}", fix) from error
+        return candidate
 
     def checks(self):
         values = self.values
