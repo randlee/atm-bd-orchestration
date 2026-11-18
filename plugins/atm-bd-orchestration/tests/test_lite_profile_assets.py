@@ -236,7 +236,8 @@ DEV_CHILD_SENTENCES = (
     "each subagent runs focused lint and tests there. Merge every child's work into this worktree.",
     "Close each child with its commit before this bead (`bd close` refuses a parent with open children): "
     "`bd update <child> --set-metadata commit=<sha>`, then `bd close <child>`. Hand the full lint and test run "
-    "to a background `fast` agent; rebase only after it is green.",
+    "to a background `fast` agent; run the stack block only after it is green, and rerun the full suite after its "
+    "rebase only when the rebase resolved conflicts in code this bead wrote.",
 )
 QA_CHILD_SENTENCE = (
     "The sprint's child beads are in `<children>`; this one run reviews their merged result, "
@@ -277,6 +278,8 @@ def test_lite_dev_template_carries_child_bead_instructions_when_children_given(t
     )
     for sentence in DEV_CHILD_SENTENCES:
         assert sentence in rendered
+    # The full run is ordered before the stack block, whose rebase must follow a green run.
+    assert rendered.index(DEV_CHILD_SENTENCES[1]) < rendered.index('git -C "$WORKTREE" rebase')
     assert "{{" not in rendered
 
 
