@@ -172,7 +172,7 @@ jobs:
 
       - name: Package tests
         working-directory: plugins/atm-bd-orchestration
-        run: uv run --frozen --project ../../apps/atm-bd-console python -m pytest -q -rs
+        run: uv run --frozen --project ../../apps/atm-bd-console python -m pytest --import-mode=importlib -q -rs tests skills/*/scripts/tests
 
   atm-bd-types:
     name: atm-bd-types crate and wheel

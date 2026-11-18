@@ -51,7 +51,8 @@ class StrictTypeDefectTests(unittest.TestCase):
             )
         self.assertEqual(preflight.returncode, 1)
         self.assertIn("Pydantic v2", preflight.stderr)
-        self.assertIn("python3 -m pip install", preflight.stderr)
+        self.assertIn("uv tool install --upgrade atm-bd", preflight.stderr)
+        self.assertNotIn("python3 -m pip install", preflight.stderr)
         self.assertNotIn("Traceback", preflight.stderr)
 
     def run_client(self, output: str) -> tuple[object, object]:
