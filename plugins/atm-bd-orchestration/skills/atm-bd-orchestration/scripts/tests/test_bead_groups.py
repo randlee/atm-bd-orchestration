@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.machinery
+import io
 import importlib.util
 import json
 import os
@@ -12,6 +14,8 @@ import tempfile
 import tomllib
 import unittest
 from unittest.mock import Mock, patch
+
+import sc_compose
 
 SCRIPTS = Path(__file__).parents[1]
 sys.path.insert(0, str(SCRIPTS))
@@ -175,49 +179,15 @@ class PhaseEndFindingTests(unittest.TestCase):
         self.assertNotIsInstance(result[0], groups.TargetError)
         self.assertIn("code-worktrees/fix/t-phase-d-pe-f1", result[0]["compose"]["worktree"])
 
-    @unittest.skipUnless(shutil.which("sc-compose") and os.environ.get("ATM_TEST_BD"),
-                         "sc-compose and the CI-pinned embedded bd are required")
-    def test_code_checkout_pour_persists_worktrees_for_all_three_beads(self):
+    def test_code_checkout_finding_produces_owned_paths_for_sanity(self):
         groups = load_groups("bead_groups_code_checkout_pour")
+        loader = importlib.machinery.SourceFileLoader("sanity_split_finding", str(SCRIPTS / "sanity-split"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        assert spec is not None
+        split = importlib.util.module_from_spec(spec)
+        loader.exec_module(split)
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory).resolve()
-            root, checkout, bin_dir = base / "planning", base / "code", base / "bin"
-            root.mkdir()
-            checkout.mkdir()
-            bin_dir.mkdir()
-            bd_path = bin_dir / ("bd.exe" if os.name == "nt" else "bd")
-            shutil.copy2(os.environ["ATM_TEST_BD"], bd_path)
-            env = {key: value for key, value in os.environ.items()
-                   if not key.startswith(("BEADS_", "BD_", "DOLT_"))}
-            env.update(HOME=str(root), PATH=str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
-            for args in (("init", "--prefix", "t", "--non-interactive", "--quiet"),
-                         ("create", "phase", "--id", "t-phase-d"),
-                         ("create", "review", "--id", "t-phase-d-review")):
-                result = subprocess.run([str(bd_path), *args], cwd=root, env=env, capture_output=True, text=True, timeout=60)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-            phase_dir = root / ".atm-bd"
-            phase_dir.mkdir(exist_ok=True)
-            template_path = ".claude/skills/atm-bd-orchestration/templates/fixture.j2"
-            template = root / template_path
-            template.parent.mkdir(parents=True)
-            template.write_text("fixture")
-            (phase_dir / "phase-d.toml").write_text(
-                'plan = "plan.jsonl"\nroot = "t-phase-d"\nintegration_branch = "integrate/phase-d"\n'
-                'lead = "lead"\ncode_checkout = "../code"\n[templates]\n'
-                + "".join(f'{key} = "{template_path}"\n' for key in
-                          ("dev", "fix", "sanity", "qa", "plan_review", "review"))
-            )
-            formula_dir = phase_dir / "formula"
-            formula_dir.mkdir()
-            for suffix in ("formula.toml.j2", "relations.json"):
-                shutil.copy2(SCRIPTS.parent / "formulas" / f"finding-group.{suffix}",
-                             formula_dir / f"finding-group.{suffix}")
-            findings = root / "findings.json"
-            findings.write_text(json.dumps({"sprint": "t-phase-d", "round": 1, "filed_by": "t-phase-d-review",
-                "found_at_commit": "a" * 40, "findings": [{"ref": "pe-f1", "severity": "blocking",
-                "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix", "owned_paths": ["crates/types/src/retry.rs"], "difficulty": "hard",
-                "requirements": ["REQ-1"], "adrs": ["NONE"]}]}))
+            root = Path(directory).resolve()
             runner = object.__new__(groups.Run)
             runner.repo, runner.option, runner.sidecars = root, None, {}
             runner.config = {"worktree_base": "/worktrees", "lint_command": "just lint",
@@ -227,33 +197,38 @@ class PhaseEndFindingTests(unittest.TestCase):
             stack = {"id": "t-phase-d.stack", "metadata": {"trunk": "integrate/phase-d", "stack_number": None, "layers": []}}
             epic = {"status": "open", "title": "phase-d: feature", "metadata": {"integration_branch": "integrate/phase-d", "phase": "d", "plan_scope": "epic"}}
             runner.show = lambda bead: stack if bead == "t-phase-d.stack" else epic
-            with patch.dict(os.environ, env, clear=True):
+            runner.sidecar = lambda _: {"default_option": "C", "options": {"C": {}}, "ref": "{vars[finding_ref]}-r{vars[round]}"}
+            findings = root / "findings.json"
+            findings.write_text(json.dumps({"sprint": "t-phase-d", "round": 1, "filed_by": "t-phase-d-review",
+                "found_at_commit": "a" * 40, "findings": [{"ref": "pe-f1", "severity": "blocking",
+                "reviewer": "flaky-test-qa", "title": "issue", "remedy": "fix the issue", "owned_paths": ["crates/types/src/retry.rs"],
+                "difficulty": "hard", "requirements": ["REQ-1"], "adrs": ["NONE"]}]}))
+            with patch.object(groups.sprint_index_common, "load_phase_config", return_value={"root": "t-phase-d", "code_checkout": "../code"}):
                 target = runner.finding_targets(findings)[0]
-                self.assertNotIsInstance(target, groups.TargetError)
-                receipt = runner.pour(target, preview=False)
-            expected = Path(str(checkout) + "-worktrees") / "fix/t-phase-d-pe-f1"
-            self.assertEqual(set(receipt["ids"]), {"fix", "sanity", "qa"})
-            for role, bead in receipt["ids"].items():
-                result = subprocess.run([str(bd_path), "show", bead, "--json"], cwd=root, env=env,
-                                        capture_output=True, text=True, timeout=60)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                record = json.loads(result.stdout)[0]
-                self.assertEqual(record["metadata"]["worktree"], str(expected), role)
-                self.assertEqual(record["metadata"]["branch"], "fix/t-phase-d-pe-f1", role)
-                if role == "fix":
-                    self.assertEqual(record["metadata"]["owned_paths"], ["crates/types/src/retry.rs"])
-                    bead_file = root / "poured-fix.json"
-                    bead_file.write_text(result.stdout)
-                    split = subprocess.run([sys.executable, str(SCRIPTS / "sanity-split"),
-                        "--task", receipt["ids"]["sanity"], "--bead", bead, "--worktree", str(checkout),
-                        "--branch", "fix/t-phase-d-pe-f1", "--commit", "abc1234", "--base", "trunk",
-                        "--lint-command", "true", "--scratch", str(root / "scratch"),
-                        "--bead-json", str(bead_file), "--split-only"], cwd=root, env=env,
-                        capture_output=True, text=True, timeout=60)
-                    self.assertEqual(split.returncode, 0, split.stdout + split.stderr)
-                    manifest = json.loads(split.stdout)
-                    self.assertEqual(manifest["deliverables_total"], 1)
-                    self.assertEqual(manifest["assignments"][0]["assignment"]["owned_paths"], ["crates/types/src/retry.rs"])
+            self.assertNotIsInstance(target, groups.TargetError)
+            template = (SCRIPTS.parent / "formulas/finding-group.formula.toml.j2").read_text().split("---\n", 2)[2]
+            template = template.replace("{{{", "{{").replace("}}}", "}}")
+            steps = tomllib.loads(sc_compose.render_template(template, target["compose"]))["steps"]
+            self.assertEqual([step["id"] for step in steps], ["fix", "sanity", "qa"])
+            expected = str(root.parent / "code-worktrees/fix/t-phase-d-pe-f1")
+            for step in steps:
+                self.assertEqual(step["metadata"]["worktree"], expected)
+                self.assertEqual(step["metadata"]["branch"], "fix/t-phase-d-pe-f1")
+            fix = steps[0]
+            self.assertEqual(fix["metadata"]["owned_paths"], ["crates/types/src/retry.rs"])
+            bead_id = "t-phase-d.pe-f1-r1-fix"
+            bead_file = root / "poured-fix.json"
+            bead_file.write_text(json.dumps({**fix, "id": bead_id}))
+            argv = ["sanity-split", "--task", "t-phase-d.pe-f1-r1-sanity", "--bead", bead_id,
+                    "--worktree", str(root.parent / "code"), "--branch", "fix/t-phase-d-pe-f1",
+                    "--commit", "abc1234", "--base", "trunk", "--lint-command", "true",
+                    "--scratch", str(root / "scratch"), "--bead-json", str(bead_file), "--split-only"]
+            output = io.StringIO()
+            with patch.object(sys, "argv", argv), contextlib.redirect_stdout(output):
+                self.assertEqual(split.main(), 0)
+            manifest = json.loads(output.getvalue())
+            self.assertEqual(manifest["deliverables_total"], 1)
+            self.assertEqual(manifest["assignments"][0]["assignment"]["owned_paths"], ["crates/types/src/retry.rs"])
 
     def test_non_qa_reviewers_are_refused_before_pour(self):
         for reviewer in ("team-lead", "rust-developer", "dev-sanity", "plan-scope-reviewer"):
