@@ -1637,7 +1637,8 @@ def test_close_from_documented_dispatch_and_result_files_derives_handoff(world, 
                "pr_url": f"https://github.com/example/repo/pull/{world.pr_number}",
                "rebased_onto": "b" * 40}
     assert set(assignment["values"]) == set(dispatch) | set(result) | set(DERIVED) | {"close_context", "beads_dir",
-                                                                                         "sanity_close_mode", "layer_prs", "base_verified"}
+                                                                                         "sanity_close_mode", "layer_prs", "base_verified", "round"}
+    assert assignment["values"]["round"] == 1
     assert assignment["values"]["layer_prs"] == [str(world.pr_number)]  # the checked PR, derived (#636)
     assert {name: assignment["values"][name] for name in derived} == derived
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", assignment["values"]["generated_at"])
