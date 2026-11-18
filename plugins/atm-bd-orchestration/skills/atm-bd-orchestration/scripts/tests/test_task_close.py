@@ -1864,6 +1864,16 @@ def test_dev_dispatch_supplies_round_when_close_vars_omit_it(world):
     assignment = next(message for message in world.messages if message["type"] == "dev-sanity-task")["values"]
     assert assignment["close_context"]["round"] == 1
     assert assignment["close_context"]["reviewers_round1"] == world.beads[world.values["qa_bead"]]["metadata"]["reviewers_round1"]
+    manifest = {"run_id": "run", "sha": assignment["commit"], "sanity_bead": assignment["sanity_bead"],
+                "dev_bead": assignment["checked_bead"], "branch": assignment["branch"],
+                "worktree_path": assignment["worktree_path"], "deliverables_total": 1,
+                "close_context": assignment["close_context"], "checked_bead_data": {"labels": []},
+                "assignments": [{"number": 1}]}
+    selected = {"run_id": "run", "reviewer": "sanity-selected", "commit": assignment["commit"],
+                "task_id": assignment["sanity_bead"], "checked_bead": assignment["checked_bead"],
+                "sprint": assignment["sprint"], "completed_at": "2026-10-24T00:00:00Z", "verdict": "PASS"}
+    values = sanity_close_vars().build(manifest, selected, events=world.tasks[assignment["sanity_bead"]])
+    assert "ok" in world.run("sanity", **values)
 
 
 def test_reopened_sanity_pass_uses_fresh_iteration(world):

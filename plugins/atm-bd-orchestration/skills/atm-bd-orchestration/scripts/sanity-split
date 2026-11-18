@@ -16,8 +16,8 @@ Usage:
                --exit-file <file> [--timeout-seconds <n>]
 
 Reads the checked bead (`bd show <bead> --json`, or `--bead-json`), parses the
-numbered list under `## Deliverables` (a poured bead without one, or without
-`owned_paths`, takes it from its sprint container `metadata.sprint_bead`), pins the target commit, lists the files
+numbered list under `## Deliverables` (a poured dev bead without one, or without
+`owned_paths`, takes it from its sprint container; a fix bead must provide both), pins the target commit, lists the files
 changed since the base (with `--layer-pr`, the union of those PRs' own ranges,
 one `gh api repos/{owner}/{repo}/pulls --paginate` listing joined locally, the checked PR last), renders `dev-sanity-assignment.json.j2` once per
 deliverable with the sc-compose wheel (`external_evidence`: the checked bead's notes when it has any,
@@ -222,7 +222,7 @@ def load_bead(args: SplitArguments, bead_id: str | None = None) -> ParsedBead:
 
 def plan_source(args: SplitArguments, bead: ParsedBead) -> ParsedBead:
     """The bead holding the plan: the checked bead, or for a poured dev bead without `## Deliverables`
-    (or without owned_paths) its sprint container `metadata.sprint_bead`."""
+    (or without owned_paths) its sprint container `metadata.sprint_bead`; a fix must supply both."""
     metadata = bead.raw.get("metadata")
     labels = bead.raw.get("labels")
     if (is_json_object(metadata) and metadata.get("role") == "fix") or (isinstance(labels, list) and "stage:fix" in labels):
