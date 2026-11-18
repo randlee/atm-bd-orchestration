@@ -432,6 +432,11 @@ def test_versions_agree():
     assert f"## [{version}]" in (PKG / "CHANGELOG.md").read_text()
 
 
+def test_changelog_documents_reference_beads():
+    changelog = (PKG / "CHANGELOG.md").read_text().split("## [Unreleased]", 1)[1].split("\n## ", 1)[0]
+    assert "reference beads" in changelog and "without diff slicing" in changelog
+
+
 
 def shim_sc_compose(bin_dir: Path, cli: str, wheel: str, python_version: str = "3.11.0") -> None:
     """`sc-compose --version` prints `sc-compose <cli>`; `uv run --script ...` prints the wheel version <wheel>;
