@@ -227,3 +227,14 @@ def test_reference_bead_has_own_model_and_requires_sprint_or_subtask_link():
     ref["parent"] = owner["id"]
     ref["description"] = ""
     assert any("description" in p for p in bead_schema.validate_phase([owner, ref]))
+
+
+def test_planning_and_changelog_document_single_request_and_references():
+    root = Path(__file__).resolve().parents[1]
+    planning = (root / "resources/planning.md").read_text()
+    paragraph = planning.split("recommended split for a concentrated pocket", 1)[1].split("\n\n", 1)[0]
+    assert "deliverable text must fit within one Jev request" in paragraph
+    assert "reference beads" in paragraph and "Jev does not receive" in paragraph
+    assert "plan-anchoring" not in paragraph
+    changelog = (root.parents[1] / "CHANGELOG.md").read_text().split("## [Unreleased]", 1)[1].split("\n## ", 1)[0]
+    assert "reference beads" in changelog and "without diff slicing" in changelog

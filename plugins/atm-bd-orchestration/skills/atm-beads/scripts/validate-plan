@@ -314,14 +314,14 @@ def check(beads: Beads, config: plan_io.PhaseConfig, rows: list[plan_io.PlanRow]
     phase_label = f"phase-{beads.phase}"
     active = [bead for bead in beads.everything() if bead.get("status") != "closed"
               and (bead.get("id") == root_id or phase_label in (bead.get("labels") or []))]
-    for item in active:
+    for item in beads.everything():
         labels = item.get("labels") or []
-        if not any(stage in labels for stage in ("stage:sprint", "stage:subtask")):
+        if phase_label not in labels or not any(stage in labels for stage in ("stage:sprint", "stage:subtask")):
             continue
         description = item.get("description") or ""
         text = deliverable_text(description, subtask="stage:subtask" in labels)
         if len(text.encode("utf-8")) > jev_client.MAX_REQUEST_BYTES:
-            problems.append(f"{item['id']}: SANITY.JEV_REQUEST_TOO_LARGE: deliverable text exceeds "
+            problems.append(f"{item['id']}: {jev_client.OVERSIZE_CODE}: deliverable text exceeds "
                             f"{jev_client.MAX_REQUEST_BYTES} bytes; split into subtasks or move samples to reference beads")
     problems += bead_schema.validate_phase(bead_schema.json_objects(active, context="phase beads"),
                                            bead_schema.json_objects(beads.everything(), context="phase links"))

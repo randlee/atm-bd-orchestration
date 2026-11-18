@@ -32,6 +32,7 @@ from sprint_index_common import JsonObject, JsonValue, is_json_object, is_json_v
 MODEL = "jev-1.13.0"
 HOST = "api.typesafe.ai"
 MAX_REQUEST_BYTES = 96000  # Jev documents 32k state tokens of a 64k request budget; ~3 bytes per token of code.
+OVERSIZE_CODE = "SANITY.JEV_REQUEST_TOO_LARGE"
 MAX_RESPONSE_BYTES = 1048576
 # A request gets at most four transient-error attempts.
 MAX_JEV_ATTEMPTS = 4
@@ -412,7 +413,7 @@ def size(request: JsonValue) -> int:
 def oversize(request: JsonValue, fix: str | None = None, limit: str | None = None) -> JevError:
     request_size = size(request)
     bound = limit or f"> {MAX_REQUEST_BYTES}"
-    exc = JevError("SANITY.JEV_REQUEST_TOO_LARGE", f"Jev request oversized ({request_size} bytes {bound}); split into subtask beads or move samples to reference beads", True)
+    exc = JevError(OVERSIZE_CODE, f"Jev request oversized ({request_size} bytes {bound}); split into subtask beads or move samples to reference beads", True)
     exc.size = request_size
     exc.fix = fix.format(size=exc.size) if fix else REBUILD
     return exc
