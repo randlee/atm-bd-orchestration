@@ -115,7 +115,7 @@ MIN=$( [ -f "$FNDFILE" ] && jq -sc '[.[] | select(.metadata.screen!="ceremony" a
 FND=$((BLK + IMP + MIN))
 SCREENFILE=<scratch>/{{ task_id | string | cdata_escape }}-screen.json
 if [ -f "$SCREENFILE" ]; then
-  SCREENED=$(jq -ec 'select(.success == true) | .data.screened | select(type == "array") | select(all(.[]; (.id | type == "string" and length > 0) and (.verdict == "keep" or .verdict == "not_applicable" or .verdict == "ceremony" or .verdict == "concern_valid_remedy_ceremony")))' "$SCREENFILE") || { echo "SCREEN.UNAVAILABLE: invalid screen result $SCREENFILE" >&2; exit 1; }
+  SCREENED=$(jq -Rsec 'if test("^\\s*\\x60\\x60\\x60(?:json)?[ \\t]*\\r?\\n") then capture("^\\s*\\x60\\x60\\x60(?:json)?[ \\t]*\\r?\\n(?<body>.*?)\\r?\\n\\x60\\x60\\x60[ \\t\\r\\n]*$"; "s").body | fromjson else fromjson end | select(.success == true) | .data.screened | select(type == "array") | select(all(.[]; (.id | type == "string" and length > 0) and (.verdict == "keep" or .verdict == "not_applicable" or .verdict == "ceremony" or .verdict == "concern_valid_remedy_ceremony")))' "$SCREENFILE") || { echo "SCREEN.UNAVAILABLE: invalid screen result $SCREENFILE" >&2; exit 1; }
 else
   SCREENED='[]'
 fi
