@@ -122,9 +122,14 @@ class SprintChildrenTests(unittest.TestCase):
         self.assertIn("<bead>=<commit>", done.stderr)
 
 
+def _no_git_env() -> dict[str, str]:
+    """The environment without any `GIT_*` variable: no inherited config (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`), dir or index."""
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+
 def _git(repo: Path, *args: str) -> str:
     """Fixture git, isolated from the host: no system or global configuration and no hooks."""
-    env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_GLOBAL": os.devnull}
+    env = {**_no_git_env(), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_GLOBAL": os.devnull}
     done = subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
                            "-c", "commit.gpgsign=false", "-c", f"core.hooksPath={os.devnull}", *args],
                           capture_output=True, text=True, env=env)
@@ -149,11 +154,15 @@ def test_fixture_git_ignores_a_failing_host_hook(tmp_path, monkeypatch):
     host = tmp_path / "gitconfig"
     host.write_text(f"[core]\n\thooksPath = {hooks}\n")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(host))
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")                  # command-scope config, as a caller of the suite may set
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(hooks))
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "top")
     planted = subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
-                              "commit", "-q", "--allow-empty", "-m", "host"], capture_output=True, text=True)
+                              "commit", "-q", "--allow-empty", "-m", "host"], capture_output=True, text=True,
+                             env={**_no_git_env(), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": str(host)})
     assert planted.returncode != 0                               # the planted hook really does fail a host commit
     assert _commit(repo, "base.txt") == _git(repo, "rev-parse", "HEAD")
 
