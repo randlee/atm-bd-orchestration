@@ -22,8 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      SC_COMPOSE_VERSION: "1.8.0"
-      SC_COMPOSE_SHA256: a12a16259c1cab58c4c611320653e442fe3440c2a15cce0ba617ad77d145809a
+      SC_COMPOSE_VERSION: "1.9.0"
+      SC_COMPOSE_SHA256: 0f98747d9c1cba60a60f6e37d3eca2ccd2aa2f733348883b57705fe6a8d1b108
       UV_TOOL_DIR: ${{ github.workspace }}/../console-tools
       UV_TOOL_BIN_DIR: ${{ github.workspace }}/../console-bin
     strategy:
@@ -92,16 +92,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            sha256: a12a16259c1cab58c4c611320653e442fe3440c2a15cce0ba617ad77d145809a
+            sha256: 0f98747d9c1cba60a60f6e37d3eca2ccd2aa2f733348883b57705fe6a8d1b108
             python: "3.11"   # the floor
           - os: macos-latest
             target: aarch64-apple-darwin
-            sha256: c7b03453d357f36997b27467b02cfe6124713ca1ee9344175c31f8e0dc5f5408
+            sha256: 10b2d5f43ce6f2df847c31ba9763f4e66fdeae8262e0375784d79460564ddfef
             python: "3.14"   # what teams run
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
-      SC_COMPOSE_VERSION: "1.8.0"
+      SC_COMPOSE_VERSION: "1.9.0"
     steps:
       - uses: actions/checkout@v4
         with:
