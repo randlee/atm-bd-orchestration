@@ -486,11 +486,47 @@ class Hook:
                 raise ValueError(ancestry.stderr.strip() or "git merge-base failed")
             return ancestry.returncode == 0
 
-        return select_stack_top(
-            self.bead(self.values["stack_bead"]), self.values["pr_target"],
+        bead = self.bead(self.values["stack_bead"])
+        metadata = bead.get("metadata") or {}
+        layers = metadata.get("layers", [])
+        trunk = metadata.get("trunk", self.values["pr_target"])
+        candidate = select_stack_top(
+            bead, self.values["pr_target"],
             lambda branch: self.run(["git", "rev-parse", f"origin/{branch}"], git=True).stdout.strip(),
             landed,
         )
+        if layers and candidate[0] == trunk:
+            # The ledger can lag a partially landed hosted stack. A landed
+            # ledger is archived only with the same hosted evidence as the gate.
+            argv = ["gh", "api", "repos/{owner}/{repo}/stacks", "--paginate", "--jq",
+                    '.[] | {number, base: .base.ref, prs: [.pull_requests[].number], '
+                    'open: [.pull_requests[] | select(.state == "open") | .number]}']
+            fix = "Reconcile hosted stack membership with the stack bead and retry."
+            response = self.run(argv, git=True, check=False)
+            if response.returncode:
+                raise CloseError("STACK.TOP", "hosted stack evidence unavailable", fix)
+            try:
+                raw = response.stdout.strip()
+                try:
+                    data = json.loads(raw) if raw else []
+                    stacks = data if isinstance(data, list) else [data]
+                except ValueError:
+                    stacks = [json.loads(line) for line in raw.splitlines() if line.strip()]
+                if any(not isinstance(stack, dict) or type(stack.get("number")) is not int
+                       or not isinstance(stack.get("base"), str) or not isinstance(stack.get("prs"), list)
+                       or not isinstance(stack.get("open"), list)
+                       or any(type(pr) is not int for pr in stack["prs"] + stack["open"]) for stack in stacks):
+                    raise ValueError("invalid hosted stack fields")
+                known = {layer.get("pr") for layer in layers if isinstance(layer, dict)}
+                matches = [stack for stack in stacks if
+                           (metadata.get("stack_number") is not None and stack["number"] == metadata["stack_number"]
+                            or stack["base"] == trunk and bool(known.intersection(stack["prs"])))]
+                expected = [layer.get("pr") if isinstance(layer, dict) else None for layer in layers]
+                if len(matches) > 1 or (matches and (matches[0]["open"] or matches[0]["prs"] != expected)):
+                    raise ValueError("hosted stack remains open or differs from the ledger")
+            except (ValueError, TypeError) as error:
+                raise CloseError("STACK.TOP", f"hosted stack cannot confirm a full land: {error}", fix) from error
+        return candidate
 
     def checks(self):
         values = self.values

@@ -2276,6 +2276,22 @@ def test_lead_closing_its_own_qa_task_skips_the_self_addressed_status(world, mon
     assert world.messages == []
 
 
+def test_close_stack_top_refuses_unrecorded_open_hosted_layer(world):
+    layers = [{"branch": "lower", "pr": 1, "head": "a" * 40, "base": "integrate/phase-bj", "linked": True}]
+    world.beads["atm-phase-bj.stack"]["metadata"].update(trunk="integrate/phase-bj", layers=layers, stack_number=7)
+    world.overrides[("gh", "api", "repos/{owner}/{repo}/pulls/1")] = (0, json.dumps({"merged": True, "head": {"sha": "a" * 40}}))
+    world.overrides[("git", "merge-base", "--is-ancestor", "a" * 40, "origin/integrate/phase-bj")] = (0, "")
+    world.overrides[("git", "rev-parse", "origin/integrate/phase-bj")] = (0, "c" * 40)
+    argv = ("gh", "api", "repos/{owner}/{repo}/stacks", "--paginate", "--jq",
+            '.[] | {number, base: .base.ref, prs: [.pull_requests[].number], open: [.pull_requests[] | select(.state == "open") | .number]}')
+    world.overrides[argv] = (0, json.dumps({"number": 7, "base": "integrate/phase-bj", "prs": [1, 2], "open": [2]}))
+    instance = hook.Hook("dev", world.values, world.path, world, lambda: 42)
+    instance.records["atm-phase-bj.stack"] = world.beads["atm-phase-bj.stack"]
+    with pytest.raises(hook.CloseError, match="hosted") as error:
+        instance.stack_top()
+    assert error.value.code == "STACK.TOP"
+
+
 def test_close_stack_top_uses_trunk_only_after_verified_full_land(world):
     layers = [
         {"branch": "first", "pr": 1, "head": "a" * 40, "base": "integrate/phase-bj", "linked": True},
@@ -2287,8 +2303,17 @@ def test_close_stack_top_uses_trunk_only_after_verified_full_land(world):
             0, json.dumps({"merged": True, "head": {"sha": layer["head"]}}))
         world.overrides[("git", "merge-base", "--is-ancestor", layer["head"], "origin/integrate/phase-bj")] = (0, "")
     world.overrides[("git", "rev-parse", "origin/integrate/phase-bj")] = (0, "c" * 40)
+    argv = ("gh", "api", "repos/{owner}/{repo}/stacks", "--paginate", "--jq",
+            '.[] | {number, base: .base.ref, prs: [.pull_requests[].number], open: [.pull_requests[] | select(.state == "open") | .number]}')
+    world.overrides[argv] = (0, json.dumps({"number": 7, "base": "integrate/phase-bj", "prs": [1, 2], "open": []}))
     instance = hook.Hook("dev", world.values, world.path, world, lambda: 42)
     instance.records["atm-phase-bj.stack"] = world.beads["atm-phase-bj.stack"]
     assert instance.stack_top() == ("integrate/phase-bj", "c" * 40)
+    world.overrides[argv] = (1, "")
+    with pytest.raises(hook.CloseError, match="hosted stack evidence unavailable"):
+        instance.stack_top()
+    world.overrides[argv] = (0, "not json")
+    with pytest.raises(hook.CloseError, match="hosted stack cannot confirm"):
+        instance.stack_top()
     world.overrides[("gh", "api", "repos/{owner}/{repo}/pulls/2")] = (0, json.dumps({"merged": False, "head": {"sha": "b" * 40}}))
     assert instance.stack_top() == ("second", "b" * 40)
