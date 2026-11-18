@@ -56,6 +56,24 @@ class SprintChildrenTests(unittest.TestCase):
             self.assertIn(f'<child id="{child["id"]}" commit="{child["commit"]}"/>', text)
         self.assertIn("--child <id>=<commit>", text)
 
+    def test_daemon_mode_sanity_verifies_each_child_at_its_commit(self):
+        """qa1-f2: daemon close mode runs no sanity-split, so the assignment itself carries the child check."""
+        sentence = ("Each `<children>` entry is a child bead of this sprint: read its numbered deliverables with "
+                    "`bd show <id> --json` and verify each at that child's commit; number them after the checked "
+                    "bead's, in `<children>` order, and name the child in each finding's issue.")
+        daemon = {**SANITY_VARS, "sanity_close_mode": "daemon"}
+        text = rendered(SANITY, {**daemon, "children": CHILDREN})
+        for child in CHILDREN:
+            self.assertIn(f'<child id="{child["id"]}" commit="{child["commit"]}"/>', text)
+        self.assertNotIn("--child", text)                       # daemon mode never runs sanity-split
+        step_b = text[text.index('<step id="b">'):text.index('<step id="e">')]
+        self.assertIn(sentence, step_b)
+        self.assertLess(step_b.index("Verify the numbered deliverables"), step_b.index(sentence))
+        self.assertNotIn("child bead of this sprint", rendered(SANITY, daemon))
+        legacy = rendered(SANITY, {**SANITY_VARS, "children": CHILDREN})
+        self.assertNotIn("child bead of this sprint", legacy)   # the other mode checks children through sanity-split
+        self.assertIn("--child <id>=<commit>", legacy)
+
     def test_qa_assignment_names_both_children(self):
         text = rendered(QA, {**QA_VARS, "children": CHILDREN})
         self.assertEqual(text.count("<repo-qa-task "), 1)
