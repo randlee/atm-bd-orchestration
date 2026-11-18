@@ -276,6 +276,11 @@ def load_groups(name: str):
 
 
 class SchemaIssuesTests(unittest.TestCase):
+    def test_an_unlinked_fix_qa_with_an_omitted_historical_layer_passes_schema_checks(self):
+        groups = load_groups("bead_groups_null_layer")
+        row = {"id": "t-d-1.unlinked-fix-qa", "status": "open", "metadata": {"layer": None}}
+        self.assertEqual(groups.row_type_issues(row), [])
+
     def test_pour_skip_uses_typed_problem_code_not_problem_text(self):
         groups = load_groups("bead_groups_typed_skip")
         with_text_only = groups.ReportEntry(id="t-d-1", kind="finding", problems=[
@@ -431,7 +436,7 @@ def test_conflict_receipt_is_reported_and_retained(tmp_path, monkeypatch):
 @unittest.skipUnless(shutil.which("sc-compose") and os.environ.get("ATM_TEST_BD"),
                      "sc-compose and the CI-pinned embedded bd are required")
 class EmbeddedFindingRecoveryTests(unittest.TestCase):
-    def test_closed_fail_round_cap_and_unrelated_bad_qa(self):
+    def test_closed_fail_pour_succeeds_with_unlinked_fix_qa_having_null_layer(self):
         from test_templates import _embedded_git_env, _example, _render
 
         with tempfile.TemporaryDirectory() as directory:
@@ -498,6 +503,19 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
             other_sprint["id"] = "t-d-2"
             other_sprint["metadata"]["sprint"] = "d-2"
             rows.append(other_sprint)
+            unlinked_fix = {"id": "t-d-2.unlinked-fix", "title": "Unlinked fix", "status": "closed",
+                            "issue_type": "task", "labels": ["phase-d", "stage:fix"],
+                            "metadata": {"finding_ref": "qa1-f1", "sprint_bead": "t-d-2"}}
+            unlinked_fix_qa = json.loads(json.dumps(qa))
+            unlinked_fix_qa["id"] = "t-d-2.unlinked-fix-qa"
+            unlinked_fix_qa["dependencies"] = [
+                {"issue_id": "t-d-2.unlinked-fix-qa", "depends_on_id": "t-d-2", "type": "parent-child"},
+                {"issue_id": "t-d-2.unlinked-fix-qa", "depends_on_id": "t-d-2.unlinked-fix", "type": "validates"},
+            ]
+            unlinked_fix_qa["metadata"].update(sprint="d-2", sprint_bead="t-d-2",
+                                                checked_bead="t-d-2.unlinked-fix", layer=None)
+            # Legacy QA beads for unlinked fixes can retain layer:null even though new pours omit it.
+            rows.extend([unlinked_fix, unlinked_fix_qa])
             (root / "initial.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
             run(str(bd), "import", "initial.jsonl")
             findings = {"sprint": "t-d-1", "round": 2, "filed_by": "t-d-1.f1-r1-qa", "found_at_commit": "abc1234",
@@ -523,7 +541,7 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
             partial_report = json.loads(partial.stdout)
             self.assertIn("t-d-2.bad-qa", partial.stdout)
             self.assertIn("reviewers_round1", partial.stdout)
-            self.assertIn("metadata.layer", partial.stdout)
+            self.assertNotIn("metadata.layer: invalid value None", partial.stdout)
             healthy = next(item for item in partial_report["targets"] if item["kind"] == "finding")
             run(str(bd), "show", healthy["ids"]["fix"], "--json")
             run(str(bd), "update", "t-d-1.f1-r1-qa", "--set-metadata", "round=2")
