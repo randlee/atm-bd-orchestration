@@ -1,0 +1,55 @@
+---
+name: simplify
+version: 0.1.0
+description: Beads formula for the simplification child of one dev or fix bead, attached under that bead. bead-groups supplies every variable.
+format: toml
+required_variables:
+  - parent
+  - phase
+  - sprint
+  - stack
+  - difficulty
+  - priority
+  - branch
+  - worktree
+  - pr_target
+  - simplifier
+  - max_passes
+---
+{#
+sc-compose beads formula (sc-compose/beads/v1): one simplify step, poured as
+the child of the dev or fix bead it reviews (the attach parent). A child
+blocks its parent's close, so the dev or fix bead cannot close until this
+bead is closed: the review cannot be skipped. Poured id: parent.ref-simplify.
+
+The dev or fix assignee runs the named simplifier agent (the phase file's
+`simplifier`, default simplify-reviewer) as a background agent over its
+diff before closing the parent, applies the removals that drop no
+deliverable and no cited requirement, and closes this bead with the result.
+At most max_passes passes (integer, written bare).
+#}
+formula = "simplify"
+description = "Simplification of {{{ parent }}} (sprint {{{ sprint }}})."
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "simplify"
+title = "{{{ sprint }}}: simplify {{{ parent }}}"
+description = "Before closing {{{ parent }}}, run {{{ simplifier }}} as a background agent over its diff from {{{ pr_target }}} with the parent's deliverables and cited requirements and ADRs. Apply each proposed removal that drops no deliverable and no cited requirement; record each rejected removal with the deliverable or requirement that needs it. At most {{{ max_passes }}} passes. Close this bead with the removals applied and rejected, then close the parent."
+type = "task"
+priority = {{{ priority }}}
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:simplify"]
+
+[steps.metadata]
+role = "simplify"
+phase = "{{{ phase }}}"
+sprint = "{{{ sprint }}}"
+stack = "{{{ stack }}}"
+difficulty = "{{{ difficulty }}}"
+branch = "{{{ branch }}}"
+worktree = "{{{ worktree }}}"
+pr_target = "{{{ pr_target }}}"
+checked_bead = "{{{ parent }}}"
+simplifier = "{{{ simplifier }}}"
+max_passes = {{{ max_passes }}}

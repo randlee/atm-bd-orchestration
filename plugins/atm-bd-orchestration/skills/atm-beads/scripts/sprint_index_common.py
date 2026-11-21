@@ -73,6 +73,7 @@ class PhaseConfig(TypedDict):
     templates: PhaseTemplates
     code_checkout: NotRequired[str]
     team: NotRequired[str]
+    simplifier: NotRequired[str]
 
 
 class IndexSprint(TypedDict):
@@ -180,7 +181,7 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
         value = data.get(key)
         if not isinstance(value, str) or not value.strip():
             problems.append(f"{key}: required nonempty string")
-    unknown = set(data) - set(PHASE_KEYS) - {"lead", "templates", "code_checkout", "team"}
+    unknown = set(data) - set(PHASE_KEYS) - {"lead", "templates", "code_checkout", "team", "simplifier"}
     if unknown:
         problems.append(f"unknown key(s): {', '.join(sorted(unknown))}")
     code_checkout = data.get("code_checkout")
@@ -190,6 +191,9 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
         or Path(code_checkout).is_absolute()
     ):
         problems.append("code_checkout: optional repository-relative path to the code repository")
+    simplifier = data.get("simplifier")
+    if "simplifier" in data and (not isinstance(simplifier, str) or not re.fullmatch(r"[a-z][a-z0-9_-]*", simplifier)):
+        problems.append("simplifier: optional agent name (.claude/agents/<name>.md) that replaces simplify-reviewer")
     lead = data.get("lead")
     if not isinstance(lead, str) or not lead.strip():
         problems.append("lead: required nonempty string")
@@ -256,6 +260,8 @@ def validate_phase_config(repo: Path, phase: str, raw_data: object) -> PhaseConf
         result["code_checkout"] = required_config_string(data, "code_checkout")
     if "team" in data:
         result["team"] = required_config_string(data, "team")
+    if "simplifier" in data:
+        result["simplifier"] = required_config_string(data, "simplifier")
     return result
 
 

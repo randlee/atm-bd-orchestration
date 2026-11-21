@@ -191,12 +191,24 @@ sc-compose render --strict --file .claude/skills/atm-bd-orchestration/templates/
 This section applies to round 1 only. A fix round (`carry_forward` set) screens and files nothing; see Reviewers.
 
 After the reviewers return, screen every finding with
-`ceremony-finding-screen`, which also runs as a background agent. Then file
-every finding, whatever the screen said: a blocking finding the screen keeps
-is poured as a fix ← sanity ← qa group under the sprint (`bead-groups
---findings`, qa-template step g); every other finding is one finding bead
-(`finding-bead.json.j2`) under the phase or feature bead. What happens next
-depends on the verdict:
+`ceremony-finding-screen`, then with `simplify-screen`
+(`.claude/agents/simplify-screen.md`), each as a background agent;
+`simplify-screen` gets each finding with its ceremony verdict. Every filed or
+poured finding carries both verdicts and each screen's own reason, copied
+from its output; `finding-bead.json.j2` refuses a finding without them. Then
+file every finding, whatever the screens said:
+
+| Severity | Poured or filed |
+| --- | --- |
+| blocking | a fix ← sanity ← qa group under the sprint (`bead-groups --findings`, formula `finding-group`) |
+| important | a fix ← qa group under the sprint, with no sanity step (`bead-groups --findings`, formula `finding-fix`); its QA runs only the filing reviewer |
+| minor | one finding bead (`finding-bead.json.j2`) under the phase or feature bead: backlog |
+
+Every poured fix bead (and every sprint dev bead) has a simplify child,
+`<fix>.group-simplify`, that blocks its close; the fixer runs the phase's
+simplifier before closing (`fix-assignment.xml.j2` step e1).
+
+What happens next depends on the ceremony verdict:
 
 | Screen verdict | Finding |
 | --- | --- |
@@ -204,6 +216,15 @@ depends on the verdict:
 | `not_applicable` | filed open as reported |
 | `concern_valid_remedy_ceremony` | filed open with `remedy` rewritten to the existing mechanism the screen names |
 | `ceremony` | filed, then closed at once: `bd close <finding> --reason "ceremony: <reason>"` |
+
+and on the simplify verdict:
+
+| Simplify verdict | Finding |
+| --- | --- |
+| `keep` | as reported |
+| `reduce` | `remedy` rewritten to the smaller remedy the screen gives |
+| `owner_question` | filed open with the question in its description; the lead asks the owner before dispatch |
+| `reject` | filed, then closed at once: `bd close <finding> --reason "simplify: <reason>"`. Never for a finding a deliverable or cited requirement names; the lead may reopen one |
 
 - Severity sets priority: blocking P1, important P2, minor P4. Planned dev is
   P2, so a blocking finding comes up ahead of the next dev bead. Reviewers

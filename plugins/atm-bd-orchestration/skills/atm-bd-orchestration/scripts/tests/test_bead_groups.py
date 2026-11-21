@@ -458,8 +458,10 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
                 + "".join(f'{key} = "{template_path}"\n' for key in ("dev", "fix", "sanity", "qa", "plan_review", "review")))
             formula_dir = phase_dir / "formula"
             formula_dir.mkdir()
-            for suffix in ("formula.toml.j2", "relations.json"):
-                shutil.copy2(SCRIPTS.parent / "formulas" / f"finding-group.{suffix}", formula_dir / f"finding-group.{suffix}")
+            # sc-compose renders only inside the repository, and this package is outside the fixture repository.
+            for name in ("finding-group", "simplify"):
+                for suffix in ("formula.toml.j2", "relations.json"):
+                    shutil.copy2(SCRIPTS.parent / "formulas" / f"{name}.{suffix}", formula_dir / f"{name}.{suffix}")
             values = {**_example("qa-bead-vars.json"), "id": "t-d-1.manual-qa", "parent": "t-d-1",
                       "checked_bead": "t-d-1", "sprint_bead": "t-d-1", "layer": "", "commit": ""}
             rendered = _render("qa-bead.json.j2", values)
@@ -497,6 +499,10 @@ class EmbeddedFindingRecoveryTests(unittest.TestCase):
             self.assertEqual(report["outcome"], "succeeded", report)
             fix_id = report["targets"][0]["ids"]["fix"]
             run(str(bd), "show", fix_id, "--json")
+            child = json.loads(run(str(bd), "show", f"{fix_id}.group-simplify", "--json").stdout)[0]
+            self.assertIn("stage:simplify", child["labels"])
+            self.assertEqual(child["metadata"]["checked_bead"], fix_id)
+            self.assertEqual(child["metadata"]["simplifier"], "simplify-reviewer")
             bad_qa = json.loads(json.dumps(qa))
             bad_qa["id"] = "t-d-2.bad-qa"
             bad_qa["dependencies"] = []

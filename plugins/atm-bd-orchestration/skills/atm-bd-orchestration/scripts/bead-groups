@@ -11,19 +11,23 @@
   TARGET (any mix, at least one):
     --sprint ID[,ID...]    sprint containers (repeatable)
     --phase P              every sprint in the plan file `.atm-bd/phase-P.toml` names
-    --findings FILE        the blocking findings one QA round raised on one sprint (repeatable):
+    --findings FILE        the findings one QA round raised on one sprint (repeatable):
                              {"sprint": "<sprint container id>", "round": N, "filed_by": "<QA bead id>",
                               "found_at_commit": "<reviewed commit>",
                               "findings": [{"ref": "qa1-f1", "severity": "blocking", "reviewer": "...",
                                             "title": "...", "remedy": "...", "priority": 1}]}
+                           severity is blocking (finding-group) or important or minor (finding-fix)
                            a finding may also carry requirements, adrs and difficulty; they default to the
                            sprint container's metadata
 
 A sprint pours dev <- sanity <- qa under its container. Each blocking finding
-pours fix <- sanity <- qa as siblings under the same container, at
-<sprint>.<ref>-r<round>-<step>; the fix bead carries the finding. Important
-and minor findings are not poured (refused): QA files them as plain finding
-beads. Quality-mgr pours fix-verification failures before closing QA; a closed
+pours fix <- sanity <- qa (finding-group) as siblings under the same
+container, at <sprint>.<ref>-r<round>-<step>; the fix bead carries the
+finding. An important or minor finding pours fix <- qa (finding-fix), with no
+sanity step. Every poured dev and fix bead gets a simplify child
+(<dev or fix>.group-simplify, formula simplify) that blocks its close; its
+simplifier is the phase file's `simplifier`, default simplify-reviewer.
+Quality-mgr pours fix-verification failures before closing QA; a closed
 FAIL may also pour its own next round when it remains within the QA round cap.
 
 For every target it attaches the group's formula under the target's sprint
@@ -32,6 +36,9 @@ container with `sc-compose bead attach`, together with the relations from
 bead `blocks` on the initial sanity bead of each predecessor in the phase's
 plan file depends_on (under option A, which pours no sanity bead, on its dev
 bead); for a fix, `discovered-from` its `filed_by` QA bead.
+After a group is attached, its simplify child is attached under the poured
+dev or fix bead (it cannot be previewed before that bead exists; --validate
+reports it as a missing bead).
 A relation's bead must exist when its target is attached, so sprints are
 attached in dependency order (a predecessor in the same run first), then
 findings.
@@ -91,6 +98,8 @@ from qa_reviewers import qa_capable_reviewer, qa_capable_reviewers
 SPRINT_KEYS = ("phase", "sprint", "stack", "layer", "difficulty", "branch", "worktree", "pr_target")
 FINDING_FIELDS = ("ref", "severity", "reviewer", "title", "remedy")
 REF = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+DEFAULT_SIMPLIFIER = "simplify-reviewer"
+MAX_SIMPLIFY_PASSES = 2
 
 
 class TargetError(Exception):
@@ -243,6 +252,8 @@ class Compose(TypedDict, total=False):
     adrs: list[str]
     found_on_layer: int | str
     has_found_on_layer: bool
+    simplifier: str
+    max_passes: int
 
 
 PlanEntry = tuple[str, str, list[str]]
@@ -591,8 +602,6 @@ class Run:
                 if valid_checked and isinstance(ref, str) and checked_meta.get("sprint_bead") == sprint:
                     qa_next_ref = ref
                     qa_closed = False
-        sidecar = self.sidecar("finding-group")
-        option = self.option_for(sidecar)
         import bead_schema
         phase_config = sprint_index_common.load_phase_config(self.repo, phase)
         stack_id = stack_bead_id(phase_config['root'])
@@ -607,6 +616,9 @@ class Run:
         for finding in findings:
             ref = finding["ref"]
             try:
+                formula = "finding-group" if finding.get("severity") == "blocking" else "finding-fix"
+                sidecar = self.sidecar(formula)
+                option = self.option_for(sidecar)
                 if qa_next_ref is not None and ref != qa_next_ref:
                     raise TargetError("BEAD_GROUPS_QA_CLOSED", f"{filed_by}: closed FAIL may only repour its own finding {qa_next_ref}; use that finding ref")
                 slug = re.sub(r"[^a-z0-9-]", "-", ref.lower())
@@ -647,8 +659,8 @@ class Run:
                     worktree_base = (code_root / code_base).resolve() if not code_base.is_absolute() else code_base
                 cut: Compose = {"branch": branch, "worktree": str(worktree_base / branch), "pr_target": pr_target,
                        "difficulty": finding_difficulty}
-                if finding["severity"] != "blocking":
-                    raise TargetError("BEAD_GROUPS_NOT_BLOCKING", f"finding {ref} is {finding['severity']}; only blocking findings are poured, file it as a finding bead")
+                if finding["severity"] not in ("blocking", "important", "minor"):
+                    raise TargetError("BEAD_GROUPS_FINDINGS_INVALID", f"finding {ref}: severity {finding['severity']!r} is not blocking, important or minor")
                 ids: dict[str, list[str]] = {}
                 bad: list[str] = []
                 for key in ("requirements", "adrs"):
@@ -670,6 +682,8 @@ class Run:
                            "has_found_on_layer": finding.get("found_on_layer") not in (None, ""),
                            "priority": finding.get("priority", 1),
                            "edge_option": option, **self.close_compose(phase, f"{sprint_name}: fix {ref}: {finding['title']}", stack_id)}
+                if formula == "finding-fix":
+                    del compose["edge_option"]  # no sanity step to place
                 compose["ref"] = fmt(sidecar["ref"], {"vars": compose | {"finding_ref": slug}})
                 existing_row = self.bd.show(attach_id(sprint, compose["ref"], "fix"))
                 existing = TypeAdapter(BeadRow).validate_python(existing_row, strict=True) if existing_row is not None else None
@@ -681,7 +695,7 @@ class Run:
                                    pr_target=existing_cut["pr_target"])
                 ref_value = compose_string(compose, "ref")
                 target_vars = {key: value for key, value in sidecar.get("defaults", {}).items()}
-                out.append({"kind": "finding", "id": f"{sprint}.{ref_value}", "formula": "finding-group", "option": option,
+                out.append({"kind": "finding", "id": f"{sprint}.{ref_value}", "formula": formula, "option": option,
                             "compose": compose, "vars": target_vars, "qa_closed": qa_closed})
             except TargetError as exc:
                 exc.target_id = f"{sprint}.{ref}-r{round_}"
@@ -689,8 +703,40 @@ class Run:
         return out
 
     def steps(self, target: Target) -> list[str]:
+        if target["formula"] == "finding-fix":
+            return ["fix", "qa"]
         names = ("dev", "sanity", "qa") if target["kind"] == "sprint" else ("fix", "sanity", "qa")
         return list(names[:1] if target["option"] == "A" else names)
+
+    def simplifier(self, phase: str) -> str:
+        """The phase file's `simplifier` agent, or simplify-reviewer; read once per phase."""
+        simplifiers: dict[str, str] = self.__dict__.setdefault("simplifiers", {})
+        if phase not in simplifiers:
+            try:
+                value = sprint_index_common.load_phase_config(self.repo, phase).get("simplifier")
+            except RuntimeError as exc:
+                raise TargetError("BEAD_GROUPS_PLAN_NOT_FOUND", str(exc)) from exc
+            simplifiers[phase] = value or DEFAULT_SIMPLIFIER
+        return simplifiers[phase]
+
+    def simplify_target(self, target: Target, checked: str) -> Target:
+        """The simplify child of the dev or fix bead `checked` that `target` pours."""
+        compose = target["compose"]
+        phase = compose_string(compose, "phase")
+        sidecar = self.sidecar("simplify")
+        child: Compose = {"parent": checked, "phase": phase, "sprint": compose_string(compose, "sprint"),
+                          "stack": compose_string(compose, "stack"), "difficulty": compose_string(compose, "difficulty"),
+                          "priority": compose.get("priority", 2), "branch": compose_string(compose, "branch"),
+                          "worktree": compose_string(compose, "worktree"), "pr_target": compose_string(compose, "pr_target"),
+                          "simplifier": self.simplifier(phase), "max_passes": MAX_SIMPLIFY_PASSES}
+        child["ref"] = fmt(sidecar["ref"], {"vars": child})
+        return {"kind": "simplify", "id": attach_id(checked, child["ref"], "simplify"), "formula": "simplify",
+                "option": self.option_for(sidecar), "compose": child, "vars": {}, "qa_closed": False}
+
+    @staticmethod
+    def checked_id(target: Target, ids: Mapping[str, str]) -> str:
+        """The poured dev or fix bead of `target`, from its attach ids."""
+        return ids["dev" if target["kind"] == "sprint" else "fix"]
 
     def pour(self, target: Target, *, preview: bool) -> Attachment:
         formula = target["formula"]
@@ -903,6 +949,9 @@ def main(argv: list[str]) -> int:
             entry["problems"] += [f"missing bead {i}" for i in created] + attachment["missing"]
             edges = [e for e in attachment["edges"] if e["action"] == "add" and e["from"] not in created]
             entry["problems"] += [f"missing edge {e['from']} -{e['type']}-> {e['to']}" for e in edges]
+            child = run.simplify_target(target, run.checked_id(target, attachment["ids"]))
+            if run.bd.show(child["id"]) is None:
+                entry["problems"].append(f"missing bead {child['id']}")
         except (TargetError, BdError, OSError, ValueError, KeyError) as exc:
             if str(getattr(exc, "code", "")).startswith("BEADS_GRAPH_"):
                 graph_conflict = True
@@ -936,6 +985,12 @@ def main(argv: list[str]) -> int:
             try:
                 attachment = run.pour(target, preview=False)
                 entry.update({"ids": attachment["ids"], "nodes": attachment["nodes"], "edges": attachment["edges"], "problems": []})
+                # The child's parent exists only now, so it is attached after its group; the attach is idempotent.
+                child = run.simplify_target(target, run.checked_id(target, attachment["ids"]))
+                run.pour(child, preview=True)
+                child_attachment = run.pour(child, preview=False)
+                entry["ids"] = {**entry.get("ids", {}), **{f"simplify:{k}": v for k, v in child_attachment["ids"].items()}}
+                entry["nodes"] = [*entry.get("nodes", []), *child_attachment["nodes"]]
             except (TargetError, BdError) as exc:
                 entry["error"] = {"code": getattr(exc, "code", "BEAD_GROUPS_BD_FAILED"), "message": str(exc)}
     result["targets"] = entries

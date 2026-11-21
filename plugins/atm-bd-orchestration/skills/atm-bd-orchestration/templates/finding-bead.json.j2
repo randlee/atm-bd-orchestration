@@ -1,7 +1,7 @@
 ---
 name: finding-bead
-version: 0.3.0
-description: One important or minor QA finding, or a phase-end review finding, as a plain finding bead under `parent` (the phase or feature bead); a blocking QA finding is poured as a fix group by bead-groups instead. It carries the governing `requirements` and `adrs` of the sprint it traces to (`sprint_bead`), so every fix and fix QA has them, however deep the fix-on-fix chain. The reviewer must be QA-capable, with either an installed sprint QA assignment template requiring review_targets, branch, commit and worktree_path, or a supported Rust reviewer with its own agent contract. Priority follows severity (blocking 1, important 2, minor 4) so `bd ready` queues blocking findings ahead of planned dev. Render strictly, then `jq -c .` into the import JSONL.
+version: 0.4.0
+description: One minor QA finding, or a phase-end review finding, as a plain finding bead under `parent` (the phase or feature bead); bead-groups pours a blocking QA finding as a finding-group (fix <- sanity <- qa) and an important one as a finding-fix group (fix <- qa, no sanity) instead. It carries the governing `requirements` and `adrs` of the sprint it traces to (`sprint_bead`), so every fix and fix QA has them, however deep the fix-on-fix chain. The reviewer must be QA-capable, with either an installed sprint QA assignment template requiring review_targets, branch, commit and worktree_path, or a supported Rust reviewer with its own agent contract. Priority follows severity (blocking 1, important 2, minor 4) so `bd ready` queues blocking findings ahead of planned dev. Every finding carries both screens' verdict and own reason (screen and screen_reason from `ceremony-finding-screen`, simplify_screen and simplify_reason from `simplify-screen`), copied from their output, so a finding filed without running them fails to render. Render strictly, then `jq -c .` into the import JSONL.
 format: json
 required_variables:
   - id
@@ -13,6 +13,9 @@ required_variables:
   - found_at_commit
   - severity
   - screen
+  - screen_reason
+  - simplify_screen
+  - simplify_reason
   - reviewer
   - finding_ref
   - parent
@@ -30,7 +33,9 @@ defaults:
 ---
 {% if severity not in ["blocking", "important", "minor"] %}ERROR: severity must be blocking, important or minor, got {{ severity }}
 {% endif %}{% if screen not in ["keep", "not_applicable", "ceremony", "concern_valid_remedy_ceremony"] %}ERROR: screen must be a ceremony-finding-screen verdict, got {{ screen }}
-{% endif %}{% if difficulty not in ["hard", "normal", "fast"] %}ERROR: difficulty must be hard, normal, or fast
+{% endif %}{% if simplify_screen not in ["keep", "reduce", "owner_question", "reject"] %}ERROR: simplify_screen must be a simplify-screen verdict, got {{ simplify_screen }}
+{% endif %}{% for k, v in [["screen_reason", screen_reason], ["simplify_reason", simplify_reason]] %}{% if not v %}ERROR: {{ k }} must be the screen's own reason for this finding, copied from its output
+{% endif %}{% endfor %}{% if difficulty not in ["hard", "normal", "fast"] %}ERROR: difficulty must be hard, normal, or fast
 {% endif %}{% for k, v in [["requirements", requirements], ["adrs", adrs]] %}{% if not v or ("NONE" in v and v | length > 1) %}ERROR: {{ k }} must list ids or be exactly ["NONE"]
 {% endif %}{% endfor %}{
   "id": {{ id | tojson }},
@@ -57,6 +62,9 @@ defaults:
     "severity": {{ severity | tojson }},
     "difficulty": {{ difficulty | tojson }},
     "screen": {{ screen | tojson }},
+    "screen_reason": {{ screen_reason | tojson }},
+    "simplify_screen": {{ simplify_screen | tojson }},
+    "simplify_reason": {{ simplify_reason | tojson }},
     "reviewer": {{ reviewer | tojson }},
     "finding_ref": {{ finding_ref | tojson }},
     "sprint_bead": {{ sprint_bead | tojson }},

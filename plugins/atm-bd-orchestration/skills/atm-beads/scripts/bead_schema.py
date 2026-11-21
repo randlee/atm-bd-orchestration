@@ -174,7 +174,7 @@ class DevBead(TaskBead):
 
 class FixMetadata(FamilyMetadata):
     finding_ref: NonEmpty
-    severity: Literal["blocking"]
+    severity: Literal["blocking", "important", "minor"]
     reviewer: NonEmpty
     found_at_commit: NonEmpty
 
@@ -182,6 +182,18 @@ class FixMetadata(FamilyMetadata):
 class FixBead(TaskBead):
     close_role: ClassVar[str] = "fix"
     metadata: FixMetadata
+
+
+class SimplifyMetadata(FamilyMetadata):
+    role: Literal["simplify"]
+    checked_bead: NonEmpty
+    simplifier: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]*$")]
+    max_passes: int = Field(ge=1, le=2)
+
+
+class SimplifyBead(Bead):
+    """The simplify child of a dev or fix bead: a child blocks its parent's close. Closed with a plain `bd close`."""
+    metadata: SimplifyMetadata
 
 
 class SanityMetadata(FamilyMetadata):
@@ -273,7 +285,7 @@ class StackBead(Bead):
 MODELS_BY_STAGE: dict[str, type[Bead]] = {
     "stage:sprint": SprintBead, "stage:dev": DevBead, "stage:dev-sanity": SanityBead,
     "stage:qa": QaBead, "stage:fix": FixBead, "stage:finding": FindingBead,
-    "stage:stack": StackBead, "stage:plan": Bead, "stage:plan-review": Bead, "stage:review": Bead,
+    "stage:stack": StackBead, "stage:simplify": SimplifyBead, "stage:plan": Bead, "stage:plan-review": Bead, "stage:review": Bead,
     "stage:subtask": Bead, "stage:plan-hardening": Bead, "stage:plan-finding": Bead,
 }
 MODELS: dict[str, type[Bead]] = {

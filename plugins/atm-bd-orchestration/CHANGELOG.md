@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- Simplification loop, stubbed for testing. Every poured dev and fix bead gets a `simplify` child (`<bead>.group-simplify`, `stage:simplify`) that blocks its close; the assignee runs the phase file's `simplifier` (default, the new `simplify-reviewer` agent: removal only) before closing (`dev-template` step f1, `fix-assignment` step e1).
+- `simplify-screen` agent: quality-mgr runs it after `ceremony-finding-screen` (verdicts keep, reduce, owner_question, reject). `finding-bead.json.j2` now requires both screens' verdicts and reasons, so a finding filed without the screens does not render.
+- `finding-fix` formula: `bead-groups --findings` pours an important or minor finding as fix <- qa with no sanity step, verified by its filing reviewer only. QA pours important findings this way; minor findings stay backlog finding beads.
+- Optional phase-file key `simplifier`.
+
+### Known gap
+- The dev/fix close hook (`atm-task-close.py`) still requires a sanity bead, so a `finding-fix` fix bead cannot close through it yet (`BEAD.NO_SANITY`).
+
 ## [0.20.2] - 2026-11-21
 
 ### Fixed
