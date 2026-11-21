@@ -1,0 +1,29 @@
+{
+  "formula": "finding-fix",
+  "description": "bead-groups data for finding-fix: the attach ref and the relations `sc-compose bead attach` adds with the group of one important or minor finding (fix <- qa, no sanity step). The group attaches under the sprint container. Endpoints are `step:<step>` or `bead:<id>`, format strings over {vars[<name>]}.",
+  "ref": "{vars[finding_ref]}-r{vars[round]}",
+  "default_option": "C",
+  "defaults": {},
+  "options": {
+    "A": {
+      "description": "E1 option A: the same shape under every option, since there is no sanity step. QA `blocks` on the fix (poured from `needs`); no `validates` edge, because bd keeps one edge type per bead pair.",
+      "relations": []
+    },
+    "B": {
+      "description": "E1 option B: the same shape under every option, since there is no sanity step. QA `blocks` on the fix (poured from `needs`); no `validates` edge, because bd keeps one edge type per bead pair.",
+      "relations": []
+    },
+    "C": {
+      "description": "E1 option C: the same shape under every option, since there is no sanity step. QA `blocks` on the fix (poured from `needs`); no `validates` edge, because bd keeps one edge type per bead pair.",
+      "relations": []
+    }
+  },
+  "relations": [
+    {
+      "description": "the fix bead was found while working the QA bead that filed it",
+      "from": "step:fix",
+      "to": "bead:{vars[filed_by]}",
+      "type": "discovered-from"
+    }
+  ]
+}

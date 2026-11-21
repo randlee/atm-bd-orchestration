@@ -1,0 +1,13 @@
+{
+  "formula": "simplify",
+  "description": "bead-groups data for simplify: the attach ref. The group attaches under the dev or fix bead it reviews, so its only edge is the generated parent-child edge; it adds no relations.",
+  "ref": "group",
+  "default_option": "C",
+  "defaults": {},
+  "options": {
+    "A": {"description": "no relations under any E1 option", "relations": []},
+    "B": {"description": "no relations under any E1 option", "relations": []},
+    "C": {"description": "no relations under any E1 option", "relations": []}
+  },
+  "relations": []
+}

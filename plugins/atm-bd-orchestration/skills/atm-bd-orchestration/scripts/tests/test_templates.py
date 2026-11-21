@@ -414,7 +414,8 @@ class FixRoundReviewerScopeTests(unittest.TestCase):
         step_g = qa.stdout[qa.stdout.index('<step id="g">'):qa.stdout.index('<step id="h">')]
         self.assertIn("scripts/bead-groups --findings <scratch>/", step_g)
         self.assertIn('"round": 1', step_g)
-        self.assertIn("File every other finding (important, minor, or screened `ceremony`)", step_g)
+        self.assertIn("File every other finding (minor, or screened `ceremony` or `reject`)", step_g)
+        self.assertIn("-important.json` (the same shape, `\"severity\": \"important\"`", step_g)
         self.assertIn(f"`parent` = `{_example('qa-template-vars.json')['phase_feature']}`", step_g)
         self.assertNotIn("sprints.jsonl", qa.stdout)
 

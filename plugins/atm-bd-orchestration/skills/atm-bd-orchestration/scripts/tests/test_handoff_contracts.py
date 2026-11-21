@@ -631,7 +631,7 @@ class BlockingFindingsHandoffTests(unittest.TestCase):
         out.write_text(json.dumps(document))
         return out
 
-    def test_the_fix_round_shape_is_accepted_and_a_non_blocking_one_is_refused(self):
+    def test_the_fix_round_shape_is_accepted_and_a_non_blocking_one_pours_without_sanity(self):
         ws = self.ws
         sprint = ws.sprint("hz", 1)
         qa = f"{sprint}.group-qa"
@@ -639,8 +639,11 @@ class BlockingFindingsHandoffTests(unittest.TestCase):
         self.assertEqual(result["compose"]["reviewer"], "arch-qa")
         self.assertEqual(result["compose"]["found_on_layer"], 15)
         self.assertEqual(result["compose"]["ref"], "qa1-f1-r2")
-        refused = self.received(sprint, self.written(sprint, qa, "important"))
-        self.assertEqual(refused.code, "BEAD_GROUPS_NOT_BLOCKING")
+        self.assertEqual(result["formula"], "finding-group")
+        important = self.received(sprint, self.written(sprint, qa, "important"))
+        self.assertEqual(important["formula"], "finding-fix")
+        self.assertEqual(self.ws.runner.steps(important), ["fix", "qa"])
+        self.assertEqual(important["compose"]["severity"], "important")
 
 
     def round_one(self, sprint: str, qa: str, **finding) -> Path:

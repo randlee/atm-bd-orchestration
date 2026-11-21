@@ -1,0 +1,128 @@
+---
+name: finding-fix
+version: 0.1.0
+description: Beads formula for the fix and QA tasks of one important or minor finding, with no sanity step, attached under its sprint container. bead-groups supplies every variable.
+format: toml
+required_variables:
+  - parent
+  - ref
+  - finding_ref
+  - round
+  - severity
+  - reviewer
+  - finding_title
+  - remedy
+  - filed_by
+  - found_at_commit
+  - requirements
+  - adrs
+  - phase
+  - sprint
+  - stack
+  - difficulty
+  - branch
+  - worktree
+  - pr_target
+  - priority
+  - stack_bead
+  - checked_title
+  - phase_feature
+  - lint_command
+  - policy_path
+  - max_sanity_rounds
+defaults:
+  found_on_layer: ""
+  has_found_on_layer: false
+---
+{#
+sc-compose beads formula (sc-compose/beads/v1): the fix group of one
+non-blocking (important or minor) finding, poured under the sprint
+container: fix <- qa, with no sanity step. The fix bead carries the finding,
+as in finding-group, and gets a simplify child (simplify formula) that
+blocks its close. The QA step is verification by the filing reviewer only.
+Both steps are quick-fix beads for the close fields: sanity_bead is empty.
+Poured ids are <sprint>.<finding_ref>-r<round>-<step>.
+
+Compose variables: the same as finding-group, without edge_option: there is
+no sanity step to place.
+#}
+formula = "finding-fix"
+description = "Fix of non-blocking finding {{{ finding_ref }}}, round {{{ round }}}, in sprint {{{ sprint }}}."
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "fix"
+title = "{{{ sprint }}}: fix {{{ finding_ref }}} ({{{ severity }}}): {{{ finding_title }}}"
+description = "Fix {{{ severity }}} finding {{{ finding_ref }}} (round {{{ round }}}), filed by {{{ reviewer }}} in {{{ filed_by }}}.\n\nRemedy: {{{ remedy }}}\n\nCommit the fix on the sprint's stack, close its simplify child, then close this bead. The filing reviewer's verification follows; there is no sanity check.\n\n## Deliverables\n1. {{{ remedy }}}"
+type = "task"
+priority = {{{ priority }}}
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:fix"]
+
+[steps.metadata]
+role = "fix"
+phase = "{{{ phase }}}"
+sprint = "{{{ sprint }}}"
+stack = "{{{ stack }}}"
+round = {{{ round }}}
+difficulty = "{{{ difficulty }}}"
+branch = "{{{ branch }}}"
+worktree = "{{{ worktree }}}"
+pr_target = "{{{ pr_target }}}"
+sprint_bead = "{{{ parent }}}"
+finding_ref = "{{{ finding_ref }}}"
+severity = "{{{ severity }}}"
+reviewer = "{{{ reviewer }}}"
+remedy = "{{{ remedy }}}"
+filed_by = "{{{ filed_by }}}"
+found_at_commit = "{{{ found_at_commit }}}"
+{% if has_found_on_layer %}found_on_layer = {{{ found_on_layer | tojson }}}
+{% endif %}
+requirements = [{% for r in requirements %}"{{{ r }}}"{% if not loop.last %}, {% endif %}{% endfor %}]
+adrs = [{% for r in adrs %}"{{{ r }}}"{% if not loop.last %}, {% endif %}{% endfor %}]
+checked_bead = "{{{ parent }}}.{{{ ref }}}-fix"
+stack_bead = "{{{ stack_bead }}}"
+base = "{{{ pr_target }}}"
+checked_title = "{{{ checked_title }}}"
+sanity_bead = ""
+quick_fix = true
+qa_bead = "{{{ parent }}}.{{{ ref }}}-qa"
+phase_feature = "{{{ phase_feature }}}"
+lint_command = "{{{ lint_command }}}"
+policy_path = "{{{ policy_path }}}"
+max_sanity_rounds = {{{ max_sanity_rounds }}}
+
+[[steps]]
+id = "qa"
+title = "{{{ sprint }}}: verify the fix of {{{ finding_ref }}}"
+description = "Fix verification of {{{ parent }}}.{{{ ref }}}-fix for finding {{{ finding_ref }}}, by its filing reviewer {{{ reviewer }}} only. There is no sanity step for a non-blocking finding."
+type = "task"
+priority = {{{ priority }}}
+labels = ["phase-{{{ phase }}}", "stack:{{{ stack }}}", "stage:qa"]
+needs = ["fix"]
+
+[steps.metadata]
+role = "qa"
+phase = "{{{ phase }}}"
+sprint = "{{{ sprint }}}"
+stack = "{{{ stack }}}"
+round = {{{ round }}}
+difficulty = "{{{ difficulty }}}"
+branch = "{{{ branch }}}"
+worktree = "{{{ worktree }}}"
+pr_target = "{{{ pr_target }}}"
+checked_bead = "{{{ parent }}}.{{{ ref }}}-fix"
+finding_ref = "{{{ finding_ref }}}"
+reviewer = "{{{ reviewer }}}"
+reviewers_round1 = ["{{{ reviewer }}}"]
+sprint_bead = "{{{ parent }}}"
+stack_bead = "{{{ stack_bead }}}"
+base = "{{{ pr_target }}}"
+checked_title = "{{{ checked_title }}}"
+sanity_bead = ""
+quick_fix = true
+qa_bead = "{{{ parent }}}.{{{ ref }}}-qa"
+phase_feature = "{{{ phase_feature }}}"
+lint_command = "{{{ lint_command }}}"
+policy_path = "{{{ policy_path }}}"
+max_sanity_rounds = {{{ max_sanity_rounds }}}

@@ -103,6 +103,11 @@ plan_review = ".claude/skills/atm-bd-orchestration/templates/plan-review-templat
 review = ".claude/skills/atm-bd-orchestration/templates/review-template.xml.j2"
 ```
 
+An optional top-level `simplifier = "<agent>"` names the agent
+(`.claude/agents/<agent>.md`) that every simplify child in the phase runs in
+place of the default `simplify-reviewer`; `bead-groups` stamps it on each
+child at pour.
+
 `phase-config init --phase <x> --lead <appointed-lead>` writes these six
 default template paths and the explicit phase lead. It derives `plan`, `root`
 and `integration_branch` from the repository's `plans_dir`, `bead_prefix` and

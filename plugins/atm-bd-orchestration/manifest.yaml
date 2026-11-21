@@ -79,8 +79,12 @@ artifacts:
     - skills/atm-bd-orchestration/examples/task-refused-vars.json
     - skills/atm-bd-orchestration/examples/workflow-issue-bead-vars.json
     - skills/atm-bd-orchestration/formulas/README.md
+    - skills/atm-bd-orchestration/formulas/finding-fix.formula.toml.j2
+    - skills/atm-bd-orchestration/formulas/finding-fix.relations.json
     - skills/atm-bd-orchestration/formulas/finding-group.formula.toml.j2
     - skills/atm-bd-orchestration/formulas/finding-group.relations.json
+    - skills/atm-bd-orchestration/formulas/simplify.formula.toml.j2
+    - skills/atm-bd-orchestration/formulas/simplify.relations.json
     - skills/atm-bd-orchestration/formulas/sprint-group.formula.toml.j2
     - skills/atm-bd-orchestration/formulas/sprint-group.relations.json
     - skills/atm-bd-orchestration/package-policy.md
@@ -173,6 +177,7 @@ artifacts:
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_stack.py
     - skills/atm-bd-orchestration/scripts/tests/test_sanity_task_close_hook.py
     - skills/atm-bd-orchestration/scripts/tests/test_scripts_help.py
+    - skills/atm-bd-orchestration/scripts/tests/test_simplify_loop.py
     - skills/atm-bd-orchestration/scripts/tests/test_stack_top.py
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_jev.py
     - skills/atm-bd-orchestration/scripts/tests/test_strict_type_defects_report.py
@@ -324,6 +329,8 @@ artifacts:
     - agents/sanity-stack.md
     - agents/sc-sanity-jev.md
     - agents/sc-sanity-llm.md
+    - agents/simplify-reviewer.md
+    - agents/simplify-screen.md
 # ARTIFACTS-END
 
 # Installation policy/metadata

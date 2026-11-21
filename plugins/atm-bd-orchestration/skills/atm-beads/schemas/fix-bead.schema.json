@@ -52,7 +52,11 @@
           "type": "string"
         },
         "severity": {
-          "const": "blocking",
+          "enum": [
+            "blocking",
+            "important",
+            "minor"
+          ],
           "title": "Severity",
           "type": "string"
         },

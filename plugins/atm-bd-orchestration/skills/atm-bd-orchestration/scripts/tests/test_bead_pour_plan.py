@@ -39,6 +39,7 @@ class PlanFixture:
                               "reviewers_round1": ["req-qa", "arch-qa"]}
         self.runner.plans = {}
         self.runner.sidecars = {}
+        self.runner.simplifiers = {}
         self.rows = {}
         self.runner.bd = Mock()
         self.runner.bd.show.side_effect = lambda bead: deepcopy(self.rows.get(bead))
@@ -55,6 +56,7 @@ class PlanFixture:
         self.runner.__dict__.setdefault("features", {})[phase] = {"stack_bead": f"t-phase-{phase}.stack",
                                                                   "phase_feature": f"phase-{phase}: feature"}
         self.runner.plans.setdefault(phase, {})[name] = (bead, f"{bead}.group-sanity", list(predecessors))
+        self.runner.simplifiers.setdefault(phase, "simplify-reviewer")
         self.rows[f"{bead}.group-qa"] = {"id": f"{bead}.group-qa", "status": "open"}
         self.rows[f"t-phase-{phase}.stack"] = {
             "id": f"t-phase-{phase}.stack", "labels": [f"phase-{phase}", "stage:stack"],
@@ -237,8 +239,9 @@ class PourPlanTests(unittest.TestCase):
               redirect_stdout(io.StringIO()) as output):
             code = groups.main(["--json", "--sprint", self.sprint])
         self.assertEqual(code, 0)
-        self.assertEqual(events, ["preview_attach", "validate", "attach"])
-        self.assertEqual(json.loads(output.getvalue())["targets"][0]["nodes"], applied["nodes"])
+        # The group, then its dev bead's simplify child, which can only be previewed once the dev bead exists.
+        self.assertEqual(events, ["preview_attach", "validate", "attach", "preview_attach", "attach"])
+        self.assertEqual(json.loads(output.getvalue())["targets"][0]["nodes"], applied["nodes"] * 2)
         self.assertEqual(json.loads(plan.read_text())["nodes"], [missing])
         self.assertEqual(target["compose"]["parent"], self.sprint)
         self.runner.bd.run.assert_not_called()
@@ -345,11 +348,15 @@ class PourPlanTests(unittest.TestCase):
                             for step in present:
                                 bead = groups.attach_id(self.sprint, target["compose"]["ref"], step)
                                 self.fixture.rows[bead] = {"id": bead}
+                            child = f"{self.sprint}.qa1-f1-r1-fix.group-simplify"
+                            self.fixture.rows.pop(child, None)
+                            if presence == "existing":
+                                self.fixture.rows[child] = {"id": child}
                             modes = []
 
                             def pour(_target, *, preview):
                                 modes.append(preview)
-                                return {"ids": {}, "nodes": [], "edges": [], "missing": [],
+                                return {"ids": {"fix": f"{self.sprint}.qa1-f1-r1-fix"}, "nodes": [], "edges": [], "missing": [],
                                         "graph": {"nodes": [], "edges": []}}
 
                             with (patch.object(groups, "Run", return_value=self.runner),
@@ -360,8 +367,11 @@ class PourPlanTests(unittest.TestCase):
                                   redirect_stdout(io.StringIO()) as output):
                                 code = groups.main(["--json", "--findings", "unused.json", *(["--validate"] if validate else [])])
                             refused = closed and not validate and len(present) < len(steps)
-                            self.assertEqual(code, groups.FAILED if refused else groups.SUCCESS)
-                            self.assertEqual(modes, [] if refused else [True] if validate else [True, False])
+                            # validate reports the fix bead's simplify child as missing until it exists
+                            unchilded = validate and presence != "existing"
+                            self.assertEqual(code, groups.FAILED if refused else groups.PROBLEMS if unchilded else groups.SUCCESS)
+                            # apply: the group (preview, attach), then the fix bead's simplify child (preview, attach)
+                            self.assertEqual(modes, [] if refused else [True] if validate else [True, False, True, False])
                             if refused:
                                 error = json.loads(output.getvalue())["targets"][0]["error"]
                                 self.assertEqual(error["code"], "BEAD_GROUPS_QA_CLOSED")

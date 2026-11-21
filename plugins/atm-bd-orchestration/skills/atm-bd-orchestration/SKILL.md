@@ -15,6 +15,8 @@ depends_on:
   sc-gh-stack: 0.x
   quality-mgr: 0.x
   ceremony-finding-screen: 0.x
+  simplify-reviewer: 0.x
+  simplify-screen: 0.x
 ---
 
 # ATM Bead Orchestration
@@ -353,6 +355,7 @@ this skill; use the configured path when the phase overrides a default.
 | sanity check (`stage:dev-sanity`) | `templates.sanity` | `.claude/skills/atm-beads/scripts/resolve-role dev-sanity` |
 | QA (`stage:qa`) | `templates.qa`, vars from `scripts/close-vars.py <qa bead> --qa-assignment --out <vars>` (its PR, commit and branch are the checked bead's recorded close); run the `next` command it prints | quality-mgr |
 | fix (`stage:fix`) | `templates.fix` | the member the lead picks for its `difficulty` |
+| simplify (`stage:simplify`, the child `<dev or fix>.group-simplify` of every poured dev and fix bead) | not dispatched: the dev or fix assignee clears it before its close (`dev-template` step f1, `fix-assignment` step e1), running `metadata.simplifier` (the phase file's `simplifier`, default `simplify-reviewer`); bd refuses the parent's close while it is open | the parent's assignee |
 | finding from a quick-fix QA (its `discovered-from` QA bead has `metadata.quick_fix` true) | `templates.fix`, no sanity bead; once every finding from that failed QA has closed, one more quick-fix QA bead (Parallel Quick Fix step 4) | an idle dev picked for its `difficulty`, by priority |
 | important or minor finding (`stage:finding`, no `metadata.sanity_finding`, not from a quick-fix QA) | `templates.fix`, in the same step as one `bd import` of its sanity bead (`atm-beads` [`dev-sanity-bead.json.j2`](../atm-beads/templates/dev-sanity-bead.json.j2), `dev_bead` = the finding) and its QA bead ([`qa-bead.json.j2`](templates/qa-bead.json.j2), `checked_bead` = the finding, `sprint_bead` = the finding's `metadata.sprint_bead`, `blocked_by` = the sanity bead), each with `parent` = the finding's parent and the cut layer's `branch`, `worktree`, `pr_target`, and `difficulty`; a minor finding left in the backlog gets neither until it is assigned. On dispatch run `bd update <finding> --status in_progress --assignee <dev>`, then `bd update <finding> --metadata <full JSON plus branch, worktree, pr_target and base = pr_target>`, `close_fields_backfill.py --phase <x> --apply`, and `uv run --script .claude/skills/atm-bd-orchestration/scripts/bd_cache.py --root . drain` before rendering close vars | an idle dev, by priority |
 | review (`stage:review`) | `templates.review` | the phase-end reviewer |
@@ -370,7 +373,7 @@ Then, on each task close:
 | dev-complete | verify the dev's PR, record it on the checked bead (`bd update <bead> --append-notes "layer PR #<n> <url>"`, the close hook passes the checked PR as `layer_prs` unless the close vars name the stack's layers), then assign the sanity check without linking; sanity closes first and sanity-stack links afterward. After a reopened dev bead (a sanity FAIL reopens it in place), `layer_prs` is the sprint's own layer PRs with the checked PR last |
 | sanity check PASS | verify the PR base is its `pr_target` or a descendant of it; the group's poured QA bead is now ready: dispatch it with `checked_bead` = its `metadata.checked_bead` and `sprint_bead` = its `metadata.sprint_bead`, and `base` = the PR base; for a sprint whose dev bead was reopened also `layer_prs` = the sprint's layer PRs, its first layer's (`gh pr view <metadata.pr_target> --json number`) first and the checked PR last, so the QA diff is the sprint's own layer ranges and never another sprint's layer between them. For a fix bead's QA, also `carry_forward` = the fix bead (it carries its own requirements and ADRs) and `round` = the fix bead's `metadata.round` + 1. For an important or minor finding bead, the group's QA bead is now ready: dispatch it with `checked_bead` and `carry_forward` = the finding |
 | sanity check FAIL | The close hook reopens the checked bead and reassigns the same task id to its dev with the undone deliverables; no child finding is created. At the configured round cap the lead receives `SANITY.ROUND_CAP` and rules on the next action. |
-| qa-complete | nothing: quality-mgr poured a fix group under the sprint per blocking finding (round n+1 for a failed fix verification) and filed the rest as finding beads before it closed the QA bead; the fix beads are now ready. A failed quick-fix QA (`metadata.quick_fix`) poured none: file and dispatch its blocking findings (Parallel Quick Fix step 4). When no step is open under the sprint, close it (below) |
+| qa-complete | nothing: quality-mgr poured a fix group under the sprint per blocking finding (round n+1 for a failed fix verification) and a sanity-less fix ← qa group per important finding (`finding-fix`), and filed the rest as finding beads before it closed the QA bead; the fix beads are now ready. A failed quick-fix QA (`metadata.quick_fix`) poured none: file and dispatch its blocking findings (Parallel Quick Fix step 4). When no step is open under the sprint, close it (below) |
 | fix-complete (`fixed`) | verify the dev's PR and record it on the fix bead (`bd update <bead> --append-notes "layer PR #<n> <url>"`); sanity links after its PASS close hook. For a poured fix bead or an important or minor finding bead, nothing more: the group's sanity check is now ready. For a quick-fix finding, once every finding from that failed QA has closed, one more quick-fix QA bead (Parallel Quick Fix step 4) |
 | stack notice `rebase_required` (from sanity-stack-link), or a QA `SANITY_STALE` refusal after a rebase | before the next `bd ready` dispatch: the re-check sanity bead (Stack Discipline). Dispatch no new dev bead while one is pending: `stack-top` sees only linked layers, so a new sprint would fork below the unlinked layer |
 | review-complete | file each finding with `finding-bead.json.j2` (`qa_bead` = the review bead) |
@@ -438,7 +441,10 @@ On review-complete, file each finding with `finding-bead.json.j2`. A lead-filed 
   stack layer, and `bead-groups` refuses anything else (omit it and put free
   text in the description);
 - `found_at_commit` = the reviewed commit;
-- `screen` = `keep`, unless you ran `ceremony-finding-screen` over them;
+- `screen`, `screen_reason`, `simplify_screen` and `simplify_reason` = the
+  verdicts and reasons `ceremony-finding-screen` and `simplify-screen` gave
+  it; run both over the review's findings first (the template refuses a
+  finding without them);
 - `finding_ref` = the reviewer's numbering (`R-1`, `R-2`, …);
 - `sprint_bead`, `requirements` and `adrs` = the cited dev bead's id and
   lists. For a finding that spans sprints, use the root as `sprint_bead`. For
