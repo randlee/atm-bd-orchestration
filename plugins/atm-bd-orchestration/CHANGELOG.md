@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-11-21
+
+### Fixed
+- The four plan-hardening task templates write pseudo-tags as plain text again (#988). 0.19.19 to 0.20.1 delivered `&lt;references&gt;` and similar entities to the assignee, because the bodies render under `autoescape false` and are read as text. The `cdata_escape` filter on the JSON payload variables is unchanged.
+
 ## [0.20.1] - 2026-11-15
 
 ### Fixed
