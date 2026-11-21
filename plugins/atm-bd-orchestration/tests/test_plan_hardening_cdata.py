@@ -24,6 +24,12 @@ CASES = [
 ]
 
 
+def payload_element(rendered: str, element: str) -> ElementTree.Element:
+    """Agents read the task body as text and its prose holds `<pseudo-tags>`; only the payload element is XML."""
+    close = f"</{element}>"
+    return ElementTree.fromstring(rendered[rendered.index(f"<{element}>"):rendered.index(close) + len(close)])
+
+
 @pytest.mark.parametrize(("template", "variable", "element"), CASES)
 def test_payload_round_trips_as_xml(template: str, variable: str, element: str) -> None:
     variables = json.loads((TEMPLATES / "examples/plan-hardening-vars.example.json").read_text())
@@ -31,10 +37,8 @@ def test_payload_round_trips_as_xml(template: str, variable: str, element: str) 
     payload = json.dumps({"finding": "before ]]> after & <context>"})
     variables[variable] = payload
     rendered = sc_render.render(TEMPLATES / template, variables)
-    root = ElementTree.fromstring(rendered)
-    actual = root.find(element)
-    assert actual is not None
-    assert payload in "".join(actual.itertext())
+    assert payload in "".join(payload_element(rendered, element).itertext())
+    assert not re.search(r"&(lt|gt|amp|quot);", rendered)
 
 
 def test_all_plugin_cdata_interpolations_use_the_escape_filter() -> None:
@@ -62,4 +66,4 @@ def test_unescaped_payload_is_rejected_by_xml_parser(
     unsafe_template = tmp_path / template
     unsafe_template.write_text(source.replace(escaped, "{{ " + variable + " }}"), encoding="utf-8")
     with pytest.raises(ElementTree.ParseError):
-        ElementTree.fromstring(sc_render.render(unsafe_template, variables))
+        payload_element(sc_render.render(unsafe_template, variables), element)
